@@ -250,7 +250,11 @@ class FiltrosPedidos {
 /// Va aqui, como funcion pura sobre los filtros, porque es un texto que se
 /// compara caracter a caracter con el de Next y no quiero tener que pintar la
 /// pantalla para comprobarlo.
-String textoDelConteo(int total, FiltrosPedidos f, String Function(DateTime) dia) {
+String textoDelConteo(
+  int total,
+  FiltrosPedidos f,
+  String Function(DateTime) dia,
+) {
   final partes = StringBuffer('$total pedidos');
   final desde = f.desde;
   final hasta = f.hasta;

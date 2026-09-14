@@ -59,50 +59,55 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
     final frescura = ref.watch(frescuraClientesProvider);
     final sinSubir = ref.watch(sinSubirProvider).value ?? 0;
 
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _Cabecera(
-              // Mientras no hay dato todavia no se sabe de cuando es: se dice
-              // «sin descargar» y no una hora inventada.
-              estado: frescura.value ?? const SinDescargar(),
-              cargando: pagina.isLoading,
-              sinSubir: sinSubir,
-              pagina: pagina.value,
+    // SIN `Scaffold` propio: lo pone el armazon.
+    //
+    // Esta pantalla se escribio antes de que existiera el armazon, que ya trae barra
+    // lateral, barra superior con el titulo y la franja de estado. Un `Scaffold` dentro de
+    // otro apila dos superficies de Material y deja los avisos emergentes colgando del de
+    // dentro, que es el que no se ve entero.
+    //
+    // Ver el contrato en `lib/navegacion/pantalla_registrada.dart`.
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _Cabecera(
+            // Mientras no hay dato todavia no se sabe de cuando es: se dice
+            // «sin descargar» y no una hora inventada.
+            estado: frescura.value ?? const SinDescargar(),
+            cargando: pagina.isLoading,
+            sinSubir: sinSubir,
+            pagina: pagina.value,
+            alIr: (n) => ref.read(filtrosClientesProvider.notifier).aPagina(n),
+          ),
+          const SizedBox(height: 12),
+          _Filtros(
+            filtros: filtros,
+            datos: pagina.value,
+            buscador: _buscador,
+            alBuscar: _buscar,
+            alCambiar: _cambiar,
+            alQuitar: () {
+              _buscador.clear();
+              ref.read(filtrosClientesProvider.notifier).quitar();
+            },
+          ),
+          const SizedBox(height: 12),
+          // El dato viejo NO se borra mientras refresca: el giro de
+          // `actualizando…` ya lo dice arriba, y quitar la lista de golpe deja
+          // a alguien mirando un hueco con el dedo en la fila que iba a leer.
+          if (pagina.error case final fallo?)
+            _Aviso(texto: 'No se pudo leer la lista local. $fallo')
+          else if (pagina.value case final datos?)
+            _Lista(
+              datos: datos,
+              filtros: filtros,
               alIr: (n) =>
                   ref.read(filtrosClientesProvider.notifier).aPagina(n),
-            ),
-            const SizedBox(height: 12),
-            _Filtros(
-              filtros: filtros,
-              datos: pagina.value,
-              buscador: _buscador,
-              alBuscar: _buscar,
-              alCambiar: _cambiar,
-              alQuitar: () {
-                _buscador.clear();
-                ref.read(filtrosClientesProvider.notifier).quitar();
-              },
-            ),
-            const SizedBox(height: 12),
-            // El dato viejo NO se borra mientras refresca: el giro de
-            // `actualizando…` ya lo dice arriba, y quitar la lista de golpe deja
-            // a alguien mirando un hueco con el dedo en la fila que iba a leer.
-            if (pagina.error case final fallo?)
-              _Aviso(texto: 'No se pudo leer la lista local. $fallo')
-            else if (pagina.value case final datos?)
-              _Lista(
-                datos: datos,
-                filtros: filtros,
-                alIr: (n) =>
-                    ref.read(filtrosClientesProvider.notifier).aPagina(n),
-              )
-            else
-              const _Aviso(texto: 'Cargando…'),
-          ],
-        ),
+            )
+          else
+            const _Aviso(texto: 'Cargando…'),
+        ],
       ),
     );
   }

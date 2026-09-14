@@ -103,9 +103,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
           ),
           const Spacer(),
           FilledButton(
-            onPressed: puedeGenerar
-                ? () => _generar(disponibles)
-                : null,
+            onPressed: puedeGenerar ? () => _generar(disponibles) : null,
             child: Text(_generando ? 'Generando ruta...' : 'Generar Ruta'),
           ),
         ],
@@ -263,7 +261,8 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
                     : '${v.capacity.toStringAsFixed(0)} kg',
               ),
           ],
-          alElegir: (id) => setState(() => _vehiculoId = id.isEmpty ? null : id),
+          alElegir: (id) =>
+              setState(() => _vehiculoId = id.isEmpty ? null : id),
         ),
         const SizedBox(height: 8),
         TextField(
@@ -366,7 +365,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         Text(
           '${_elegidos.length} pedidos seleccionados'
           '${capacidad == null ? '' : '  ·  ${peso.toStringAsFixed(1)} / '
-                '${capacidad.toStringAsFixed(0)} kg'}',
+                    '${capacidad.toStringAsFixed(0)} kg'}',
         ),
         if (capacidad != null && peso > capacidad)
           Text(

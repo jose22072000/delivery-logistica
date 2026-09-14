@@ -72,8 +72,7 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
   TextEditingController _nota(String pedidoId) =>
       _notas.putIfAbsent(pedidoId, TextEditingController.new);
 
-  int get _marcadas =>
-      _resultados.values.where((r) => r != null).length;
+  int get _marcadas => _resultados.values.where((r) => r != null).length;
 
   void _marcar(String pedidoId, String resultado) => setState(() {
     // **Pulsar el mismo boton dos veces desmarca.** Es como se corrige un dedazo
@@ -399,9 +398,8 @@ class _QuedaEnElCamion extends StatelessWidget {
     children: [
       Text(
         'Queda en el camión',
-        style: Theme.of(
-          context,
-        ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+        style: Theme.of(context).textTheme.titleSmall
+            ?.copyWith(fontWeight: FontWeight.bold),
       ),
       const SizedBox(height: 6),
       if (hoja.lineas.isEmpty)

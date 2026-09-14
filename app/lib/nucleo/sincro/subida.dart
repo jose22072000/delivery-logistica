@@ -37,9 +37,7 @@ class Subida {
       '/subida',
       <String, Object?>{
         'aparato': _aparato,
-        'apuntes': [
-          for (final a in lote) a.aJson(ColaDeSalida.cuerpoDe(a)),
-        ],
+        'apuntes': [for (final a in lote) a.aJson(ColaDeSalida.cuerpoDe(a))],
       },
     );
 

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../pantallas/almacenes/registro.dart';
+import '../pantallas/clientes/registro.dart';
+import '../pantallas/vehiculos/registro.dart';
 import '../pantallas/informes/registro.dart';
 import '../pantallas/panel/registro.dart';
 import '../pantallas/tablero/registro.dart';
@@ -28,9 +31,9 @@ List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
 
   _pendiente('/routes', 'Rutas', Icons.route_outlined),
   _pendiente('/orders', 'Pedidos', Icons.inventory_2_outlined),
-  _pendiente('/customers', 'Clientes', Icons.people_outline),
-  _pendiente('/vehicles', 'Vehículos', Icons.local_shipping_outlined),
-  _pendiente('/warehouses', 'Almacenes', Icons.warehouse_outlined),
+  registrarClientes(),
+  registrarVehiculos(),
+  registrarAlmacenes(),
 
   // Reportes NO va en el menu (pliego §8.1): se llega por URL y desde las
   // acciones rapidas del Panel.

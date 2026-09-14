@@ -156,10 +156,10 @@ class TotalesPreDespacho {
   /// del conjunto de pedidos, que no tiene por que coincidir con la suma de los
   /// pesos por producto. Se copia ese criterio para que las dos hojas cuadren.
   factory TotalesPreDespacho.de(HojaPreDespacho h) => TotalesPreDespacho(
-        formatos: h.lineas.fold<num>(0, (t, l) => t + l.formatos),
-        unidades: h.lineas.fold<num>(0, (t, l) => t + l.unidades),
-        pesoKg: h.pesoKg,
-      );
+    formatos: h.lineas.fold<num>(0, (t, l) => t + l.formatos),
+    unidades: h.lineas.fold<num>(0, (t, l) => t + l.unidades),
+    pesoKg: h.pesoKg,
+  );
 
   final num formatos;
   final num unidades;

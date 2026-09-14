@@ -109,10 +109,11 @@ class BaseLocal extends _$BaseLocal {
   /// sesion.
   Future<int> cuantosPendientes() async {
     final cuenta = apuntes.orden.count();
-    final fila = await (selectOnly(apuntes)
-          ..addColumns([cuenta])
-          ..where(apuntes.estado.equalsValue(EstadoApunte.pendiente)))
-        .getSingle();
+    final fila =
+        await (selectOnly(apuntes)
+              ..addColumns([cuenta])
+              ..where(apuntes.estado.equalsValue(EstadoApunte.pendiente)))
+            .getSingle();
     return fila.read(cuenta) ?? 0;
   }
 }

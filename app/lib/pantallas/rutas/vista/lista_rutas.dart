@@ -103,15 +103,15 @@ class _TarjetaDeRuta extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final elegida = ref.watch(rutaElegidaProvider) == ruta.id;
-    final sobrepeso =
-        vehiculo != null && ruta.totalWeight > vehiculo!.capacity;
+    final sobrepeso = vehiculo != null && ruta.totalWeight > vehiculo!.capacity;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-      color: elegida ? Theme.of(context).colorScheme.surfaceContainerHighest : null,
+      color: elegida
+          ? Theme.of(context).colorScheme.surfaceContainerHighest
+          : null,
       child: InkWell(
-        onTap: () =>
-            ref.read(rutaElegidaProvider.notifier).elegir(ruta.id),
+        onTap: () => ref.read(rutaElegidaProvider.notifier).elegir(ruta.id),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -142,7 +142,7 @@ class _TarjetaDeRuta extends ConsumerWidget {
               Text(
                 '${ruta.totalDistance.toStringAsFixed(1)} km · '
                 '${vehiculo == null ? '—' : '${vehiculo!.name}'
-                      '${vehiculo!.plate == null ? '' : ' (${vehiculo!.plate})'}'} · '
+                          '${vehiculo!.plate == null ? '' : ' (${vehiculo!.plate})'}'} · '
                 '${ruta.originAddress ?? '—'} · '
                 '${fechaCorta(ruta.deliveryDate)} · ${usd(ruta.totalPrice)}',
                 style: Theme.of(context).textTheme.bodySmall,

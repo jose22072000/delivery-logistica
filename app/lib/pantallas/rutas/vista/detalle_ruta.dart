@@ -72,9 +72,8 @@ class _Cabecera extends StatelessWidget {
           children: [
             Text(
               ruta.ruta.routeCode ?? ruta.ruta.id,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
             ),
             if (ruta.ruta.name != null) Text(ruta.ruta.name!),
           ],
@@ -129,9 +128,7 @@ class _Acciones extends ConsumerWidget {
               (_) => CierreDeRuta(rutaId: ruta.ruta.id),
             ),
             child: Text(
-              ruta.sinMarcar > 0
-                  ? 'Cierre (${ruta.sinMarcar})'
-                  : 'Cierre',
+              ruta.sinMarcar > 0 ? 'Cierre (${ruta.sinMarcar})' : 'Cierre',
             ),
           ),
         if (estado == EstadoRuta.enCurso)
@@ -299,9 +296,8 @@ class _Paradas extends ConsumerWidget {
       children: [
         Text(
           'Carga total',
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+          style: Theme.of(context).textTheme.titleSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 6),
         Wrap(
@@ -319,9 +315,7 @@ class _Paradas extends ConsumerWidget {
     );
   }
 
-  Map<String, double> _cargaTotal(
-    Map<String, List<RenglonConPeso>> renglones,
-  ) {
+  Map<String, double> _cargaTotal(Map<String, List<RenglonConPeso>> renglones) {
     final total = <String, double>{};
     for (final parada in ruta.paradas) {
       for (final r in renglones[parada.id] ?? const <RenglonConPeso>[]) {

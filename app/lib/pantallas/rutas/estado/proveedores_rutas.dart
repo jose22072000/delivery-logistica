@@ -145,9 +145,9 @@ final renglonesDeParadasProvider =
       rutaId,
     ) async {
       final paradas = await ref.watch(paradasDeRutaProvider(rutaId).future);
-      return ref
-          .watch(consultasRutasProvider)
-          .renglonesDe([for (final p in paradas) p.id]);
+      return ref.watch(consultasRutasProvider).renglonesDe([
+        for (final p in paradas) p.id,
+      ]);
     });
 
 final rutasDescargadasProvider = FutureProvider<bool>(

@@ -75,7 +75,9 @@ class VistaPreviaPdf extends StatelessWidget {
         ),
       ],
       previewPageMargin: const EdgeInsets.all(12),
-      scrollViewDecoration: BoxDecoration(color: Theme.of(context).colorScheme.surface),
+      scrollViewDecoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+      ),
       onError: (BuildContext ctx, Object error) => Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -91,12 +93,11 @@ class VistaPreviaPdf extends StatelessWidget {
 /// Existe para el caso en que alguien ya miró la hoja y quiere sacar otra copia
 /// igual. **No es el camino por defecto**: el pliego dice que la hoja se revisa
 /// antes de imprimirla.
-Future<bool> imprimirHoja(Uint8List bytes, String nombre) =>
-    Printing.layoutPdf(
-      onLayout: (PdfPageFormat _) async => bytes,
-      name: nombre,
-      format: hojaA4,
-    );
+Future<bool> imprimirHoja(Uint8List bytes, String nombre) => Printing.layoutPdf(
+  onLayout: (PdfPageFormat _) async => bytes,
+  name: nombre,
+  format: hojaA4,
+);
 
 /// Manda la hoja por donde el aparato sepa compartir: WhatsApp, correo, lo que
 /// haya. Es lo que de verdad va a pasar en el patio de un almacén.

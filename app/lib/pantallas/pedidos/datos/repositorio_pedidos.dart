@@ -42,10 +42,8 @@ class TotalesPreDespacho {
   final List<LineaPreDespacho> lineas;
 
   int get productos => lineas.length;
-  double get empaques =>
-      lineas.fold(0, (suma, linea) => suma + linea.empaques);
-  double get unidades =>
-      lineas.fold(0, (suma, linea) => suma + linea.unidades);
+  double get empaques => lineas.fold(0, (suma, linea) => suma + linea.empaques);
+  double get unidades => lineas.fold(0, (suma, linea) => suma + linea.unidades);
   double get pesoKg =>
       lineas.fold(0, (suma, linea) => suma + (linea.pesoKg ?? 0));
 }
@@ -193,7 +191,9 @@ class ConsultasPedidos {
       case FacturaFiltro.conFactura:
         // `con_factura` admite lo que cambio: se carga con las lineas de la
         // factura, no con las del pedido.
-        anadir(o.facturaEstado.isIn([EstadoFactura.igual, EstadoFactura.cambiado]));
+        anadir(
+          o.facturaEstado.isIn([EstadoFactura.igual, EstadoFactura.cambiado]),
+        );
       case FacturaFiltro.cuadra:
         anadir(o.facturaEstado.equals(EstadoFactura.igual));
       case FacturaFiltro.sinCotejar:
@@ -219,11 +219,15 @@ class ConsultasPedidos {
         // Manda `resultado` de la parada. El `deliveredAt` entra tambien porque
         // los pedidos viejos del espejo lo tienen puesto sin resultado.
         anadir(
-          o.resultado.equals(ResultadoParada.entregado) | o.deliveredAt.isNotNull(),
+          o.resultado.equals(ResultadoParada.entregado) |
+              o.deliveredAt.isNotNull(),
         );
       case RepartoFiltro.devuelto:
         anadir(
-          o.resultado.isIn([ResultadoParada.devuelto, ResultadoParada.cancelado]),
+          o.resultado.isIn([
+            ResultadoParada.devuelto,
+            ResultadoParada.cancelado,
+          ]),
         );
     }
 

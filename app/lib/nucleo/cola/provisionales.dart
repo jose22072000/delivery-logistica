@@ -43,7 +43,8 @@ class Provisionales {
   static String nuevoId() =>
       'local-${_uuid.v4().replaceAll('-', '').substring(0, 8)}';
 
-  static bool esProvisional(String? id) => id != null && id.startsWith('local-');
+  static bool esProvisional(String? id) =>
+      id != null && id.startsWith('local-');
 
   /// Cambia `provisional` por `real` en TODO: la equivalencia, los apuntes que
   /// quedan por subir y las filas locales.
@@ -94,10 +95,9 @@ class Provisionales {
 
   /// El id de verdad de un provisional, si ya se resolvio.
   Future<String?> real(String provisional) async {
-    final fila =
-        await (_base.select(_base.equivalencias)
-              ..where((f) => f.provisional.equals(provisional)))
-            .getSingleOrNull();
+    final fila = await (_base.select(
+      _base.equivalencias,
+    )..where((f) => f.provisional.equals(provisional))).getSingleOrNull();
     return fila?.idReal;
   }
 }

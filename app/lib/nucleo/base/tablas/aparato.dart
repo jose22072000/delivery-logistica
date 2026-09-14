@@ -40,8 +40,8 @@ class Apuntes extends Table {
   /// `local-…` si este apunte CREA algo. Es la bisagra de la sustitucion (§2.2.5).
   TextColumn get provisional => text().nullable()();
 
-  TextColumn get estado => textEnum<EstadoApunte>()
-      .withDefault(const Constant('pendiente'))();
+  TextColumn get estado =>
+      textEnum<EstadoApunte>().withDefault(const Constant('pendiente'))();
   TextColumn get motivo => text().nullable()();
   DateTimeColumn get resueltoAt => dateTime().nullable()();
   IntColumn get intentos => integer().withDefault(const Constant(0))();

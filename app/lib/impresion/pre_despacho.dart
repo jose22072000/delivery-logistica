@@ -49,8 +49,9 @@ abstract final class TextoPreDespacho {
 /// papel (70/96 de pulgada = 18.5 mm). Se fija y no se deja al contenido porque
 /// el contenido es NADA: sin un ancho de verdad la columna se cierra y no cabe
 /// el numero que hay que escribir dentro.
-final pw.FixedColumnWidth anchoSacado =
-    pw.FixedColumnWidth(18.5 * PdfPageFormat.mm);
+final pw.FixedColumnWidth anchoSacado = pw.FixedColumnWidth(
+  18.5 * PdfPageFormat.mm,
+);
 
 /// Arma el PDF del pre-despacho.
 ///
@@ -80,7 +81,9 @@ Future<Uint8List> pdfPreDespacho(
           izquierda: <pw.Widget>[
             titulo(TextoPreDespacho.titulo),
             lineaDeCabecera(
-              h.vehiculo.isNotEmpty ? '${h.sucursal} · ${h.vehiculo}' : h.sucursal,
+              h.vehiculo.isNotEmpty
+                  ? '${h.sucursal} · ${h.vehiculo}'
+                  : h.sucursal,
             ),
             if (h.dia != null && h.dia!.isNotEmpty)
               lineaDeCabecera('${TextoPreDespacho.pedidosDel}${h.dia}'),
@@ -101,47 +104,47 @@ Future<Uint8List> pdfPreDespacho(
 }
 
 pw.Widget _tabla(HojaPreDespacho h, TotalesPreDespacho t) => pw.Table(
-      columnWidths: <int, pw.TableColumnWidth>{
-        0: const pw.FlexColumnWidth(),
-        1: const pw.IntrinsicColumnWidth(),
-        2: const pw.IntrinsicColumnWidth(),
-        3: const pw.IntrinsicColumnWidth(),
-        4: anchoSacado,
-      },
-      children: <pw.TableRow>[
-        pw.TableRow(
-          decoration: decoracionCabecera,
-          repeat: true, // si la hoja pasa de pagina, la cabecera va otra vez
-          children: <pw.Widget>[
-            celdaCabecera(TextoPreDespacho.colProducto),
-            celdaCabecera(TextoPreDespacho.colEmpaques, derecha: true),
-            celdaCabecera(TextoPreDespacho.colUnidades, derecha: true),
-            celdaCabecera(TextoPreDespacho.colKg, derecha: true),
-            celdaCabecera(TextoPreDespacho.colSacado),
-          ],
-        ),
-        // Las lineas vienen YA ordenadas de mas a menos empaques; esta hoja no
-        // las toca. Si aqui se reordenaran, dejaria de cuadrar con la de Next.
-        for (final l in h.lineas)
-          pw.TableRow(
-            decoration: decoracionFila,
-            children: <pw.Widget>[
-              celda(l.producto),
-              celda(numero(l.formatos), derecha: true),
-              celda(numero(l.unidades), derecha: true),
-              celda(pesoDeFila(l.pesoKg), derecha: true),
-              celdaParaMarcar(),
-            ],
-          ),
-        pw.TableRow(
-          decoration: decoracionPie,
-          children: <pw.Widget>[
-            celda(TextoPreDespacho.total, negrita: true),
-            celda(numero(t.formatos), derecha: true, negrita: true),
-            celda(numero(t.unidades), derecha: true, negrita: true),
-            celda(pesoTotal(t.pesoKg), derecha: true, negrita: true),
-            celdaParaMarcar(),
-          ],
-        ),
+  columnWidths: <int, pw.TableColumnWidth>{
+    0: const pw.FlexColumnWidth(),
+    1: const pw.IntrinsicColumnWidth(),
+    2: const pw.IntrinsicColumnWidth(),
+    3: const pw.IntrinsicColumnWidth(),
+    4: anchoSacado,
+  },
+  children: <pw.TableRow>[
+    pw.TableRow(
+      decoration: decoracionCabecera,
+      repeat: true, // si la hoja pasa de pagina, la cabecera va otra vez
+      children: <pw.Widget>[
+        celdaCabecera(TextoPreDespacho.colProducto),
+        celdaCabecera(TextoPreDespacho.colEmpaques, derecha: true),
+        celdaCabecera(TextoPreDespacho.colUnidades, derecha: true),
+        celdaCabecera(TextoPreDespacho.colKg, derecha: true),
+        celdaCabecera(TextoPreDespacho.colSacado),
       ],
-    );
+    ),
+    // Las lineas vienen YA ordenadas de mas a menos empaques; esta hoja no
+    // las toca. Si aqui se reordenaran, dejaria de cuadrar con la de Next.
+    for (final l in h.lineas)
+      pw.TableRow(
+        decoration: decoracionFila,
+        children: <pw.Widget>[
+          celda(l.producto),
+          celda(numero(l.formatos), derecha: true),
+          celda(numero(l.unidades), derecha: true),
+          celda(pesoDeFila(l.pesoKg), derecha: true),
+          celdaParaMarcar(),
+        ],
+      ),
+    pw.TableRow(
+      decoration: decoracionPie,
+      children: <pw.Widget>[
+        celda(TextoPreDespacho.total, negrita: true),
+        celda(numero(t.formatos), derecha: true, negrita: true),
+        celda(numero(t.unidades), derecha: true, negrita: true),
+        celda(pesoTotal(t.pesoKg), derecha: true, negrita: true),
+        celdaParaMarcar(),
+      ],
+    ),
+  ],
+);

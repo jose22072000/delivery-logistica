@@ -69,16 +69,14 @@ class RutaConTodo {
   final Vehiculo? vehiculo;
   final Sucursal? sucursal;
 
-  double get pesoTotal =>
-      paradas.fold<double>(0, (suma, p) => suma + p.weight);
+  double get pesoTotal => paradas.fold<double>(0, (suma, p) => suma + p.weight);
 
   bool get sobrepeso {
     final capacidad = vehiculo?.capacity;
     return capacidad != null && pesoTotal > capacidad;
   }
 
-  int get sinMarcar =>
-      paradas.where((p) => p.resultado == null).length;
+  int get sinMarcar => paradas.where((p) => p.resultado == null).length;
 }
 
 class ConsultasRutas {
@@ -158,10 +156,9 @@ class ConsultasRutas {
     return consulta.watch();
   }
 
-  Stream<List<Sucursal>> sucursales() =>
-      (_base.select(_base.branches)
-            ..orderBy([(b) => OrderingTerm.asc(b.name)]))
-          .watch();
+  Stream<List<Sucursal>> sucursales() => (_base.select(
+    _base.branches,
+  )..orderBy([(b) => OrderingTerm.asc(b.name)])).watch();
 
   /// Los almacenes de una sucursal, **el principal primero**: es el punto de
   /// partida por defecto y el origen desde el que se mide todo.

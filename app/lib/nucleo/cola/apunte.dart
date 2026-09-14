@@ -18,11 +18,7 @@ enum EstadoResultado {
 
 /// La respuesta del servidor para un apunte.
 class ResultadoApunte {
-  const ResultadoApunte({
-    required this.estado,
-    this.id,
-    this.motivo,
-  });
+  const ResultadoApunte({required this.estado, this.id, this.motivo});
 
   ResultadoApunte.deJson(Map<String, Object?> json)
     : estado = switch (json['estado']) {

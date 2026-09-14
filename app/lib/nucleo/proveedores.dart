@@ -49,7 +49,8 @@ final dioAuthProvider = Provider<Dio>(
 /// EL CANDADO. Uno solo en toda la aplicacion — dos instancias son dos candados
 /// distintos, y dos candados no son ningun candado.
 final renovadorProvider = Provider<Renovador>(
-  (ref) => Renovador(ref.watch(dioAuthProvider), ref.watch(almacenSesionProvider)),
+  (ref) =>
+      Renovador(ref.watch(dioAuthProvider), ref.watch(almacenSesionProvider)),
 );
 
 /// La sucursal que el Super Admin esta mirando. `null` = la suya.

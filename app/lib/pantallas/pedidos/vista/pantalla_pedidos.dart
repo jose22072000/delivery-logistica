@@ -58,9 +58,8 @@ class PantallaPedidos extends ConsumerWidget {
         children: [
           Text(
             'Todos los pedidos acumulados de todas las rutas',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: Colores.gris),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: Colores.gris),
           ),
           if (filtros.arranqueAcotado) const _FranjaAzul(),
           Padding(
@@ -69,11 +68,7 @@ class PantallaPedidos extends ConsumerWidget {
               children: [
                 Expanded(
                   child: Text(
-                    textoDelConteo(
-                      total.value ?? 0,
-                      filtros,
-                      fechaCorta,
-                    ),
+                    textoDelConteo(total.value ?? 0, filtros, fechaCorta),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
@@ -128,8 +123,7 @@ class _FranjaAzul extends ConsumerWidget {
         const Text(PantallaPedidos.franjaAzul),
         const SizedBox(height: 8),
         OutlinedButton(
-          onPressed: () =>
-              ref.read(filtrosPedidosProvider.notifier).verTodos(),
+          onPressed: () => ref.read(filtrosPedidosProvider.notifier).verTodos(),
           child: const Text('Ver todos los pedidos'),
         ),
       ],
@@ -251,8 +245,7 @@ class _Cuerpo extends ConsumerWidget {
       );
     }
 
-    final renglones =
-        ref.watch(renglonesDePaginaProvider).value ?? const {};
+    final renglones = ref.watch(renglonesDePaginaProvider).value ?? const {};
     final rutas = ref.watch(rutasPorIdProvider).value ?? const {};
     final seleccion = ref.watch(seleccionPedidosProvider);
     final marcas = ref.read(seleccionPedidosProvider.notifier);
@@ -265,8 +258,7 @@ class _Cuerpo extends ConsumerWidget {
       conSucursal: ref.watch(sucursalMiradaProvider) == null,
       ahora: ref.watch(relojProvider)(),
       alMarcar: marcas.alternar,
-      alMarcarPagina: (ids, marcar) =>
-          marcas.marcarPagina(ids, marcar: marcar),
+      alMarcarPagina: (ids, marcar) => marcas.marcarPagina(ids, marcar: marcar),
       alAbrir: (pedido) => abrirCajon<void>(
         context,
         (_) => CajonDetallePedido(pedidoId: pedido.id),
@@ -297,8 +289,8 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
                   child: Text(
                     '${seleccion.length} pedido(s) elegidos'
                     '${totales == null ? '' : ' · ${totales.productos} producto(s)'
-                        ' · ${cantidad(totales.empaques)} empaques'
-                        ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
+                              ' · ${cantidad(totales.empaques)} empaques'
+                              ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -343,16 +335,13 @@ class _PreDespachoDeLoFiltradoState
       title: Text(
         'Pre-despacho de lo filtrado'
         '${totales == null ? '' : ' · ${totales.productos} producto(s)'
-            ' · ${cantidad(totales.empaques)} empaques'
-            ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
+                  ' · ${cantidad(totales.empaques)} empaques'
+                  ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
       ),
       onExpansionChanged: (abierto) => setState(() => _abierto = abierto),
       children: [
         if (totales == null)
-          const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text('Cargando...'),
-          )
+          const Padding(padding: EdgeInsets.all(12), child: Text('Cargando...'))
         else
           _TablaPreDespacho(totales: totales),
       ],

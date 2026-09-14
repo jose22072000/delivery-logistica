@@ -87,10 +87,7 @@ class Renovador {
       // Red o 5xx: **los tokens SE QUEDAN**. Una caida pasajera no puede
       // obligar a entrar otra vez (regla 5, caso I6).
       Registro.aviso('no se pudo renovar, los tokens se quedan: ${e.type}');
-      throw FalloDeRed(
-        codigo: e.response?.statusCode,
-        detalle: _mensajeDe(e),
-      );
+      throw FalloDeRed(codigo: e.response?.statusCode, detalle: _mensajeDe(e));
     }
   });
 

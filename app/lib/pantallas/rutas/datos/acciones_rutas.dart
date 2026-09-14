@@ -120,7 +120,9 @@ class AccionesDeRuta {
     final pedidos = await _pedidosArmables(pedidoIds, sucursalId);
 
     if (pedidos.isEmpty) {
-      throw const RechazoLocal('Los pedidos seleccionados ya no están disponibles');
+      throw const RechazoLocal(
+        'Los pedidos seleccionados ya no están disponibles',
+      );
     }
     if (pedidos.length < pedidoIds.length) {
       final faltan = pedidoIds.length - pedidos.length;
@@ -185,7 +187,10 @@ class AccionesDeRuta {
               totalDistance: Value(kmDelCircuito(origen, ordenadas)),
               totalWeight: Value(pesoTotal),
               totalPrice: Value(
-                pedidos.fold<double>(0, (suma, p) => suma + (p.pedidoCosto ?? 0)),
+                pedidos.fold<double>(
+                  0,
+                  (suma, p) => suma + (p.pedidoCosto ?? 0),
+                ),
               ),
               deliveryDate: Value(fechaDeEntrega),
               vehicleId: Value(vehiculoId),
@@ -323,13 +328,11 @@ class AccionesDeRuta {
     if (ruta == null) throw const RechazoLocal('No encontrada');
 
     await _base.transaction(() async {
-      await (_base.update(_base.routes)..where((r) => r.id.equals(rutaId)))
-          .write(
-            OrdersDeRuta.enCurso(
-              ahora: ahora,
-              yaEmpezada: ruta.startedAt != null,
-            ),
-          );
+      await (_base.update(
+        _base.routes,
+      )..where((r) => r.id.equals(rutaId))).write(
+        OrdersDeRuta.enCurso(ahora: ahora, yaEmpezada: ruta.startedAt != null),
+      );
       await _ocuparVehiculo(ruta.vehicleId, EstadoVehiculo.enUso);
     });
 
@@ -350,14 +353,15 @@ class AccionesDeRuta {
     if (ruta == null) throw const RechazoLocal('No encontrada');
 
     await _base.transaction(() async {
-      await (_base.update(_base.routes)..where((r) => r.id.equals(rutaId)))
-          .write(
-            RoutesCompanion(
-              status: const Value(EstadoRuta.completada),
-              finishedAt: Value(ahora),
-              updatedAt: Value(ahora),
-            ),
-          );
+      await (_base.update(
+        _base.routes,
+      )..where((r) => r.id.equals(rutaId))).write(
+        RoutesCompanion(
+          status: const Value(EstadoRuta.completada),
+          finishedAt: Value(ahora),
+          updatedAt: Value(ahora),
+        ),
+      );
       await _ocuparVehiculo(ruta.vehicleId, EstadoVehiculo.disponible);
     });
 
@@ -381,17 +385,20 @@ class AccionesDeRuta {
     }
 
     await _base.transaction(() async {
-      await (_base.update(_base.orders)..where((o) => o.routeId.equals(rutaId)))
-          .write(
-            const OrdersCompanion(
-              routeId: Value(null),
-              stopOrder: Value(null),
-              segmentKm: Value(null),
-              tripLeg: Value(Tramo.ida),
-            ),
-          );
+      await (_base.update(
+        _base.orders,
+      )..where((o) => o.routeId.equals(rutaId))).write(
+        const OrdersCompanion(
+          routeId: Value(null),
+          stopOrder: Value(null),
+          segmentKm: Value(null),
+          tripLeg: Value(Tramo.ida),
+        ),
+      );
       await _ocuparVehiculo(ruta.vehicleId, EstadoVehiculo.disponible);
-      await (_base.delete(_base.routes)..where((r) => r.id.equals(rutaId))).go();
+      await (_base.delete(
+        _base.routes,
+      )..where((r) => r.id.equals(rutaId))).go();
     });
 
     await _cola.encolar(
@@ -407,8 +414,7 @@ class AccionesDeRuta {
 
   Future<void> _ocuparVehiculo(String? vehiculoId, String estado) async {
     if (vehiculoId == null) return;
-    await (_base.update(_base.vehicles)
-          ..where((v) => v.id.equals(vehiculoId)))
+    await (_base.update(_base.vehicles)..where((v) => v.id.equals(vehiculoId)))
         .write(VehiclesCompanion(status: Value(estado)));
   }
 
@@ -509,9 +515,7 @@ class AccionesDeRuta {
   static String? _notaLimpia(String? cruda) {
     final texto = cruda?.trim() ?? '';
     if (texto.isEmpty) return null;
-    return texto.length <= topeDeNota
-        ? texto
-        : texto.substring(0, topeDeNota);
+    return texto.length <= topeDeNota ? texto : texto.substring(0, topeDeNota);
   }
 
   /// La capacidad va en el mensaje **sin formatear**, igual que el servidor:

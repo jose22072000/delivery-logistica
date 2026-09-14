@@ -53,7 +53,8 @@ class FuentesDeImpresion {
   final pw.Font normal;
   final pw.Font negrita;
 
-  pw.ThemeData get tema => pw.ThemeData.withFont(
+  pw.ThemeData get tema =>
+      pw.ThemeData.withFont(
         base: normal,
         bold: negrita,
         italic: normal, // no hay Roboto-Italic embebida; el PDF la inclina solo

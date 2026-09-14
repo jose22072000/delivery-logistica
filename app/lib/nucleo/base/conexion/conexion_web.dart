@@ -26,9 +26,7 @@ QueryExecutor abrirConexion() => LazyDatabase(() async {
   );
 
   if (resultado.missingFeatures.isNotEmpty) {
-    Registro.aviso(
-      'almacenamiento degradado: ${resultado.missingFeatures}',
-    );
+    Registro.aviso('almacenamiento degradado: ${resultado.missingFeatures}');
   }
   _fragil =
       resultado.chosenImplementation == WasmStorageImplementation.inMemory;

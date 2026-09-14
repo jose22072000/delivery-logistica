@@ -99,40 +99,46 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
         );
     });
 
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Text('Almacenes', style: tema.textTheme.headlineSmall),
-            const SizedBox(height: 4),
-            Text(
-              'El punto desde el que se mide cada domicilio. Un almacén sin '
-              'coordenadas no sirve para cotizar: la distancia se mide desde '
-              'aquí.',
-              style: tema.textTheme.bodySmall,
+    // SIN `Scaffold` propio: lo pone el armazon.
+    //
+    // Esta pantalla se escribio antes de que existiera el armazon, que ya trae barra
+    // lateral, barra superior con el titulo y la franja de estado. Un `Scaffold` dentro de
+    // otro apila dos superficies de Material y deja los avisos emergentes colgando del de
+    // dentro, que es el que no se ve entero.
+    //
+    // Ver el contrato en `lib/navegacion/pantalla_registrada.dart`.
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text('Almacenes', style: tema.textTheme.headlineSmall),
+          const SizedBox(height: 4),
+          Text(
+            'El punto desde el que se mide cada domicilio. Un almacén sin '
+            'coordenadas no sirve para cotizar: la distancia se mide desde '
+            'aquí.',
+            style: tema.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          if (datos.error case final fallo?)
+            _Fallo(
+              fallo: fallo,
+              alReintentar: () => ref.invalidate(almacenesProvider),
+            )
+          else if (datos.value case final sucursales?)
+            _Contenido(
+              sucursales: sucursales,
+              sucursal: _sucursal(sucursales),
+              alElegirSucursal: (codigo) =>
+                  ref.read(sucursalElegidaProvider.notifier).poner(codigo),
+              alAbrir: _abrirEditor,
+            )
+          else
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: Text('Cargando…')),
             ),
-            const SizedBox(height: 16),
-            if (datos.error case final fallo?)
-              _Fallo(
-                fallo: fallo,
-                alReintentar: () => ref.invalidate(almacenesProvider),
-              )
-            else if (datos.value case final sucursales?)
-              _Contenido(
-                sucursales: sucursales,
-                sucursal: _sucursal(sucursales),
-                alElegirSucursal: (codigo) =>
-                    ref.read(sucursalElegidaProvider.notifier).poner(codigo),
-                alAbrir: _abrirEditor,
-              )
-            else
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 32),
-                child: Center(child: Text('Cargando…')),
-              ),
-          ],
-        ),
+        ],
       ),
     );
   }

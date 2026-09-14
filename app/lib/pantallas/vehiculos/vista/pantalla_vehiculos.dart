@@ -116,81 +116,84 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
         );
     });
 
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Text('Vehículos', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 4),
-            Text(
-              'Gestiona tu flota. Las tarifas se configuran globalmente en '
-              'Configuración.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            // En movil el grupo buscador + 2 botones ENVUELVE; sin esto se sale
-            // por la derecha y el boton de agregar queda fuera de pantalla.
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                SizedBox(
-                  width: 220,
-                  child: TextField(
-                    controller: _buscador,
-                    onChanged: (t) {
-                      ref.read(busquedaVehiculosProvider.notifier).poner(t);
-                      ref.read(paginaVehiculosProvider.notifier).poner(1);
-                    },
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      hintText: 'Buscar',
-                      prefixIcon: Icon(Icons.search, size: 18),
-                      border: OutlineInputBorder(),
-                    ),
+    // SIN `Scaffold` propio: lo pone el armazon.
+    //
+    // Esta pantalla se escribio antes de que existiera el armazon, que ya trae barra
+    // lateral, barra superior con el titulo y la franja de estado. Un `Scaffold` dentro de
+    // otro apila dos superficies de Material y deja los avisos emergentes colgando del de
+    // dentro, que es el que no se ve entero.
+    //
+    // Ver el contrato en `lib/navegacion/pantalla_registrada.dart`.
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text('Vehículos', style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 4),
+          Text(
+            'Gestiona tu flota. Las tarifas se configuran globalmente en '
+            'Configuración.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          // En movil el grupo buscador + 2 botones ENVUELVE; sin esto se sale
+          // por la derecha y el boton de agregar queda fuera de pantalla.
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 220,
+                child: TextField(
+                  controller: _buscador,
+                  onChanged: (t) {
+                    ref.read(busquedaVehiculosProvider.notifier).poner(t);
+                    ref.read(paginaVehiculosProvider.notifier).poner(1);
+                  },
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    hintText: 'Buscar',
+                    prefixIcon: Icon(Icons.search, size: 18),
+                    border: OutlineInputBorder(),
                   ),
                 ),
-                OutlinedButton(
-                  onPressed: _abrirTipos,
-                  child: const Text('Tipos de vehículo'),
-                ),
-                FilledButton(
-                  onPressed: () => _abrirFicha(),
-                  child: const Text('Agregar Vehículo'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (lista.error case final fallo?)
-              _Fallo(
-                fallo: fallo,
-                alReintentar: () => ref.invalidate(vehiculosProvider),
-              )
-            else if (lista.value case final vehiculos?)
-              _Rejilla(
-                vehiculos: vehiculos
-                    .where((v) => v.cuadraCon(busqueda))
-                    .toList(),
-                pagina: pagina,
-                porPagina: porPagina,
-                alAgregar: () => _abrirFicha(),
-                alEditar: _abrirFicha,
-                alIr: (n) =>
-                    ref.read(paginaVehiculosProvider.notifier).poner(n),
-                alCambiarTamano: (n) {
-                  ref.read(porPaginaVehiculosProvider.notifier).poner(n);
-                  ref.read(paginaVehiculosProvider.notifier).poner(1);
-                },
-              )
-            else
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 32),
-                child: Center(child: Text('Cargando vehículos...')),
               ),
-          ],
-        ),
+              OutlinedButton(
+                onPressed: _abrirTipos,
+                child: const Text('Tipos de vehículo'),
+              ),
+              FilledButton(
+                onPressed: () => _abrirFicha(),
+                child: const Text('Agregar Vehículo'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (lista.error case final fallo?)
+            _Fallo(
+              fallo: fallo,
+              alReintentar: () => ref.invalidate(vehiculosProvider),
+            )
+          else if (lista.value case final vehiculos?)
+            _Rejilla(
+              vehiculos: vehiculos.where((v) => v.cuadraCon(busqueda)).toList(),
+              pagina: pagina,
+              porPagina: porPagina,
+              alAgregar: () => _abrirFicha(),
+              alEditar: _abrirFicha,
+              alIr: (n) => ref.read(paginaVehiculosProvider.notifier).poner(n),
+              alCambiarTamano: (n) {
+                ref.read(porPaginaVehiculosProvider.notifier).poner(n);
+                ref.read(paginaVehiculosProvider.notifier).poner(1);
+              },
+            )
+          else
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: Text('Cargando vehículos...')),
+            ),
+        ],
       ),
     );
   }

@@ -16,11 +16,11 @@ class ItemDePedido {
   /// Los numeros llegan a veces como texto, asi que se pasan por `num.tryParse`
   /// en vez de por un `as num`, que reventaria la hoja entera por una linea.
   factory ItemDePedido.deJson(Map<String, Object?> json) => ItemDePedido(
-        name: json['name'] as String?,
-        description: json['description'] as String?,
-        packs: _aNumero(json['packs']),
-        quantity: _aNumero(json['quantity']),
-      );
+    name: json['name'] as String?,
+    description: json['description'] as String?,
+    packs: _aNumero(json['packs']),
+    quantity: _aNumero(json['quantity']),
+  );
 
   final String? name;
   final String? description;
@@ -91,11 +91,29 @@ const String _marcaEnye = 'n~';
 
 const Map<String, String> _sinTilde = <String, String>{
   'á': 'a',
-  'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ã': 'a', 'å': 'a',
-  'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
-  'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i',
-  'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o', 'õ': 'o',
-  'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u',
+  'á': 'a',
+  'à': 'a',
+  'ä': 'a',
+  'â': 'a',
+  'ã': 'a',
+  'å': 'a',
+  'é': 'e',
+  'è': 'e',
+  'ë': 'e',
+  'ê': 'e',
+  'í': 'i',
+  'ì': 'i',
+  'ï': 'i',
+  'î': 'i',
+  'ó': 'o',
+  'ò': 'o',
+  'ö': 'o',
+  'ô': 'o',
+  'õ': 'o',
+  'ú': 'u',
+  'ù': 'u',
+  'ü': 'u',
+  'û': 'u',
   'ç': 'c',
   'ñ': _marcaEnye,
 };
@@ -197,7 +215,9 @@ HojaPostDespacho armarPostDespacho(
   final lineas = porProducto.values.toList()
     ..sort((a, b) {
       final porQueda = b.queda.compareTo(a.queda);
-      return porQueda != 0 ? porQueda : comparaProductos(a.producto, b.producto);
+      return porQueda != 0
+          ? porQueda
+          : comparaProductos(a.producto, b.producto);
     });
 
   return HojaPostDespacho(

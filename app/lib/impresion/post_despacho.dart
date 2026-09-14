@@ -66,8 +66,9 @@ abstract final class TextoPostDespacho {
 /// Los 78 px del HTML en papel (78/96 de pulgada = 20.6 mm). Va fija por lo
 /// mismo que la del pre-despacho: dentro no se imprime nada y sin ancho propio
 /// la columna se cerraria.
-final pw.FixedColumnWidth anchoBajo =
-    pw.FixedColumnWidth(20.6 * PdfPageFormat.mm);
+final pw.FixedColumnWidth anchoBajo = pw.FixedColumnWidth(
+  20.6 * PdfPageFormat.mm,
+);
 
 /// Arma el PDF del post-despacho.
 ///
@@ -144,30 +145,31 @@ String _lineaHorario(HojaPostDespacho h) {
 /// un «0 sin marcar» impreso se lee como que ya se reviso, que es justo lo
 /// contrario de lo que esta hoja quiere decir.
 pw.Widget _pildoras(HojaPostDespacho h) => pw.Padding(
-      padding: const pw.EdgeInsets.only(top: 10 * px, bottom: 4 * px),
-      child: pw.Wrap(
-        spacing: 10 * px,
-        runSpacing: 10 * px,
-        children: <pw.Widget>[
-          _pildora('${h.entregadas}${TextoPostDespacho.entregadas}'),
-          _pildora('${h.devueltas}${TextoPostDespacho.devueltas}'),
-          _pildora('${h.canceladas}${TextoPostDespacho.canceladas}'),
-          if (h.sinMarcar > 0)
-            _pildora('${h.sinMarcar}${TextoPostDespacho.sinMarcar}'),
-        ],
-      ),
-    );
+  padding: const pw.EdgeInsets.only(top: 10 * px, bottom: 4 * px),
+  child: pw.Wrap(
+    spacing: 10 * px,
+    runSpacing: 10 * px,
+    children: <pw.Widget>[
+      _pildora('${h.entregadas}${TextoPostDespacho.entregadas}'),
+      _pildora('${h.devueltas}${TextoPostDespacho.devueltas}'),
+      _pildora('${h.canceladas}${TextoPostDespacho.canceladas}'),
+      if (h.sinMarcar > 0)
+        _pildora('${h.sinMarcar}${TextoPostDespacho.sinMarcar}'),
+    ],
+  ),
+);
 
 pw.Widget _pildora(String texto) => pw.Container(
-      decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: Tinta.bordePildora, width: px),
-        borderRadius: pw.BorderRadius.circular(999 * px),
-      ),
-      padding: const pw.EdgeInsets.symmetric(vertical: 3 * px, horizontal: 10 * px),
-      child: pw.Text(texto, style: const pw.TextStyle(fontSize: 12 * px)),
-    );
+  decoration: pw.BoxDecoration(
+    border: pw.Border.all(color: Tinta.bordePildora, width: px),
+    borderRadius: pw.BorderRadius.circular(999 * px),
+  ),
+  padding: const pw.EdgeInsets.symmetric(vertical: 3 * px, horizontal: 10 * px),
+  child: pw.Text(texto, style: const pw.TextStyle(fontSize: 12 * px)),
+);
 
-pw.Widget _tabla(List<LineaPostDespacho> filas, TotalesPostDespacho t) => pw.Table(
+pw.Widget _tabla(List<LineaPostDespacho> filas, TotalesPostDespacho t) =>
+    pw.Table(
       columnWidths: <int, pw.TableColumnWidth>{
         0: const pw.FlexColumnWidth(),
         1: const pw.IntrinsicColumnWidth(),
@@ -215,48 +217,50 @@ pw.Widget _tabla(List<LineaPostDespacho> filas, TotalesPostDespacho t) => pw.Tab
 
 /// Una parada que no se entrego: quien es, que paso, por que, y que trae.
 pw.Widget _parada(ParadaPendiente p) => pw.Container(
-      decoration: const pw.BoxDecoration(
-        border: pw.Border(bottom: pw.BorderSide(color: Tinta.lineaParada, width: px)),
-      ),
-      padding: const pw.EdgeInsets.symmetric(vertical: 6 * px),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
+  decoration: const pw.BoxDecoration(
+    border: pw.Border(
+      bottom: pw.BorderSide(color: Tinta.lineaParada, width: px),
+    ),
+  ),
+  padding: const pw.EdgeInsets.symmetric(vertical: 6 * px),
+  child: pw.Column(
+    crossAxisAlignment: pw.CrossAxisAlignment.start,
+    children: <pw.Widget>[
+      pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: <pw.Widget>[
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: <pw.Widget>[
-              pw.Flexible(
-                child: pw.Text(
-                  p.cliente,
-                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                ),
-              ),
-              pw.SizedBox(width: 6 * px),
-              _etiqueta(p.resultado),
-            ],
-          ),
-          if (p.nota != null && p.nota!.isNotEmpty)
-            pw.Padding(
-              padding: const pw.EdgeInsets.only(top: 2 * px),
-              child: pw.Text(
-                p.nota!,
-                style: const pw.TextStyle(
-                  fontSize: 12 * px,
-                  color: Tinta.gris,
-                  fontStyle: pw.FontStyle.italic,
-                ),
-              ),
-            ),
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(top: 2 * px),
+          pw.Flexible(
             child: pw.Text(
-              productosDeParada(p),
-              style: const pw.TextStyle(fontSize: 12 * px, color: Tinta.prods),
+              p.cliente,
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
             ),
           ),
+          pw.SizedBox(width: 6 * px),
+          _etiqueta(p.resultado),
         ],
       ),
-    );
+      if (p.nota != null && p.nota!.isNotEmpty)
+        pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 2 * px),
+          child: pw.Text(
+            p.nota!,
+            style: const pw.TextStyle(
+              fontSize: 12 * px,
+              color: Tinta.gris,
+              fontStyle: pw.FontStyle.italic,
+            ),
+          ),
+        ),
+      pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 2 * px),
+        child: pw.Text(
+          productosDeParada(p),
+          style: const pw.TextStyle(fontSize: 12 * px, color: Tinta.prods),
+        ),
+      ),
+    ],
+  ),
+);
 
 /// `producto × n` separados por ` · `, o una raya si la parada no traia nada.
 ///
@@ -274,20 +278,20 @@ String productosDeParada(ParadaPendiente p) {
 pw.Widget _etiqueta(String? resultado) {
   final (String texto, PdfColor fondo, PdfColor tinta) = switch (resultado) {
     'devuelto' => (
-        TextoPostDespacho.etiquetaDevuelto,
-        Tinta.devueltoFondo,
-        Tinta.devueltoTexto,
-      ),
+      TextoPostDespacho.etiquetaDevuelto,
+      Tinta.devueltoFondo,
+      Tinta.devueltoTexto,
+    ),
     'cancelado' => (
-        TextoPostDespacho.etiquetaCancelado,
-        Tinta.canceladoFondo,
-        Tinta.canceladoTexto,
-      ),
+      TextoPostDespacho.etiquetaCancelado,
+      Tinta.canceladoFondo,
+      Tinta.canceladoTexto,
+    ),
     _ => (
-        TextoPostDespacho.etiquetaSinMarcar,
-        Tinta.sinMarcarFondo,
-        Tinta.sinMarcarTexto,
-      ),
+      TextoPostDespacho.etiquetaSinMarcar,
+      Tinta.sinMarcarFondo,
+      Tinta.sinMarcarTexto,
+    ),
   };
 
   return pw.Container(
@@ -295,7 +299,10 @@ pw.Widget _etiqueta(String? resultado) {
       color: fondo,
       borderRadius: pw.BorderRadius.circular(999 * px),
     ),
-    padding: const pw.EdgeInsets.symmetric(vertical: 2 * px, horizontal: 7 * px),
+    padding: const pw.EdgeInsets.symmetric(
+      vertical: 2 * px,
+      horizontal: 7 * px,
+    ),
     child: pw.Text(
       texto.toUpperCase(),
       style: pw.TextStyle(

@@ -146,9 +146,8 @@ class _Seccion extends StatelessWidget {
       children: [
         Text(
           titulo,
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+          style: Theme.of(context).textTheme.titleSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
         ...hijos,

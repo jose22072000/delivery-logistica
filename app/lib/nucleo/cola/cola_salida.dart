@@ -89,9 +89,9 @@ class ColaDeSalida {
             ..limit(maximo))
           .get();
 
-  Future<Apunte?> porClave(String clave) =>
-      (_base.select(_base.apuntes)
-            ..where((a) => a.clave.equals(clave))).getSingleOrNull();
+  Future<Apunte?> porClave(String clave) => (_base.select(
+    _base.apuntes,
+  )..where((a) => a.clave.equals(clave))).getSingleOrNull();
 
   /// El cuerpo del apunte, ya decodificado.
   static Object? cuerpoDe(Apunte a) => jsonDecode(a.cuerpo);
@@ -103,9 +103,9 @@ class ColaDeSalida {
   /// tarde se iria a una ruta que no existe y nadie volveria a mirar ese apunte.
   Future<void> resolver(String clave, ResultadoApunte resultado) async {
     await _base.transaction(() async {
-      final apunte =
-          await (_base.select(_base.apuntes)
-                ..where((a) => a.clave.equals(clave))).getSingleOrNull();
+      final apunte = await (_base.select(
+        _base.apuntes,
+      )..where((a) => a.clave.equals(clave))).getSingleOrNull();
       if (apunte == null) {
         Registro.aviso('resultado de un apunte que no esta en la cola: $clave');
         return;
@@ -128,8 +128,9 @@ class ColaDeSalida {
             'el servidor aplico $clave pero no devolvio id para $provisional',
           );
         }
-        await (_base.update(_base.apuntes)
-              ..where((a) => a.clave.equals(clave))).write(
+        await (_base.update(
+          _base.apuntes,
+        )..where((a) => a.clave.equals(clave))).write(
           ApuntesCompanion(
             estado: const Value(EstadoApunte.aplicado),
             resueltoAt: Value(_reloj()),
@@ -138,8 +139,9 @@ class ColaDeSalida {
       } else {
         // Rechazado: se queda, con su motivo y su hora, hasta que una persona
         // decida. No se reintenta y no se borra (regla 6, caso S6).
-        await (_base.update(_base.apuntes)
-              ..where((a) => a.clave.equals(clave))).write(
+        await (_base.update(
+          _base.apuntes,
+        )..where((a) => a.clave.equals(clave))).write(
           ApuntesCompanion(
             estado: const Value(EstadoApunte.rechazado),
             motivo: Value(resultado.motivo),
@@ -161,9 +163,13 @@ class ColaDeSalida {
   /// que un aparato lleva reintentando desde el martes.
   Future<void> anotarIntento(Iterable<String> claves) async {
     if (claves.isEmpty) return;
-    await (_base.update(_base.apuntes)..where(
-      (a) => a.clave.isIn(claves.toList()),
-    )).write(ApuntesCompanion.custom(intentos: _base.apuntes.intentos + const Constant(1)));
+    await (_base.update(
+      _base.apuntes,
+    )..where((a) => a.clave.isIn(claves.toList()))).write(
+      ApuntesCompanion.custom(
+        intentos: _base.apuntes.intentos + const Constant(1),
+      ),
+    );
   }
 
   /// Poda los aplicados viejos. Los rechazados NO se podan nunca: son la unica
@@ -171,9 +177,10 @@ class ColaDeSalida {
   Future<int> podar() {
     final limite = _reloj().subtract(conservarAplicados);
     return (_base.delete(_base.apuntes)..where(
-      (a) =>
-          a.estado.equalsValue(EstadoApunte.aplicado) &
-          a.resueltoAt.isSmallerThanValue(limite),
-    )).go();
+          (a) =>
+              a.estado.equalsValue(EstadoApunte.aplicado) &
+              a.resueltoAt.isSmallerThanValue(limite),
+        ))
+        .go();
   }
 }

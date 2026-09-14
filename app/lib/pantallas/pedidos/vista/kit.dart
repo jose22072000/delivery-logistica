@@ -137,10 +137,7 @@ class Cajon extends StatelessWidget {
                 const Divider(height: 1),
                 SafeArea(
                   top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: pie,
-                  ),
+                  child: Padding(padding: const EdgeInsets.all(12), child: pie),
                 ),
               ],
             ],
@@ -196,7 +193,11 @@ class Insignia extends StatelessWidget {
       ),
       child: Text(
         texto,
-        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w500),
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
     return tooltip == null ? pinta : Tooltip(message: tooltip!, child: pinta);
@@ -220,9 +221,8 @@ class EstadoVacio extends StatelessWidget {
         Text(
           texto,
           textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Colores.gris,
-          ),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(color: Colores.gris),
         ),
         if (accion != null) ...[const SizedBox(height: 12), accion!],
       ],
@@ -349,9 +349,7 @@ class Selector<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final elegida = opciones
-        .where((o) => o.valor == valor)
-        .firstOrNull;
+    final elegida = opciones.where((o) => o.valor == valor).firstOrNull;
     return MenuAnchor(
       builder: (contexto, controlador, _) => Tooltip(
         message: titulo,

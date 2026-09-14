@@ -37,17 +37,18 @@ class RegistroDeFrescura {
         ),
       );
 
-  Future<FilaFrescura?> leer(String coleccion) =>
-      (_base.select(_base.frescura)
-            ..where((f) => f.coleccion.equals(coleccion))).getSingleOrNull();
+  Future<FilaFrescura?> leer(String coleccion) => (_base.select(
+    _base.frescura,
+  )..where((f) => f.coleccion.equals(coleccion))).getSingleOrNull();
 
-  Stream<FilaFrescura?> mirar(String coleccion) =>
-      (_base.select(_base.frescura)
-            ..where((f) => f.coleccion.equals(coleccion))).watchSingleOrNull();
+  Stream<FilaFrescura?> mirar(String coleccion) => (_base.select(
+    _base.frescura,
+  )..where((f) => f.coleccion.equals(coleccion))).watchSingleOrNull();
 
   /// La marca que va en el proximo `GET /sync/bajada?desde=…`. `null` = primera
   /// carga completa.
-  Future<String?> desde(String coleccion) async => (await leer(coleccion))?.hasta;
+  Future<String?> desde(String coleccion) async =>
+      (await leer(coleccion))?.hasta;
 
   /// La bajada mas VIEJA de todas. Es la que manda en la barra: una pantalla no
   /// esta al dia si una de las colecciones que usa no lo esta.

@@ -50,6 +50,7 @@ class TablaPedidos extends StatelessWidget {
 
   final List<Pedido> pedidos;
   final Map<String, List<RenglonConPeso>> renglones;
+
   /// Las rutas por id: de aqui salen el codigo que pinta la columna `Ruta` y el
   /// estado del que depende `En despacho` / `En ruta`.
   final Map<String, Ruta> rutas;
@@ -68,8 +69,7 @@ class TablaPedidos extends StatelessWidget {
         conSucursal: conSucursal,
       );
       final ids = [for (final p in pedidos) p.id];
-      final todosMarcados =
-          ids.isNotEmpty && ids.every(seleccion.contains);
+      final todosMarcados = ids.isNotEmpty && ids.every(seleccion.contains);
 
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -115,9 +115,8 @@ class _Cabecera extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final estilo = Theme.of(
-      context,
-    ).textTheme.labelSmall?.copyWith(color: Colores.gris);
+    final estilo = Theme.of(context).textTheme.labelSmall
+        ?.copyWith(color: Colores.gris);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Row(
@@ -156,11 +155,13 @@ class _Cabecera extends StatelessWidget {
   }
 }
 
-Widget _celda({required int flex, required Widget hijo}) =>
-    Expanded(flex: flex, child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: hijo,
-    ));
+Widget _celda({required int flex, required Widget hijo}) => Expanded(
+  flex: flex,
+  child: Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 4),
+    child: hijo,
+  ),
+);
 
 class _Fila extends StatelessWidget {
   const _Fila({
@@ -202,10 +203,7 @@ class _Fila extends StatelessWidget {
             Checkbox(value: marcado, onChanged: (_) => alMarcar()),
             _celda(flex: 2, hijo: _Fecha(pedido: pedido)),
             if (columnas.sucursal)
-              _celda(
-                flex: 2,
-                hijo: Text(pedido.sucursalCodigo ?? '—'),
-              ),
+              _celda(flex: 2, hijo: Text(pedido.sucursalCodigo ?? '—')),
             _celda(
               flex: 2,
               hijo: Insignia(

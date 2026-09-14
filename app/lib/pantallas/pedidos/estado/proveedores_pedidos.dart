@@ -98,9 +98,9 @@ final paginaPedidosProvider = StreamProvider<List<Pedido>>((ref) {
 final renglonesDePaginaProvider =
     FutureProvider<Map<String, List<RenglonConPeso>>>((ref) async {
       final pagina = await ref.watch(paginaPedidosProvider.future);
-      return ref
-          .watch(consultasPedidosProvider)
-          .renglonesDe([for (final p in pagina) p.id]);
+      return ref.watch(consultasPedidosProvider).renglonesDe([
+        for (final p in pagina) p.id,
+      ]);
     });
 
 final facetasPedidosProvider = FutureProvider<Facetas>(
