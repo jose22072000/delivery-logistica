@@ -45,8 +45,10 @@ import 'package:go_router/go_router.dart';
 /// **Tu pantalla no lleva `Scaffold` ni `AppBar`.** El armazon ya pone los dos:
 /// devolver otro deja dos barras superiores y rompe el selector de sucursal.
 /// ============================================================================
-typedef ConstructorDePantalla =
-    Widget Function(BuildContext contexto, GoRouterState estado);
+typedef ConstructorDePantalla = Widget Function(
+  BuildContext contexto,
+  GoRouterState estado,
+);
 
 class PantallaRegistrada {
   const PantallaRegistrada({
@@ -79,9 +81,6 @@ class PantallaRegistrada {
 
   /// Lo que consume `rutas.dart`. Aqui y en ningun otro sitio se decide como se
   /// traduce una pantalla registrada a una ruta de go_router.
-  GoRoute aGoRoute() => GoRoute(
-    path: ruta,
-    builder: construir,
-    routes: subrutas,
-  );
+  GoRoute aGoRoute() =>
+      GoRoute(path: ruta, builder: construir, routes: subrutas);
 }

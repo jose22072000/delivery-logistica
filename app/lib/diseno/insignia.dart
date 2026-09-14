@@ -4,7 +4,12 @@ import 'colores.dart';
 
 /// Una etiqueta pequena de estado. Texto corto, fondo tenue, letra del color.
 class Insignia extends StatelessWidget {
-  const Insignia(this.texto, {this.color = Colores.gris, this.fondo, super.key});
+  const Insignia(
+    this.texto, {
+    this.color = Colores.gris,
+    this.fondo,
+    super.key,
+  });
 
   /// Las tres de ruta del pliego (§9.3): `planned` ambar, `in_progress` azul,
   /// `completed` verde. Estan aqui para que las cinco pantallas que pintan
@@ -43,9 +48,8 @@ class Insignia extends StatelessWidget {
     ),
     child: Text(
       texto,
-      style: Theme.of(
-        context,
-      ).textTheme.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w600),
+      style: Theme.of(context).textTheme.labelSmall
+          ?.copyWith(color: color, fontWeight: FontWeight.w600),
     ),
   );
 }

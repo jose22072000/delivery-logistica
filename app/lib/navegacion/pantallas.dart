@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../pantallas/informes/registro.dart';
 import '../pantallas/panel/registro.dart';
+import '../pantallas/tablero/registro.dart';
 import 'pantalla_registrada.dart';
 
 /// EL REGISTRO. Una linea por pantalla, en el orden en que salen en el menu.
@@ -23,7 +24,7 @@ List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
   // pliego §8.1, que describe la de Next. Se pone en el menu porque es la
   // pantalla del dia del logistico y sin entrada no se llega a ella; si se
   // decide lo contrario, es cambiar `enElMenu` a false.
-  _pendiente('/tablero', 'Tablero', Icons.view_column_outlined),
+  registrarTablero(),
 
   _pendiente('/routes', 'Rutas', Icons.route_outlined),
   _pendiente('/orders', 'Pedidos', Icons.inventory_2_outlined),

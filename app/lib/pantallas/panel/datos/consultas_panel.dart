@@ -117,7 +117,10 @@ SELECT
     return _base
         .customSelect(
           sql,
-          variables: [Variable<String>(sucursalId), Variable<DateTime>(medianoche)],
+          variables: [
+            Variable<String>(sucursalId),
+            Variable<DateTime>(medianoche),
+          ],
           readsFrom: {_base.orders, _base.routes, _base.vehicles},
         )
         .watchSingle()

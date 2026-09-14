@@ -15,7 +15,7 @@ enum AnchoCajon {
 /// lateral fija del armazon (§0).
 const anchoDeEscritorio = 1024.0;
 
-/// Cajon en movil, modal en escritorio.
+/// SIEMPRE cajon lateral, tambien en escritorio (pliego §9.2, excepcion de delivery).
 ///
 /// Es la regla de la casa de Procovar y vale para todos sus proyectos: en el
 /// telefono el panel ocupa la pantalla y se cierra con el pulgar; en el
@@ -40,24 +40,19 @@ Future<T?> abrirCajon<T>({
   required WidgetBuilder constructor,
   AnchoCajon ancho = AnchoCajon.lg,
 }) {
-  final esEscritorio = MediaQuery.sizeOf(context).width >= anchoDeEscritorio;
-  if (esEscritorio) {
-    return showDialog<T>(
-      context: context,
-      // El velo cierra y `Escape` tambien, que es lo que espera todo el mundo.
-      barrierDismissible: true,
-      builder: (contexto) => Dialog(
-        clipBehavior: Clip.antiAlias,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: ancho.px,
-            maxHeight: MediaQuery.sizeOf(contexto).height * 0.9,
-          ),
-          child: constructor(contexto),
-        ),
-      ),
-    );
-  }
+  // CORREGIDO 14/09/2026. Delivery NO usa modal en escritorio.
+  //
+  // Esto se escribió con la regla general de Procovar —cajón en móvil, modal en
+  // escritorio— porque así se pidió. Es la regla equivocada para este proyecto:
+  // `docs/pantallas.md:25` recoge una excepción aprobada el 05/09/2026 según la cual
+  // **delivery usa SIEMPRE cajón lateral, también en escritorio**, y §9.2 dice que no hay
+  // variante modal. El motivo está escrito allí: estas fichas son largas y un modal
+  // centrado con desplazamiento interno se lee peor que un panel a alto completo.
+  //
+  // Se quita la rama de escritorio y se deja una sola forma. El fichero sigue siendo una
+  // copia de `lib/diseno/cajon.dart` —se escribieron a la vez y ese kit no existía— y
+  // desaparece cuando estas dos pantallas pasen a usarlo; hace falta darles título, que
+  // hoy va dentro del cuerpo. Está apuntado en `docs/integracion-pendiente.md`.
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,

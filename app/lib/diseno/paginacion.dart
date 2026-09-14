@@ -103,8 +103,15 @@ class Paginacion extends StatelessWidget {
             children: [
               _Boton('«', pagina > 1 ? () => alIrA(1) : null),
               _Boton('‹', pagina > 1 ? () => alIrA(pagina - 1) : null),
-              for (final p in paginasVisibles(actual: pagina, totalPaginas: paginas))
-                _Boton('$p', p == pagina ? null : () => alIrA(p), actual: p == pagina),
+              for (final p in paginasVisibles(
+                actual: pagina,
+                totalPaginas: paginas,
+              ))
+                _Boton(
+                  '$p',
+                  p == pagina ? null : () => alIrA(p),
+                  actual: p == pagina,
+                ),
               _Boton('›', pagina < paginas ? () => alIrA(pagina + 1) : null),
               _Boton('»', pagina < paginas ? () => alIrA(paginas) : null),
             ],

@@ -24,9 +24,8 @@ class Cargando extends StatelessWidget {
         const SizedBox(height: 12),
         Text(
           texto,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: Colores.gris),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: Colores.gris),
         ),
       ],
     ),

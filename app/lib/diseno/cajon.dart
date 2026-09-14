@@ -41,7 +41,10 @@ Future<T?> abrirCajon<T>(
       // Entra desde 24 px a la derecha, 180 ms. Los mismos numeros del pliego:
       // lo bastante para que se lea «viene de fuera» y no tanto como para
       // esperarlo cincuenta veces al dia.
-      final curva = CurvedAnimation(parent: animacion, curve: Curves.easeOutCubic);
+      final curva = CurvedAnimation(
+        parent: animacion,
+        curve: Curves.easeOutCubic,
+      );
       return FadeTransition(
         opacity: curva,
         child: Padding(

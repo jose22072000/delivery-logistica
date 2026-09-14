@@ -50,80 +50,81 @@ class ColumnaDelTablero extends StatelessWidget {
         }
       },
       builder: (contexto, encimaColumna, _) => Container(
-      width: ancho,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        color: tema.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(10),
-        border: encimaColumna.isEmpty
-            ? null
-            : Border.all(color: tema.colorScheme.primary, width: 2),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // La cabecera se arrastra: es como se reordena el tablero. Va en
-          // pulsacion larga, igual que las tarjetas, para no comerse el
-          // desplazamiento lateral de la tira en un telefono. Quien no quiera
-          // arrastrar tiene «mover a la izquierda / derecha» en el menu.
-          LongPressDraggable<ColumnaArrastrada>(
-            data: ColumnaArrastrada(columna.id),
-            delay: const Duration(milliseconds: 250),
-            feedback: Material(
-              elevation: 8,
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox(
-                width: ancho ?? 260,
-                child: _Cabecera(
-                  columna: columna,
-                  alAbrirMenu: alAbrirMenu,
-                  alSoltar: alSoltar,
-                ),
-              ),
-            ),
-            child: _Cabecera(
-              columna: columna,
-              alAbrirMenu: alAbrirMenu,
-              alSoltar: alSoltar,
-            ),
-          ),
-          Expanded(
-            child: DragTarget<TarjetaArrastrada>(
-              // Soltar en el hueco de abajo es «ponlo el ultimo».
-              onAcceptWithDetails: (detalles) => alSoltar(detalles.data, null),
-              builder: (contexto, encima, _) => Container(
-                decoration: BoxDecoration(
-                  color: encima.isNotEmpty
-                      ? tema.colorScheme.primary.withValues(alpha: 0.08)
-                      : null,
-                  borderRadius: const BorderRadius.vertical(
-                    bottom: Radius.circular(10),
+        width: ancho,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: tema.colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(10),
+          border: encimaColumna.isEmpty
+              ? null
+              : Border.all(color: tema.colorScheme.primary, width: 2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // La cabecera se arrastra: es como se reordena el tablero. Va en
+            // pulsacion larga, igual que las tarjetas, para no comerse el
+            // desplazamiento lateral de la tira en un telefono. Quien no quiera
+            // arrastrar tiene «mover a la izquierda / derecha» en el menu.
+            LongPressDraggable<ColumnaArrastrada>(
+              data: ColumnaArrastrada(columna.id),
+              delay: const Duration(milliseconds: 250),
+              feedback: Material(
+                elevation: 8,
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: ancho ?? 260,
+                  child: _Cabecera(
+                    columna: columna,
+                    alAbrirMenu: alAbrirMenu,
+                    alSoltar: alSoltar,
                   ),
                 ),
-                child: tarjetas.isEmpty
-                    ? _Vacia(encima: encima.isNotEmpty)
-                    : ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 48),
-                        itemCount: tarjetas.length,
-                        itemBuilder: (contexto, i) => _Ranura(
-                          // Soltar SOBRE una tarjeta es «ponlo aqui», en su
-                          // sitio: el orden dentro de la columna es el orden de
-                          // visita que propone quien conoce las calles.
-                          alSoltar: (datos) =>
-                              alSoltar(datos, tarjetas[i].posicion),
-                          hijo: TarjetaDePedido(
-                            pedido: tarjetas[i].pedido,
-                            columnaId: columna.id,
-                            posicion: tarjetas[i].posicion,
-                            onTap: () => alPulsarTarjeta(tarjetas[i]),
-                          ),
-                        ),
-                      ),
+              ),
+              child: _Cabecera(
+                columna: columna,
+                alAbrirMenu: alAbrirMenu,
+                alSoltar: alSoltar,
               ),
             ),
-          ),
-        ],
-      ),
+            Expanded(
+              child: DragTarget<TarjetaArrastrada>(
+                // Soltar en el hueco de abajo es «ponlo el ultimo».
+                onAcceptWithDetails: (detalles) =>
+                    alSoltar(detalles.data, null),
+                builder: (contexto, encima, _) => Container(
+                  decoration: BoxDecoration(
+                    color: encima.isNotEmpty
+                        ? tema.colorScheme.primary.withValues(alpha: 0.08)
+                        : null,
+                    borderRadius: const BorderRadius.vertical(
+                      bottom: Radius.circular(10),
+                    ),
+                  ),
+                  child: tarjetas.isEmpty
+                      ? _Vacia(encima: encima.isNotEmpty)
+                      : ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 48),
+                          itemCount: tarjetas.length,
+                          itemBuilder: (contexto, i) => _Ranura(
+                            // Soltar SOBRE una tarjeta es «ponlo aqui», en su
+                            // sitio: el orden dentro de la columna es el orden de
+                            // visita que propone quien conoce las calles.
+                            alSoltar: (datos) =>
+                                alSoltar(datos, tarjetas[i].posicion),
+                            hijo: TarjetaDePedido(
+                              pedido: tarjetas[i].pedido,
+                              columnaId: columna.id,
+                              posicion: tarjetas[i].posicion,
+                              onTap: () => alPulsarTarjeta(tarjetas[i]),
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -216,11 +217,9 @@ class _Cabecera extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (columna.esProvisional)
-                  const Insignia(
-                    'sin subir',
-                    color: ColoresTablero.ambar,
-                  ),
+                // Una columna creada sin senal se puede usar igual; lo unico
+                // que se dice es que todavia no ha subido.
+                if (columna.esProvisional) insigniaAviso('sin subir'),
               ],
             ),
           ],
@@ -267,9 +266,8 @@ class _Vacia extends StatelessWidget {
       child: Text(
         encima ? 'Suelta aquí' : 'Todavía no hay nada en esta zona',
         textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
     ),
   );

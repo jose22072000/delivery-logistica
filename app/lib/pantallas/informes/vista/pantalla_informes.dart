@@ -59,11 +59,7 @@ class PantallaInformes extends ConsumerWidget {
       children: [
         const _Filtros(),
         const SizedBox(height: 12),
-        _Advertencia(
-          sinDescargar: sinDescargar,
-          viejo: viejo,
-          cuando: cuando,
-        ),
+        _Advertencia(sinDescargar: sinDescargar, viejo: viejo, cuando: cuando),
         const SizedBox(height: 12),
         if (sinDescargar)
           const PantallaSinDescargar()
@@ -111,9 +107,8 @@ class _Advertencia extends StatelessWidget {
     }
     return Text(
       texto,
-      style: Theme.of(
-        context,
-      ).textTheme.bodySmall?.copyWith(color: Colores.gris),
+      style: Theme.of(context).textTheme.bodySmall
+          ?.copyWith(color: Colores.gris),
     );
   }
 }
@@ -178,10 +173,7 @@ class _Filtros extends ConsumerWidget {
           // `Limpiar` solo si hay algo puesto: un boton que no hace nada ensena
           // a no leer los botones.
           if (filtro.hayAlgoPuesto)
-            TextButton(
-              onPressed: notas.limpiar,
-              child: const Text('Limpiar'),
-            ),
+            TextButton(onPressed: notas.limpiar, child: const Text('Limpiar')),
           // `Exportar a Excel` va aqui. Todavia no esta: hacen falta los
           // paquetes `excel` y `file_saver`, que no estan en el pubspec. Un
           // boton que no exporta nada es peor que no tenerlo.
@@ -282,7 +274,9 @@ class _Resumen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (informe.filas.isEmpty) {
-      return const EstadoVacio('No hay órdenes para los filtros seleccionados.');
+      return const EstadoVacio(
+        'No hay órdenes para los filtros seleccionados.',
+      );
     }
     final r = informe.resumen;
     final tarjetas = <Widget>[
@@ -324,9 +318,8 @@ class _Resumen extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             'Top vehículos',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Wrap(
@@ -432,7 +425,9 @@ class _Detalle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (informe.filas.isEmpty) {
-      return const EstadoVacio('No hay órdenes para los filtros seleccionados.');
+      return const EstadoVacio(
+        'No hay órdenes para los filtros seleccionados.',
+      );
     }
     var peso = 0.0;
     var importe = 0.0;
@@ -501,7 +496,8 @@ class _Tabla extends StatelessWidget {
       children: [
         _Fila(celdas: cabeceras, estilo: tema.textTheme.labelMedium),
         const Divider(height: 1, color: Colores.borde),
-        for (final f in filas) _Fila(celdas: f, estilo: tema.textTheme.bodySmall),
+        for (final f in filas)
+          _Fila(celdas: f, estilo: tema.textTheme.bodySmall),
         if (pie != null) ...[
           const Divider(height: 1, color: Colores.borde),
           _Fila(

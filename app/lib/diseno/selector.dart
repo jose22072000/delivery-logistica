@@ -6,7 +6,11 @@ import 'colores.dart';
 /// Una opcion del selector: etiqueta a la izquierda y **nota** pequena a la
 /// derecha (un conteo, un codigo de sucursal, una tasa).
 class OpcionSelector<T> {
-  const OpcionSelector({required this.valor, required this.etiqueta, this.nota});
+  const OpcionSelector({
+    required this.valor,
+    required this.etiqueta,
+    this.nota,
+  });
 
   final T valor;
   final String etiqueta;
@@ -96,13 +100,20 @@ class _SelectorState<T> extends State<Selector<T>> {
     // seguidos en la barra, uno centrado no deja ver cual se abrio.
     final posicion = RelativeRect.fromRect(
       Rect.fromPoints(
-        caja.localToGlobal(caja.size.bottomLeft(Offset.zero), ancestor: overlay),
-        caja.localToGlobal(caja.size.bottomRight(Offset.zero), ancestor: overlay),
+        caja.localToGlobal(
+          caja.size.bottomLeft(Offset.zero),
+          ancestor: overlay,
+        ),
+        caja.localToGlobal(
+          caja.size.bottomRight(Offset.zero),
+          ancestor: overlay,
+        ),
       ),
       Offset.zero & overlay.size,
     );
 
-    final conBuscador = widget.siempreConBuscador ||
+    final conBuscador =
+        widget.siempreConBuscador ||
         widget.opciones.length >= widget.desdeCuantasBusca;
 
     final elegido = await showMenu<T>(

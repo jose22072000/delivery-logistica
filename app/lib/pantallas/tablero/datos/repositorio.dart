@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/cola/cola_salida.dart';
 import '../../../nucleo/cola/provisionales.dart';
@@ -25,11 +26,8 @@ import 'modelos.dart';
 /// que lo fuera a contar nunca. Al reves —el apunte sin la colocacion— la
 /// pantalla ensenaria una cosa y el servidor otra.
 class RepositorioTablero {
-  RepositorioTablero(
-    this._base,
-    this._cola, {
-    Reloj reloj = relojDelAparato,
-  }) : _reloj = reloj;
+  RepositorioTablero(this._base, this._cola, {Reloj reloj = relojDelAparato})
+    : _reloj = reloj;
 
   final BaseLocal _base;
   final ColaDeSalida _cola;
@@ -348,10 +346,7 @@ class RepositorioTablero {
         await _cola.encolar(
           metodo: 'PUT',
           ruta: '/api/board/placements/${dentro[i]}',
-          cuerpo: <String, Object?>{
-            'columnaId': destinoId,
-            'posicion': donde,
-          },
+          cuerpo: <String, Object?>{'columnaId': destinoId, 'posicion': donde},
         );
       }
     });
@@ -387,10 +382,9 @@ class RepositorioTablero {
     }
 
     await _base.transaction(() async {
-      await _base.customStatement(
-        'DELETE FROM $_tablaColumnas WHERE id = ?1',
-        [columnaId],
-      );
+      await _base.customStatement('DELETE FROM $_tablaColumnas WHERE id = ?1', [
+        columnaId,
+      ]);
       final cola = destinoId != null
           ? '?destino=$destinoId'
           : (vaciar ? '?vaciar=1' : '');
@@ -431,9 +425,10 @@ class RepositorioTablero {
   }) async {
     await _listo();
     final consultas = ConsultasTablero(_base);
-    final puestas = (await consultas.colocados(sucursalId, origen))
-        .where((t) => t.columnaId == columnaId)
-        .toList();
+    final puestas = (await consultas.colocados(
+      sucursalId,
+      origen,
+    )).where((t) => t.columnaId == columnaId).toList();
     if (puestas.isEmpty) {
       throw const RechazoDelTablero(
         'La columna no tiene ningún pedido que se pueda repartir hoy',
@@ -455,9 +450,9 @@ class RepositorioTablero {
       );
     }
 
-    final columna = (await consultas.columnas(
-      sucursalId,
-    )).where((c) => c.id == columnaId).firstOrNull;
+    final columna = (await consultas.columnas(sucursalId))
+        .where((c) => c.id == columnaId)
+        .firstOrNull;
     final rutaId = Provisionales.nuevoId();
 
     await _base.transaction(() async {
@@ -492,19 +487,19 @@ class RepositorioTablero {
 
       for (var i = 0; i < buenos.length; i++) {
         final pedido = buenos[i].pedido;
-        await (_base.update(_base.orders)
-              ..where((o) => o.id.equals(pedido.pedidoId)))
-            .write(
-              OrdersCompanion(
-                routeId: Value(rutaId),
-                // `ultimaRutaId` NO se libera nunca: un devuelto suelta
-                // `routeId` pero conserva esta, o desaparece de la hoja de lo
-                // que bajo del camion.
-                ultimaRutaId: Value(rutaId),
-                vehicleId: Value(columna?.vehiculoId),
-                stopOrder: Value(i + 1),
-              ),
-            );
+        await (_base.update(
+          _base.orders,
+        )..where((o) => o.id.equals(pedido.pedidoId))).write(
+          OrdersCompanion(
+            routeId: Value(rutaId),
+            // `ultimaRutaId` NO se libera nunca: un devuelto suelta
+            // `routeId` pero conserva esta, o desaparece de la hoja de lo
+            // que bajo del camion.
+            ultimaRutaId: Value(rutaId),
+            vehicleId: Value(columna?.vehiculoId),
+            stopOrder: Value(i + 1),
+          ),
+        );
         await _base.customStatement(
           'DELETE FROM $_tablaColocaciones WHERE order_id = ?1',
           [pedido.pedidoId],
@@ -575,9 +570,7 @@ class RepositorioTablero {
   /// El aviso de los que se llevo la cascada se da UNA vez (§7.5).
   Future<void> olvidarDesaparecidos() async {
     await _listo();
-    await _base.customStatement(
-      'DELETE FROM ${EsquemaTablero.desaparecidos}',
-    );
+    await _base.customStatement('DELETE FROM ${EsquemaTablero.desaparecidos}');
     EsquemaTablero.avisarDeCambio(_base);
   }
 

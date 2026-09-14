@@ -41,12 +41,7 @@ abstract final class AccionesTablero {
               padding: const EdgeInsets.only(top: 6),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Insignia(
-                  marca.texto,
-                  color: marca.grave
-                      ? ColoresTablero.rojo
-                      : ColoresTablero.ambar,
-                ),
+                child: insigniaDeMarca(marca),
               ),
             ),
           const Divider(height: 24),
@@ -337,21 +332,17 @@ abstract final class AccionesTablero {
               subtitle: Text('${destino.pedidos} pedidos'),
               onTap: () {
                 Navigator.of(contexto).pop();
-                _hacer(
-                  context,
-                  ref,
-                  () async {
-                    final mando = ref.read(tableroProvider.notifier);
-                    if (borrarDespues) {
-                      await mando.borrarColumna(
-                        columna.id,
-                        destinoId: destino.id,
-                      );
-                    } else {
-                      await mando.moverTodo(columna.id, destino.id);
-                    }
-                  },
-                );
+                _hacer(context, ref, () async {
+                  final mando = ref.read(tableroProvider.notifier);
+                  if (borrarDespues) {
+                    await mando.borrarColumna(
+                      columna.id,
+                      destinoId: destino.id,
+                    );
+                  } else {
+                    await mando.moverTodo(columna.id, destino.id);
+                  }
+                });
               },
             ),
         ],
@@ -472,11 +463,7 @@ abstract final class AccionesTablero {
       if (exito != null && context.mounted) _decir(context, exito);
     } on RechazoDelTablero catch (e) {
       if (!context.mounted) return;
-      _decir(
-        context,
-        [e.mensaje, ...e.detalles].join('\n'),
-        problema: true,
-      );
+      _decir(context, [e.mensaje, ...e.detalles].join('\n'), problema: true);
     }
   }
 

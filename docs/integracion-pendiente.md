@@ -213,7 +213,12 @@ Pero son decisiones de negocio, no técnicas, y alguien tiene que mirarlas:
 
 ## Error mío al repartir el trabajo — hay que corregirlo en TODAS las pantallas
 
-- [ ] **El cajón va también en escritorio.** Les dije a los agentes «cajón en móvil, modal
+- [x] ~~**El cajón va también en escritorio.**~~ CORREGIDO el 14/09/2026: quitada la rama de
+      escritorio en las dos copias. Queda sólo unificarlas con `lib/diseno/cajon.dart`,
+      que hace falta darles título — hoy va dentro del cuerpo. El kit del armazón se
+      escribió BIEN desde el principio: su cabecera cita el pliego §9.2.
+
+      Lo que pasó: Les dije a los agentes «cajón en móvil, modal
       en escritorio», que es la regla general de la casa. Pero `pantallas.md:25` dice que
       **delivery es una excepción aprobada el 05/09/2026: usa SIEMPRE cajón lateral,
       también en escritorio**, y que no hay variante modal (§757).

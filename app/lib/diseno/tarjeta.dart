@@ -93,7 +93,9 @@ class TarjetaDeCifra extends StatelessWidget {
               children: [
                 Text(
                   etiqueta,
-                  style: tema.textTheme.bodySmall?.copyWith(color: Colores.gris),
+                  style: tema.textTheme.bodySmall?.copyWith(
+                    color: Colores.gris,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(

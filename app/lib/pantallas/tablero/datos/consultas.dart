@@ -100,9 +100,7 @@ class ConsultasTablero {
     final almacenes =
         await (_base.select(_base.warehouses)..where(
               (w) =>
-                  w.activo.equals(true) &
-                  w.lat.isNotNull() &
-                  w.lng.isNotNull(),
+                  w.activo.equals(true) & w.lat.isNotNull() & w.lng.isNotNull(),
             ))
             .get();
 
@@ -178,7 +176,7 @@ ORDER BY c.posicion ASC, c.created_at ASC''',
           ),
         )
         .toList(growable: false);
-    }
+  }
 
   /// TODO lo que esta puesto, se pueda repartir o no.
   ///
@@ -213,37 +211,40 @@ ORDER BY c.posicion ASC, p.posicion ASC''',
       repes[clave] = (repes[clave] ?? 0) + 1;
     }
 
-    return filas.map((f) {
-      final nombre = f.read<String>('customer_name');
-      return TarjetaColocada(
-        columnaId: f.read<String>('column_id'),
-        posicion: f.read<int>('posicion'),
-        colocadoAt: f.readNullable<DateTime>('colocado_at'),
-        pedido: TarjetaPedido(
-          pedidoId: f.read<String>('order_id'),
-          operationNumber: f.readNullable<String>('operation_number'),
-          customerName: nombre,
-          customerPhone: f.readNullable<String>('customer_phone'),
-          address:
-              f.readNullable<String>('end_address') ?? f.read<String>('address'),
-          weight: f.read<double>('weight'),
-          pedidoCosto: f.readNullable<double>('pedido_costo'),
-          municipio: f.readNullable<String>('municipio'),
-          vendedor: f.readNullable<String>('vendedor'),
-          orderDate: f.readNullable<DateTime>('order_date'),
-          facturaEstado: f.readNullable<String>('factura_estado'),
-          archivado: f.read<int>('archivado') != 0,
-          rutaId: f.readNullable<String>('route_id'),
-          resultado: f.readNullable<String>('resultado'),
-          kmAlAlmacen: _km(
-            origen,
-            f.readNullable<double>('end_lat'),
-            f.readNullable<double>('end_lng'),
-          ),
-          mismoCliente: repes[nombre.trim().toLowerCase()] ?? 1,
-        ),
-      );
-    }).toList(growable: false);
+    return filas
+        .map((f) {
+          final nombre = f.read<String>('customer_name');
+          return TarjetaColocada(
+            columnaId: f.read<String>('column_id'),
+            posicion: f.read<int>('posicion'),
+            colocadoAt: f.readNullable<DateTime>('colocado_at'),
+            pedido: TarjetaPedido(
+              pedidoId: f.read<String>('order_id'),
+              operationNumber: f.readNullable<String>('operation_number'),
+              customerName: nombre,
+              customerPhone: f.readNullable<String>('customer_phone'),
+              address:
+                  f.readNullable<String>('end_address') ??
+                  f.read<String>('address'),
+              weight: f.read<double>('weight'),
+              pedidoCosto: f.readNullable<double>('pedido_costo'),
+              municipio: f.readNullable<String>('municipio'),
+              vendedor: f.readNullable<String>('vendedor'),
+              orderDate: f.readNullable<DateTime>('order_date'),
+              facturaEstado: f.readNullable<String>('factura_estado'),
+              archivado: f.read<int>('archivado') != 0,
+              rutaId: f.readNullable<String>('route_id'),
+              resultado: f.readNullable<String>('resultado'),
+              kmAlAlmacen: _km(
+                origen,
+                f.readNullable<double>('end_lat'),
+                f.readNullable<double>('end_lng'),
+              ),
+              mismoCliente: repes[nombre.trim().toLowerCase()] ?? 1,
+            ),
+          );
+        })
+        .toList(growable: false);
   }
 
   /// Los tres contadores de arriba, contados en la base y no sobre lo pintado.
@@ -429,27 +430,25 @@ WHERE c.branch_id = ?1''',
   Future<(List<String> municipios, List<String> vendedores)> facetas(
     String sucursalId,
   ) async {
-    final filas =
-        await (_base.select(_base.orders)
-              ..where(
-                (t) =>
-                    t.branchId.equals(sucursalId) & t.routeId.isNull(),
-              ))
-            .get();
-    final municipios = filas
-        .map((p) => p.municipio)
-        .whereType<String>()
-        .where((m) => m.trim().isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    final vendedores = filas
-        .map((p) => p.vendedor)
-        .whereType<String>()
-        .where((v) => v.trim().isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final filas = await (_base.select(
+      _base.orders,
+    )..where((t) => t.branchId.equals(sucursalId) & t.routeId.isNull())).get();
+    final municipios =
+        filas
+            .map((p) => p.municipio)
+            .whereType<String>()
+            .where((m) => m.trim().isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final vendedores =
+        filas
+            .map((p) => p.vendedor)
+            .whereType<String>()
+            .where((v) => v.trim().isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
     return (municipios, vendedores);
   }
 

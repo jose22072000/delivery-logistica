@@ -27,7 +27,10 @@ final monedasProvider = StreamProvider<List<Moneda>>(
 
 /// La unica fila de ajustes. Trae la tasa CUP y de cuando es.
 final ajustesProvider = StreamProvider<Ajustes?>(
-  (ref) => ref.watch(baseProvider).select(ref.watch(baseProvider).settings).watchSingleOrNull(),
+  (ref) => ref
+      .watch(baseProvider)
+      .select(ref.watch(baseProvider).settings)
+      .watchSingleOrNull(),
 );
 
 /// La moneda en la que se PINTAN los importes. Los datos se guardan en USD

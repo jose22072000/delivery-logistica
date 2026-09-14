@@ -1,125 +1,71 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-/// Las cuatro piezas de pintar que usa el tablero. Viven aqui, dentro de la
-/// pantalla, porque el kit comun de `lib/diseno/` todavia no esta escrito; el
-/// dia que lo este, esto se cambia por aquello y nada mas.
-abstract final class ColoresTablero {
-  /// El ambar del pliego: «mira esto». Sólo para lo que de verdad puede
-  /// enganar, porque pintarlo todo en ambar es no pintar nada.
-  static const ambar = Color(0xFFB45309);
+import '../../../diseno/cajon.dart';
+import '../../../diseno/colores.dart';
+import '../../../diseno/insignia.dart';
+import '../../../diseno/numeros.dart';
+import '../datos/modelos.dart';
 
-  /// Hoy no sale.
-  static const rojo = Color(0xFFB91C1C);
+export '../../../diseno/colores.dart' show Colores;
+export '../../../diseno/insignia.dart' show Insignia;
 
-  static const verde = Color(0xFF15803D);
-}
+/// Lo poco de pintar que es del tablero y no del kit de la casa.
+///
+/// El kit comun (`lib/diseno/`) manda: los colores, la insignia, los numeros y
+/// **el cajon** salen de alli, no de aqui. Lo que queda en este fichero son
+/// tres formatos que el tablero necesita y el kit no tiene: los kilometros de
+/// un pedido SIN coordenadas, y la hora de la ultima bajada.
 
-final _km = NumberFormat('#,##0.0', 'es');
-final _peso = NumberFormat('#,##0', 'es');
-final _dinero = NumberFormat('#,##0.##', 'es');
+/// Los kilometros de una tarjeta.
+///
+/// Un pedido sin coordenadas llega como `infinity` —no como cero, que lo
+/// pondria el primero de «lo mas cerca»— y aqui se dice con letras. Pintar
+/// «0,0 km» sobre un pedido que nadie sabe donde esta es peor que no pintar
+/// nada.
+String kmBonito(double km) => km.isFinite ? Numeros.km(km) : 'sin ubicar';
 
-String kmBonito(double km) => km.isFinite ? '${_km.format(km)} km' : 'sin ubicar';
+/// El peso de una columna va redondeado: es el subtexto de una cabecera, no una
+/// factura.
+String pesoBonito(double kg) => Numeros.kgRedondeado(kg);
 
-String pesoBonito(double kg) => '${_peso.format(kg)} kg';
-
-String dineroBonito(double usd) => '${_dinero.format(usd)} \$';
+String dineroBonito(double usd) => '${Numeros.importe(usd)} \$';
 
 String horaBonita(DateTime cuando) => DateFormat('H:mm').format(cuando);
 
-/// UN CAJON EN EL MOVIL, UN MODAL EN EL ESCRITORIO — y la ✕ no desaparece
-/// nunca.
+/// Los dos colores con los que se marcan las tarjetas. En **rojo** lo que hoy no
+/// sale; en **ambar** lo que sale distinto de como se pidio. Pintarlo todo en
+/// ambar es no pintar nada.
+abstract final class ColoresTablero {
+  static const rojo = Colores.rojo;
+  static const rojoFondo = Colores.rojoFondo;
+  static const ambar = Colores.ambar;
+  static const ambarFondo = Colores.ambarFondo;
+}
+
+/// La marca de una tarjeta, con su color.
 ///
-/// Es la regla de la casa para todos los proyectos de Procovar. Con el dedo, un
-/// cajon que sube desde abajo se alcanza; un dialogo centrado, no. Y la ✕ se
-/// queda siempre porque «toca fuera para cerrar» no se ve, no se adivina y en
-/// una pantalla pequena no hay «fuera».
+/// En rojo lo que hoy NO sale (archivado, ya en otra ruta, sin factura, sin
+/// cotejar); en ambar lo que sale distinto (`cambiado`), que se reparte igual
+/// pero deja el peso de la columna sin ser el que era.
+Insignia insigniaDeMarca(MarcaTarjeta marca) =>
+    marca.grave ? insigniaGrave(marca.texto) : insigniaAviso(marca.texto);
+
+Insignia insigniaGrave(String texto) =>
+    Insignia(texto, color: Colores.rojo, fondo: Colores.rojoFondo);
+
+Insignia insigniaAviso(String texto) =>
+    Insignia(texto, color: Colores.ambar, fondo: Colores.ambarFondo);
+
+/// El cajon de la casa, con el nombre que usa esta pantalla.
+///
+/// En delivery es **cajon tambien en escritorio** (excepcion aprobada el
+/// 05/09/2026): estos paneles llevan listas largas —las doce columnas del
+/// tablero, las paradas de una ruta— y un modal centrado con scroll dentro es
+/// peor que un panel a alto completo. La ✕ de cerrar la pone el cajon y no
+/// desaparece nunca.
 Future<T?> mostrarCajon<T>({
   required BuildContext context,
   required String titulo,
   required WidgetBuilder contenido,
-}) {
-  final anchoPantalla = MediaQuery.sizeOf(context).width;
-  if (anchoPantalla < 720) {
-    return showModalBottomSheet<T>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      builder: (contexto) => _Envoltorio(titulo: titulo, hijo: contenido(contexto)),
-    );
-  }
-  return showDialog<T>(
-    context: context,
-    builder: (contexto) => Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: _Envoltorio(titulo: titulo, hijo: contenido(contexto)),
-      ),
-    ),
-  );
-}
-
-class _Envoltorio extends StatelessWidget {
-  const _Envoltorio({required this.titulo, required this.hijo});
-
-  final String titulo;
-  final Widget hijo;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                titulo,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Cerrar',
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-          ],
-        ),
-      ),
-      Flexible(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          child: hijo,
-        ),
-      ),
-    ],
-  );
-}
-
-/// Una insignia pequena. En rojo lo que hoy no sale, en ambar lo que sale
-/// distinto.
-class Insignia extends StatelessWidget {
-  const Insignia(this.texto, {required this.color, super.key});
-
-  final String texto;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(4),
-      border: Border.all(color: color.withValues(alpha: 0.4)),
-    ),
-    child: Text(
-      texto,
-      style: Theme.of(
-        context,
-      ).textTheme.labelSmall?.copyWith(color: color, height: 1.2),
-    ),
-  );
-}
+}) => abrirCajon<T>(context, titulo: titulo, cuerpo: contenido);

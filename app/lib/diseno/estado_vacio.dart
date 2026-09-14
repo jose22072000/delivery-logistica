@@ -23,9 +23,8 @@ class EstadoVacio extends StatelessWidget {
         Text(
           texto,
           textAlign: TextAlign.center,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: Colores.gris),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(color: Colores.gris),
         ),
       ],
     ),
@@ -45,14 +44,17 @@ class PantallaSinDescargar extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.cloud_download_outlined, size: 32, color: Colores.ambar),
+        const Icon(
+          Icons.cloud_download_outlined,
+          size: 32,
+          color: Colores.ambar,
+        ),
         const SizedBox(height: 8),
         Text(
           SinDescargar.textoDeLaPantallaVacia,
           textAlign: TextAlign.center,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: Colores.ambar),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(color: Colores.ambar),
         ),
       ],
     ),
@@ -62,7 +64,11 @@ class PantallaSinDescargar extends StatelessWidget {
 /// El aviso ambar de una franja: se usa arriba de los Informes cuando los
 /// numeros salen del aparato y no del servidor.
 class AvisoAmbar extends StatelessWidget {
-  const AvisoAmbar(this.texto, {this.icono = Icons.warning_amber_outlined, super.key});
+  const AvisoAmbar(
+    this.texto, {
+    this.icono = Icons.warning_amber_outlined,
+    super.key,
+  });
 
   final String texto;
   final IconData icono;
@@ -84,9 +90,8 @@ class AvisoAmbar extends StatelessWidget {
         Expanded(
           child: Text(
             texto,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: Colores.ambar),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: Colores.ambar),
           ),
         ),
       ],

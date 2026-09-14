@@ -51,7 +51,10 @@ class TarjetaDePedido extends StatelessWidget {
       feedback: Material(
         elevation: 6,
         borderRadius: BorderRadius.circular(8),
-        child: SizedBox(width: 280, child: _contenido(context, arrastrando: true)),
+        child: SizedBox(
+          width: 280,
+          child: _contenido(context, arrastrando: true),
+        ),
       ),
       childWhenDragging: Opacity(opacity: 0.35, child: tarjeta),
       child: tarjeta,
@@ -138,13 +141,7 @@ class TarjetaDePedido extends StatelessWidget {
                   spacing: 4,
                   runSpacing: 4,
                   children: [
-                    for (final marca in marcas)
-                      Insignia(
-                        marca.texto,
-                        color: marca.grave
-                            ? ColoresTablero.rojo
-                            : ColoresTablero.ambar,
-                      ),
+                    for (final marca in marcas) insigniaDeMarca(marca),
                   ],
                 ),
               ],

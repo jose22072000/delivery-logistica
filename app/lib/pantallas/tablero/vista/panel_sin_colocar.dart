@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../datos/modelos.dart';
+import '../estado/filtros_en_la_url.dart';
 import '../estado/proveedores.dart';
 import 'kit.dart';
 import 'tarjeta.dart';
@@ -92,9 +93,11 @@ class _PanelSinColocarState extends ConsumerState<PanelSinColocar> {
                   hintText: 'Cliente, operación, dirección, artículo…',
                   border: OutlineInputBorder(),
                 ),
-                onSubmitted: (texto) => ref
-                    .read(filtrosTableroProvider.notifier)
-                    .poner(filtros.copiaCon(q: texto)),
+                onSubmitted: (texto) => FiltrosEnLaUrl.poner(
+                  context,
+                  ref,
+                  filtros.copiaCon(q: texto),
+                ),
               ),
             ),
             if (izquierda.truncada)
@@ -146,10 +149,8 @@ class _PanelSinColocarState extends ConsumerState<PanelSinColocar> {
     await mostrarCajon<void>(
       context: context,
       titulo: 'Filtros',
-      contenido: (contexto) => _Filtros(
-        municipios: facetas.$1,
-        vendedores: facetas.$2,
-      ),
+      contenido: (contexto) =>
+          _Filtros(municipios: facetas.$1, vendedores: facetas.$2),
     );
   }
 }
@@ -163,7 +164,8 @@ class _Filtros extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final filtros = ref.watch(filtrosTableroProvider);
-    final mando = ref.read(filtrosTableroProvider.notifier);
+    void poner(FiltrosSinColocar nuevos) =>
+        FiltrosEnLaUrl.poner(context, ref, nuevos);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -179,8 +181,7 @@ class _Filtros extends ConsumerWidget {
               ? null
               : IconButton(
                   icon: const Icon(Icons.close),
-                  onPressed: () =>
-                      mando.poner(filtros.copiaCon(quitarDia: true)),
+                  onPressed: () => poner(filtros.copiaCon(quitarDia: true)),
                 ),
           onTap: () async {
             final elegido = await showDatePicker(
@@ -189,7 +190,7 @@ class _Filtros extends ConsumerWidget {
               firstDate: DateTime(2024),
               lastDate: DateTime.now().add(const Duration(days: 365)),
             );
-            if (elegido != null) mando.poner(filtros.copiaCon(dia: elegido));
+            if (elegido != null) poner(filtros.copiaCon(dia: elegido));
           },
         ),
         const SizedBox(height: 8),
@@ -204,7 +205,7 @@ class _Filtros extends ConsumerWidget {
             for (final m in municipios)
               DropdownMenuItem<String>(value: m, child: Text(m)),
           ],
-          onChanged: (valor) => mando.poner(
+          onChanged: (valor) => poner(
             valor == null
                 ? filtros.copiaCon(quitarMunicipio: true)
                 : filtros.copiaCon(municipio: valor),
@@ -222,7 +223,7 @@ class _Filtros extends ConsumerWidget {
             for (final v in vendedores)
               DropdownMenuItem<String>(value: v, child: Text(v)),
           ],
-          onChanged: (valor) => mando.poner(
+          onChanged: (valor) => poner(
             valor == null
                 ? filtros.copiaCon(quitarVendedor: true)
                 : filtros.copiaCon(vendedor: valor),
@@ -238,7 +239,7 @@ class _Filtros extends ConsumerWidget {
           ),
           onFieldSubmitted: (texto) {
             final valor = double.tryParse(texto.replaceAll(',', '.'));
-            mando.poner(
+            poner(
               valor == null
                   ? filtros.copiaCon(quitarKmMax: true)
                   : filtros.copiaCon(kmMax: valor),
@@ -247,7 +248,7 @@ class _Filtros extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         OutlinedButton(
-          onPressed: mando.limpiar,
+          onPressed: () => poner(const FiltrosSinColocar()),
           child: const Text('Quitar todos los filtros'),
         ),
       ],

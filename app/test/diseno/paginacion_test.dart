@@ -58,7 +58,13 @@ void main() {
     });
 
     test('al final se pega a la ultima', () {
-      expect(paginasVisibles(actual: 20, totalPaginas: 20), [16, 17, 18, 19, 20]);
+      expect(paginasVisibles(actual: 20, totalPaginas: 20), [
+        16,
+        17,
+        18,
+        19,
+        20,
+      ]);
     });
   });
 
@@ -66,12 +72,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: Paginacion(
-            pagina: 1,
-            porPagina: 50,
-            total: 0,
-            alIrA: (_) {},
-          ),
+          body: Paginacion(pagina: 1, porPagina: 50, total: 0, alIrA: (_) {}),
         ),
       ),
     );
@@ -82,12 +83,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: Paginacion(
-            pagina: 2,
-            porPagina: 50,
-            total: 123,
-            alIrA: (_) {},
-          ),
+          body: Paginacion(pagina: 2, porPagina: 50, total: 123, alIrA: (_) {}),
         ),
       ),
     );

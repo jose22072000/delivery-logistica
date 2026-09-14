@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../nucleo/proveedores.dart';
 import '../datos/modelos.dart';
+import '../estado/filtros_en_la_url.dart';
 import '../estado/proveedores.dart';
 import 'acciones.dart';
 import 'columna.dart';
@@ -23,21 +23,20 @@ import 'tarjeta.dart';
 /// de sitio, y es justo lo que se hace durante el dia, que es cuando no hay
 /// senal. No hay ningun «modo sin conexion» que encender: se guarda en el
 /// aparato y se sube por detras.
+///
+/// **Sin `Scaffold` ni `AppBar`**: los pone el armazon
+/// (`navegacion/pantalla_registrada.dart`). Devolver otro deja dos barras
+/// superiores y rompe el selector de sucursal.
 class PantallaTablero extends ConsumerStatefulWidget {
-  const PantallaTablero({super.key});
+  const PantallaTablero({this.filtrosDeLaUrl, super.key});
+
+  /// Los filtros que venian en la direccion. En web, mandar un enlace al
+  /// tablero ya filtrado tiene que llevar al mismo sitio.
+  final FiltrosSinColocar? filtrosDeLaUrl;
 
   @override
   ConsumerState<PantallaTablero> createState() => _PantallaTableroState();
 }
-
-String _texto(Object fallo) => switch (fallo) {
-  // No se ensena «todo», que es lo que pareceria razonable y seria lo peor.
-  final FaltaElegirSucursal e => e.mensaje,
-  // Se ordena desde el sitio del que sale la mercancia, o no se ordena.
-  final SinAlmacenConCoordenadas e => e.mensaje,
-  final RechazoDelTablero e => e.mensaje,
-  _ => 'No se pudo abrir el tablero: $fallo',
-};
 
 class _PantallaTableroState extends ConsumerState<PantallaTablero> {
   /// En el movil las dos mitades no caben a la vez. Se ensena una y se cambia.
@@ -47,47 +46,41 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
   static const _anchoDeDosMitades = 900.0;
 
   @override
+  void initState() {
+    super.initState();
+    _adoptarLaUrl();
+  }
+
+  @override
+  void didUpdateWidget(PantallaTablero anterior) {
+    super.didUpdateWidget(anterior);
+    _adoptarLaUrl();
+  }
+
+  /// Los filtros de la direccion mandan al entrar.
+  ///
+  /// Se hace fuera del `build` —despues del fotograma— porque tocar un provider
+  /// mientras se construye es lo que Riverpod prohibe, con razon: dejaria el
+  /// arbol a medio pintar con dos estados distintos.
+  void _adoptarLaUrl() {
+    final deLaUrl = widget.filtrosDeLaUrl;
+    if (deLaUrl == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ahora = ref.read(filtrosTableroProvider);
+      if (!FiltrosEnLaUrl.iguales(ahora, deLaUrl)) {
+        ref.read(filtrosTableroProvider.notifier).poner(deLaUrl);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final asincrono = ref.watch(tableroProvider);
-    final sinSubir = ref.watch(sinSubirProvider).value ?? 0;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tablero de preparación'),
-        actions: [
-          if (sinSubir > 0)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Center(
-                child: Text(
-                  '$sinSubir sin subir',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: ColoresTablero.ambar,
-                  ),
-                ),
-              ),
-            ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Traer lo del servidor',
-            onPressed: () =>
-                ref.read(tableroProvider.notifier).bajarDelServidor(),
-          ),
-        ],
-      ),
-      floatingActionButton:
-          asincrono.hasValue && asincrono.value?.problema == null
-          ? FloatingActionButton.extended(
-              onPressed: () => AccionesTablero.crearColumna(context, ref),
-              icon: const Icon(Icons.add),
-              label: const Text('Columna'),
-            )
-          : null,
-      body: asincrono.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => _Problema(texto: _texto(e)),
-        data: _conDatos,
-      ),
+    return asincrono.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => _Problema(texto: _texto(e)),
+      data: _conDatos,
     );
   }
 
@@ -118,7 +111,7 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
                       tablero: tablero,
                       alPulsarTarjeta: (pedido) =>
                           _moverTarjeta(tablero, pedido),
-                      alDevolver: (datos) => _devolver(datos),
+                      alDevolver: _devolver,
                     ),
                   ),
                   const VerticalDivider(width: 1),
@@ -137,7 +130,9 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
                     segments: [
                       ButtonSegment<bool>(
                         value: false,
-                        label: Text('Sin colocar (${tablero.sinColocar.total})'),
+                        label: Text(
+                          'Sin colocar (${tablero.sinColocar.total})',
+                        ),
                       ),
                       ButtonSegment<bool>(
                         value: true,
@@ -167,31 +162,35 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
     ],
   );
 
-  void _moverTarjeta(
-    Tablero tablero,
-    TarjetaPedido pedido, {
-    String? columnaId,
-    int? posicion,
-  }) {
+  void _moverTarjeta(Tablero tablero, TarjetaPedido pedido) {
     unawaited(
       AccionesTablero.moverTarjeta(
         context,
         ref,
         pedido: pedido,
         tablero: tablero,
-        columnaActual: columnaId,
-        posicionActual: posicion,
       ),
     );
   }
 
   void _devolver(TarjetaArrastrada datos) {
+    // Arrastrar a la izquierda algo que ya estaba a la izquierda no es una
+    // orden: es un dedo que se escapo.
     if (datos.desdeColumnaId == null) return;
     unawaited(ref.read(tableroProvider.notifier).quitar(datos.pedidoId));
   }
 }
 
-/// La tira de columnas, que se desplaza a lo ancho.
+String _texto(Object fallo) => switch (fallo) {
+  // No se ensena «todo», que es lo que pareceria razonable y seria lo peor.
+  final FaltaElegirSucursal e => e.mensaje,
+  // Se ordena desde el sitio del que sale la mercancia, o no se ordena.
+  final SinAlmacenConCoordenadas e => e.mensaje,
+  final RechazoDelTablero e => e.mensaje,
+  _ => 'No se pudo abrir el tablero: $fallo',
+};
+
+/// La tira de columnas, que se desplaza a lo ancho, con el «+» al final.
 class _Tira extends ConsumerWidget {
   const _Tira({required this.tablero, required this.alto});
 
@@ -203,6 +202,7 @@ class _Tira extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final ancho = alto ? 300.0 : MediaQuery.sizeOf(context).width - 24;
     if (tablero.columnas.isEmpty) {
       return Center(
         child: Padding(
@@ -222,18 +222,29 @@ class _Tira extends ConsumerWidget {
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () =>
+                    unawaited(AccionesTablero.crearColumna(context, ref)),
+                icon: const Icon(Icons.add),
+                label: const Text('Nueva columna'),
+              ),
             ],
           ),
         ),
       );
     }
 
-    final ancho = alto ? 300.0 : MediaQuery.sizeOf(context).width - 24;
     return ListView.builder(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 72),
-      itemCount: tablero.columnas.length,
+      padding: const EdgeInsets.all(4),
+      // Una mas: el «+» del final, que es como dice el pliego que se crea una
+      // columna.
+      itemCount: tablero.columnas.length + 1,
       itemBuilder: (contexto, i) {
+        if (i == tablero.columnas.length) {
+          return _BotonNuevaColumna(ancho: alto ? 140 : ancho);
+        }
         final columna = tablero.columnas[i];
         return ColumnaDelTablero(
           columna: columna,
@@ -283,62 +294,96 @@ class _Tira extends ConsumerWidget {
   }
 }
 
-/// De donde se mide, de cuando son los datos y que ha dejado de servir.
-class _BarraDeArriba extends StatelessWidget {
+class _BotonNuevaColumna extends ConsumerWidget {
+  const _BotonNuevaColumna({required this.ancho});
+
+  final double ancho;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Container(
+    width: ancho,
+    margin: const EdgeInsets.symmetric(horizontal: 4),
+    child: OutlinedButton(
+      onPressed: () => unawaited(AccionesTablero.crearColumna(context, ref)),
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.add),
+          SizedBox(height: 4),
+          Text('Columna', textAlign: TextAlign.center),
+        ],
+      ),
+    ),
+  );
+}
+
+/// De donde se mide, de cuando son los datos y qué ha dejado de servir.
+///
+/// Lo que queda sin subir NO se pinta aqui: ya lo dice la franja del armazon,
+/// en las siete pantallas. Dos contadores del mismo numero es el sitio perfecto
+/// para que un dia digan cosas distintas.
+class _BarraDeArriba extends ConsumerWidget {
   const _BarraDeArriba({required this.tablero});
 
   final Tablero tablero;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final tema = Theme.of(context);
     final avisos = tablero.avisos;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
       color: tema.colorScheme.surfaceContainerHighest,
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      child: Row(
         children: [
-          Text(
-            '${tablero.sucursalNombre} · desde ${tablero.almacen.nombre}',
-            style: tema.textTheme.labelMedium,
-          ),
-          // Un tablero que parece vivo y lleva seis horas congelado es peor que
-          // uno que avisa.
-          Text(
-            tablero.vistoAt == null
-                ? 'Sin descargar todavía'
-                : 'Visto por última vez a las ${horaBonita(tablero.vistoAt!)}',
-            style: tema.textTheme.labelMedium?.copyWith(
-              color: tablero.vistoAt == null
-                  ? ColoresTablero.ambar
-                  : tema.colorScheme.onSurfaceVariant,
+          Expanded(
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  '${tablero.sucursalNombre} · desde ${tablero.almacen.nombre}',
+                  style: tema.textTheme.labelMedium,
+                ),
+                // Un tablero que parece vivo y lleva seis horas congelado es
+                // peor que uno que avisa.
+                Text(
+                  tablero.vistoAt == null
+                      ? 'Sin descargar todavía'
+                      : 'Visto por última vez a las '
+                            '${horaBonita(tablero.vistoAt!)}',
+                  style: tema.textTheme.labelMedium?.copyWith(
+                    color: tablero.vistoAt == null
+                        ? ColoresTablero.ambar
+                        : tema.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                // Tres contadores y no uno: se arreglan de tres maneras
+                // distintas, y un numero unico obligaria a abrir las doce
+                // columnas para saber cual es.
+                if (avisos.archivados > 0)
+                  insigniaGrave('${avisos.archivados} archivados en PEDIDO'),
+                if (avisos.enOtraRuta > 0)
+                  insigniaGrave('${avisos.enOtraRuta} ya en otra ruta'),
+                if (avisos.sinFactura > 0)
+                  insigniaGrave(
+                    '${avisos.sinFactura} sin factura o sin cotejar',
+                  ),
+                if (avisos.cambiados > 0)
+                  insigniaAviso('${avisos.cambiados} cambiaron en la factura'),
+              ],
             ),
           ),
-          // Tres contadores y no uno: se arreglan de tres maneras distintas.
-          if (avisos.archivados > 0)
-            Insignia(
-              '${avisos.archivados} archivados en PEDIDO',
-              color: ColoresTablero.rojo,
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Traer lo del servidor',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => unawaited(
+              ref.read(tableroProvider.notifier).bajarDelServidor(),
             ),
-          if (avisos.enOtraRuta > 0)
-            Insignia(
-              '${avisos.enOtraRuta} ya en otra ruta',
-              color: ColoresTablero.rojo,
-            ),
-          if (avisos.sinFactura > 0)
-            Insignia(
-              '${avisos.sinFactura} sin factura o sin cotejar',
-              color: ColoresTablero.rojo,
-            ),
-          if (avisos.cambiados > 0)
-            Insignia(
-              '${avisos.cambiados} cambiaron en la factura',
-              color: ColoresTablero.ambar,
-            ),
+          ),
         ],
       ),
     );
@@ -363,7 +408,7 @@ class _AvisoDesaparecidos extends ConsumerWidget {
         )
         .join(', ');
     return MaterialBanner(
-      backgroundColor: ColoresTablero.rojo.withValues(alpha: 0.08),
+      backgroundColor: ColoresTablero.rojoFondo,
       content: Text(
         cuantos == 1
             ? '1 pedido que tenías puesto ya no está en PEDIDO: $lista'
@@ -372,8 +417,9 @@ class _AvisoDesaparecidos extends ConsumerWidget {
       ),
       actions: [
         TextButton(
-          onPressed: () =>
-              ref.read(tableroProvider.notifier).olvidarDesaparecidos(),
+          onPressed: () => unawaited(
+            ref.read(tableroProvider.notifier).olvidarDesaparecidos(),
+          ),
           child: const Text('Entendido'),
         ),
       ],
@@ -388,12 +434,10 @@ class _Problema extends StatelessWidget {
   final String texto;
 
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Text(texto, textAlign: TextAlign.center),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Text(texto, textAlign: TextAlign.center),
+    ),
+  );
 }

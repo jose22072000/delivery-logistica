@@ -77,12 +77,10 @@ final camionesProvider = FutureProvider<List<Vehiculo>>((ref) async {
 /// tablero que parece vivo y lleva seis horas congelado es peor que uno que
 /// avisa (§6).
 final vistoAtProvider = StreamProvider<DateTime?>(
-  (ref) => ref
-      .watch(frescuraProvider)
-      .laMasVieja(const [
-        EsquemaTablero.coleccionColumnas,
-        EsquemaTablero.coleccionColocaciones,
-      ]),
+  (ref) => ref.watch(frescuraProvider).laMasVieja(const [
+    EsquemaTablero.coleccionColumnas,
+    EsquemaTablero.coleccionColocaciones,
+  ]),
 );
 
 /// EL TABLERO. Siempre desde la base local, con red y sin ella.
@@ -152,10 +150,11 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
         filtros: filtros,
       ),
       desaparecidos: await consultas.desaparecidos(),
-      vistoAt: (await ref
-              .read(frescuraProvider)
-              .leer(EsquemaTablero.coleccionColocaciones))
-          ?.bajadaAt,
+      vistoAt:
+          (await ref
+                  .read(frescuraProvider)
+                  .leer(EsquemaTablero.coleccionColocaciones))
+              ?.bajadaAt,
     );
   }
 
@@ -229,11 +228,7 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
   }) async {
     await ref
         .read(repositorioTableroProvider)
-        .colocar(
-          pedidoId: pedidoId,
-          columnaId: columnaId,
-          posicion: posicion,
-        );
+        .colocar(pedidoId: pedidoId, columnaId: columnaId, posicion: posicion);
     await refrescar();
   }
 
@@ -259,18 +254,16 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
   }
 
   Future<void> renombrar(String columnaId, String nombre) async {
-    await ref.read(repositorioTableroProvider).renombrarColumna(
-      columnaId,
-      nombre,
-    );
+    await ref
+        .read(repositorioTableroProvider)
+        .renombrarColumna(columnaId, nombre);
     await refrescar();
   }
 
   Future<void> elegirCamion(String columnaId, String? vehiculoId) async {
-    await ref.read(repositorioTableroProvider).elegirCamion(
-      columnaId,
-      vehiculoId,
-    );
+    await ref
+        .read(repositorioTableroProvider)
+        .elegirCamion(columnaId, vehiculoId);
     await refrescar();
   }
 

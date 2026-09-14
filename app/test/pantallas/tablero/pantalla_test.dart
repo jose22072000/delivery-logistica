@@ -36,6 +36,17 @@ void main() {
 
   tearDown(() => base.close());
 
+  /// Deja que la pantalla se asiente, con un tope corto.
+  ///
+  /// El tope por defecto de `pumpAndSettle` son diez minutos: si algo no
+  /// termina de asentarse, la prueba se queda colgada y no dice nada. Con diez
+  /// segundos falla y cuenta por que.
+  Future<void> asentar(WidgetTester tester) => tester.pumpAndSettle(
+    const Duration(milliseconds: 100),
+    EnginePhase.sendSemanticsUpdate,
+    const Duration(seconds: 10),
+  );
+
   /// Desmonta el arbol DENTRO de la prueba.
   ///
   /// Los `Stream` de Drift dejan un temporizador de cero al cerrarse, y si el
@@ -43,7 +54,10 @@ void main() {
   /// Timer» sin que haya nada roto. Desmontar aqui deja que se apague.
   Future<void> desmontar(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox.shrink());
+    // Dos pasadas: el temporizador lo crea el propio desmontaje, al final del
+    // primer fotograma, asi que hace falta otro para que llegue a dispararse.
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
   }
 
   Widget montar() {
@@ -63,7 +77,9 @@ void main() {
           ),
         ),
       ],
-      child: const MaterialApp(home: PantallaTablero()),
+      // La pantalla NO lleva `Scaffold`: lo pone el armazon. Aqui se envuelve a
+      // mano para poder pintarla suelta, sin arrastrar la navegacion entera.
+      child: const MaterialApp(home: Scaffold(body: PantallaTablero())),
     );
   }
 
@@ -89,7 +105,7 @@ void main() {
     );
 
     await tester.pumpWidget(montar());
-    await tester.pumpAndSettle();
+    await asentar(tester);
 
     expect(find.text('Sin colocar (2)'), findsOneWidget);
     expect(find.text('Centro (0)'), findsOneWidget);
@@ -103,11 +119,11 @@ void main() {
     expect(find.textContaining('1,1 km'), findsOneWidget);
 
     await tester.tap(find.text('SC06-1257'));
-    await tester.pumpAndSettle();
+    await asentar(tester);
     expect(find.text('Colocar en «Centro»'), findsOneWidget);
 
     await tester.tap(find.text('Colocar en «Centro»'));
-    await tester.pumpAndSettle();
+    await asentar(tester);
 
     expect(find.text('Centro (1)'), findsOneWidget);
     expect(find.text('Sin colocar (1)'), findsOneWidget);
@@ -138,7 +154,7 @@ void main() {
     );
 
     await tester.pumpWidget(montar());
-    await tester.pumpAndSettle();
+    await asentar(tester);
 
     expect(find.text('SC06-1257'), findsOneWidget, reason: 'sigue en la zona');
     expect(find.text('Sin factura'), findsWidgets);
@@ -154,9 +170,10 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(montar());
-    await tester.pumpAndSettle();
+    await asentar(tester);
 
     expect(find.text('Las zonas las pones tú.'), findsOneWidget);
+    expect(find.text('Nueva columna'), findsOneWidget);
     expect(find.textContaining('Visto por última vez'), findsNothing);
     expect(find.text('Sin descargar todavía'), findsOneWidget);
 

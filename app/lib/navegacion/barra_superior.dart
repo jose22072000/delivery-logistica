@@ -97,7 +97,8 @@ class _Sucursal extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sucursales = ref.watch(sucursalesProvider).value ?? const <Sucursal>[];
+    final sucursales =
+        ref.watch(sucursalesProvider).value ?? const <Sucursal>[];
     final mirada = ref.watch(sucursalMiradaProvider);
 
     // Con ninguna no se pinta nada; con una sola, etiqueta fija (§8.2).
@@ -107,7 +108,8 @@ class _Sucursal extends ConsumerWidget {
       final codigo = unica.externalId;
       return Text(
         codigo == null ? unica.name : '${unica.name} ($codigo)',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colores.gris),
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: Colores.gris),
       );
     }
 
@@ -136,8 +138,9 @@ class _Sucursal extends ConsumerWidget {
               nota: s.externalId,
             ),
         ],
-        alElegir: (v) =>
-            ref.read(sucursalMiradaProvider.notifier).mirar(v.isEmpty ? null : v),
+        alElegir: (v) => ref
+            .read(sucursalMiradaProvider.notifier)
+            .mirar(v.isEmpty ? null : v),
       ),
     );
   }
@@ -155,11 +158,14 @@ class _Moneda extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final monedas = ref.watch(monedasProvider).value ?? const <Moneda>[];
     final mirada = ref.watch(monedaMiradaProvider);
-    final conTasa = monedas.where((m) => m.code != 'USD' && m.rate > 0).toList();
+    final conTasa = monedas
+        .where((m) => m.code != 'USD' && m.rate > 0)
+        .toList();
 
     if (conTasa.isEmpty) {
       return Tooltip(
-        message: 'Esta sucursal no tiene tasa de cambio todavía: '
+        message:
+            'Esta sucursal no tiene tasa de cambio todavía: '
             'los importes sólo se pueden ver en USD.',
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

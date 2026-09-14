@@ -9,25 +9,26 @@ void main() {
     child: MaterialApp(home: Scaffold(body: hijo)),
   );
 
-  testWidgets('en escritorio el cajon `lg` mide 672 px, no la pantalla entera', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1440, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+  testWidgets(
+    'en escritorio el cajon `lg` mide 672 px, no la pantalla entera',
+    (tester) async {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(
-      conAncho(1440, const Cajon(titulo: 'Detalle', child: Text('cuerpo'))),
-    );
+      await tester.pumpWidget(
+        conAncho(1440, const Cajon(titulo: 'Detalle', child: Text('cuerpo'))),
+      );
 
-    final caja = tester.getSize(
-      find.descendant(
-        of: find.byType(Cajon),
-        matching: find.byType(SizedBox).first,
-      ),
-    );
-    expect(caja.width, AnchoCajon.lg.px);
-  });
+      final caja = tester.getSize(
+        find.descendant(
+          of: find.byType(Cajon),
+          matching: find.byType(SizedBox).first,
+        ),
+      );
+      expect(caja.width, AnchoCajon.lg.px);
+    },
+  );
 
   testWidgets('en movil ocupa la pantalla entera', (tester) async {
     tester.view.physicalSize = const Size(390, 800);

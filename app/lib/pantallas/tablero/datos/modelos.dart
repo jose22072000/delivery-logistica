@@ -258,10 +258,7 @@ class PedidoDesaparecido {
 
 /// La mitad izquierda: los pedidos sin colocar, ordenados por cercania.
 class MitadIzquierda {
-  const MitadIzquierda({
-    required this.pedidos,
-    required this.total,
-  });
+  const MitadIzquierda({required this.pedidos, required this.total});
 
   final List<TarjetaPedido> pedidos;
 
@@ -301,10 +298,7 @@ class Tablero {
        columnas = const <ColumnaTablero>[],
        colocados = const <TarjetaColocada>[],
        avisos = const AvisosTablero(),
-       sinColocar = const MitadIzquierda(
-         pedidos: <TarjetaPedido>[],
-         total: 0,
-       ),
+       sinColocar = const MitadIzquierda(pedidos: <TarjetaPedido>[], total: 0),
        desaparecidos = const <PedidoDesaparecido>[],
        vistoAt = null;
 
@@ -326,7 +320,6 @@ class Tablero {
   /// que uno que avisa.
   final DateTime? vistoAt;
 
-  List<TarjetaColocada> deColumna(String columnaId) => colocados
-      .where((t) => t.columnaId == columnaId)
-      .toList(growable: false);
+  List<TarjetaColocada> deColumna(String columnaId) =>
+      colocados.where((t) => t.columnaId == columnaId).toList(growable: false);
 }
