@@ -103,3 +103,21 @@ personas, roles y sucursales es **auth**, y el propio código de delivery lo del
 Así que fuera la tabla y fuera los `user_id`. Donde hace falta dejar constancia de quién
 hizo algo va **`creado_por`**: el id de esa persona en auth, como texto y sin clave ajena.
 Es constancia, no una copia de la lista de personas que habría que mantener al día.
+
+---
+
+## 7 · Los índices del espejo pasan a ser ÚNICOS
+
+`orders_origen_idx` y `customers_origen_idx`, sobre `(source, external_id)`, eran índices
+normales. Eso deja una carrera real: dos pasadas del espejo a la vez leen «no existe» antes
+de que ninguna escriba, y **crean el mismo pedido dos veces** — que sale dos veces en el
+armador de rutas.
+
+Ahora son únicos y parciales (`WHERE source IS NOT NULL AND external_id IS NOT NULL`),
+porque el alta manual no tiene origen ni id externo y de esa puede haber las que sean.
+
+Comprobado contra Postgres: el segundo `INSERT` con el mismo `(pedido, PAH25-001)` lo
+rechaza la base, y dos altas manuales idénticas entran sin problema.
+
+Con esto el upsert del espejo puede y debe ser `ON CONFLICT`, que es atómico. Las consultas
+que hoy hacen buscar-y-escribir hay que cambiarlas.

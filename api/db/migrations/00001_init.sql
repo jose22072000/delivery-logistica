@@ -237,7 +237,13 @@ CREATE TABLE customers (
     created_at      timestamptz NOT NULL DEFAULT now(),
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX customers_origen_idx   ON customers (source, external_id);
+-- ÚNICO, no un índice normal: es la idempotencia del espejo.
+--
+-- Siendo normal, dos pasadas del espejo a la vez leen «no existe» antes de que ninguna
+-- escriba y crean el cliente dos veces. Parcial porque el alta manual no tiene origen ni
+-- id externo, y de esos puede haber los que sean.
+CREATE UNIQUE INDEX customers_origen_idx ON customers (source, external_id)
+    WHERE source IS NOT NULL AND external_id IS NOT NULL;
 CREATE INDEX customers_vendedor_idx ON customers (vendedor);
 CREATE INDEX customers_codigo_idx   ON customers (codigo);
 CREATE TRIGGER trg_customers_updated BEFORE UPDATE ON customers
@@ -342,7 +348,11 @@ CREATE TABLE orders (
 
 -- Los índices son de los filtros que la pantalla ofrece de verdad. Uno por columna y no
 -- uno compuesto: se combinan de todas las formas y Postgres los cruza por su cuenta.
-CREATE INDEX orders_origen_idx      ON orders (source, external_id);
+-- ÚNICO, no un índice normal: es la idempotencia del espejo. Sin esto, dos pasadas
+-- simultáneas crean el mismo pedido dos veces y sale DOS VECES en el armador de rutas.
+-- Parcial porque el alta manual no tiene origen ni id externo.
+CREATE UNIQUE INDEX orders_origen_idx ON orders (source, external_id)
+    WHERE source IS NOT NULL AND external_id IS NOT NULL;
 CREATE INDEX orders_fecha_idx       ON orders (order_date);
 CREATE INDEX orders_marca_agua_idx  ON orders (pedido_updated_at);
 CREATE INDEX orders_estado_idx      ON orders (estado);

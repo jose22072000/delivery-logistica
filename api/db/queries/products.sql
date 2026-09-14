@@ -1,0 +1,140 @@
+-- Catálogo. Se llena solo: PEDIDO sondea Ventra y aquí se copia lo que él ya tiene.
+-- No hay alta manual — dos catálogos escritos por separado discrepan sin que nadie lo vea.
+--
+-- EL ALCANCE VA POR CÓDIGO DE SUCURSAL, igual que en clientes: `products` no tiene
+-- `branch_id`, tiene `sucursal_codigo`. Y tiene que llevarlo: en Ventra el precio y las
+-- existencias VARÍAN por sucursal, así que un catálogo único ofrece en Camagüey un
+-- producto que sólo hay en La Habana, y al precio de La Habana.
+--
+-- Quien llama traduce su sucursal a `branches.external_id` y lo pasa en `sucursal`.
+-- A diferencia de clientes, aquí NO se dejan pasar las filas sin código: un producto sin
+-- sucursal no tiene ni precio ni existencias de ningún sitio.
+
+-- ---------------------------------------------------------------------------
+-- El catálogo de una sucursal  (GET /api/products)
+-- ---------------------------------------------------------------------------
+
+-- Los productos que se pueden cargar en un camión, de la sucursal que toque.
+--
+-- SE EXCLUYEN LAS LÍNEAS DE SERVICIO. En el catálogo de Ventra conviven los productos con
+-- líneas como «ENTREGA A DOMICILIO» —categoría `SERV`, peso cero—: no es algo que se
+-- carga, es el propio cobro del reparto facturado como una línea más. Salía en el buscador
+-- con «0 kg» al lado y alguien la iba a elegir tarde o temprano; un pedido con esa línea
+-- dentro pesa lo mismo que sin ella y encima cobra el reparto DOS VECES, una en la línea y
+-- otra en el domicilio. La misma regla vive en PEDIDO y las dos tienen que estar de
+-- acuerdo en qué es mercancía.
+--
+-- Se compara la frase entera: con «entrega» a secas, cualquier producto que la mencionara
+-- desaparecería del catálogo y nadie sabría por qué.
+-- name: ListarProductos :many
+SELECT
+    p.id, p.name, p.weight, p.packaging, p.units_per_package, p.category,
+    p.sku, p.sucursal_codigo, p.price, p.stock, p.unit, p.traido_at,
+    p.created_at, p.updated_at
+FROM products p
+WHERE
+    (sqlc.narg('sucursal')::text IS NULL OR p.sucursal_codigo = sqlc.narg('sucursal')::text)
+    AND (
+        sqlc.narg('q')::text IS NULL
+        OR p.name     ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR p.category ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR p.sku      ILIKE '%' || sqlc.narg('q')::text || '%'
+    )
+    AND lower(btrim(coalesce(p.category, ''))) NOT IN ('serv', 'servicio', 'servicios')
+    AND lower(coalesce(p.name, '')) NOT LIKE '%entrega a domicilio%'
+    AND lower(coalesce(p.name, '')) NOT LIKE '%servicio de entrega%'
+ORDER BY p.name ASC
+LIMIT sqlc.arg('limite');
+
+-- Cuánto se ha pedido de cada producto últimamente, para ordenar el buscador por lo que la
+-- gente usa de verdad y no por orden alfabético.
+--
+-- Se cuenta sobre los últimos N pedidos DEL ALCANCE, no sobre todo el histórico: lo que se
+-- movía hace ocho meses no dice nada de lo que hay que tener a mano hoy. El tope lo pone
+-- el llamante para que la cuenta no crezca sola con la base.
+-- name: UsoDeProductos :many
+SELECT oi.product_id, sum(oi.quantity)::double precision AS unidades
+FROM order_items oi
+WHERE oi.product_id IS NOT NULL
+  AND oi.order_id IN (
+      SELECT o.id FROM orders o
+      WHERE (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid)
+      ORDER BY o.created_at DESC
+      LIMIT sqlc.arg('pedidos_recientes')
+  )
+GROUP BY oi.product_id;
+
+-- name: ObtenerProducto :one
+SELECT
+    p.id, p.name, p.weight, p.packaging, p.units_per_package, p.category,
+    p.sku, p.sucursal_codigo, p.price, p.stock, p.unit, p.traido_at,
+    p.created_at, p.updated_at
+FROM products p
+WHERE p.id = sqlc.arg('id');
+
+-- Emparejar un renglón de pedido con el catálogo de SU sucursal. El `sku` sólo es único
+-- dentro de una sucursal —la clave de la tabla es (`sucursal_codigo`, `sku`)—, así que
+-- buscarlo sin ella devuelve el precio y las existencias de donde no toca.
+-- name: BuscarProductoPorSku :one
+SELECT p.id, p.name, p.weight, p.sku, p.sucursal_codigo, p.price, p.stock, p.unit
+FROM products p
+WHERE p.sucursal_codigo = sqlc.arg('sucursal_codigo')
+  AND p.sku = sqlc.arg('sku');
+
+-- ---------------------------------------------------------------------------
+-- Bajada del catálogo  (POST /api/products/sync)
+-- ---------------------------------------------------------------------------
+
+-- Upsert por (`sucursal_codigo`, `sku`), que es la única clave de verdad: es por el código
+-- de Ventra como se reconoce una fila entre pasadas. Aquí SÍ hay `ON CONFLICT` porque el
+-- esquema declara esa pareja como UNIQUE.
+--
+-- Lo que NO se hace: borrar lo que deja de venir. Media lista por un corte de VPN no debe
+-- vaciar el catálogo de una sucursal — lo viejo se nota por `traido_at`, que dice si lo
+-- que se está mirando es de hace diez minutos o de hace tres días.
+-- name: GuardarProductoDelCatalogo :one
+INSERT INTO products (
+    name, weight, packaging, units_per_package, category, sku,
+    sucursal_codigo, price, stock, unit, traido_at
+) VALUES (
+    sqlc.arg('name'), sqlc.arg('weight'), sqlc.narg('packaging'),
+    sqlc.narg('units_per_package'), sqlc.narg('category'), sqlc.narg('sku'),
+    sqlc.narg('sucursal_codigo'), sqlc.narg('price'), sqlc.narg('stock'),
+    sqlc.narg('unit'), now()
+)
+ON CONFLICT (sucursal_codigo, sku) DO UPDATE SET
+    name              = excluded.name,
+    weight            = excluded.weight,
+    packaging         = excluded.packaging,
+    units_per_package = excluded.units_per_package,
+    category          = excluded.category,
+    price             = excluded.price,
+    stock             = excluded.stock,
+    unit              = excluded.unit,
+    traido_at         = excluded.traido_at
+RETURNING id, name, sku, sucursal_codigo, traido_at;
+
+-- ---------------------------------------------------------------------------
+-- Correcciones del catálogo  (sólo Super Admin, sin alcance: es de toda la empresa)
+-- ---------------------------------------------------------------------------
+
+-- Lo que se puede corregir a mano es sólo lo que Ventra no da bien: el peso, el envase y
+-- la categoría. Ni el precio ni las existencias, que son de Ventra y se vuelven a pisar en
+-- la siguiente pasada; dejarlos editar es prometer un cambio que dura doce horas.
+-- name: ActualizarProducto :one
+UPDATE products SET
+    name              = coalesce(sqlc.narg('name')::text, name),
+    weight            = coalesce(sqlc.narg('weight')::double precision, weight),
+    packaging         = CASE WHEN sqlc.arg('tocar_packaging')::boolean
+                             THEN sqlc.narg('packaging')::text ELSE packaging END,
+    units_per_package = CASE WHEN sqlc.arg('tocar_units')::boolean
+                             THEN sqlc.narg('units_per_package')::double precision
+                             ELSE units_per_package END,
+    category          = CASE WHEN sqlc.arg('tocar_category')::boolean
+                             THEN sqlc.narg('category')::text ELSE category END
+WHERE id = sqlc.arg('id')
+RETURNING id, name, weight, packaging, units_per_package, category, sku,
+          sucursal_codigo, price, stock, unit, traido_at, updated_at;
+
+-- name: BorrarProducto :execrows
+DELETE FROM products WHERE id = sqlc.arg('id');

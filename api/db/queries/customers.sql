@@ -1,0 +1,227 @@
+-- Clientes: espejo de Ventra vía PEDIDO. Sólo los GEOLOCALIZADOS — sin coordenadas no se
+-- cotiza y no hay parada que visitar.
+--
+-- EL ALCANCE AQUÍ VA POR CÓDIGO, NO POR `branch_id`.
+--
+-- `customers` no tiene `branch_id`: tiene `sucursal_codigo`, que es el código de Ventra
+-- (CAM, HAB, STG...). Quien llama traduce su sucursal a código —`branches.external_id`—
+-- y lo pasa en `sucursal_del_alcance`. El filtro deja pasar además los clientes SIN
+-- código: son los que no vinieron de ninguna sucursal concreta, y esconderlos haría
+-- desaparecer clientes que sí se atienden, sin decir nada.
+--
+-- Si la sucursal del alcance NO tiene `external_id`, el llamante debe pasar NULL aquí:
+-- pasar el uuid de la sucursal como si fuera un código no da error, da CERO CLIENTES.
+
+-- ---------------------------------------------------------------------------
+-- La lista  (GET /api/customers)
+-- ---------------------------------------------------------------------------
+
+-- La página de clientes con todos sus filtros.
+--
+-- El filtro por distancia va en DOS pasos y sólo el primero está aquí: la CAJA
+-- (`lat`/`lng` entre unos grados) es lo único que un índice puede resolver. La distancia
+-- exacta se calcula después, sólo sobre las 50 filas de la página. Meter el haversine en
+-- el WHERE obliga a recorrer los siete mil clientes fila a fila en cada búsqueda.
+-- Los grados vienen ya calculados de Go: `km/111` en latitud y `km/(111*cos(lat))` en
+-- longitud, que es donde el meridiano se estrecha.
+-- name: ListarClientes :many
+SELECT
+    c.id, c.source, c.external_id, c.name, c.phone, c.address, c.municipio,
+    c.zona, c.lat, c.lng, c.sucursal_codigo, c.codigo, c.vendedor, c.synced_at
+FROM customers c
+WHERE
+    -- alcance por sucursal, traducido a código; los manuales (sin código) se ven siempre
+    (sqlc.narg('sucursal_del_alcance')::text IS NULL
+     OR c.sucursal_codigo = sqlc.narg('sucursal_del_alcance')::text
+     OR c.sucursal_codigo IS NULL)
+    -- filtro de la query: estrecha dentro del alcance, nunca lo amplía
+    AND (sqlc.narg('sucursal_codigo')::text IS NULL
+         OR c.sucursal_codigo = sqlc.narg('sucursal_codigo')::text)
+    AND (
+        sqlc.narg('q')::text IS NULL
+        OR c.name      ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.address   ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.municipio ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.zona      ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.phone     ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.codigo    ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.vendedor  ILIKE '%' || sqlc.narg('q')::text || '%'
+    )
+    AND (sqlc.narg('municipio')::text IS NULL OR c.municipio = sqlc.narg('municipio')::text)
+    AND (sqlc.narg('zona')::text      IS NULL OR c.zona      = sqlc.narg('zona')::text)
+    AND (sqlc.narg('vendedor')::text  IS NULL OR c.vendedor  = sqlc.narg('vendedor')::text)
+    -- `origen`: 'pedido' = vino del espejo; 'manual' = alta a mano, que es `source` NULL.
+    -- NULL no se compara con `=`, así que la rama del manual se nombra a mano o no sale.
+    AND (
+        sqlc.narg('origen')::text IS NULL
+        OR (sqlc.narg('origen')::text = 'pedido' AND c.source = 'pedido')
+        OR (sqlc.narg('origen')::text = 'manual' AND c.source IS NULL)
+    )
+    -- «Sin teléfono» incluye la cadena vacía: un campo en blanco no es un teléfono.
+    AND (
+        sqlc.narg('con_telefono')::boolean IS NULL
+        OR (sqlc.narg('con_telefono')::boolean AND c.phone IS NOT NULL AND c.phone <> '')
+        OR (NOT sqlc.narg('con_telefono')::boolean AND (c.phone IS NULL OR c.phone = ''))
+    )
+    -- caja previa del filtro por kilómetros (el haversine exacto va después, en Go)
+    AND (sqlc.narg('lat_min')::double precision IS NULL OR c.lat >= sqlc.narg('lat_min')::double precision)
+    AND (sqlc.narg('lat_max')::double precision IS NULL OR c.lat <= sqlc.narg('lat_max')::double precision)
+    AND (sqlc.narg('lng_min')::double precision IS NULL OR c.lng >= sqlc.narg('lng_min')::double precision)
+    AND (sqlc.narg('lng_max')::double precision IS NULL OR c.lng <= sqlc.narg('lng_max')::double precision)
+ORDER BY c.name ASC
+LIMIT sqlc.arg('limite') OFFSET sqlc.arg('desplazamiento');
+
+-- El total, con el MISMO where. Es el `total` de la respuesta: se cuenta antes del filtro
+-- de distancia exacto, igual que en el contrato, y por eso puede ser mayor que `count`.
+-- name: ContarClientes :one
+SELECT count(*)
+FROM customers c
+WHERE
+    (sqlc.narg('sucursal_del_alcance')::text IS NULL
+     OR c.sucursal_codigo = sqlc.narg('sucursal_del_alcance')::text
+     OR c.sucursal_codigo IS NULL)
+    AND (sqlc.narg('sucursal_codigo')::text IS NULL
+         OR c.sucursal_codigo = sqlc.narg('sucursal_codigo')::text)
+    AND (
+        sqlc.narg('q')::text IS NULL
+        OR c.name      ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.address   ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.municipio ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.zona      ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.phone     ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.codigo    ILIKE '%' || sqlc.narg('q')::text || '%'
+        OR c.vendedor  ILIKE '%' || sqlc.narg('q')::text || '%'
+    )
+    AND (sqlc.narg('municipio')::text IS NULL OR c.municipio = sqlc.narg('municipio')::text)
+    AND (sqlc.narg('zona')::text      IS NULL OR c.zona      = sqlc.narg('zona')::text)
+    AND (sqlc.narg('vendedor')::text  IS NULL OR c.vendedor  = sqlc.narg('vendedor')::text)
+    AND (
+        sqlc.narg('origen')::text IS NULL
+        OR (sqlc.narg('origen')::text = 'pedido' AND c.source = 'pedido')
+        OR (sqlc.narg('origen')::text = 'manual' AND c.source IS NULL)
+    )
+    AND (
+        sqlc.narg('con_telefono')::boolean IS NULL
+        OR (sqlc.narg('con_telefono')::boolean AND c.phone IS NOT NULL AND c.phone <> '')
+        OR (NOT sqlc.narg('con_telefono')::boolean AND (c.phone IS NULL OR c.phone = ''))
+    )
+    AND (sqlc.narg('lat_min')::double precision IS NULL OR c.lat >= sqlc.narg('lat_min')::double precision)
+    AND (sqlc.narg('lat_max')::double precision IS NULL OR c.lat <= sqlc.narg('lat_max')::double precision)
+    AND (sqlc.narg('lng_min')::double precision IS NULL OR c.lng >= sqlc.narg('lng_min')::double precision)
+    AND (sqlc.narg('lng_max')::double precision IS NULL OR c.lng <= sqlc.narg('lng_max')::double precision);
+
+-- ---------------------------------------------------------------------------
+-- Facetas de clientes
+-- ---------------------------------------------------------------------------
+--
+-- Se calculan sobre TODO el alcance y SIN los filtros de búsqueda, a propósito: los
+-- desplegables tienen que seguir ofreciendo a dónde ir después de filtrar. Si se
+-- recalcularan con la búsqueda puesta, cada filtro dejaría los demás con una sola opción
+-- —la ya elegida— y no habría forma de cambiar de idea sin borrarlo todo.
+
+-- name: FacetasClientesMunicipios :many
+SELECT c.municipio AS valor, count(*) AS clientes
+FROM customers c
+WHERE c.municipio IS NOT NULL
+  AND (sqlc.narg('sucursal_del_alcance')::text IS NULL
+       OR c.sucursal_codigo = sqlc.narg('sucursal_del_alcance')::text
+       OR c.sucursal_codigo IS NULL)
+GROUP BY c.municipio
+ORDER BY c.municipio ASC;
+
+-- name: FacetasClientesZonas :many
+SELECT c.zona AS valor, count(*) AS clientes
+FROM customers c
+WHERE c.zona IS NOT NULL
+  AND (sqlc.narg('sucursal_del_alcance')::text IS NULL
+       OR c.sucursal_codigo = sqlc.narg('sucursal_del_alcance')::text
+       OR c.sucursal_codigo IS NULL)
+GROUP BY c.zona
+ORDER BY c.zona ASC;
+
+-- name: FacetasClientesVendedores :many
+SELECT c.vendedor AS valor, count(*) AS clientes
+FROM customers c
+WHERE c.vendedor IS NOT NULL
+  AND (sqlc.narg('sucursal_del_alcance')::text IS NULL
+       OR c.sucursal_codigo = sqlc.narg('sucursal_del_alcance')::text
+       OR c.sucursal_codigo IS NULL)
+GROUP BY c.vendedor
+ORDER BY c.vendedor ASC;
+
+-- name: FacetasClientesSucursales :many
+SELECT c.sucursal_codigo AS valor, count(*) AS clientes
+FROM customers c
+WHERE c.sucursal_codigo IS NOT NULL
+  AND (sqlc.narg('sucursal_del_alcance')::text IS NULL
+       OR c.sucursal_codigo = sqlc.narg('sucursal_del_alcance')::text
+       OR c.sucursal_codigo IS NULL)
+GROUP BY c.sucursal_codigo
+ORDER BY c.sucursal_codigo ASC;
+
+-- Cuántos no tienen a quién llamar. Es un aviso de calidad del espejo, no un filtro más:
+-- un cliente sin teléfono es una entrega que, si falla, no se puede avisar.
+-- name: ContarClientesSinTelefono :one
+SELECT count(*)
+FROM customers c
+WHERE (c.phone IS NULL OR c.phone = '')
+  AND (sqlc.narg('sucursal_del_alcance')::text IS NULL
+       OR c.sucursal_codigo = sqlc.narg('sucursal_del_alcance')::text
+       OR c.sucursal_codigo IS NULL);
+
+-- ---------------------------------------------------------------------------
+-- Un cliente suelto y el espejo
+-- ---------------------------------------------------------------------------
+
+-- name: ObtenerCliente :one
+SELECT
+    c.id, c.source, c.external_id, c.name, c.phone, c.address, c.municipio,
+    c.zona, c.codigo, c.vendedor, c.lat, c.lng, c.sucursal_codigo,
+    c.synced_at, c.created_at, c.updated_at
+FROM customers c
+WHERE c.id = sqlc.arg('id')
+  AND (sqlc.narg('sucursal_del_alcance')::text IS NULL
+       OR c.sucursal_codigo = sqlc.narg('sucursal_del_alcance')::text
+       OR c.sucursal_codigo IS NULL);
+
+-- Idempotencia del espejo: `source` + `external_id` es lo que reconoce a un cliente entre
+-- pasadas. Sin alcance — el espejo entra con clave de servicio y trae las ocho sucursales.
+--
+-- Como en pedidos: `customers_origen_idx` NO es único, así que no hay `ON CONFLICT` que
+-- valga. Se busca y se escribe, que es lo que hace el contrato.
+-- name: BuscarClienteDelEspejo :one
+SELECT c.id, c.sucursal_codigo, c.synced_at
+FROM customers c
+WHERE c.source = sqlc.arg('source')::procedencia
+  AND c.external_id = sqlc.arg('external_id')::text;
+
+-- `synced_at` es «cuándo lo trajo el origen» y NO es `updated_at`, que lo mueve el trigger
+-- al tocar la fila. Confundirlas rompe el espejo: la segunda cambia aunque el dato de
+-- Ventra sea de hace tres días porque la VPN lleva caída desde el lunes.
+-- name: CrearClienteDelEspejo :one
+INSERT INTO customers (
+    source, external_id, name, phone, address, municipio, zona, codigo,
+    vendedor, lat, lng, sucursal_codigo, synced_at
+) VALUES (
+    sqlc.arg('source'), sqlc.narg('external_id'), sqlc.arg('name'), sqlc.narg('phone'),
+    sqlc.narg('address'), sqlc.narg('municipio'), sqlc.narg('zona'), sqlc.narg('codigo'),
+    sqlc.narg('vendedor'), sqlc.arg('lat'), sqlc.arg('lng'),
+    sqlc.narg('sucursal_codigo'), now()
+)
+RETURNING id, source, external_id, name, sucursal_codigo, synced_at;
+
+-- name: ActualizarClienteDelEspejo :one
+UPDATE customers SET
+    name            = sqlc.arg('name'),
+    phone           = sqlc.narg('phone'),
+    address         = sqlc.narg('address'),
+    municipio       = sqlc.narg('municipio'),
+    zona            = sqlc.narg('zona'),
+    codigo          = sqlc.narg('codigo'),
+    vendedor        = sqlc.narg('vendedor'),
+    lat             = sqlc.arg('lat'),
+    lng             = sqlc.arg('lng'),
+    sucursal_codigo = sqlc.narg('sucursal_codigo'),
+    synced_at       = now()
+WHERE id = sqlc.arg('id')
+RETURNING id, source, external_id, name, sucursal_codigo, synced_at;
