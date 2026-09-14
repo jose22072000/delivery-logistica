@@ -69,20 +69,13 @@ void main() {
     expect(await banco.base.cuantosPendientes(), 0);
   });
 
-  test('la lista sin conexión no se queda en blanco: avisa', () async {
-    // Con `autoDispose`, sin nadie escuchando el provider se tira en cuanto se
-    // resuelve y el estado se pierde. La pantalla si escucha; aqui hay que
-    // hacerlo a mano.
-    banco.contenedor.listen(vehiculosProvider, (_, _) {}, fireImmediately: true);
-
+  test('la lista sin conexión sale como FalloDeRed, no como lista vacía', () async {
+    // Son cosas distintas y pintarlas igual hace creer que la flota se borro.
+    // Lo que la pantalla hace con esto se comprueba en `pantalla_test.dart`.
     await expectLater(
-      banco.contenedor.read(vehiculosProvider.future),
-      // Lo que sale es un FalloDeRed, no una lista vacia. Son cosas distintas y
-      // pintarlas igual hace creer que la flota se borro.
+      banco.contenedor.read(repositorioVehiculosProvider).listar(),
       throwsA(isA<FalloDeRed>()),
     );
-    expect(banco.contenedor.read(vehiculosProvider).error, isA<FalloDeRed>());
-    expect(banco.contenedor.read(vehiculosProvider).value, isNull);
   });
 
   test('un rechazo del servidor se enseña LITERAL, y tampoco se encola', () async {

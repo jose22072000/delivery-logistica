@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show TableUpdateQuery;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -85,13 +87,18 @@ final vistoAtProvider = StreamProvider<DateTime?>(
 
 /// EL TABLERO. Siempre desde la base local, con red y sin ella.
 class TableroDelDia extends AsyncNotifier<Tablero> {
-  bool _leyendo = false;
+  /// La lectura que esta en curso, si la hay.
+  Future<void>? _enCurso;
+
+  /// Llego un aviso mientras se leia: hay que volver a leer al terminar.
   bool _otraVez = false;
 
   @override
   Future<Tablero> build() async {
     final sucursalId = await ref.watch(sucursalDelTableroProvider.future);
-    if (sucursalId == null) throw const FaltaElegirSucursal();
+    if (sucursalId == null) {
+      return const Tablero.imposible('Elige una sucursal para ver su tablero');
+    }
     final filtros = ref.watch(filtrosTableroProvider);
 
     // Lo que cambie por debajo —una bajada que trae pedidos nuevos, una ruta
@@ -107,7 +114,7 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
             TableUpdateQuery.onTable(base.orders),
           ]),
         )
-        .listen((_) => refrescar());
+        .listen((_) => unawaited(refrescar()));
     ref.onDispose(sub.cancel);
 
     return _leer(sucursalId, filtros);
@@ -119,8 +126,19 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
     // pantalla sigue ensenando el provisional hasta la proxima bajada.
     await ref.read(repositorioTableroProvider).asentarProvisionales();
 
-    final almacen = await consultas.almacenDe(sucursalId);
     final nombre = await consultas.nombreDeSucursal(sucursalId);
+    final AlmacenOrigen almacen;
+    try {
+      almacen = await consultas.almacenDe(sucursalId);
+    } on SinAlmacenConCoordenadas catch (e) {
+      // Se ordena desde el sitio del que sale la mercancia o no se ordena: no
+      // se inventa un punto de partida.
+      return Tablero.imposible(
+        e.mensaje,
+        sucursalId: sucursalId,
+        sucursalNombre: nombre,
+      );
+    }
     return Tablero(
       sucursalId: sucursalId,
       sucursalNombre: nombre,
@@ -143,33 +161,47 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
 
   /// Vuelve a leer la base **sin pintar el cargando**: lo que acaba de moverse
   /// no puede parpadear.
-  Future<void> refrescar() async {
-    // Si ya se esta leyendo, se APUNTA que hay que volver a leer en vez de
-    // descartar el aviso. Descartarlo deja la pantalla ensenando lo de antes
-    // del ultimo cambio, que es exactamente el fallo que nadie reproduce: «a
-    // veces la tarjeta se queda en la columna vieja».
-    if (_leyendo) {
+  ///
+  /// Si ya hay una lectura en marcha se APUNTA que hay que volver a leer y se
+  /// devuelve la misma espera, en vez de descartar el aviso. Descartarlo deja
+  /// la pantalla ensenando lo de antes del ultimo cambio, que es exactamente el
+  /// fallo que nadie sabe reproducir: «a veces la tarjeta se queda en la
+  /// columna vieja». Y devolver la espera buena es lo que hace que quien llama
+  /// —un gesto, o una prueba— pueda fiarse de que al volver ya esta puesto.
+  Future<void> refrescar() {
+    final enCurso = _enCurso;
+    if (enCurso != null) {
       _otraVez = true;
-      return;
+      return enCurso;
     }
-    _leyendo = true;
+    final futuro = _bucleDeLectura();
+    _enCurso = futuro;
+    return futuro;
+  }
+
+  Future<void> _bucleDeLectura() async {
     try {
       do {
         _otraVez = false;
+        // El aviso puede llegar cuando la pantalla ya se fue: el `Stream` de
+        // Drift no se calla al instante. Escribir en un provider muerto revienta
+        // con un error que no dice nada de lo que pasaba.
+        if (!ref.mounted) return;
         final sucursalId =
             state.value?.sucursalId ??
             await ref.read(sucursalDelTableroProvider.future);
-        if (sucursalId == null) return;
+        if (sucursalId == null || sucursalId.isEmpty) return;
         final tablero = await _leer(
           sucursalId,
           ref.read(filtrosTableroProvider),
         );
+        if (!ref.mounted) return;
         state = AsyncValue<Tablero>.data(tablero);
       } while (_otraVez);
     } on Object catch (e, pila) {
-      state = AsyncValue<Tablero>.error(e, pila);
+      if (ref.mounted) state = AsyncValue<Tablero>.error(e, pila);
     } finally {
-      _leyendo = false;
+      _enCurso = null;
     }
   }
 
@@ -177,7 +209,7 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
   /// que hay en el aparato, que es justo para lo que esta.
   Future<void> bajarDelServidor() async {
     final sucursalId = state.value?.sucursalId;
-    if (sucursalId == null) return;
+    if (sucursalId == null || sucursalId.isEmpty) return;
     try {
       await ref.read(servicioTableroProvider).descargar(sucursalId);
       await refrescar();
@@ -212,7 +244,9 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
 
   Future<String> crearColumna(String nombre, {String? vehiculoId}) async {
     final sucursalId = state.value?.sucursalId;
-    if (sucursalId == null) throw const FaltaElegirSucursal();
+    if (sucursalId == null || sucursalId.isEmpty) {
+      throw const FaltaElegirSucursal();
+    }
     final id = await ref
         .read(repositorioTableroProvider)
         .crearColumna(
@@ -242,7 +276,7 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
 
   Future<void> reordenar(List<String> idsEnOrden) async {
     final sucursalId = state.value?.sucursalId;
-    if (sucursalId == null) return;
+    if (sucursalId == null || sucursalId.isEmpty) return;
     await ref
         .read(repositorioTableroProvider)
         .reordenarColumnas(sucursalId, idsEnOrden);
@@ -278,7 +312,9 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
 
   Future<String> armarRuta(String columnaId, {String? nombre}) async {
     final tablero = state.value;
-    if (tablero == null) throw const FaltaElegirSucursal();
+    if (tablero == null || tablero.problema != null) {
+      throw const FaltaElegirSucursal();
+    }
     final rutaId = await ref
         .read(repositorioTableroProvider)
         .armarRuta(

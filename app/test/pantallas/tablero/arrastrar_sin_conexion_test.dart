@@ -12,7 +12,6 @@ import 'package:reparto/nucleo/identidad/almacen_sesion.dart';
 import 'package:reparto/nucleo/identidad/sesion.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/nucleo/red/cliente_api.dart';
-import 'package:reparto/pantallas/tablero/datos/modelos.dart';
 import 'package:reparto/pantallas/tablero/estado/proveedores.dart';
 
 import '../../apoyo/servidor_falso.dart';
@@ -220,17 +219,13 @@ void main() {
       ],
     );
 
-    Object? capturado;
-    try {
-      await contenedor.read(tableroProvider.future);
-    } on Object catch (e) {
-      capturado = e;
-    }
-    expect(capturado, isA<FaltaElegirSucursal>());
-    expect(
-      (capturado! as FaltaElegirSucursal).mensaje,
-      'Elige una sucursal para ver su tablero',
-    );
+    final tablero = await contenedor.read(tableroProvider.future);
+    // No se enseña «todo», que es lo que parecería razonable y sería lo peor:
+    // un tablero con las diez sucursales mezcladas ordenaría los pedidos de
+    // Holguín por su distancia al almacén de Santiago.
+    expect(tablero.problema, 'Elige una sucursal para ver su tablero');
+    expect(tablero.columnas, isEmpty);
+    expect(tablero.sinColocar.pedidos, isEmpty);
     await base.close();
   });
 }

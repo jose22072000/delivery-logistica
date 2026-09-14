@@ -289,26 +289,30 @@ class _Rejilla extends ConsumerWidget {
                 : medidas.maxWidth >= 640
                 ? 2
                 : 1;
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: columnas,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                // Alto fijo: las tarjetas traen cajas, chips y botones, y con
-                // `childAspectRatio` calculado a ojo se cortan por abajo.
-                mainAxisExtent: 320,
-              ),
-              itemCount: trozo.length,
-              itemBuilder: (context, i) => TarjetaVehiculo(
-                vehiculo: trozo[i],
-                alEditar: () => alEditar(trozo[i]),
-                alEliminar: () => control.eliminar(trozo[i].id),
-                alMarcarDisponible: () => control.marcarDisponible(trozo[i].id),
-                alUsarParaDomicilio: () =>
-                    control.usarParaDomicilio(trozo[i].id),
-              ),
+            const hueco = 12.0;
+            final ancho =
+                (medidas.maxWidth - hueco * (columnas - 1)) / columnas;
+            // `Wrap` y no `GridView`: las tarjetas no miden todas lo mismo
+            // —las que estan en uso traen la caja de `Ruta activa` y algunas
+            // llevan notas—, y una rejilla de alto fijo recorta justo eso. Con
+            // `Wrap` cada una ocupa lo que necesita y no se pierde nada por
+            // debajo del borde.
+            return Wrap(
+              spacing: hueco,
+              runSpacing: hueco,
+              children: [
+                for (final v in trozo)
+                  SizedBox(
+                    width: ancho,
+                    child: TarjetaVehiculo(
+                      vehiculo: v,
+                      alEditar: () => alEditar(v),
+                      alEliminar: () => control.eliminar(v.id),
+                      alMarcarDisponible: () => control.marcarDisponible(v.id),
+                      alUsarParaDomicilio: () => control.usarParaDomicilio(v.id),
+                    ),
+                  ),
+              ],
             );
           },
         ),

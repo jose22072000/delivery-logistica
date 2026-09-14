@@ -211,6 +211,40 @@ Pero son decisiones de negocio, no técnicas, y alguien tiene que mirarlas:
 - [ ] `CatalogoDePesos` sin montar: `weightsSource` sale `"none"`, valor que el contrato
       ya prevé.
 
+## Lo que salió al traspasar los DATOS REALES (14/09/2026)
+
+Volcado de producción: 55.495 pedidos, 85.902 renglones, 7.975 clientes, 8 sucursales.
+
+- **HAY 22 PEDIDOS DUPLICADOS EN PRODUCCIÓN.** La carrera del espejo que el índice único
+  venía a impedir **ya ocurrió**. Se ve en los propios identificadores —`cmt7p7o45002z` y
+  `cmt7p7o470031`, mismo cliente, mismo día, milisegundos de diferencia—: dos pasadas
+  leyeron «no existe» antes de que ninguna escribiera. De las 44 filas, **17 no están
+  archivadas**, así que salen dos veces en la lista del armador. Ninguna llegó a una ruta.
+  El traspaso aparta las sobrantes a `orders_duplicados` con la fila entera; no se borran.
+
+- **`Order.items` tenía DOCE campos, no dos.** El pliego decía `{description, quantity}` y
+  los datos reales traen además `packs`, `pesoKg`, `unitWeightKg`, `pesoLineaKg`,
+  `weightKg`, `code`, `whName`, `matched`, `weightSource` y `descripcion`. El peso de cada
+  línea estaba **guardado, no calculado**, y `weightSource` dice de dónde salió. Sin esas
+  columnas habría que recalcularlo con el catálogo de hoy sobre pedidos de hace meses, y
+  el papel diría un peso y el almacén otro. Añadidas en `00004_peso_por_renglon.sql`.
+
+- [ ] **DIFERENCIA CON NEXT que hay que validar:** 5.642 renglones tienen `pesoLineaKg`
+  vacío pero `weightKg` puesto. El traspaso los recupera con `coalesce`, así que el
+  sistema nuevo ve un peso donde Next no ve ninguno — 229.331 kg en total. Cuando los dos
+  campos están puestos **coinciden en los 80.260 casos, con cero diferencias**, o sea que
+  son la misma magnitud escrita en dos sitios. Es casi seguro lo correcto, pero **es una
+  diferencia de comportamiento y la decide una persona**, no yo.
+
+- **`Vehicle.type` tiene `Camion`** en producción, escrito a mano y en español. Confirma
+  que el campo aceptaba cualquier cosa. Añadido al catálogo sembrado.
+
+- **Las coordenadas vienen SIEMPRE**: 0 de 55.495 pedidos sin `endLat`. Confirmada la
+  regla de Jose contra los datos.
+
+- **El 96% de los domicilios repartibles no tiene costo** (657 de 686), porque la APK de
+  Entrega no está encendida. Por eso la guarda pasó a ser aviso.
+
 ## Hallazgos sobre delivery, el que está EN PRODUCCIÓN
 
 No son tareas de este proyecto, pero conviene saberlos:

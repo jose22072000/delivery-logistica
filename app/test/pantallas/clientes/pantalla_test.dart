@@ -24,6 +24,29 @@ void main() {
   setUp(() => base = baseDePrueba());
   tearDown(() => base.close());
 
+  /// Pinta unos cuantos fotogramas en vez de `pumpAndSettle`.
+  ///
+  /// Mientras la consulta local no ha vuelto, el `RelojDeDatos` pinta el giro de
+  /// `actualizando…`, que es una animacion sin fin — y `pumpAndSettle` espera a
+  /// que no quede ninguna. Seis fotogramas son de sobra para una consulta en
+  /// memoria.
+  Future<void> asentar(WidgetTester tester) async {
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+  }
+
+  /// Desmonta el arbol y deja correr los ultimos temporizadores.
+  ///
+  /// Al tirar el `ProviderScope`, drift cierra sus consultas vivas con un
+  /// `Timer` de duracion cero, y el banco de pruebas considera un fallo que un
+  /// test acabe con temporizadores pendientes. Un fotograma mas y no queda
+  /// ninguno.
+  Future<void> desmontar(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(Duration.zero);
+  }
+
   Future<void> pintar(WidgetTester tester, {DateTime? ahora}) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -34,7 +57,7 @@ void main() {
         child: const MaterialApp(home: PantallaClientes()),
       ),
     );
-    await tester.pumpAndSettle();
+    await asentar(tester);
   }
 
   testWidgets('sin bajar nada: no dice «no hay clientes», dice que no se ha descargado', (
@@ -46,6 +69,7 @@ void main() {
     // Una lista vacia aqui es un FALLO, no un dato (caso S7).
     expect(find.text(SinDescargar.textoDeLaPantallaVacia), findsOneWidget);
     expect(find.text('Sin descargar todavía'), findsOneWidget);
+    await desmontar(tester);
   });
 
   testWidgets('bajado y vacío: el texto es otro', (tester) async {
@@ -64,6 +88,7 @@ void main() {
       ),
       findsOneWidget,
     );
+    await desmontar(tester);
   });
 
   testWidgets('con datos: dice de qué hora es la foto', (tester) async {
@@ -85,6 +110,7 @@ void main() {
 
     expect(find.text('Datos de las 7:42'), findsOneWidget);
     expect(find.text('Ana Pérez'), findsOneWidget);
+    await desmontar(tester);
   });
 
   testWidgets('el reloj se pone en ámbar cuando la foto es de ayer', (
@@ -99,6 +125,7 @@ void main() {
     // Cinco horas despues sigue en gris; es al pasar del dia cuando enganna.
     await pintar(tester, ahora: bajada.add(const Duration(hours: 5)));
     expect(find.text('Datos de hace 5 h'), findsOneWidget);
+    await desmontar(tester);
   });
 
   testWidgets('con filtros que no cuadran: «Sin resultados.»', (tester) async {
@@ -126,9 +153,10 @@ void main() {
         child: const MaterialApp(home: PantallaClientes()),
       ),
     );
-    await tester.pumpAndSettle();
+    await asentar(tester);
 
     expect(find.text('Sin resultados.'), findsOneWidget);
+    await desmontar(tester);
   });
 
   test('50 por página, y la cuenta de arriba es la del filtro, no la de la página', () async {

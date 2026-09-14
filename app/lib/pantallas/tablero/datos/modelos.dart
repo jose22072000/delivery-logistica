@@ -283,11 +283,38 @@ class Tablero {
     required this.sinColocar,
     required this.desaparecidos,
     this.vistoAt,
-  });
+  }) : problema = null;
+
+  /// EL TABLERO QUE NO SE PUEDE PINTAR, y por que.
+  ///
+  /// Son dos situaciones **normales**, no averias: que el Super Admin todavia
+  /// no haya elegido sucursal y que la sucursal no tenga ningun almacen con
+  /// coordenadas. Van como un tablero vacio con su motivo, y no como una
+  /// excepcion, porque una excepcion se reintenta sola —eso hace Riverpod— y
+  /// reintentar «elige una sucursal» cada pocos segundos, para siempre, no
+  /// arregla nada y calienta el telefono.
+  const Tablero.imposible(
+    this.problema, {
+    this.sucursalId = '',
+    this.sucursalNombre = '',
+  }) : almacen = const AlmacenOrigen(id: '', nombre: '', lat: 0, lng: 0),
+       columnas = const <ColumnaTablero>[],
+       colocados = const <TarjetaColocada>[],
+       avisos = const AvisosTablero(),
+       sinColocar = const MitadIzquierda(
+         pedidos: <TarjetaPedido>[],
+         total: 0,
+       ),
+       desaparecidos = const <PedidoDesaparecido>[],
+       vistoAt = null;
+
+  /// `null` cuando el tablero se puede pintar.
+  final String? problema;
 
   final String sucursalId;
   final String sucursalNombre;
   final AlmacenOrigen almacen;
+
   final List<ColumnaTablero> columnas;
   final List<TarjetaColocada> colocados;
   final AvisosTablero avisos;

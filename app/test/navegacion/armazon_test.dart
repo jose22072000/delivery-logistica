@@ -62,6 +62,19 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Desmontar antes de que acabe el cuerpo del test no es ceremonia: las
+  /// consultas de Drift que alimentan la franja de estado sueltan un temporizador
+  /// al cancelarse, y flutter_test comprueba que no queda ninguno ANTES de los
+  /// `tearDown`. Sin esto, el primer test deja el temporizador y se lleva por
+  /// delante a todos los demas.
+  Future<void> desmontar(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    // Dos pasadas: la primera desmonta y crea el temporizador de cierre de
+    // Drift, la segunda lo deja correr.
+    await tester.pump(Duration.zero);
+    await tester.pump(Duration.zero);
+  }
+
   testWidgets('escritorio: la barra lateral esta fija y no hay boton de menu', (
     tester,
   ) async {
@@ -71,6 +84,7 @@ void main() {
     expect(find.byTooltip('Menú'), findsNothing);
     expect(find.text('Uno'), findsWidgets); // titulo + entrada del menu
     expect(find.text('cuerpo de uno'), findsOneWidget);
+    await desmontar(tester);
   });
 
   testWidgets('movil: la barra se sale de la pantalla y la abre el boton', (
@@ -85,6 +99,7 @@ void main() {
     await tester.tap(find.byTooltip('Menú'));
     await tester.pumpAndSettle();
     expect(find.byType(BarraLateral), findsOneWidget);
+    await desmontar(tester);
   });
 
   testWidgets('movil: al elegir una entrada navega Y el cajon se cierra solo', (
@@ -101,6 +116,7 @@ void main() {
     // Si el cajon se quedara abierto taparia justo la pantalla a la que se
     // acaba de ir (§8.1).
     expect(find.byType(BarraLateral), findsNothing);
+    await desmontar(tester);
   });
 
   testWidgets('la franja de estado esta arriba en las DOS anchuras', (
@@ -114,6 +130,7 @@ void main() {
     await montar(tester, const Size(390, 800));
     expect(find.byType(FranjaDeEstado), findsOneWidget);
     expect(find.text('Sin descargar todavía'), findsOneWidget);
+    await desmontar(tester);
   });
 
   testWidgets('lo que queda sin subir se ve arriba, con su numero', (
@@ -133,6 +150,7 @@ void main() {
 
     await montar(tester, const Size(390, 800));
     expect(find.text('1 sin subir'), findsOneWidget);
+    await desmontar(tester);
   });
 
   testWidgets('una pantalla fuera del menu se alcanza por URL', (tester) async {
@@ -164,5 +182,6 @@ void main() {
       ),
       findsNothing,
     );
+    await desmontar(tester);
   });
 }

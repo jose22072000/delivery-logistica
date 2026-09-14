@@ -30,6 +30,15 @@ class PantallaTablero extends ConsumerStatefulWidget {
   ConsumerState<PantallaTablero> createState() => _PantallaTableroState();
 }
 
+String _texto(Object fallo) => switch (fallo) {
+  // No se ensena «todo», que es lo que pareceria razonable y seria lo peor.
+  final FaltaElegirSucursal e => e.mensaje,
+  // Se ordena desde el sitio del que sale la mercancia, o no se ordena.
+  final SinAlmacenConCoordenadas e => e.mensaje,
+  final RechazoDelTablero e => e.mensaje,
+  _ => 'No se pudo abrir el tablero: $fallo',
+};
+
 class _PantallaTableroState extends ConsumerState<PantallaTablero> {
   /// En el movil las dos mitades no caben a la vez. Se ensena una y se cambia.
   bool _verColumnas = false;
@@ -66,7 +75,8 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
           ),
         ],
       ),
-      floatingActionButton: asincrono.hasValue
+      floatingActionButton:
+          asincrono.hasValue && asincrono.value?.problema == null
           ? FloatingActionButton.extended(
               onPressed: () => AccionesTablero.crearColumna(context, ref),
               icon: const Icon(Icons.add),
@@ -75,13 +85,21 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
           : null,
       body: asincrono.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => _Problema(fallo: e),
+        error: (e, _) => _Problema(texto: _texto(e)),
         data: _conDatos,
       ),
     );
   }
 
-  Widget _conDatos(Tablero tablero) => Column(
+  Widget _conDatos(Tablero tablero) {
+    // Las dos situaciones normales que no son un tablero: sin sucursal elegida
+    // y sin almacen con coordenadas. Se dicen con las palabras del pliego.
+    final problema = tablero.problema;
+    if (problema != null) return _Problema(texto: problema);
+    return _cuerpo(tablero);
+  }
+
+  Widget _cuerpo(Tablero tablero) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       if (tablero.desaparecidos.isNotEmpty)
@@ -365,20 +383,12 @@ class _AvisoDesaparecidos extends ConsumerWidget {
 
 /// Lo que no deja pintar el tablero, dicho con las palabras del pliego.
 class _Problema extends StatelessWidget {
-  const _Problema({required this.fallo});
+  const _Problema({required this.texto});
 
-  final Object fallo;
+  final String texto;
 
   @override
   Widget build(BuildContext context) {
-    final texto = switch (fallo) {
-      // No se ensena «todo», que es lo que pareceria razonable y seria lo peor.
-      final FaltaElegirSucursal e => e.mensaje,
-      // Se ordena desde el sitio del que sale la mercancia, o no se ordena.
-      final SinAlmacenConCoordenadas e => e.mensaje,
-      final RechazoDelTablero e => e.mensaje,
-      _ => 'No se pudo abrir el tablero: $fallo',
-    };
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
