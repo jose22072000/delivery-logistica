@@ -165,8 +165,28 @@ func TestSinTokenEs401ConElMensajeDelContrato(t *testing.T) {
 
 func TestTokenConFirmaCambiadaEs401(t *testing.T) {
 	bueno := token(t, map[string]any{"sub": "p-1", "role": "OPERADOR", "branchId": stg.String()})
-	// Se cambia un byte de la firma: el cuerpo sigue diciendo lo mismo.
-	roto := bueno[:len(bueno)-1] + "X"
+
+	// SE CAMBIA UN BIT DE LA FIRMA DECODIFICADA, no un carácter del base64.
+	//
+	// Antes esta prueba sustituía el último carácter por "X" y fallaba ~1 de cada 16: el
+	// último carácter de un base64url de 43 caracteres sólo codifica 4 bits, así que si el
+	// original ya caía en el mismo grupo, la firma decodificada salía IDÉNTICA, el token
+	// seguía valiendo y la respuesta era 200. Una prueba que pasa quince de cada dieciséis
+	// veces es peor que no tenerla: se acaba ejecutando con `-count=1` y mirando a otro
+	// lado. Cambiando un bit de los bytes de verdad, la firma es siempre otra.
+	partes := strings.Split(bueno, ".")
+	if len(partes) != 3 {
+		t.Fatalf("el token no tiene tres partes: %q", bueno)
+	}
+	firma, err := base64.RawURLEncoding.DecodeString(partes[2])
+	if err != nil || len(firma) == 0 {
+		t.Fatalf("no se pudo decodificar la firma: %v", err)
+	}
+	firma[len(firma)-1] ^= 0x01
+	roto := partes[0] + "." + partes[1] + "." + base64.RawURLEncoding.EncodeToString(firma)
+	if roto == bueno {
+		t.Fatal("la firma cambiada salió igual que la buena: la prueba no probaría nada")
+	}
 	w := pedir(t, servidor(t), http.MethodGet, "/api/vehicles", roto, nil)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("una firma cambiada tiene que ser 401, y fue %d", w.Code)

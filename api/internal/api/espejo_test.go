@@ -103,11 +103,19 @@ func (v *ventraFalsa) Catalogo(_ context.Context, base string) ([]FilaDeVentra, 
 	return v.catalogo[base], nil
 }
 
+// ventraDePrueba es el lector que el montador le pone al servidor. Vive aquí, en las
+// pruebas, y no en el paquete: el lector de verdad ya es un campo de `Servidor`.
+//
+// SE PONE ANTES DE MONTAR, que es como lo llaman todas las pruebas de este fichero: el
+// montador lo lee al construir el servidor. Al acabar cada prueba se restaura, así que una
+// no le deja el lector puesto a la siguiente.
+var ventraDePrueba LectorDeVentra
+
 func conVentra(t *testing.T, v LectorDeVentra) {
 	t.Helper()
-	anterior := Ventra
-	Ventra = v
-	t.Cleanup(func() { Ventra = anterior })
+	anterior := ventraDePrueba
+	ventraDePrueba = v
+	t.Cleanup(func() { ventraDePrueba = anterior })
 }
 
 // --------------------------------------------------------------------------- pruebas

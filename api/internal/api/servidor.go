@@ -36,6 +36,30 @@ type Servidor struct {
 	// salud es sólo el ping a la base. Una función y no el almacén entero para que las
 	// pruebas no tengan que levantar un pool.
 	salud func(ctx context.Context) error
+
+	// --- Lo de fuera ---------------------------------------------------------
+	//
+	// Los tres eran VARIABLES DE PAQUETE (`api.Ventra`, `api.Accesos` y el gancho
+	// `avisarEstadoAPedido`). Se pusieron así porque este fichero lo estaba escribiendo
+	// otro y no se podían añadir campos sin chocar; no porque fuera lo correcto. Una
+	// variable de paquete la comparten TODOS los servidores del proceso —y todas las
+	// pruebas a la vez—, así que dos pruebas en paralelo se pisan el doble la una a la
+	// otra, y en producción no hay forma de tener dos configuraciones distintas.
+	//
+	// Siguen siendo interfaces y funciones, no clientes concretos: eso es lo que deja que
+	// las pruebas corran sin VPN, sin Ventra, sin Accesos y sin PEDIDO.
+
+	// aPedido es el canal de salida hacia PEDIDO (ver `canal_pedido.go`). Nunca es nil:
+	// sin configuración se monta el canal mudo, que no llama a nadie y lo dice.
+	aPedido CanalAPedido
+
+	// ventra es el lector del catálogo de Ventra, que vive detrás de la VPN. Puede ser
+	// nil: mientras lo sea, `products/sync` contesta 502 —que es lo correcto, nunca 200
+	// con ceros—.
+	ventra LectorDeVentra
+
+	// accesos es el cliente del login único (almacenes y tasas), con firma HMAC.
+	accesos ClienteAccesos
 }
 
 func NuevoServidor(cfg *config.Config, reg *slog.Logger, p *alcance.Porteria, v *auth.Verificador, salud func(ctx context.Context) error) *Servidor {
@@ -45,7 +69,15 @@ func NuevoServidor(cfg *config.Config, reg *slog.Logger, p *alcance.Porteria, v 
 	if salud == nil {
 		salud = func(context.Context) error { return nil }
 	}
-	return &Servidor{cfg: cfg, reg: reg, porteria: p, verif: v, salud: salud}
+	return &Servidor{
+		cfg: cfg, reg: reg, porteria: p, verif: v, salud: salud,
+		aPedido: nuevoCanalAPedido(cfg, reg),
+		// Nada de lector de Ventra por defecto: hace falta la VPN y un MySQL, y montarlo
+		// sin ellos daría un cliente que falla en cada llamada en vez de un 502 que dice
+		// que no está configurado.
+		ventra:  nil,
+		accesos: accesosDelServidor(cfg),
+	}
 }
 
 // Rutas monta el router entero.

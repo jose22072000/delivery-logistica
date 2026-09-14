@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"procovar/reparto-api/internal/config"
 	"procovar/reparto-api/internal/httpx"
 	"procovar/reparto-api/internal/store/sqlc"
 )
@@ -323,7 +323,7 @@ func (s *Servidor) listarAlmacenes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sucursales, err := Accesos.Almacenes(r.Context())
+	sucursales, err := s.accesos.Almacenes(r.Context())
 	if err != nil {
 		// 502 y no 500: el que no contesta es Accesos, no nosotros, y el mensaje lo dice
 		// para que quien lo lea sepa dónde mirar. Literal del contrato.
@@ -403,7 +403,7 @@ func (s *Servidor) guardarAlmacenes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	respuesta, err := Accesos.GuardarAlmacenes(r.Context(), crudo)
+	respuesta, err := s.accesos.GuardarAlmacenes(r.Context(), crudo)
 	if err != nil {
 		httpx.Error(w, r, http.StatusBadGateway,
 			fmt.Sprintf("Accesos no aceptó el cambio: %s", err))
@@ -457,12 +457,39 @@ type ClienteAccesos interface {
 	GuardarAlmacenes(ctx context.Context, cuerpo []byte) (map[string]any, error)
 }
 
-// Accesos es el cliente que usan los manejadores.
+// Accesos: el cliente del proceso. EL SITIO BUENO ES `s.accesos`, el campo del servidor.
 //
-// Es una variable de paquete y no un campo de `Servidor` porque `servidor.go` no se toca
-// en este cambio; el día que se toque, esto pasa a ser un campo del servidor y se inyecta
-// como el resto. Las pruebas la sustituyen por un doble.
+// Esta variable de paquete se quedó por una razón concreta y temporal: `cotizacion.go`
+// todavía la usa (`almacenesDeCotizacion`) y ese fichero lo está escribiendo otro ahora
+// mismo, así que no se puede tocar en este cambio. En cuanto se libere, esa llamada pasa a
+// `s.accesos` y esta variable desaparece. Está apuntada en
+// `docs/integracion-pendiente.md`.
+//
+// MIENTRAS TANTO ES UNA SOLA INSTANCIA, no dos: `NuevoServidor` mete ESTA en el campo del
+// servidor. Es lo que importa, porque el cliente lleva dentro el recuerdo de cinco minutos
+// de la lista de almacenes; con dos instancias habría dos recuerdos y un lote de 200
+// pedidos volvería a preguntarle a Accesos lo que la otra acababa de traer.
 var Accesos ClienteAccesos = &accesosHTTP{}
+
+// accesosDelServidor devuelve el cliente que usa el servidor, con la configuración puesta.
+//
+// La configuración se le pone AQUÍ y no al declarar la variable porque al declararla
+// todavía no se ha leído el entorno. Sólo se rellena si está vacía —nadie pisa una que ya
+// esté— y bajo el mismo candado que el recuerdo, que es lo que evita la carrera entre dos
+// servidores montados a la vez en las pruebas.
+//
+// Si alguien puso un doble (las pruebas), la aserción de tipo falla y se devuelve el doble
+// tal cual, que es justo lo que se quiere.
+func accesosDelServidor(cfg *config.Config) ClienteAccesos {
+	if h, ok := Accesos.(*accesosHTTP); ok {
+		h.mu.Lock()
+		if h.cfg == nil {
+			h.cfg = cfg
+		}
+		h.mu.Unlock()
+	}
+	return Accesos
+}
 
 // accesosHTTP habla con Accesos firmando cada petición.
 //
@@ -471,6 +498,7 @@ var Accesos ClienteAccesos = &accesosHTTP{}
 // que una petición copiada de un registro no sirve al minuto siguiente. Se reutiliza la
 // llave del login único en vez de abrir una segunda puerta.
 type accesosHTTP struct {
+	cfg      *config.Config
 	mu       sync.Mutex
 	cuando   time.Time
 	recuerdo map[string][]Almacen
@@ -479,16 +507,15 @@ type accesosHTTP struct {
 // RutaAlmacenesDeAccesos: la misma para leer y para escribir, con el método distinto.
 const RutaAlmacenesDeAccesos = "/api/service/almacenes"
 
-// RecuerdoDeAlmacenes: cuánto se recuerda la lista.
+// recuerdoDeAlmacenes: cuánto se recuerda la lista. Sale de `ALMACENES_CACHE_MS`, que ya
+// viene validada de `config` (cinco minutos por defecto, ver allí el porqué).
 //
-// Cinco minutos porque hacen falta para medir CADA domicilio y no cambian de un minuto a
-// otro; sin esto, cotizar un lote de 200 pedidos son 200 llamadas a Accesos. Se puede
-// subir o bajar con ALMACENES_CACHE_MS.
-func recuerdoDeAlmacenes() time.Duration {
-	if v := strings.TrimSpace(os.Getenv("ALMACENES_CACHE_MS")); v != "" {
-		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
-			return time.Duration(ms) * time.Millisecond
-		}
+// Con `cfg` nil se cae al valor de siempre en vez de a cero: un recuerdo de cero segundos
+// no se nota en ninguna pantalla y convierte cada lote de 200 pedidos en 200 llamadas a
+// Accesos, que es justo lo que este recuerdo existe para evitar.
+func (c *accesosHTTP) recuerdoDeAlmacenes() time.Duration {
+	if c.cfg != nil && c.cfg.AlmacenesCache > 0 {
+		return c.cfg.AlmacenesCache
 	}
 	return 5 * time.Minute
 }
@@ -515,7 +542,7 @@ func (c *accesosHTTP) AlmacenesDeSucursal(ctx context.Context, codigo string) ([
 	clave := strings.ToUpper(strings.TrimSpace(codigo))
 
 	c.mu.Lock()
-	vivo := c.recuerdo != nil && time.Since(c.cuando) < recuerdoDeAlmacenes()
+	vivo := c.recuerdo != nil && time.Since(c.cuando) < c.recuerdoDeAlmacenes()
 	if vivo {
 		lista := c.recuerdo[clave]
 		c.mu.Unlock()
@@ -574,20 +601,19 @@ func (c *accesosHTTP) GuardarAlmacenes(ctx context.Context, cuerpo []byte) (map[
 // El nonce y la hora son contra la repetición: Accesos rechaza una firma repetida o de
 // hace más de cinco minutos.
 func (c *accesosHTTP) pedirFirmado(ctx context.Context, metodo, ruta string, cuerpo []byte, plazo time.Duration) ([]byte, error) {
-	llave := strings.TrimSpace(os.Getenv("PROCOVAR_AUTH_SIGNING_KEY"))
+	// Las tres salen de `config`, que ya les puso su valor por defecto y les quitó la
+	// barra final a la URL. Aquí sólo se comprueba que haya llave.
+	if c.cfg == nil {
+		return nil, errors.New("el cliente de Accesos no tiene configuración")
+	}
+	llave := c.cfg.AuthSigningKey
 	if llave == "" {
 		// Se dice ANTES de salir a la red: sin llave no hay petición que valga, y un
 		// «401 de auth» es mucho más difícil de relacionar con una variable que falta.
 		return nil, errors.New("PROCOVAR_AUTH_SIGNING_KEY no está configurada")
 	}
-	base := os.Getenv("PROCOVAR_AUTH_URL")
-	if strings.TrimSpace(base) == "" {
-		base = "https://auth.procovar.cloud"
-	}
-	cliente := os.Getenv("PROCOVAR_AUTH_CLIENT_ID")
-	if strings.TrimSpace(cliente) == "" {
-		cliente = "delivery"
-	}
+	base := c.cfg.AuthURL
+	cliente := c.cfg.AuthClientID
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	nonce := make([]byte, 16)

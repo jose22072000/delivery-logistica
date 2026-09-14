@@ -653,33 +653,35 @@ ORDER BY veces DESC, nombre ASC;
 -- lote no duplica. Va sin alcance porque el espejo entra con clave de servicio y trae las
 -- ocho sucursales de una vez; la sucursal de cada pedido la decide el propio lote.
 --
--- POR QUÉ SON TRES CONSULTAS Y NO UN `ON CONFLICT`: en la migración, `orders_origen_idx`
--- sobre (`source`, `external_id`) es un índice NORMAL, no único, así que no hay nada que
--- inferir en un `ON CONFLICT` y Postgres lo rechazaría al ejecutarlo. Se busca primero y
--- se escribe después, que es además lo que hace el contrato.
+-- POR QUÉ UNA SOLA CONSULTA CON `ON CONFLICT` Y NO BUSCAR-Y-ESCRIBIR: `orders_origen_idx`
+-- es un índice ÚNICO parcial (ver la migración). Con buscar-y-escribir, dos pasadas del
+-- espejo a la vez leen «no existe» antes de que ninguna escriba y crean el mismo pedido
+-- DOS VECES — y entonces sale dos veces en la lista del armador, con el mismo folio, y
+-- alguien lo carga dos veces en el camión. Con el upsert la carrera la resuelve Postgres.
 --
--- PENDIENTE DE DECIDIR: hacer ese índice UNIQUE. Hoy nada impide que dos pasadas
--- simultáneas del espejo creen el mismo pedido dos veces — las dos leen «no existe» antes
--- de que ninguna escriba. Con el índice único, la segunda falla y se reintenta como
--- actualización; sin él, queda un duplicado que nadie ve hasta que el pedido sale dos
--- veces en la lista del armador.
--- name: BuscarPedidoDelEspejo :one
-SELECT o.id, o.branch_id, o.route_id, o.ultima_ruta_id, o.stop_order, o.pedido_updated_at
-FROM orders o
-WHERE o.source = sqlc.arg('source')::procedencia
-  AND o.external_id = sqlc.arg('external_id')::text;
-
--- name: CrearPedidoDelEspejo :one
+-- El `WHERE` del `ON CONFLICT` repite el del índice parcial: sin él Postgres no sabe qué
+-- índice inferir y rechaza la consulta al ejecutarla.
+--
+-- LO QUE NO SE PISA NUNCA al actualizar: `route_id`, `ultima_ruta_id`, `stop_order`,
+-- `resultado`, `resultado_nota` y `delivered_at`. Eso es del reparto y PEDIDO no sabe nada
+-- de ello: dejarlo entrar borraría de un plumazo el resultado de una parada ya cerrada,
+-- que es justo el dato que dice qué mercancía bajó del camión.
+--
+-- `xmax = 0` es el truco de Postgres para saber si la fila se INSERTÓ o se ACTUALIZÓ: en
+-- una fila recién insertada el id de la transacción que la borró todavía es cero. Hace
+-- falta para poder decir en el registro cuántos pedidos son nuevos sin una consulta más.
+-- name: GuardarPedidoDelEspejo :one
 INSERT INTO orders (
     operation_number, customer_name, customer_phone, address, end_address,
-    end_lat, end_lng, weight, branch_id, source, external_id, order_date,
+    lat, lng, end_lat, end_lng, weight, branch_id, source, external_id, order_date,
     pedido_updated_at, estado, archivado, fecha_comprometida, requiere_domicilio,
     pedido_costo, municipio, vendedor, sucursal_codigo, factura_estado,
     factura_numero, factura_at, factura_domicilio, factura_corregido_at,
     delivery_distance_km, delivery_price
 ) VALUES (
     sqlc.narg('operation_number'), sqlc.arg('customer_name'), sqlc.narg('customer_phone'),
-    sqlc.arg('address'), sqlc.narg('end_address'), sqlc.narg('end_lat'), sqlc.narg('end_lng'),
+    sqlc.arg('address'), sqlc.narg('end_address'),
+    sqlc.narg('lat'), sqlc.narg('lng'), sqlc.narg('end_lat'), sqlc.narg('end_lng'),
     sqlc.arg('weight'), sqlc.narg('branch_id'), sqlc.arg('source'), sqlc.narg('external_id'),
     sqlc.narg('order_date'), sqlc.narg('pedido_updated_at'), sqlc.narg('estado'),
     sqlc.arg('archivado'), sqlc.narg('fecha_comprometida'), sqlc.narg('requiere_domicilio'),
@@ -688,42 +690,37 @@ INSERT INTO orders (
     sqlc.narg('factura_at'), sqlc.narg('factura_domicilio'), sqlc.narg('factura_corregido_at'),
     sqlc.narg('delivery_distance_km'), sqlc.narg('delivery_price')
 )
-RETURNING id, branch_id, external_id;
-
--- Lo que NO se pisa nunca: `route_id`, `ultima_ruta_id`, `stop_order`, `resultado`,
--- `resultado_nota` y `delivered_at`. Eso es del reparto y PEDIDO no sabe nada de ello:
--- dejarlo entrar borraría de un plumazo el resultado de una parada ya cerrada, que es
--- justo el dato que dice qué mercancía bajó del camión.
--- name: ActualizarPedidoDelEspejo :one
-UPDATE orders SET
-    operation_number     = sqlc.narg('operation_number'),
-    customer_name        = sqlc.arg('customer_name'),
-    customer_phone       = sqlc.narg('customer_phone'),
-    address              = sqlc.arg('address'),
-    end_address          = sqlc.narg('end_address'),
-    end_lat              = sqlc.narg('end_lat'),
-    end_lng              = sqlc.narg('end_lng'),
-    weight               = sqlc.arg('weight'),
-    branch_id            = sqlc.narg('branch_id'),
-    order_date           = sqlc.narg('order_date'),
-    pedido_updated_at    = sqlc.narg('pedido_updated_at'),
-    estado               = sqlc.narg('estado'),
-    archivado            = sqlc.arg('archivado'),
-    fecha_comprometida   = sqlc.narg('fecha_comprometida'),
-    requiere_domicilio   = sqlc.narg('requiere_domicilio'),
-    pedido_costo         = sqlc.narg('pedido_costo'),
-    municipio            = sqlc.narg('municipio'),
-    vendedor             = sqlc.narg('vendedor'),
-    sucursal_codigo      = sqlc.narg('sucursal_codigo'),
-    factura_estado       = sqlc.narg('factura_estado'),
-    factura_numero       = sqlc.narg('factura_numero'),
-    factura_at           = sqlc.narg('factura_at'),
-    factura_domicilio    = sqlc.narg('factura_domicilio'),
-    factura_corregido_at = sqlc.narg('factura_corregido_at'),
-    delivery_distance_km = sqlc.narg('delivery_distance_km'),
-    delivery_price       = sqlc.narg('delivery_price')
-WHERE id = sqlc.arg('id')
-RETURNING id, branch_id, external_id;
+ON CONFLICT (source, external_id) WHERE source IS NOT NULL AND external_id IS NOT NULL
+DO UPDATE SET
+    operation_number     = excluded.operation_number,
+    customer_name        = excluded.customer_name,
+    customer_phone       = excluded.customer_phone,
+    address              = excluded.address,
+    end_address          = excluded.end_address,
+    lat                  = excluded.lat,
+    lng                  = excluded.lng,
+    end_lat              = excluded.end_lat,
+    end_lng              = excluded.end_lng,
+    weight               = excluded.weight,
+    branch_id            = excluded.branch_id,
+    order_date           = excluded.order_date,
+    pedido_updated_at    = excluded.pedido_updated_at,
+    estado               = excluded.estado,
+    archivado            = excluded.archivado,
+    fecha_comprometida   = excluded.fecha_comprometida,
+    requiere_domicilio   = excluded.requiere_domicilio,
+    pedido_costo         = excluded.pedido_costo,
+    municipio            = excluded.municipio,
+    vendedor             = excluded.vendedor,
+    sucursal_codigo      = excluded.sucursal_codigo,
+    factura_estado       = excluded.factura_estado,
+    factura_numero       = excluded.factura_numero,
+    factura_at           = excluded.factura_at,
+    factura_domicilio    = excluded.factura_domicilio,
+    factura_corregido_at = excluded.factura_corregido_at,
+    delivery_distance_km = excluded.delivery_distance_km,
+    delivery_price       = excluded.delivery_price
+RETURNING id, branch_id, external_id, (xmax = 0)::boolean AS es_nuevo;
 
 -- Los renglones se reescriben enteros en cada pasada del espejo: PEDIDO puede haber
 -- quitado una línea, y un UPDATE línea a línea dejaría la vieja colgada. Se borran y se

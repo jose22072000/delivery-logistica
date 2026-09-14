@@ -1093,7 +1093,7 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 			// `segment_km` es la distancia RADIAL desde el origen y no la del tramo: se
 			// hereda así de delivery porque es el número con el que se repartió la carga
 			// hasta hoy. Cambiarlo aquí descuadraría los informes viejos.
-			radial := kmDelTablero(almacen.Lat, almacen.Lng, coord(p.EndLat), coord(p.EndLng))
+			radial := kmHaversine(almacen.Lat, almacen.Lng, coord(p.EndLat), coord(p.EndLng))
 			n, err := tx.TableroEngancharPedidoARuta(r.Context(), sqlc.EngancharPedidoARutaParams{
 				RutaID:    pgDe(ruta.ID),
 				StopOrder: &orden,
@@ -1109,12 +1109,12 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 				return errSeLoLlevaron
 			}
 			enganchados += n
-			distancia += kmDelTablero(anteriorLat, anteriorLng, coord(p.EndLat), coord(p.EndLng))
+			distancia += kmHaversine(anteriorLat, anteriorLng, coord(p.EndLat), coord(p.EndLng))
 			anteriorLat, anteriorLng = coord(p.EndLat), coord(p.EndLng)
 		}
 		// El CIRCUITO CERRADO: los tramos más el regreso al origen. El camión vuelve, y
 		// no contar la vuelta subestima el viaje justo a la mitad de las rutas largas.
-		distancia += kmDelTablero(anteriorLat, anteriorLng, almacen.Lat, almacen.Lng)
+		distancia += kmHaversine(anteriorLat, anteriorLng, almacen.Lat, almacen.Lng)
 
 		if _, err := tx.TableroFijarTotalesDeRuta(r.Context(), sqlc.FijarTotalesDeRutaParams{
 			TotalDistance: distancia, TotalWeight: pesoTotal, TotalPrice: costoTotal,
@@ -1253,7 +1253,7 @@ func porCercania(pedidos []sqlc.PedidosDeColumnaParaArmarRutaRow, lat, lng float
 	for len(quedan) > 0 {
 		mejor, mejorKm := 0, math.MaxFloat64
 		for i, p := range quedan {
-			km := kmDelTablero(curLat, curLng, coord(p.EndLat), coord(p.EndLng))
+			km := kmHaversine(curLat, curLng, coord(p.EndLat), coord(p.EndLng))
 			if km < mejorKm {
 				mejor, mejorKm = i, km
 			}
@@ -1264,25 +1264,6 @@ func porCercania(pedidos []sqlc.PedidosDeColumnaParaArmarRutaRow, lat, lng float
 		quedan = append(quedan[:mejor], quedan[mejor+1:]...)
 	}
 	return orden
-}
-
-// kmDelTablero: LA MISMA fórmula que `km_haversine` en la base y que la de la cotización
-// del domicilio. R = 6371 km, línea recta. No es la distancia que recorre el camión y no
-// pretende serlo — es con la que se cobra y con la que se arma la ruta desde el primer
-// día, y tener dos medidas distintas de «cuán lejos está este cliente» es peor que tener
-// una aproximada.
-//
-// SE LLAMA ASÍ Y NO `kmHaversine` PORQUE YA HAY UNA en `clientes.go`, escrita a la vez
-// que ésta. Son la misma cuenta y tiene que quedar UNA sola: al juntar el paquete, se
-// borra ésta y se usa aquélla. Mientras tanto, dos nombres compilan y uno no.
-func kmDelTablero(lat1, lng1, lat2, lng2 float64) float64 {
-	const radio = 6371.0
-	rad := math.Pi / 180
-	dLat := (lat2 - lat1) * rad
-	dLng := (lng2 - lng1) * rad
-	a := math.Pow(math.Sin(dLat/2), 2) +
-		math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Pow(math.Sin(dLng/2), 2)
-	return 2 * radio * math.Asin(math.Sqrt(a))
 }
 
 func coord(v *float64) float64 {

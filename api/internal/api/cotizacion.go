@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"procovar/reparto-api/internal/alcance"
 	"procovar/reparto-api/internal/auth"
@@ -162,10 +163,20 @@ func esNuloJSON(v json.RawMessage) bool {
 // mejor que un peso inventado, porque con el peso se cobra y se carga el camión.
 var CatalogoDePesos func(ctx context.Context) (cotizar.Catalogo, error)
 
-// GuardarPedidoDelEspejo escribe el pedido del lote (§2.3). Lo monta el manejador del
-// espejo de PEDIDO, que es quien tiene las consultas de `orders` y sus renglones.
-// Mientras no esté, el lote COTIZA pero no persiste, y cada resultado lo dice.
-var GuardarPedidoDelEspejo func(ctx context.Context, a *alcance.Acotado, p PedidoParaGuardar) (uuid.UUID, error)
+// GuardarPedidoDelEspejo escribe el pedido del lote (§2.3) con sus renglones.
+//
+// VIENE MONTADA Y NO NIL. Estuvo sin montar un tiempo y el lote contestaba
+// `persisted:false, reason:"espejo-no-montado"`: cotizaba bien y no guardaba nada, así que
+// la base nueva no tenía ni un pedido. Esta ruta no es un cotizador — es LA PUERTA DE
+// ENTRADA de los pedidos, y no hay otra.
+//
+// Sigue siendo una variable para que una prueba pueda cambiarla; la comprobación de `nil`
+// de más abajo se queda porque una prueba que la ponga a nil tiene que degradar diciéndolo
+// y no reventar con un puntero.
+var GuardarPedidoDelEspejo = func(ctx context.Context, a *alcance.Acotado, p PedidoParaGuardar) (uuid.UUID, error) {
+	id, _, err := a.EspejoGuardarPedido(ctx, paraLaBase(p), renglonesParaLaBase(p.Renglones))
+	return id, err
+}
 
 // recuerdoDeTasas es la caché del proceso (§8): 5 min para una tasa que existe, 20 s para
 // el «no hay». Una sola para todo el servicio, porque el lote de 200 pedidos pregunta la
@@ -545,14 +556,43 @@ type pedidoDelLote struct {
 	Lng                *float64          `json:"lng"`
 	Weight             cotizar.Numero    `json:"weight"`
 	RequiereDomicilio  *bool             `json:"requiereDomicilio"`
-	FacturaEstado      *string           `json:"facturaEstado"`
 	OrderDate          *string           `json:"orderDate"`
 	Archivado          *bool             `json:"archivado"`
 	PedidoCosto        *float64          `json:"pedidoCosto"`
 	Municipio          *string           `json:"municipio"`
 	Vendedor           *string           `json:"vendedor"`
 	Items              []cotizar.Renglon `json:"items"`
-	Meta               json.RawMessage   `json:"meta"`
+
+	// `pedidoUpdatedAt` NO ES UN CAMPO MÁS: es la MARCA DE AGUA del espejo.
+	//
+	// El espejo pide `since = max(pedido_updated_at)` de lo que ya tiene. Si este campo no
+	// se leyera aquí, la columna se quedaría siempre en NULL, el `since` no existiría
+	// nunca y cada ciclo volvería a barrerse el año entero — 56.000 pedidos cada minuto
+	// por la conexión de allá, para traer las cuatro filas que se movieron.
+	PedidoUpdatedAt *string `json:"pedidoUpdatedAt"`
+
+	// El estado y la fecha comprometida, copiados de PEDIDO para poder FILTRAR. Dentro de
+	// un JSON no se filtra sin leerse y descartar los cincuenta mil pedidos enteros.
+	Estado            *string `json:"estado"`
+	FechaComprometida *string `json:"fechaComprometida"`
+
+	// El cotejo contra la FACTURA, tal como lo dejó PEDIDO. Lo hace PEDIDO —el pedido es
+	// suyo— y aquí sólo se copia: el armador ofrece por defecto los que cuadran, porque
+	// cargar el camión con un pedido que la factura cambió es descuadrar la caja.
+	//
+	// `facturaDomicilio` es además la señal MÁS FIABLE de que va a domicilio: sale del
+	// mostrador y no de una casilla marcada al tomar el pedido.
+	FacturaEstado      *string  `json:"facturaEstado"`
+	FacturaNumero      *string  `json:"facturaNumero"`
+	FacturaAt          *string  `json:"facturaAt"`
+	FacturaDomicilio   *float64 `json:"facturaDomicilio"`
+	FacturaCorregidoAt *string  `json:"facturaCorregidoAt"`
+
+	// `meta` LLEGA Y NO SE GUARDA, a propósito. El esquema nuevo no tiene columnas JSON
+	// (decisión 0 de la migración): lo que hace falta de PEDIDO se extrae a su columna, y
+	// guardar además el documento entero «por si acaso» es tener el mismo dato en dos
+	// sitios y no saber cuál manda. Se lee aquí sólo para no romper a quien lo manda.
+	Meta json.RawMessage `json:"meta"`
 }
 
 type sucursalDelLote struct {
@@ -862,21 +902,33 @@ type PedidoParaGuardar struct {
 	// DeliveryPrice es SIEMPRE nil: delivery ya no cotiza. Lo que se cobra es PedidoCosto.
 	DeliveryPrice *float64
 
+	// Renglones son las líneas del pedido con el peso ya resuelto. Van a la tabla
+	// `order_items`, una fila por línea.
+	//
+	// YA NO SON UN JSON, y con ellos se fue `productosTexto`: aquella era una copia a mano
+	// de los nombres en texto plano, metida al lado del JSON para poder responder a «¿qué
+	// pedidos llevan malta?» sin leerse los cincuenta mil pedidos enteros. Con los
+	// renglones en su tabla se pregunta por el nombre y ya está —hay un índice de texto
+	// para eso—, y un dato copiado en dos sitios acaba discrepando.
 	Renglones []cotizar.RenglonPesado
-	// ProductosTexto es la copia EN TEXTO de los nombres, unidos con " · ".
-	// POR QUÉ: dentro de un JSON no se puede buscar sin leerse los cincuenta mil pedidos,
-	// y ésa es la pregunta del despacho («¿qué pedidos llevan malta?»).
-	ProductosTexto *string
 
 	OrderDate         *time.Time
+	PedidoUpdatedAt   *time.Time // la MARCA DE AGUA del espejo; ver `pedidoDelLote`
+	Estado            *string
+	FechaComprometida *time.Time
 	RequiereDomicilio *bool // tri-estado: true / false / desconocido
 	Archivado         bool
 	PedidoCosto       *float64 // el costo que la APK puso EN PEDIDO. NO es DeliveryPrice.
-	FacturaEstado     *string
-	Municipio         *string
-	Vendedor          *string
-	SucursalCodigo    *string
-	Meta              json.RawMessage // sólo si vino: no se borra el payload guardado
+
+	FacturaEstado      *string
+	FacturaNumero      *string
+	FacturaAt          *time.Time
+	FacturaDomicilio   *float64
+	FacturaCorregidoAt *time.Time
+
+	Municipio      *string
+	Vendedor       *string
+	SucursalCodigo *string
 }
 
 func armarPedidoDelLote(p pedidoDelLote, suc sqlc.ListarSucursalesRow, pesos cotizar.PesosResueltos, peso, km float64) PedidoParaGuardar {
@@ -903,46 +955,42 @@ func armarPedidoDelLote(p pedidoDelLote, suc sqlc.ListarSucursalesRow, pesos cot
 		// el precio. Y como delivery ya no cotiza, aquí es nil en los dos casos.
 		DeliveryPrice:     nil,
 		Renglones:         pesos.Renglones,
-		ProductosTexto:    textoDeProductos(p.Items),
 		RequiereDomicilio: p.RequiereDomicilio,
 		// `archivado === true` estricto: por defecto false.
-		Archivado:      p.Archivado != nil && *p.Archivado,
-		PedidoCosto:    p.PedidoCosto,
-		FacturaEstado:  p.FacturaEstado,
-		Municipio:      p.Municipio,
-		Vendedor:       p.Vendedor,
-		SucursalCodigo: suc.ExternalID,
-		Meta:           p.Meta,
-	}
-	// `orderDate` existe SEPARADO de `createdAt` por algo: `createdAt` es cuándo lo copió
-	// el espejo. Filtrar el día del armador de rutas por `createdAt` daba CERO cualquier
-	// día que no fuera hoy, porque el espejo trae quince días de una vez y todos nacen con
-	// la fecha de hoy.
-	if p.OrderDate != nil {
-		if t, err := time.Parse(time.RFC3339, *p.OrderDate); err == nil {
-			out.OrderDate = &t
-		}
+		Archivado:        p.Archivado != nil && *p.Archivado,
+		PedidoCosto:      p.PedidoCosto,
+		Estado:           p.Estado,
+		FacturaEstado:    p.FacturaEstado,
+		FacturaNumero:    p.FacturaNumero,
+		FacturaDomicilio: p.FacturaDomicilio,
+		Municipio:        p.Municipio,
+		Vendedor:         p.Vendedor,
+		SucursalCodigo:   suc.ExternalID,
+		// `orderDate` existe SEPARADO de `createdAt` por algo: `createdAt` es cuándo lo
+		// copió el espejo. Filtrar el día del armador de rutas por `createdAt` daba CERO
+		// cualquier día que no fuera hoy, porque el espejo trae quince días de una vez y
+		// todos nacen con la fecha de hoy.
+		OrderDate:          fechaDelLote(p.OrderDate),
+		PedidoUpdatedAt:    fechaDelLote(p.PedidoUpdatedAt),
+		FechaComprometida:  fechaDelLote(p.FechaComprometida),
+		FacturaAt:          fechaDelLote(p.FacturaAt),
+		FacturaCorregidoAt: fechaDelLote(p.FacturaCorregidoAt),
 	}
 	return out
 }
 
-// productosTexto une los nombres con " · ", descartando los vacíos. Nil si no queda nada.
-func textoDeProductos(items []cotizar.Renglon) *string {
-	nombres := make([]string, 0, len(items))
-	for _, it := range items {
-		n := it.Name
-		if n == "" {
-			n = it.Description
-		}
-		if n != "" {
-			nombres = append(nombres, n)
-		}
-	}
-	if len(nombres) == 0 {
+// fechaDelLote lee una fecha del lote. Una que no se entiende se trata como AUSENTE y no
+// como un error del pedido entero: el resto del pedido es bueno y se guarda igual, que es
+// mejor que perderlo por una fecha mal escrita en el otro lado.
+func fechaDelLote(crudo *string) *time.Time {
+	if crudo == nil || strings.TrimSpace(*crudo) == "" {
 		return nil
 	}
-	v := strings.Join(nombres, " · ")
-	return &v
+	t, err := time.Parse(time.RFC3339, *crudo)
+	if err != nil {
+		return nil
+	}
+	return &t
 }
 
 // ---------------------------------------------------------------------------
@@ -971,4 +1019,138 @@ func sucursalParaCotizar(ctx context.Context, a *alcance.Acotado, codigo string)
 		}
 	}
 	return nil, nil
+}
+
+// ---------------------------------------------------------------------------
+// El pedido, ya en la forma de la base
+// ---------------------------------------------------------------------------
+
+// paraLaBase traduce el pedido armado a los parámetros del upsert.
+//
+// LA IDEMPOTENCIA LA PONE EL `ON CONFLICT (source, external_id)` de la consulta, no un
+// «busca y si existe actualiza» escrito aquí: con dos pasadas del espejo a la vez, las dos
+// leen «no existe» antes de que ninguna escriba y el pedido entra DOS VECES. Entonces sale
+// dos veces en la lista del armador, con el mismo folio, y alguien lo carga dos veces.
+func paraLaBase(p PedidoParaGuardar) sqlc.GuardarPedidoDelEspejoParams {
+	fuente := sqlc.ProcedenciaPedido
+	// Las cuatro coordenadas llevan la MISMA del cliente (§2.3): `lat/lng` es dónde está,
+	// y `end_lat/end_lng` es dónde termina la parada, que en un reparto es el mismo sitio.
+	lat, lng := p.Lat, p.Lng
+
+	return sqlc.GuardarPedidoDelEspejoParams{
+		Source:     &fuente,
+		ExternalID: p.ExternalID,
+		BranchID:   pgtype.UUID{Bytes: [16]byte(p.BranchID), Valid: p.BranchID != uuid.Nil},
+
+		OperationNumber: p.OperationNumber,
+		CustomerName:    p.CustomerName,
+		CustomerPhone:   p.CustomerPhone,
+		Address:         p.Address,
+		EndAddress:      p.EndAddress,
+		Lat:             &lat,
+		Lng:             &lng,
+		EndLat:          &lat,
+		EndLng:          &lng,
+
+		// 0 = SIN PESO RESUELTO, y así entra al armador (capacidad del camión). No es
+		// «no pesa»: es que nadie ha podido decir cuánto.
+		Weight:             p.Weight,
+		DeliveryDistanceKm: &p.DeliveryDistanceKm,
+		// SIEMPRE nil: delivery ya no cotiza. Lo que se cobra es `pedido_costo`.
+		DeliveryPrice: p.DeliveryPrice,
+
+		OrderDate:         marcaDeTiempo(p.OrderDate),
+		PedidoUpdatedAt:   marcaDeTiempo(p.PedidoUpdatedAt),
+		FechaComprometida: marcaDeTiempo(p.FechaComprometida),
+
+		Estado:            estadoDePedido(p.Estado),
+		Archivado:         p.Archivado,
+		RequiereDomicilio: p.RequiereDomicilio,
+		PedidoCosto:       p.PedidoCosto,
+
+		FacturaEstado:      estadoDeFactura(p.FacturaEstado),
+		FacturaNumero:      p.FacturaNumero,
+		FacturaAt:          marcaDeTiempo(p.FacturaAt),
+		FacturaDomicilio:   p.FacturaDomicilio,
+		FacturaCorregidoAt: marcaDeTiempo(p.FacturaCorregidoAt),
+
+		Municipio:      p.Municipio,
+		Vendedor:       p.Vendedor,
+		SucursalCodigo: p.SucursalCodigo,
+	}
+}
+
+// renglonesParaLaBase pasa las líneas a filas de `order_items`.
+//
+// `linea` conserva la POSICIÓN ORIGINAL en el pedido —no el número de fila escrita— para
+// que la hoja del despacho salga en el mismo orden que el papel del vendedor.
+//
+// Una línea sin nada que enseñar se descarta: `description` es obligatoria y una fila
+// vacía no se puede ni buscar ni despachar. Deja hueco en la numeración a propósito: el
+// hueco dice que allí venía algo que no se entendió, y rehacer la cuenta lo escondería.
+func renglonesParaLaBase(renglones []cotizar.RenglonPesado) []sqlc.CrearRenglonDePedidoParams {
+	salida := make([]sqlc.CrearRenglonDePedidoParams, 0, len(renglones))
+	for i, r := range renglones {
+		texto := strings.TrimSpace(r.Name)
+		if texto == "" {
+			texto = strings.TrimSpace(r.Description)
+		}
+		if texto == "" {
+			continue
+		}
+		fila := sqlc.CrearRenglonDePedidoParams{
+			// PedidoID lo rellena `EspejoGuardarPedido` con el id que devuelve el upsert.
+			Linea:       int32(i + 1),
+			Description: texto,
+			Quantity:    r.Quantity.O(0),
+		}
+		// Los bultos sólo si los hay. Un 0 escrito aquí diría «cero cajas», que no es lo
+		// mismo que «la factura no distingue cajas de unidades» — y son indistinguibles al
+		// llegar: un `packs` ausente se decodifica como 0, no como «no vino».
+		if r.Packs.Positivo() {
+			v := r.Packs.Valor
+			fila.Packs = &v
+		}
+		// `product_id` se queda vacío y NO es un fallo: el emparejamiento con el catálogo
+		// de Ventra da el peso, no el id de la fila del catálogo, y hay renglones escritos
+		// a mano que no están en Ventra. Se resuelve por nombre cuando hace falta.
+		salida = append(salida, fila)
+	}
+	return salida
+}
+
+// marcaDeTiempo: nil -> NULL. Una fecha ausente es ausente, no el año cero, que es lo que
+// deja el valor por defecto de Go y lo que ordenaría los pedidos por delante de todo.
+func marcaDeTiempo(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
+}
+
+// estadoDePedido y estadoDeFactura filtran contra los valores que el enum admite.
+//
+// UN VALOR QUE NO ESTÁ EN EL ENUM NO ES UN PEDIDO PERDIDO: Postgres rechazaría la fila
+// entera, y con ella el lote, por un estado nuevo que alguien añadió en PEDIDO. Se guarda
+// como NULL —«no cotejado», que es la verdad— y el pedido entra igual.
+func estadoDePedido(v *string) *sqlc.PedidoEstado {
+	if v == nil {
+		return nil
+	}
+	switch e := sqlc.PedidoEstado(strings.TrimSpace(*v)); e {
+	case sqlc.PedidoEstadoCompletada, sqlc.PedidoEstadoEnProceso:
+		return &e
+	}
+	return nil
+}
+
+func estadoDeFactura(v *string) *sqlc.FacturaEstado {
+	if v == nil {
+		return nil
+	}
+	switch e := sqlc.FacturaEstado(strings.TrimSpace(*v)); e {
+	case sqlc.FacturaEstadoIgual, sqlc.FacturaEstadoCambiado, sqlc.FacturaEstadoSinFactura:
+		return &e
+	}
+	return nil
 }

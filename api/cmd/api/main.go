@@ -74,6 +74,17 @@ func correr() error {
 	if len(cfg.OrigenesPermitidos) == 0 {
 		reg.Warn("ORIGENES_PERMITIDOS vacío: el navegador no podrá llamar a esta API desde otro dominio")
 	}
+	// Tampoco impide arrancar, pero tiene que verse AL DESPLEGAR y no la tarde que
+	// alguien pregunte por qué el vendedor no ve que su pedido salió. Sin esto, el canal
+	// hacia PEDIDO queda mudo: no se rompe nada, pero el vendedor no se entera de nada.
+	if cfg.PedidoAPIURL == "" {
+		reg.Warn("PEDIDO_API_URL vacía: no se le podrá contar a PEDIDO en qué punto va cada pedido " +
+			"(el reparto funciona igual, pero el vendedor no verá los cambios de estado)")
+	}
+	if cfg.AuthSigningKey == "" {
+		reg.Warn("PROCOVAR_AUTH_SIGNING_KEY vacía: no se podrá preguntar a Accesos por los almacenes " +
+			"ni por las tasas, así que no se podrán cotizar domicilios")
+	}
 
 	servidor := &http.Server{
 		Addr: cfg.Direccion(),

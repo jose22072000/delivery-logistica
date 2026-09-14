@@ -20,7 +20,6 @@ type Querier interface {
 	// que dice si el número que se está usando es de hoy o de hace tres semanas, y tocarlo por
 	// guardar la moneda lo convertiría en una copia de `updated_at`, que ya existe.
 	ActualizarAjustes(ctx context.Context, arg ActualizarAjustesParams) (Setting, error)
-	ActualizarClienteDelEspejo(ctx context.Context, arg ActualizarClienteDelEspejoParams) (ActualizarClienteDelEspejoRow, error)
 	// Renombrar y elegir camión. `tocar_vehiculo` existe porque «no me lo toques» y «quítamelo»
 	// son dos órdenes distintas y las dos llegan con el campo vacío: sin la bandera, dejar el
 	// nombre en blanco desasignaría el camión de paso.
@@ -54,11 +53,6 @@ type Querier interface {
 	// no se pisa con NULL. `delivered_at` se pone solo al marcar `delivered` — no se le pide
 	// al cliente que lo mande, que es como acaban dos pedidos con la misma hora de entrega.
 	ActualizarPedido(ctx context.Context, arg ActualizarPedidoParams) (ActualizarPedidoRow, error)
-	// Lo que NO se pisa nunca: `route_id`, `ultima_ruta_id`, `stop_order`, `resultado`,
-	// `resultado_nota` y `delivered_at`. Eso es del reparto y PEDIDO no sabe nada de ello:
-	// dejarlo entrar borraría de un plumazo el resultado de una parada ya cerrada, que es
-	// justo el dato que dice qué mercancía bajó del camión.
-	ActualizarPedidoDelEspejo(ctx context.Context, arg ActualizarPedidoDelEspejoParams) (ActualizarPedidoDelEspejoRow, error)
 	// Recalcular el peso desde el catálogo (POST /api/orders/recompute-weights). Va sin
 	// alcance a propósito: es una faena de servicio sobre todo el espejo, con clave de API.
 	ActualizarPesoDePedido(ctx context.Context, arg ActualizarPesoDePedidoParams) error
@@ -92,6 +86,16 @@ type Querier interface {
 	// único obligaría a abrir las doce columnas para saber cuál de las tres es.
 	AvisosDelTablero(ctx context.Context, arg AvisosDelTableroParams) (AvisosDelTableroRow, error)
 	BorrarAsignacionesDeVehiculo(ctx context.Context, vehiculoID uuid.UUID) (int64, error)
+	// Los que ya no vienen de PEDIDO: borrados allá, o dejaron de tener coordenadas.
+	//
+	// SÓLO los de `source = 'pedido'`. El alta MANUAL del reparto no tiene origen ni id
+	// externo, y llevársela por delante sería borrar un cliente que nadie puede recuperar
+	// porque no está en ningún otro sitio.
+	//
+	// Quien llame tiene que haber recorrido TODAS las páginas de PEDIDO antes: con media
+	// lista —un corte de la VPN a mitad del recorrido— esto vacía el espejo entero y el
+	// logístico se queda sin a quién repartir, con un 200 y sin un solo error.
+	BorrarClientesDelEspejoQueYaNoVienen(ctx context.Context, arg BorrarClientesDelEspejoQueYaNoVienenParams) (int64, error)
 	// Con `ON DELETE RESTRICT` en las colocaciones, esto falla si la columna tiene algo dentro.
 	// Es lo que se quiere: borrar una columna con pedidos puestos no puede ser silencioso, y
 	// quien llama ya sabe —por `ContarPedidosEnColumna`— qué tiene que decirle a la persona.
@@ -111,30 +115,6 @@ type Querier interface {
 	// sentencia, y no con un conteo antes: entre el conteo y el borrado cabe un alta.
 	BorrarTipoDeVehiculoSinUso(ctx context.Context, id uuid.UUID) (int64, error)
 	BorrarVehiculo(ctx context.Context, arg BorrarVehiculoParams) (int64, error)
-	// Idempotencia del espejo: `source` + `external_id` es lo que reconoce a un cliente entre
-	// pasadas. Sin alcance — el espejo entra con clave de servicio y trae las ocho sucursales.
-	//
-	// Como en pedidos: `customers_origen_idx` NO es único, así que no hay `ON CONFLICT` que
-	// valga. Se busca y se escribe, que es lo que hace el contrato.
-	BuscarClienteDelEspejo(ctx context.Context, arg BuscarClienteDelEspejoParams) (BuscarClienteDelEspejoRow, error)
-	// ---------------------------------------------------------------------------
-	// El espejo de PEDIDO  (POST /api/quote/batch)
-	// ---------------------------------------------------------------------------
-	// Alta o actualización idempotente por (`source`, `external_id`): volver a pasar el mismo
-	// lote no duplica. Va sin alcance porque el espejo entra con clave de servicio y trae las
-	// ocho sucursales de una vez; la sucursal de cada pedido la decide el propio lote.
-	//
-	// POR QUÉ SON TRES CONSULTAS Y NO UN `ON CONFLICT`: en la migración, `orders_origen_idx`
-	// sobre (`source`, `external_id`) es un índice NORMAL, no único, así que no hay nada que
-	// inferir en un `ON CONFLICT` y Postgres lo rechazaría al ejecutarlo. Se busca primero y
-	// se escribe después, que es además lo que hace el contrato.
-	//
-	// PENDIENTE DE DECIDIR: hacer ese índice UNIQUE. Hoy nada impide que dos pasadas
-	// simultáneas del espejo creen el mismo pedido dos veces — las dos leen «no existe» antes
-	// de que ninguna escriba. Con el índice único, la segunda falla y se reintenta como
-	// actualización; sin él, queda un duplicado que nadie ve hasta que el pedido sale dos
-	// veces en la lista del armador.
-	BuscarPedidoDelEspejo(ctx context.Context, arg BuscarPedidoDelEspejoParams) (BuscarPedidoDelEspejoRow, error)
 	// Emparejar un renglón de pedido con el catálogo de SU sucursal. El `sku` sólo es único
 	// dentro de una sucursal —la clave de la tabla es (`sucursal_codigo`, `sku`)—, así que
 	// buscarlo sin ella devuelve el precio y las existencias de donde no toca.
@@ -234,10 +214,6 @@ type Querier interface {
 	// ruta y no `vehicles.status` porque el estado es un campo que alguien puede haber dejado
 	// a mano en `available` con la ruta todavía abierta.
 	ContarVehiculosEnRuta(ctx context.Context, sucursal pgtype.UUID) (int64, error)
-	// `synced_at` es «cuándo lo trajo el origen» y NO es `updated_at`, que lo mueve el trigger
-	// al tocar la fila. Confundirlas rompe el espejo: la segunda cambia aunque el dato de
-	// Ventra sea de hace tres días porque la VPN lleva caída desde el lunes.
-	CrearClienteDelEspejo(ctx context.Context, arg CrearClienteDelEspejoParams) (CrearClienteDelEspejoRow, error)
 	// La posición se calcula aquí y no la manda la pantalla: una columna nueva va al final,
 	// siempre, y dejar que el cliente proponga el número es dejar que dos aparatos sin
 	// conexión propongan el mismo.
@@ -247,7 +223,6 @@ type Querier interface {
 	// columnas en un tablero al que no llega nadie.
 	CrearColumna(ctx context.Context, arg CrearColumnaParams) (BoardColumn, error)
 	CrearOrigen(ctx context.Context, arg CrearOrigenParams) (SavedOrigin, error)
-	CrearPedidoDelEspejo(ctx context.Context, arg CrearPedidoDelEspejoParams) (CrearPedidoDelEspejoRow, error)
 	CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePedidoParams) (CrearRenglonDePedidoRow, error)
 	// La ruta nace `planned` y `optimized` en false: los totales y el orden de visita se
 	// calculan después, con las paradas ya enganchadas, y se fijan con `FijarTotalesDeRuta`.
@@ -346,10 +321,47 @@ type Querier interface {
 	// `total_distance` es el CIRCUITO CERRADO: los tramos más el regreso al origen. El camión
 	// vuelve, y no contar la vuelta subestima el viaje justo a la mitad de las rutas largas.
 	FijarTotalesDeRuta(ctx context.Context, arg FijarTotalesDeRutaParams) (FijarTotalesDeRutaRow, error)
+	// Idempotencia del espejo: `source` + `external_id` es lo que reconoce a un cliente entre
+	// pasadas. Sin alcance — el espejo entra con clave de servicio y trae las ocho sucursales.
+	//
+	// UNA SOLA CONSULTA CON `ON CONFLICT`, como en pedidos: `customers_origen_idx` es ÚNICO
+	// parcial, y con buscar-y-escribir dos pasadas a la vez crean el mismo cliente dos veces
+	// —las dos leen «no existe» antes de que ninguna escriba—. El `WHERE` repite el del índice
+	// parcial porque si no Postgres no sabe qué índice inferir.
+	//
+	// `synced_at` es «cuándo lo trajo el origen» y NO es `updated_at`, que lo mueve el trigger
+	// al tocar la fila. Confundirlas rompe el espejo: la segunda cambia aunque el dato de
+	// Ventra sea de hace tres días porque la VPN lleva caída desde el lunes.
+	GuardarClienteDelEspejo(ctx context.Context, arg GuardarClienteDelEspejoParams) (GuardarClienteDelEspejoRow, error)
 	// Una moneda se corrige sola, sin reescribir la lista entera. Eso es lo que la tabla
 	// compra frente al array de JSON que había antes: se puede saber cuándo cambió cada tasa
 	// —`updated_at`, que lo mantiene el trigger— y corregir una sin tocar las demás.
 	GuardarMoneda(ctx context.Context, arg GuardarMonedaParams) (Currency, error)
+	// ---------------------------------------------------------------------------
+	// El espejo de PEDIDO  (POST /api/quote/batch)
+	// ---------------------------------------------------------------------------
+	// Alta o actualización idempotente por (`source`, `external_id`): volver a pasar el mismo
+	// lote no duplica. Va sin alcance porque el espejo entra con clave de servicio y trae las
+	// ocho sucursales de una vez; la sucursal de cada pedido la decide el propio lote.
+	//
+	// POR QUÉ UNA SOLA CONSULTA CON `ON CONFLICT` Y NO BUSCAR-Y-ESCRIBIR: `orders_origen_idx`
+	// es un índice ÚNICO parcial (ver la migración). Con buscar-y-escribir, dos pasadas del
+	// espejo a la vez leen «no existe» antes de que ninguna escriba y crean el mismo pedido
+	// DOS VECES — y entonces sale dos veces en la lista del armador, con el mismo folio, y
+	// alguien lo carga dos veces en el camión. Con el upsert la carrera la resuelve Postgres.
+	//
+	// El `WHERE` del `ON CONFLICT` repite el del índice parcial: sin él Postgres no sabe qué
+	// índice inferir y rechaza la consulta al ejecutarla.
+	//
+	// LO QUE NO SE PISA NUNCA al actualizar: `route_id`, `ultima_ruta_id`, `stop_order`,
+	// `resultado`, `resultado_nota` y `delivered_at`. Eso es del reparto y PEDIDO no sabe nada
+	// de ello: dejarlo entrar borraría de un plumazo el resultado de una parada ya cerrada,
+	// que es justo el dato que dice qué mercancía bajó del camión.
+	//
+	// `xmax = 0` es el truco de Postgres para saber si la fila se INSERTÓ o se ACTUALIZÓ: en
+	// una fila recién insertada el id de la transacción que la borró todavía es cero. Hace
+	// falta para poder decir en el registro cuántos pedidos son nuevos sin una consulta más.
+	GuardarPedidoDelEspejo(ctx context.Context, arg GuardarPedidoDelEspejoParams) (GuardarPedidoDelEspejoRow, error)
 	// ---------------------------------------------------------------------------
 	// Bajada del catálogo  (POST /api/products/sync)
 	// ---------------------------------------------------------------------------

@@ -128,7 +128,7 @@ func (s *Servidor) listarClientes(w http.ResponseWriter, r *http.Request) {
 			codigo = sucursalPedida
 		}
 		if codigo != nil {
-			almacen = almacenDeReferencia(r, *codigo)
+			almacen = s.almacenDeReferencia(r, *codigo)
 		}
 		if almacen != nil {
 			// Un grado de latitud son ~111 km en cualquier sitio; uno de longitud se
@@ -296,8 +296,8 @@ func facetasDeClientes(r *http.Request, a *alcance.Acotado) (facetasClientes, er
 // medir y con `almacenDeReferencia: null`. Que el buscador de clientes dependa de que
 // Accesos esté en pie sería cambiar una función que casi nunca se usa por la que se usa
 // todo el día.
-func almacenDeReferencia(r *http.Request, codigo string) *PuntoDelAlmacen {
-	lista, err := Accesos.AlmacenesDeSucursal(r.Context(), codigo)
+func (s *Servidor) almacenDeReferencia(r *http.Request, codigo string) *PuntoDelAlmacen {
+	lista, err := s.accesos.AlmacenesDeSucursal(r.Context(), codigo)
 	if err != nil {
 		httpx.Registro(r).Warn("no se pudo preguntar por los almacenes: se lista sin medir distancias",
 			"sucursal", codigo, "err", err)

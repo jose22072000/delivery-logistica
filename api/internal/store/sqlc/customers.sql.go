@@ -12,100 +12,32 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const actualizarClienteDelEspejo = `-- name: ActualizarClienteDelEspejo :one
-UPDATE customers SET
-    name            = $1,
-    phone           = $2,
-    address         = $3,
-    municipio       = $4,
-    zona            = $5,
-    codigo          = $6,
-    vendedor        = $7,
-    lat             = $8,
-    lng             = $9,
-    sucursal_codigo = $10,
-    synced_at       = now()
-WHERE id = $11
-RETURNING id, source, external_id, name, sucursal_codigo, synced_at
+const borrarClientesDelEspejoQueYaNoVienen = `-- name: BorrarClientesDelEspejoQueYaNoVienen :execrows
+DELETE FROM customers
+WHERE source = $1::procedencia
+  AND NOT (external_id = ANY($2::text[]))
 `
 
-type ActualizarClienteDelEspejoParams struct {
-	Name           string    `json:"name"`
-	Phone          *string   `json:"phone"`
-	Address        *string   `json:"address"`
-	Municipio      *string   `json:"municipio"`
-	Zona           *string   `json:"zona"`
-	Codigo         *string   `json:"codigo"`
-	Vendedor       *string   `json:"vendedor"`
-	Lat            float64   `json:"lat"`
-	Lng            float64   `json:"lng"`
-	SucursalCodigo *string   `json:"sucursal_codigo"`
-	ID             uuid.UUID `json:"id"`
+type BorrarClientesDelEspejoQueYaNoVienenParams struct {
+	Source      Procedencia `json:"source"`
+	ExternalIds []string    `json:"external_ids"`
 }
 
-type ActualizarClienteDelEspejoRow struct {
-	ID             uuid.UUID          `json:"id"`
-	Source         *Procedencia       `json:"source"`
-	ExternalID     *string            `json:"external_id"`
-	Name           string             `json:"name"`
-	SucursalCodigo *string            `json:"sucursal_codigo"`
-	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
-}
-
-func (q *Queries) ActualizarClienteDelEspejo(ctx context.Context, arg ActualizarClienteDelEspejoParams) (ActualizarClienteDelEspejoRow, error) {
-	row := q.db.QueryRow(ctx, actualizarClienteDelEspejo,
-		arg.Name,
-		arg.Phone,
-		arg.Address,
-		arg.Municipio,
-		arg.Zona,
-		arg.Codigo,
-		arg.Vendedor,
-		arg.Lat,
-		arg.Lng,
-		arg.SucursalCodigo,
-		arg.ID,
-	)
-	var i ActualizarClienteDelEspejoRow
-	err := row.Scan(
-		&i.ID,
-		&i.Source,
-		&i.ExternalID,
-		&i.Name,
-		&i.SucursalCodigo,
-		&i.SyncedAt,
-	)
-	return i, err
-}
-
-const buscarClienteDelEspejo = `-- name: BuscarClienteDelEspejo :one
-SELECT c.id, c.sucursal_codigo, c.synced_at
-FROM customers c
-WHERE c.source = $1::procedencia
-  AND c.external_id = $2::text
-`
-
-type BuscarClienteDelEspejoParams struct {
-	Source     Procedencia `json:"source"`
-	ExternalID string      `json:"external_id"`
-}
-
-type BuscarClienteDelEspejoRow struct {
-	ID             uuid.UUID          `json:"id"`
-	SucursalCodigo *string            `json:"sucursal_codigo"`
-	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
-}
-
-// Idempotencia del espejo: `source` + `external_id` es lo que reconoce a un cliente entre
-// pasadas. Sin alcance — el espejo entra con clave de servicio y trae las ocho sucursales.
+// Los que ya no vienen de PEDIDO: borrados allá, o dejaron de tener coordenadas.
 //
-// Como en pedidos: `customers_origen_idx` NO es único, así que no hay `ON CONFLICT` que
-// valga. Se busca y se escribe, que es lo que hace el contrato.
-func (q *Queries) BuscarClienteDelEspejo(ctx context.Context, arg BuscarClienteDelEspejoParams) (BuscarClienteDelEspejoRow, error) {
-	row := q.db.QueryRow(ctx, buscarClienteDelEspejo, arg.Source, arg.ExternalID)
-	var i BuscarClienteDelEspejoRow
-	err := row.Scan(&i.ID, &i.SucursalCodigo, &i.SyncedAt)
-	return i, err
+// SÓLO los de `source = 'pedido'`. El alta MANUAL del reparto no tiene origen ni id
+// externo, y llevársela por delante sería borrar un cliente que nadie puede recuperar
+// porque no está en ningún otro sitio.
+//
+// Quien llame tiene que haber recorrido TODAS las páginas de PEDIDO antes: con media
+// lista —un corte de la VPN a mitad del recorrido— esto vacía el espejo entero y el
+// logístico se queda sin a quién repartir, con un 200 y sin un solo error.
+func (q *Queries) BorrarClientesDelEspejoQueYaNoVienen(ctx context.Context, arg BorrarClientesDelEspejoQueYaNoVienenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarClientesDelEspejoQueYaNoVienen, arg.Source, arg.ExternalIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const contarClientes = `-- name: ContarClientes :one
@@ -199,73 +131,6 @@ func (q *Queries) ContarClientesSinTelefono(ctx context.Context, sucursalDelAlca
 	var count int64
 	err := row.Scan(&count)
 	return count, err
-}
-
-const crearClienteDelEspejo = `-- name: CrearClienteDelEspejo :one
-INSERT INTO customers (
-    source, external_id, name, phone, address, municipio, zona, codigo,
-    vendedor, lat, lng, sucursal_codigo, synced_at
-) VALUES (
-    $1, $2, $3, $4,
-    $5, $6, $7, $8,
-    $9, $10, $11,
-    $12, now()
-)
-RETURNING id, source, external_id, name, sucursal_codigo, synced_at
-`
-
-type CrearClienteDelEspejoParams struct {
-	Source         *Procedencia `json:"source"`
-	ExternalID     *string      `json:"external_id"`
-	Name           string       `json:"name"`
-	Phone          *string      `json:"phone"`
-	Address        *string      `json:"address"`
-	Municipio      *string      `json:"municipio"`
-	Zona           *string      `json:"zona"`
-	Codigo         *string      `json:"codigo"`
-	Vendedor       *string      `json:"vendedor"`
-	Lat            float64      `json:"lat"`
-	Lng            float64      `json:"lng"`
-	SucursalCodigo *string      `json:"sucursal_codigo"`
-}
-
-type CrearClienteDelEspejoRow struct {
-	ID             uuid.UUID          `json:"id"`
-	Source         *Procedencia       `json:"source"`
-	ExternalID     *string            `json:"external_id"`
-	Name           string             `json:"name"`
-	SucursalCodigo *string            `json:"sucursal_codigo"`
-	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
-}
-
-// `synced_at` es «cuándo lo trajo el origen» y NO es `updated_at`, que lo mueve el trigger
-// al tocar la fila. Confundirlas rompe el espejo: la segunda cambia aunque el dato de
-// Ventra sea de hace tres días porque la VPN lleva caída desde el lunes.
-func (q *Queries) CrearClienteDelEspejo(ctx context.Context, arg CrearClienteDelEspejoParams) (CrearClienteDelEspejoRow, error) {
-	row := q.db.QueryRow(ctx, crearClienteDelEspejo,
-		arg.Source,
-		arg.ExternalID,
-		arg.Name,
-		arg.Phone,
-		arg.Address,
-		arg.Municipio,
-		arg.Zona,
-		arg.Codigo,
-		arg.Vendedor,
-		arg.Lat,
-		arg.Lng,
-		arg.SucursalCodigo,
-	)
-	var i CrearClienteDelEspejoRow
-	err := row.Scan(
-		&i.ID,
-		&i.Source,
-		&i.ExternalID,
-		&i.Name,
-		&i.SucursalCodigo,
-		&i.SyncedAt,
-	)
-	return i, err
 }
 
 const facetasClientesMunicipios = `-- name: FacetasClientesMunicipios :many
@@ -419,6 +284,94 @@ func (q *Queries) FacetasClientesZonas(ctx context.Context, sucursalDelAlcance *
 		return nil, err
 	}
 	return items, nil
+}
+
+const guardarClienteDelEspejo = `-- name: GuardarClienteDelEspejo :one
+INSERT INTO customers (
+    source, external_id, name, phone, address, municipio, zona, codigo,
+    vendedor, lat, lng, sucursal_codigo, synced_at
+) VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7, $8,
+    $9, $10, $11,
+    $12, now()
+)
+ON CONFLICT (source, external_id) WHERE source IS NOT NULL AND external_id IS NOT NULL
+DO UPDATE SET
+    name            = excluded.name,
+    phone           = excluded.phone,
+    address         = excluded.address,
+    municipio       = excluded.municipio,
+    zona            = excluded.zona,
+    codigo          = excluded.codigo,
+    vendedor        = excluded.vendedor,
+    lat             = excluded.lat,
+    lng             = excluded.lng,
+    sucursal_codigo = excluded.sucursal_codigo,
+    synced_at       = now()
+RETURNING id, source, external_id, name, sucursal_codigo, synced_at
+`
+
+type GuardarClienteDelEspejoParams struct {
+	Source         *Procedencia `json:"source"`
+	ExternalID     *string      `json:"external_id"`
+	Name           string       `json:"name"`
+	Phone          *string      `json:"phone"`
+	Address        *string      `json:"address"`
+	Municipio      *string      `json:"municipio"`
+	Zona           *string      `json:"zona"`
+	Codigo         *string      `json:"codigo"`
+	Vendedor       *string      `json:"vendedor"`
+	Lat            float64      `json:"lat"`
+	Lng            float64      `json:"lng"`
+	SucursalCodigo *string      `json:"sucursal_codigo"`
+}
+
+type GuardarClienteDelEspejoRow struct {
+	ID             uuid.UUID          `json:"id"`
+	Source         *Procedencia       `json:"source"`
+	ExternalID     *string            `json:"external_id"`
+	Name           string             `json:"name"`
+	SucursalCodigo *string            `json:"sucursal_codigo"`
+	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
+}
+
+// Idempotencia del espejo: `source` + `external_id` es lo que reconoce a un cliente entre
+// pasadas. Sin alcance — el espejo entra con clave de servicio y trae las ocho sucursales.
+//
+// UNA SOLA CONSULTA CON `ON CONFLICT`, como en pedidos: `customers_origen_idx` es ÚNICO
+// parcial, y con buscar-y-escribir dos pasadas a la vez crean el mismo cliente dos veces
+// —las dos leen «no existe» antes de que ninguna escriba—. El `WHERE` repite el del índice
+// parcial porque si no Postgres no sabe qué índice inferir.
+//
+// `synced_at` es «cuándo lo trajo el origen» y NO es `updated_at`, que lo mueve el trigger
+// al tocar la fila. Confundirlas rompe el espejo: la segunda cambia aunque el dato de
+// Ventra sea de hace tres días porque la VPN lleva caída desde el lunes.
+func (q *Queries) GuardarClienteDelEspejo(ctx context.Context, arg GuardarClienteDelEspejoParams) (GuardarClienteDelEspejoRow, error) {
+	row := q.db.QueryRow(ctx, guardarClienteDelEspejo,
+		arg.Source,
+		arg.ExternalID,
+		arg.Name,
+		arg.Phone,
+		arg.Address,
+		arg.Municipio,
+		arg.Zona,
+		arg.Codigo,
+		arg.Vendedor,
+		arg.Lat,
+		arg.Lng,
+		arg.SucursalCodigo,
+	)
+	var i GuardarClienteDelEspejoRow
+	err := row.Scan(
+		&i.ID,
+		&i.Source,
+		&i.ExternalID,
+		&i.Name,
+		&i.SucursalCodigo,
+		&i.SyncedAt,
+	)
+	return i, err
 }
 
 const listarClientes = `-- name: ListarClientes :many

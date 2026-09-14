@@ -1,0 +1,178 @@
+package api
+
+import (
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"procovar/reparto-api/internal/cotizar"
+	"procovar/reparto-api/internal/store/sqlc"
+)
+
+// EL ALTA DEL ESPEJO. `/api/quote/batch` no es un cotizador: es la puerta de entrada de los
+// pedidos, y no hay otra. Estuvo un tiempo contestando `persisted:false,
+// reason:"espejo-no-montado"` — cotizaba bien y no guardaba nada, así que la base del
+// reparto no tenía ni un pedido y desde fuera parecía que todo iba bien.
+
+func textoDelAlta(v string) *string      { return &v }
+func flotanteDelAlta(v float64) *float64 { return &v }
+
+func pedidoArmado() PedidoParaGuardar {
+	cuando := time.Date(2026, 9, 13, 18, 20, 0, 0, time.UTC)
+	fecha := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	return PedidoParaGuardar{
+		ExternalID:      textoDelAlta("ped-1"),
+		Source:          "pedido",
+		BranchID:        uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		OperationNumber: textoDelAlta("X-2992"),
+		CustomerName:    "Bodega La Esquina",
+		Address:         "Calle 4",
+		EndAddress:      textoDelAlta("Calle 4"),
+		Lat:             20.02, Lng: -75.82, EndLat: 20.02, EndLng: -75.82,
+		Weight:             120.5,
+		DeliveryDistanceKm: 7.3,
+		OrderDate:          &fecha,
+		PedidoUpdatedAt:    &cuando,
+		Estado:             textoDelAlta("completada"),
+		Archivado:          true,
+		// RequiereDomicilio se deja SIN PONER: es tri-estado —true, false, desconocido— y
+		// «desconocido» es nil. Un false de más anularía el domicilio de un pedido que sí
+		// lo lleva.
+		PedidoCosto:      flotanteDelAlta(350),
+		FacturaEstado:    textoDelAlta("igual"),
+		FacturaNumero:    textoDelAlta("F-77"),
+		FacturaDomicilio: flotanteDelAlta(350),
+		Municipio:        textoDelAlta("Songo"),
+		Vendedor:         textoDelAlta("V12"),
+		SucursalCodigo:   textoDelAlta("STG"),
+	}
+}
+
+func TestElAltaLlevaLaMarcaDeAgua(t *testing.T) {
+	// SIN ESTO EL ESPEJO NO TIENE `since`: `pedido_updated_at` se queda nulo, la marca de
+	// agua no existe nunca y cada ciclo vuelve a barrer el año entero.
+	arg := paraLaBase(pedidoArmado())
+	if !arg.PedidoUpdatedAt.Valid {
+		t.Fatal("el alta tiene que escribir pedido_updated_at: es la marca de agua del espejo")
+	}
+	if !arg.PedidoUpdatedAt.Time.Equal(time.Date(2026, 9, 13, 18, 20, 0, 0, time.UTC)) {
+		t.Errorf("la marca quedó en %v", arg.PedidoUpdatedAt.Time)
+	}
+}
+
+func TestElAltaVaSiemprePorLaMismaPuerta(t *testing.T) {
+	// `source` fijo a 'pedido' y `external_id` del pedido: es el par que hace idempotente
+	// al espejo. Con `source` vacío, el `ON CONFLICT` no infiere nada y cada pasada crea
+	// otra fila.
+	arg := paraLaBase(pedidoArmado())
+	if arg.Source == nil || *arg.Source != sqlc.ProcedenciaPedido {
+		t.Fatalf("source tenía que ser 'pedido'; fue %v", arg.Source)
+	}
+	if arg.ExternalID == nil || *arg.ExternalID != "ped-1" {
+		t.Fatalf("external_id tenía que ser el del pedido; fue %v", arg.ExternalID)
+	}
+}
+
+func TestLasCuatroCoordenadasSonLaDelCliente(t *testing.T) {
+	// §2.3: `lat/lng` y `end_lat/end_lng` se llenan los cuatro con la del cliente. El
+	// armador exige `end_lat` no nulo, así que dejarlas a medias saca el pedido de todas
+	// las rutas sin decir por qué.
+	arg := paraLaBase(pedidoArmado())
+	for nombre, v := range map[string]*float64{
+		"lat": arg.Lat, "end_lat": arg.EndLat,
+	} {
+		if v == nil || *v != 20.02 {
+			t.Errorf("%s salió %v", nombre, v)
+		}
+	}
+	for nombre, v := range map[string]*float64{
+		"lng": arg.Lng, "end_lng": arg.EndLng,
+	} {
+		if v == nil || *v != -75.82 {
+			t.Errorf("%s salió %v", nombre, v)
+		}
+	}
+}
+
+func TestElPrecioDelRepartoNuncaSeEscribe(t *testing.T) {
+	// El reparto ya no cotiza. Lo que se cobra es `pedido_costo`, que puso la APK de
+	// Entrega. Un 0 en `delivery_price` se suma, se ordena y se lee como «gratis».
+	arg := paraLaBase(pedidoArmado())
+	if arg.DeliveryPrice != nil {
+		t.Errorf("delivery_price tenía que ir nulo; fue %v", *arg.DeliveryPrice)
+	}
+	if arg.PedidoCosto == nil || *arg.PedidoCosto != 350 {
+		t.Errorf("pedido_costo tenía que ser 350; fue %v", arg.PedidoCosto)
+	}
+}
+
+func TestUnEstadoDesconocidoNoTumbaElPedido(t *testing.T) {
+	// Postgres rechazaría la fila entera —y con ella el lote— por un estado nuevo que
+	// alguien añadió en PEDIDO. Se guarda como NULL, que es la verdad, y el pedido entra.
+	p := pedidoArmado()
+	p.Estado = textoDelAlta("expirada")
+	p.FacturaEstado = textoDelAlta("a medias")
+	arg := paraLaBase(p)
+	if arg.Estado != nil {
+		t.Errorf("un estado que el enum no admite tenía que quedar nulo; quedó %v", *arg.Estado)
+	}
+	if arg.FacturaEstado != nil {
+		t.Errorf("lo mismo con el de la factura; quedó %v", *arg.FacturaEstado)
+	}
+
+	// Y los buenos sí pasan.
+	arg = paraLaBase(pedidoArmado())
+	if arg.Estado == nil || *arg.Estado != sqlc.PedidoEstadoCompletada {
+		t.Errorf("«completada» tenía que pasar; pasó %v", arg.Estado)
+	}
+	if arg.FacturaEstado == nil || *arg.FacturaEstado != sqlc.FacturaEstadoIgual {
+		t.Errorf("«igual» tenía que pasar; pasó %v", arg.FacturaEstado)
+	}
+}
+
+func TestLosRenglonesVanASuTablaYConservanElOrden(t *testing.T) {
+	// Ya no son un JSON: van a `order_items`, una fila por línea. El orden es el del papel
+	// del vendedor, que es como sale la hoja del despacho.
+	renglones := []cotizar.RenglonPesado{
+		{Renglon: cotizar.Renglon{Name: "Malta", Quantity: cotizar.De(24), Packs: cotizar.De(2)}},
+		{Renglon: cotizar.Renglon{Description: "Refresco de cola", Quantity: cotizar.De(6)}},
+	}
+	filas := renglonesParaLaBase(renglones)
+	if len(filas) != 2 {
+		t.Fatalf("tenían que salir dos filas; salieron %d", len(filas))
+	}
+	if filas[0].Linea != 1 || filas[0].Description != "Malta" || filas[0].Quantity != 24 {
+		t.Errorf("la primera fila salió %+v", filas[0])
+	}
+	if filas[0].Packs == nil || *filas[0].Packs != 2 {
+		t.Errorf("los bultos tenían que llegar; llegaron %v", filas[0].Packs)
+	}
+	// Sin nombre se cae a la descripción: es lo que se busca en el despacho («¿qué pedidos
+	// llevan malta?»), y con `productosTexto` eso era una copia a mano al lado del JSON.
+	if filas[1].Linea != 2 || filas[1].Description != "Refresco de cola" {
+		t.Errorf("la segunda fila salió %+v", filas[1])
+	}
+	// Sin bultos, la columna va nula: un 0 diría «cero cajas», que no es lo mismo que «la
+	// factura no distingue cajas de unidades».
+	if filas[1].Packs != nil {
+		t.Errorf("sin bultos la columna va nula; fue %v", *filas[1].Packs)
+	}
+}
+
+func TestUnaLineaSinTextoNoSeEscribeYDejaSuHueco(t *testing.T) {
+	// `description` es obligatoria y una fila vacía no se puede ni buscar ni despachar. El
+	// hueco en la numeración dice que allí venía algo que no se entendió.
+	renglones := []cotizar.RenglonPesado{
+		{Renglon: cotizar.Renglon{Name: "Malta"}},
+		{Renglon: cotizar.Renglon{Name: "   "}},
+		{Renglon: cotizar.Renglon{Name: "Agua"}},
+	}
+	filas := renglonesParaLaBase(renglones)
+	if len(filas) != 2 {
+		t.Fatalf("tenían que salir dos filas; salieron %d", len(filas))
+	}
+	if filas[1].Linea != 3 {
+		t.Errorf("la última línea conserva su posición (3); salió %d", filas[1].Linea)
+	}
+}

@@ -24,8 +24,11 @@ porque tocaba fichero de otro. **Ninguna de estas es opcional.**
 
 ## Limpieza que el compilador no ve
 
-- [ ] **`kmHaversine` está duplicada** en `clientes.go` y como `kmDelTablero` en
-      `tablero.go`. Misma fórmula, dos copias. Borrar una.
+- [x] ~~**`kmHaversine` está duplicada** en `clientes.go` y como `kmDelTablero` en
+      `tablero.go`~~ — **hecho.** Eran TRES: también `haversineKm` en `rutas.go`. Queda
+      una sola, `kmHaversine` en `clientes.go`. En `rutas.go` se dejó escrito lo que no se
+      podía perder de allí: se usa SIN redondear, porque redondear antes de ordenar cambia
+      el orden de visita cuando dos paradas caen casi a la misma distancia.
 - [ ] **Unificar los métodos con prefijo** `Tablero…`/`Espejo…` de
       `internal/alcance/tablero.go` con los de `consultas.go`. Se les puso prefijo para no
       chocar mientras se escribía en paralelo.
@@ -35,24 +38,51 @@ porque tocaba fichero de otro. **Ninguna de estas es opcional.**
 Se pusieron así porque `servidor.go` estaba ocupado por otro. Al integrarlas hay que
 bajarlas a campos:
 
-- [ ] `api.Ventra` (el lector de Ventra, en `espejo.go`).
-- [ ] `api.Accesos` (el cliente de Accesos con firma HMAC, en `almacenes.go`).
+- [x] ~~`api.Ventra` (el lector de Ventra, en `espejo.go`)~~ — **hecho.** Es `s.ventra`, y
+      se enchufa con `s.PonerLectorDeVentra(...)`. Mientras sea nil, `products/sync` sigue
+      contestando 502 y no 200 con ceros.
+- [ ] `api.Accesos` — **a medias, y a propósito.** El campo ya existe (`s.accesos`) y por
+      él pasan `almacenes.go` y `clientes.go`. La variable de paquete **sigue viva porque
+      `cotizacion.go` la usa** (`almacenesDeCotizacion`) y ese fichero lo estaba
+      escribiendo otro. Es UNA sola instancia —`NuevoServidor` mete esa misma en el
+      campo—, así que no hay dos recuerdos de almacenes. **Cuando `cotizacion.go` se
+      libere: esa llamada pasa a `s.accesos` y se borra `var Accesos`.**
+
+## El espejo — dónde vive ahora
+
+La pieza que trae los datos es **`cmd/espejo`** (lógica en `internal/espejo`), un binario
+aparte de la API y no una tarea dentro de ella: un barrido del histórico tarda minutos y
+dentro de la API compartiría el plazo de las peticiones, tumbándola de día, que es cuando se
+usa. Lee su marca de agua y su posición de barrido por `alcance.Acotado` —sin persona, con
+alcance «todas»— y mete los pedidos por `POST /api/quote/batch`, que es la única puerta.
+
+- [ ] **Los CLIENTES no tienen ruta de entrada** y por eso el espejo los escribe por
+      `alcance.EspejoGuardarCliente`. Si algún día se expone un endpoint, que sea el único
+      camino, como pasa con los pedidos.
+- [ ] **Falta el Dockerfile del espejo** y su servicio en Dokploy. Hasta entonces se corre a
+      mano: `espejo --once` hace una pasada.
 
 ## Configuración
 
-- [ ] **Subir a `config.Cargar` y a `.env.example`** las variables que hoy se leen con
-      `os.Getenv` porque `config.go` estaba ocupado: `PEDIDO_API_URL` (obligatoria para
-      `admin/recompute`), `DELIVERY_URL` y `CATALOGO_CADA_MS`.
-- [ ] **`api.Ventra` es variable de paquete** y debería ser campo de `Servidor`. Mientras
-      sea `nil`, `products/sync` contesta 502 — que es lo correcto, nunca 200 con ceros.
+- [x] ~~**Subir a `config.Cargar` y a `.env.example`** las variables que hoy se leen con
+      `os.Getenv`~~ — **hecho.** `PEDIDO_API_URL`, `DELIVERY_URL`, `CATALOGO_CADA_MS`,
+      `ALMACENES_CACHE_MS` y las tres `PROCOVAR_AUTH_*`. Ya no queda ningún `os.Getenv`
+      fuera de `internal/config`.
+
+      **`PEDIDO_API_URL` NO se puso obligatoria para arrancar**, y es una decisión: sin
+      ella el servicio hace todo lo demás y las dos cosas que la necesitan lo DICEN —el
+      canal devuelve `ok:false` con el motivo y lo deja en el registro, el recosteo un 500
+      con el nombre de la variable—. Lo que sí se valida al arrancar es la FORMA: una URL
+      sin `http://` no falla al concatenar, falla dentro de una goroutine de fondo, y lo
+      único que se ve es un aviso que no llegó. Y el arranque avisa cuando falta.
+- [x] ~~**`api.Ventra` es variable de paquete**~~ — hecho, ver arriba.
 
 ## Pruebas
 
-- [ ] **`TestTokenConFirmaCambiadaEs401` es inestable, ~1 de cada 16.** Sustituye el último
-      carácter de la firma por `"X"`, y ese carácter sólo codifica 4 bits: si el original
-      ya era `0101`, la firma decodificada es idéntica y el token sigue valiendo → 200.
-      Reproducido 3 de 20. El arreglo es una línea: cambiar un bit de la firma
-      **decodificada**, no un carácter del base64.
+- [x] ~~**`TestTokenConFirmaCambiadaEs401` es inestable, ~1 de cada 16.**~~ — **hecho.**
+      Ahora se decodifica la firma, se le cambia un bit (`^= 0x01`) y se vuelve a
+      codificar, con una comprobación de que el token roto no salió igual que el bueno.
+      Pasa 200 de 200.
 
 ## Enrutado
 
@@ -109,10 +139,20 @@ Pero son decisiones de negocio, no técnicas, y alguien tiene que mirarlas:
 
 ## Lo que la cotización deja enganchado a medias
 
-- [ ] **El lote cotiza pero NO guarda.** Falta el método de alta de pedidos del espejo en
-      `consultas.go` (la consulta sí está en sqlc). Cada resultado sale con
-      `persisted:false, reason:"espejo-no-montado"` y deja un ERROR en el registro —
-      degrada diciéndolo, nunca con un número inventado.
+- [x] ~~**El lote cotiza pero NO guarda.**~~ **Cerrado (14/09/2026).**
+      `alcance.EspejoGuardarPedido` escribe el pedido y sus renglones en la MISMA
+      transacción, y `api.GuardarPedidoDelEspejo` viene montada de fábrica:
+      `/api/quote/batch` es la puerta de entrada de los pedidos, no un cotizador. Tres cosas
+      cambiaron con ello:
+      - El alta es **un `ON CONFLICT (source, external_id)`** y ya no tres consultas.
+        `orders_origen_idx` y `customers_origen_idx` SON únicos en la migración, y con
+        buscar-y-escribir dos pasadas simultáneas creaban el mismo pedido dos veces.
+      - Los renglones van a **`order_items`**, una fila por línea. Con eso se fue
+        `productosTexto`: era una copia a mano de los nombres, al lado del JSON, para poder
+        buscar «malta» sin leerse los cincuenta mil pedidos.
+      - El cuerpo del lote lee ahora **`pedidoUpdatedAt`**, `estado`, `fechaComprometida` y
+        los cuatro campos de factura. Sin el primero, `pedido_updated_at` se quedaba nulo,
+        el espejo no tenía `since` y cada ciclo volvía a barrer el año entero.
 - [ ] `CatalogoDePesos` sin montar: `weightsSource` sale `"none"`, valor que el contrato
       ya prevé.
 
@@ -130,6 +170,20 @@ No son tareas de este proyecto, pero conviene saberlos:
 - **El panel contaba «los pedidos de la cuenta que mira»**, no los de la sucursal.
 
 ## Ya cerrado
+
+- [x] **El canal de salida hacia PEDIDO ya no es un gancho vacío.** `avisarEstadoAPedido`
+      es `s.aPedido` y vive en `internal/api/canal_pedido.go`: en tandas de 200 contra
+      `POST {PEDIDO_API_URL}/integration/orders/status` con `x-api-key`, idempotente, y sin
+      abortar en la tanda que falla. `avisarCambioDeRutas` ya estaba montado de verdad
+      —`eventos.go` lo engancha al difusor en su `init()`—.
+
+      Las tres cosas del original que había que conservar, con prueba cada una:
+      **va en lote y es idempotente** (el aviso es una afirmación de estado, no un apunte
+      que se suma; el repetido idéntico ni se manda); **manda la hora del suceso y no la de
+      la llamada** (`at`, del `X-Hecho-At` que pone el sincronizador al reenviar la cola de
+      un aparato: lo marcado a las 16:04 llega a PEDIDO como las 16:04 aunque suba a las
+      19:30); y **es «lo mejor que se pueda»** — con PEDIDO caído la ruta se arma y se
+      cierra igual, el parte no miente y **queda dicho en el registro**, nunca en silencio.
 
 - [x] **El 405 del router hacía que el proceso no arrancara.** Registraba un patrón SIN
       método, que choca con cualquier ruta con `{id}` — ninguno es más específico y

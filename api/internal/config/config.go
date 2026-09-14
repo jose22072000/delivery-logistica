@@ -44,6 +44,43 @@ type Config struct {
 
 	// Origen permitido para el navegador (la web de Flutter va en otro dominio).
 	OrigenesPermitidos []string
+
+	// --- Las otras aplicaciones de la casa -----------------------------------
+	//
+	// Todas estas se leían con `os.Getenv` en el sitio donde se usaban, porque este
+	// fichero estaba ocupado mientras se escribían los módulos en paralelo. Leerlas ahí
+	// tenía dos problemas de los que se pagan tarde: una errata en el nombre de la
+	// variable no se nota hasta que alguien pulsa el botón que la usa, y no hay un solo
+	// sitio donde mirar qué necesita este servicio para funcionar.
+
+	// PedidoAPIURL es la base de PEDIDO. Hace falta para DOS cosas: el canal de salida
+	// que le cuenta en qué punto va cada pedido, y `POST /api/admin/recompute`.
+	//
+	// NO es obligatoria para arrancar, a propósito: sin ella el servicio hace todo lo
+	// demás y las dos cosas que la necesitan lo DICEN —el canal devuelve `ok:false` con
+	// el motivo, el recosteo un 500 con el nombre de la variable—. Un aviso que nadie
+	// recibe y que además se declara enviado es peor que no avisar.
+	PedidoAPIURL string
+
+	// DeliveryURL es a dónde manda el recosteo su lote a cotizar. Vacía significa «a mí
+	// mismo» (`http://127.0.0.1:PUERTO`), que es lo correcto en el monolito de hoy.
+	DeliveryURL string
+
+	// CatalogoCada es cada cuánto se vuelve a bajar el catálogo de Ventra.
+	CatalogoCada time.Duration
+
+	// AlmacenesCache es cuánto se recuerda la lista de almacenes de Accesos. Cinco
+	// minutos porque hace falta para medir CADA domicilio y no cambia de un minuto a
+	// otro: sin recuerdo, cotizar un lote de 200 pedidos son 200 llamadas a Accesos.
+	AlmacenesCache time.Duration
+
+	// Accesos (el login único), que además es de donde salen los almacenes y las tasas.
+	// La llave NO tiene valor por defecto: sin ella no hay firma posible y el cliente lo
+	// dice antes de salir a la red, porque un «401 de auth» es mucho más difícil de
+	// relacionar con una variable que falta.
+	AuthURL        string
+	AuthClientID   string
+	AuthSigningKey string
 }
 
 // Obligatorias: sin una de éstas el servicio no puede hacer su trabajo, así que no
@@ -84,6 +121,15 @@ func Cargar(version string) (*Config, error) {
 		JWTSecret:          []byte(secreto),
 		ServiceAPIKey:      os.Getenv("SERVICE_API_KEY"),
 		OrigenesPermitidos: lista("ORIGENES_PERMITIDOS"),
+
+		// Se les quita la barra final AQUÍ y no en cada sitio que las concatena: una
+		// barra de más en la variable produce `//integration/orders/status`, que unos
+		// servidores toleran y otros contestan con un 404 que nadie sabe explicar.
+		PedidoAPIURL:   strings.TrimRight(valor("PEDIDO_API_URL", ""), "/"),
+		DeliveryURL:    strings.TrimRight(valor("DELIVERY_URL", ""), "/"),
+		AuthURL:        strings.TrimRight(valor("PROCOVAR_AUTH_URL", "https://auth.procovar.cloud"), "/"),
+		AuthClientID:   valor("PROCOVAR_AUTH_CLIENT_ID", "delivery"),
+		AuthSigningKey: strings.TrimSpace(os.Getenv("PROCOVAR_AUTH_SIGNING_KEY")),
 	}
 
 	var errs []error
@@ -125,6 +171,31 @@ func Cargar(version string) (*Config, error) {
 	// (Docker manda SIGKILL a los 10 s por defecto): pasado ese punto se corta igual, y
 	// entonces sí se pierden las peticiones en vuelo.
 	if c.TiempoApagado, err = duracion("TIEMPO_APAGADO", 8*time.Second); err != nil {
+		errs = append(errs, err)
+	}
+
+	// Las URLs de las otras aplicaciones se comprueban AQUÍ aunque sean opcionales. Una
+	// `PEDIDO_API_URL=pedido.procovar.cloud` sin esquema no falla al arrancar ni al
+	// concatenar: falla al hacer la petición, dentro de una goroutine de fondo, y lo
+	// único que se ve es un aviso que no llegó.
+	for _, u := range []struct{ nombre, valor string }{
+		{"PEDIDO_API_URL", c.PedidoAPIURL},
+		{"DELIVERY_URL", c.DeliveryURL},
+		{"PROCOVAR_AUTH_URL", c.AuthURL},
+	} {
+		if u.valor == "" {
+			continue // vacía es «no configurada», y cada quien sabe qué hacer con eso
+		}
+		if !strings.HasPrefix(u.valor, "http://") && !strings.HasPrefix(u.valor, "https://") {
+			errs = append(errs, fmt.Errorf(
+				"%s vale %q: tiene que empezar por http:// o https://", u.nombre, u.valor))
+		}
+	}
+
+	if c.CatalogoCada, err = milisegundos("CATALOGO_CADA_MS", 12*time.Hour); err != nil {
+		errs = append(errs, err)
+	}
+	if c.AlmacenesCache, err = milisegundos("ALMACENES_CACHE_MS", 5*time.Minute); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -190,6 +261,27 @@ func duracion(nombre string, porDefecto time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s vale %q: tiene que ser mayor que cero", nombre, crudo)
 	}
 	return d, nil
+}
+
+// milisegundos lee una variable que viene EN MILISEGUNDOS y no como duración de Go.
+//
+// Son las que ya venían así de delivery (`CATALOGO_CADA_MS`, `ALMACENES_CACHE_MS`) y se
+// conserva el formato a propósito: cambiarlo a `12h` obligaría a tocar el entorno de los
+// despliegues que ya existen, y una variable que se relee mal en silencio —`12h` leído
+// como número da 0— es un temporizador que se dispara sin parar.
+func milisegundos(nombre string, porDefecto time.Duration) (time.Duration, error) {
+	crudo := strings.TrimSpace(os.Getenv(nombre))
+	if crudo == "" {
+		return porDefecto, nil
+	}
+	ms, err := strconv.Atoi(crudo)
+	if err != nil {
+		return 0, fmt.Errorf("%s vale %q y no es un número de milisegundos", nombre, crudo)
+	}
+	if ms <= 0 {
+		return 0, fmt.Errorf("%s vale %d: tiene que ser mayor que cero", nombre, ms)
+	}
+	return time.Duration(ms) * time.Millisecond, nil
 }
 
 func unirErrores(errs []error) string {

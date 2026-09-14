@@ -187,18 +187,15 @@ WHERE c.id = sqlc.arg('id')
 -- Idempotencia del espejo: `source` + `external_id` es lo que reconoce a un cliente entre
 -- pasadas. Sin alcance — el espejo entra con clave de servicio y trae las ocho sucursales.
 --
--- Como en pedidos: `customers_origen_idx` NO es único, así que no hay `ON CONFLICT` que
--- valga. Se busca y se escribe, que es lo que hace el contrato.
--- name: BuscarClienteDelEspejo :one
-SELECT c.id, c.sucursal_codigo, c.synced_at
-FROM customers c
-WHERE c.source = sqlc.arg('source')::procedencia
-  AND c.external_id = sqlc.arg('external_id')::text;
-
+-- UNA SOLA CONSULTA CON `ON CONFLICT`, como en pedidos: `customers_origen_idx` es ÚNICO
+-- parcial, y con buscar-y-escribir dos pasadas a la vez crean el mismo cliente dos veces
+-- —las dos leen «no existe» antes de que ninguna escriba—. El `WHERE` repite el del índice
+-- parcial porque si no Postgres no sabe qué índice inferir.
+--
 -- `synced_at` es «cuándo lo trajo el origen» y NO es `updated_at`, que lo mueve el trigger
 -- al tocar la fila. Confundirlas rompe el espejo: la segunda cambia aunque el dato de
 -- Ventra sea de hace tres días porque la VPN lleva caída desde el lunes.
--- name: CrearClienteDelEspejo :one
+-- name: GuardarClienteDelEspejo :one
 INSERT INTO customers (
     source, external_id, name, phone, address, municipio, zona, codigo,
     vendedor, lat, lng, sucursal_codigo, synced_at
@@ -208,20 +205,31 @@ INSERT INTO customers (
     sqlc.narg('vendedor'), sqlc.arg('lat'), sqlc.arg('lng'),
     sqlc.narg('sucursal_codigo'), now()
 )
+ON CONFLICT (source, external_id) WHERE source IS NOT NULL AND external_id IS NOT NULL
+DO UPDATE SET
+    name            = excluded.name,
+    phone           = excluded.phone,
+    address         = excluded.address,
+    municipio       = excluded.municipio,
+    zona            = excluded.zona,
+    codigo          = excluded.codigo,
+    vendedor        = excluded.vendedor,
+    lat             = excluded.lat,
+    lng             = excluded.lng,
+    sucursal_codigo = excluded.sucursal_codigo,
+    synced_at       = now()
 RETURNING id, source, external_id, name, sucursal_codigo, synced_at;
 
--- name: ActualizarClienteDelEspejo :one
-UPDATE customers SET
-    name            = sqlc.arg('name'),
-    phone           = sqlc.narg('phone'),
-    address         = sqlc.narg('address'),
-    municipio       = sqlc.narg('municipio'),
-    zona            = sqlc.narg('zona'),
-    codigo          = sqlc.narg('codigo'),
-    vendedor        = sqlc.narg('vendedor'),
-    lat             = sqlc.arg('lat'),
-    lng             = sqlc.arg('lng'),
-    sucursal_codigo = sqlc.narg('sucursal_codigo'),
-    synced_at       = now()
-WHERE id = sqlc.arg('id')
-RETURNING id, source, external_id, name, sucursal_codigo, synced_at;
+-- Los que ya no vienen de PEDIDO: borrados allá, o dejaron de tener coordenadas.
+--
+-- SÓLO los de `source = 'pedido'`. El alta MANUAL del reparto no tiene origen ni id
+-- externo, y llevársela por delante sería borrar un cliente que nadie puede recuperar
+-- porque no está en ningún otro sitio.
+--
+-- Quien llame tiene que haber recorrido TODAS las páginas de PEDIDO antes: con media
+-- lista —un corte de la VPN a mitad del recorrido— esto vacía el espejo entero y el
+-- logístico se queda sin a quién repartir, con un 200 y sin un solo error.
+-- name: BorrarClientesDelEspejoQueYaNoVienen :execrows
+DELETE FROM customers
+WHERE source = sqlc.arg('source')::procedencia
+  AND NOT (external_id = ANY(sqlc.arg('external_ids')::text[]));

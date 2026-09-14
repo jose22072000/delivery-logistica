@@ -489,3 +489,118 @@ func (a *Acotado) ListarPedidosParaInforme(ctx context.Context, arg sqlc.ListarP
 	arg.Sucursal = a.sucursalPg()
 	return a.q.ListarPedidosParaInforme(ctx, arg)
 }
+
+// ---------------------------------------------------------------------------
+// El espejo de PEDIDO
+// ---------------------------------------------------------------------------
+//
+// LA PUERTA DE ENTRADA DE LOS PEDIDOS. Sin esto, la base nueva no tiene ni un pedido:
+// aquí dentro no se da de alta nada a mano, todo llega de PEDIDO por `/api/quote/batch`.
+//
+// NINGUNA LLEVA `a.sucursalPg()`, y esta vez no es un olvido ni una excepción cómoda: el
+// espejo entra con clave de servicio, sin persona y sin sucursal, y trae las ocho de una
+// pasada. La sucursal de cada fila la decide el LOTE (`branch_id` sale de la sucursal que
+// el propio pedido dice), no quien llama. Acotarlo por sucursal dejaría a siete sin
+// pedidos y sin una sola traza que lo dijera.
+
+// EspejoGuardarPedido escribe un pedido del lote CON SUS RENGLONES, todo o nada.
+//
+// LOS RENGLONES SE REESCRIBEN ENTEROS: se borran y se vuelven a poner. PEDIDO puede haber
+// quitado una línea, y actualizar línea a línea dejaría la vieja colgada — el despacho
+// prepararía mercancía que el cliente ya no pidió.
+//
+// Y VA EN UNA TRANSACCIÓN porque entre el borrado y el alta el pedido se queda SIN
+// renglones: si el proceso se cae justo ahí, en la pantalla queda un pedido vacío que
+// nadie sabe explicar, y el peso con el que se cargó el camión ya no cuadra con nada.
+//
+// Devuelve el id y si la fila es NUEVA (la primera vez que este pedido entra).
+func (a *Acotado) EspejoGuardarPedido(
+	ctx context.Context,
+	pedido sqlc.GuardarPedidoDelEspejoParams,
+	renglones []sqlc.CrearRenglonDePedidoParams,
+) (uuid.UUID, bool, error) {
+	var id uuid.UUID
+	var nuevo bool
+	err := a.EnTx(ctx, func(dentro *Acotado) error {
+		fila, err := dentro.q.GuardarPedidoDelEspejo(ctx, pedido)
+		if err != nil {
+			return err
+		}
+		id, nuevo = fila.ID, fila.EsNuevo
+
+		if err := dentro.q.BorrarRenglonesDePedido(ctx, id); err != nil {
+			return err
+		}
+		for i := range renglones {
+			// El `pedido_id` lo pone ESTE método y no quien llama: es el id que acaba de
+			// devolver el upsert, y el de arriba puede no tenerlo (un pedido que ya
+			// existía se reconoce por `external_id`, no por su uuid).
+			renglones[i].PedidoID = id
+			if _, err := dentro.q.CrearRenglonDePedido(ctx, renglones[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	return id, nuevo, nil
+}
+
+// EspejoMarcaDeAgua es el `since` de la próxima bajada: lo más nuevo que ya tenemos,
+// SEGÚN PEDIDO (`max(pedido_updated_at)`), no según nuestro reloj.
+//
+// SALE DE LOS DATOS Y NO DE UN CONTADOR, y ésa es toda la razón de que exista: un contador
+// se adelanta si una tanda falla a medias, y entonces el espejo se salta esos pedidos para
+// siempre sin dar un solo error. Aquí, una tanda que no se escribió simplemente no mueve
+// la marca y se vuelve a pedir en el ciclo siguiente.
+//
+// Se acota por CÓDIGO como los clientes: `orders.sucursal_codigo`. Sin alcance —el caso
+// del espejo— es NULL y sale la de las ocho.
+func (a *Acotado) EspejoMarcaDeAgua(ctx context.Context) (pgtype.Timestamptz, error) {
+	return a.q.MarcaDeAguaDelEspejo(ctx, a.Codigo())
+}
+
+// EspejoPosicionDelBarrido: por dónde va el recorrido del histórico, en DÍAS HACIA ATRÁS.
+//
+// ESTO SÍ ES UN CONTADOR GUARDADO, al revés que la marca de agua, y tiene su porqué: de
+// los datos NO se puede deducir. El espejo ya tenía pedidos sueltos de hace un año —de
+// cuando se traía todo—, así que «el más antiguo que tengo» no significa «tengo todo hasta
+// ahí»: el barrido arrancaba a 357 días y se saltaba entero el año de en medio, que era
+// justo lo que faltaba por recuperar.
+//
+// Que este contador se pueda adelantar no rompe nada: lo que se mueva sigue llegando por
+// `since` en cada ciclo, y el barrido da la vuelta al año una y otra vez, así que un tramo
+// saltado se recoge en la pasada siguiente.
+func (a *Acotado) EspejoPosicionDelBarrido(ctx context.Context) (int32, error) {
+	ajustes, err := a.q.ObtenerAjustes(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return ajustes.SyncBarridoDia, nil
+}
+
+func (a *Acotado) EspejoFijarBarrido(ctx context.Context, dia int32) error {
+	return a.q.FijarBarridoDelEspejo(ctx, dia)
+}
+
+// EspejoGuardarCliente copia un cliente GEOLOCALIZADO de PEDIDO. Idempotente por
+// (`source`, `external_id`) con `ON CONFLICT`: dos pasadas a la vez no lo duplican.
+func (a *Acotado) EspejoGuardarCliente(ctx context.Context, arg sqlc.GuardarClienteDelEspejoParams) (sqlc.GuardarClienteDelEspejoRow, error) {
+	return a.q.GuardarClienteDelEspejo(ctx, arg)
+}
+
+// EspejoBorrarClientesQueYaNoVienen quita los de PEDIDO que dejaron de venir: borrados
+// allá, o sin coordenadas. NO toca el alta manual (`source` nulo), que no está en ningún
+// otro sitio y no se podría recuperar.
+//
+// QUIEN LLAME TIENE QUE HABER RECORRIDO TODAS LAS PÁGINAS ANTES. Con media lista —un corte
+// de la VPN a mitad del recorrido— esto vacía el espejo entero, y el logístico se queda
+// sin a quién repartir con un 200 y sin un solo error.
+func (a *Acotado) EspejoBorrarClientesQueYaNoVienen(ctx context.Context, ids []string) (int64, error) {
+	return a.q.BorrarClientesDelEspejoQueYaNoVienen(ctx, sqlc.BorrarClientesDelEspejoQueYaNoVienenParams{
+		Source:      sqlc.ProcedenciaPedido,
+		ExternalIds: ids,
+	})
+}

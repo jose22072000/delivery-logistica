@@ -537,13 +537,32 @@ func (d *dobleDeRutas) restaurar(foto fotoDeRutas) {
 
 func montarRutas(t *testing.T, q *dobleDeRutas) http.Handler {
 	t.Helper()
+	h, _ := montarRutasCon(t, q)
+	return h
+}
+
+// montarRutasCon es lo mismo pero además devuelve el servidor, para las pruebas que tienen
+// que sustituirle el canal a PEDIDO (`s.aPedido`). El canal es un campo y ya no una
+// variable de paquete, así que hace falta el servidor para tocarlo — y a cambio dos
+// pruebas en paralelo ya no se pisan el doble la una a la otra.
+func montarRutasCon(t *testing.T, q *dobleDeRutas) (http.Handler, *Servidor) {
+	t.Helper()
+	return montarRutasRegistrando(t, q, io.Discard)
+}
+
+// montarRutasRegistrando es igual pero manda el registro a donde se le diga, para las
+// pruebas que tienen que comprobar QUE ALGO QUEDÓ DICHO. Es la mitad del contrato de «lo
+// mejor que se pueda»: si PEDIDO no contesta la ruta sigue, pero nunca en silencio, y eso
+// hay que poder probarlo igual que se prueba el código de respuesta.
+func montarRutasRegistrando(t *testing.T, q *dobleDeRutas, salida io.Writer) (http.Handler, *Servidor) {
+	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://x:y@localhost:5432/z")
 	t.Setenv("JWT_SECRET", secretoDeRutas)
 	cfg, err := config.Cargar("v-pruebas")
 	if err != nil {
 		t.Fatalf("configuración: %v", err)
 	}
-	reg := slog.New(slog.NewTextHandler(io.Discard, nil))
+	reg := slog.New(slog.NewTextHandler(salida, nil))
 	porteria := alcance.NuevaPorteria(fuenteDeRutas{q: q}, reg)
 	verif := auth.NuevoVerificador([]byte(secretoDeRutas))
 	s := NuevoServidor(cfg, reg, porteria, verif, func(context.Context) error { return nil })
@@ -552,7 +571,7 @@ func montarRutas(t *testing.T, q *dobleDeRutas) http.Handler {
 	sesion := []httpx.Medio{verif.Exigir, porteria.Exigir}
 	admin := []httpx.Medio{verif.Exigir, auth.ExigirAdmin, porteria.Exigir}
 	s.rutasDeReparto(rt, sesion, admin)
-	return rt.Handler()
+	return rt.Handler(), s
 }
 
 // --------------------------------------------------------------------------- utilidades
@@ -739,11 +758,11 @@ func armarRutaDePrueba(t *testing.T, h http.Handler, jwt string, pedidos ...uuid
 
 func TestHaversineDaLosKilometrosDeSiempre(t *testing.T) {
 	// Un grado de latitud en el ecuador son ~111,19 km con R = 6371.
-	km := haversineKm(0, 0, 1, 0)
+	km := kmHaversine(0, 0, 1, 0)
 	if math.Abs(km-111.19) > 0.05 {
 		t.Fatalf("un grado de latitud dio %.3f km", km)
 	}
-	if km := haversineKm(20.0, -75.8, 20.0, -75.8); km != 0 {
+	if km := kmHaversine(20.0, -75.8, 20.0, -75.8); km != 0 {
 		t.Fatalf("el mismo punto no puede distar %v km", km)
 	}
 }
@@ -833,7 +852,7 @@ func TestArmarRutaEnganchaLosPedidosConSusCuatroCampos(t *testing.T) {
 		}
 		// `segmentKm` es la distancia RADIAL desde el almacén a ese cliente, no el tramo
 		// del recorrido: es la medida con la que se cobra el domicilio.
-		radial := haversineKm(0, 0, *p.endLat, *p.endLng)
+		radial := kmHaversine(0, 0, *p.endLat, *p.endLng)
 		if p.segmentKm == nil || math.Abs(*p.segmentKm-radial) > 0.0001 {
 			t.Fatalf("%s: segmentKm tiene que ser la distancia desde el almacén (%.3f) y fue %v",
 				p.cliente, radial, p.segmentKm)
@@ -841,8 +860,8 @@ func TestArmarRutaEnganchaLosPedidosConSusCuatroCampos(t *testing.T) {
 	}
 
 	// Los km de la ruta son el CIRCUITO CERRADO: ida por las tres y vuelta al almacén.
-	esperadaKm := haversineKm(0, 0, 0, 0.05) + haversineKm(0, 0.05, 0, 0.15) +
-		haversineKm(0, 0.15, 0, 0.30) + haversineKm(0, 0.30, 0, 0)
+	esperadaKm := kmHaversine(0, 0, 0, 0.05) + kmHaversine(0, 0.05, 0, 0.15) +
+		kmHaversine(0, 0.15, 0, 0.30) + kmHaversine(0, 0.30, 0, 0)
 	guardada := d.rutas[ruta.ID]
 	if math.Abs(guardada.km-esperadaKm) > 0.0001 {
 		t.Fatalf("los km de la ruta no cuentan la vuelta: %.4f en vez de %.4f", guardada.km, esperadaKm)
@@ -1512,7 +1531,7 @@ func TestElCierreDiceNoEncontradaYElDetalleNoEncontrado(t *testing.T) {
 // enviado es peor que no avisar, porque nadie lo busca.
 func TestElCierreCuentaLoQueLePasoAlAvisoAPedido(t *testing.T) {
 	d, stg, _ := datosDeReparto()
-	h := montarRutas(t, d)
+	h, s := montarRutasCon(t, d)
 	jwt := deSantiagoEnRutas(t)
 	id := armarRutaDePrueba(t, h, jwt, stg[1])
 
@@ -1523,11 +1542,9 @@ func TestElCierreCuentaLoQueLePasoAlAvisoAPedido(t *testing.T) {
 	// la última llamada haría que esta prueba fallara una vez de cada tantas, que es la
 	// peor clase de prueba: la que se acaba ejecutando con `-count=1` y mirando para otro
 	// lado.
-	anterior := avisarEstadoAPedido
-	defer func() { avisarEstadoAPedido = anterior }()
 	var candado sync.Mutex
 	var visto []AvisoDeParada
-	avisarEstadoAPedido = func(_ context.Context, avisos []AvisoDeParada) ParteAPedido {
+	s.aPedido = func(_ context.Context, avisos []AvisoDeParada) ParteAPedido {
 		candado.Lock()
 		visto = append(visto, avisos...)
 		candado.Unlock()

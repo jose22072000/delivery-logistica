@@ -387,7 +387,7 @@ func (q *tableroFalso) ListarPedidosColocados(_ context.Context, arg sqlc.Listar
 		salida = append(salida, sqlc.ListarPedidosColocadosRow{
 			OrderID: ped, ColumnID: c.columna, Posicion: c.posicion,
 			ColumnaNombre: col.Nombre, CustomerName: p.nombre, Weight: p.peso,
-			KmAlAlmacen: kmDelTablero(arg.OrigenLat, arg.OrigenLng, p.lat, p.lng),
+			KmAlAlmacen: kmHaversine(arg.OrigenLat, arg.OrigenLng, p.lat, p.lng),
 		})
 	}
 	sort.Slice(salida, func(i, j int) bool { return salida[i].Posicion < salida[j].Posicion })
@@ -419,7 +419,7 @@ func (q *tableroFalso) ListarPedidosSinColocar(_ context.Context, arg sqlc.Lista
 		}
 		salida = append(salida, sqlc.ListarPedidosSinColocarRow{
 			ID: p.id, CustomerName: p.nombre, Weight: p.peso,
-			KmAlAlmacen: kmDelTablero(arg.OrigenLat, arg.OrigenLng, p.lat, p.lng),
+			KmAlAlmacen: kmHaversine(arg.OrigenLat, arg.OrigenLng, p.lat, p.lng),
 		})
 	}
 	// El encargo: el más cerca del almacén primero.
@@ -467,6 +467,10 @@ func montarTab(t *testing.T, q sqlc.Querier) http.Handler {
 		alcance.NuevaPorteria(fuenteTab{q: q}, reg),
 		auth.NuevoVerificador([]byte(secretoTab)),
 		nil)
+	// El lector de Ventra es un campo del servidor, así que se lo pone el montador con lo
+	// que haya dejado `conVentra`. Sin doble queda nil, que es el caso de «no configurado»
+	// y contesta 502.
+	s.PonerLectorDeVentra(ventraDePrueba)
 
 	rt := httpx.NuevoRouter(httpx.IDDePeticion, httpx.ConRegistro(reg), httpx.RecuperarPanico, httpx.SinCache)
 	sesion := []httpx.Medio{s.verif.Exigir, s.porteria.Exigir}

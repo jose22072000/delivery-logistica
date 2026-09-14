@@ -116,11 +116,41 @@ responde 401 y se para.
 
 ---
 
-## Por decidir
+## Cuánto dura cada token — decidido
 
-**Cuánto dura el refresh.** Marca cuántos días puede un aparato estar sin conectarse antes
-de tener que entrar otra vez. No se pierde trabajo en ningún caso — pero sí se molesta a la
-persona, y esa persona está en el patio de un almacén en Palma.
+| Token | Dura | Por qué ese número |
+|---|---|---|
+| **Acceso** | **15 minutos** | Va en cada petición y **no se puede revocar**: una vez emitido, vale hasta que caduca. Quince minutos es el mismo valor que usa `call-center-board` y acota la ventana de un token robado a casi nada. Que caduque a media tarde no molesta a nadie: se renueva solo. |
+| **Refresh** | **30 días** | Es el número que de verdad importa, y abajo está el razonamiento. |
+
+### Por qué 30 días y no otra cosa
+
+El refresh **se renueva cada vez que se usa**, así que este número no le afecta a quien
+coge señal a menudo: un aparato que conecta cada mañana se renueva indefinidamente. Sólo
+muerde al que ha estado **todo ese tiempo sin conectarse ni una vez**.
+
+Con eso en la mano, el número se decide entre dos cosas que tiran en sentidos contrarios:
+
+- **Muy corto molesta a quien no tiene la culpa.** Siete días no aguantan una avería de
+  línea de dos semanas, ni unas vacaciones, ni una baja. Y el que se queda fuera es
+  justamente el que está en el patio de un almacén en Palma, con el trabajo del día en el
+  teléfono y sin nadie a quien preguntar. No se pierde nada —cuando conecta puede volver a
+  entrar y la cola sube— pero le arruinas la tarde.
+- **Muy largo alarga la baja.** Si das de baja a alguien, su aparato sigue funcionando
+  hasta que el refresh caduque. Noventa días es demasiado tiempo para eso.
+
+**Treinta días** cubre una ausencia de dos semanas más una racha mala, y deja la ventana de
+una baja en un mes.
+
+### Y la baja no se arregla acortando el token
+
+Acortarlo para que las bajas hagan efecto antes es pagar todos los días por un caso que
+pasa dos veces al año. Lo que sí lo arregla es que **el sincronizador sabe qué aparatos
+hay**: se marca el aparato como dado de baja y a la primera conexión se le cierra la
+sesión. Eso es inmediato en cuanto el aparato aparece, que es el único momento en que se le
+puede hacer algo de todas formas.
+
+Ver la tabla `aparatos` en `sincronizacion.md`.
 
 ---
 

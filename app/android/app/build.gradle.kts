@@ -23,7 +23,7 @@ android {
         // que es quien mete SQLite dentro del APK. Sin esto la base local no
         // abre en los aparatos viejos y no hay aviso hasta que alguien lo
         // instala.
-        minSdk = 23
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)

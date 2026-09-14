@@ -147,113 +147,6 @@ func (q *Queries) ActualizarPedido(ctx context.Context, arg ActualizarPedidoPara
 	return i, err
 }
 
-const actualizarPedidoDelEspejo = `-- name: ActualizarPedidoDelEspejo :one
-UPDATE orders SET
-    operation_number     = $1,
-    customer_name        = $2,
-    customer_phone       = $3,
-    address              = $4,
-    end_address          = $5,
-    end_lat              = $6,
-    end_lng              = $7,
-    weight               = $8,
-    branch_id            = $9,
-    order_date           = $10,
-    pedido_updated_at    = $11,
-    estado               = $12,
-    archivado            = $13,
-    fecha_comprometida   = $14,
-    requiere_domicilio   = $15,
-    pedido_costo         = $16,
-    municipio            = $17,
-    vendedor             = $18,
-    sucursal_codigo      = $19,
-    factura_estado       = $20,
-    factura_numero       = $21,
-    factura_at           = $22,
-    factura_domicilio    = $23,
-    factura_corregido_at = $24,
-    delivery_distance_km = $25,
-    delivery_price       = $26
-WHERE id = $27
-RETURNING id, branch_id, external_id
-`
-
-type ActualizarPedidoDelEspejoParams struct {
-	OperationNumber    *string            `json:"operation_number"`
-	CustomerName       string             `json:"customer_name"`
-	CustomerPhone      *string            `json:"customer_phone"`
-	Address            string             `json:"address"`
-	EndAddress         *string            `json:"end_address"`
-	EndLat             *float64           `json:"end_lat"`
-	EndLng             *float64           `json:"end_lng"`
-	Weight             float64            `json:"weight"`
-	BranchID           pgtype.UUID        `json:"branch_id"`
-	OrderDate          pgtype.Timestamptz `json:"order_date"`
-	PedidoUpdatedAt    pgtype.Timestamptz `json:"pedido_updated_at"`
-	Estado             *PedidoEstado      `json:"estado"`
-	Archivado          bool               `json:"archivado"`
-	FechaComprometida  pgtype.Timestamptz `json:"fecha_comprometida"`
-	RequiereDomicilio  *bool              `json:"requiere_domicilio"`
-	PedidoCosto        *float64           `json:"pedido_costo"`
-	Municipio          *string            `json:"municipio"`
-	Vendedor           *string            `json:"vendedor"`
-	SucursalCodigo     *string            `json:"sucursal_codigo"`
-	FacturaEstado      *FacturaEstado     `json:"factura_estado"`
-	FacturaNumero      *string            `json:"factura_numero"`
-	FacturaAt          pgtype.Timestamptz `json:"factura_at"`
-	FacturaDomicilio   *float64           `json:"factura_domicilio"`
-	FacturaCorregidoAt pgtype.Timestamptz `json:"factura_corregido_at"`
-	DeliveryDistanceKm *float64           `json:"delivery_distance_km"`
-	DeliveryPrice      *float64           `json:"delivery_price"`
-	ID                 uuid.UUID          `json:"id"`
-}
-
-type ActualizarPedidoDelEspejoRow struct {
-	ID         uuid.UUID   `json:"id"`
-	BranchID   pgtype.UUID `json:"branch_id"`
-	ExternalID *string     `json:"external_id"`
-}
-
-// Lo que NO se pisa nunca: `route_id`, `ultima_ruta_id`, `stop_order`, `resultado`,
-// `resultado_nota` y `delivered_at`. Eso es del reparto y PEDIDO no sabe nada de ello:
-// dejarlo entrar borraría de un plumazo el resultado de una parada ya cerrada, que es
-// justo el dato que dice qué mercancía bajó del camión.
-func (q *Queries) ActualizarPedidoDelEspejo(ctx context.Context, arg ActualizarPedidoDelEspejoParams) (ActualizarPedidoDelEspejoRow, error) {
-	row := q.db.QueryRow(ctx, actualizarPedidoDelEspejo,
-		arg.OperationNumber,
-		arg.CustomerName,
-		arg.CustomerPhone,
-		arg.Address,
-		arg.EndAddress,
-		arg.EndLat,
-		arg.EndLng,
-		arg.Weight,
-		arg.BranchID,
-		arg.OrderDate,
-		arg.PedidoUpdatedAt,
-		arg.Estado,
-		arg.Archivado,
-		arg.FechaComprometida,
-		arg.RequiereDomicilio,
-		arg.PedidoCosto,
-		arg.Municipio,
-		arg.Vendedor,
-		arg.SucursalCodigo,
-		arg.FacturaEstado,
-		arg.FacturaNumero,
-		arg.FacturaAt,
-		arg.FacturaDomicilio,
-		arg.FacturaCorregidoAt,
-		arg.DeliveryDistanceKm,
-		arg.DeliveryPrice,
-		arg.ID,
-	)
-	var i ActualizarPedidoDelEspejoRow
-	err := row.Scan(&i.ID, &i.BranchID, &i.ExternalID)
-	return i, err
-}
-
 const actualizarPesoDePedido = `-- name: ActualizarPesoDePedido :exec
 UPDATE orders SET weight = $1::double precision
 WHERE id = $2
@@ -302,59 +195,6 @@ DELETE FROM order_items WHERE order_id = $1
 func (q *Queries) BorrarRenglonesDePedido(ctx context.Context, pedidoID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, borrarRenglonesDePedido, pedidoID)
 	return err
-}
-
-const buscarPedidoDelEspejo = `-- name: BuscarPedidoDelEspejo :one
-
-SELECT o.id, o.branch_id, o.route_id, o.ultima_ruta_id, o.stop_order, o.pedido_updated_at
-FROM orders o
-WHERE o.source = $1::procedencia
-  AND o.external_id = $2::text
-`
-
-type BuscarPedidoDelEspejoParams struct {
-	Source     Procedencia `json:"source"`
-	ExternalID string      `json:"external_id"`
-}
-
-type BuscarPedidoDelEspejoRow struct {
-	ID              uuid.UUID          `json:"id"`
-	BranchID        pgtype.UUID        `json:"branch_id"`
-	RouteID         pgtype.UUID        `json:"route_id"`
-	UltimaRutaID    pgtype.UUID        `json:"ultima_ruta_id"`
-	StopOrder       *int32             `json:"stop_order"`
-	PedidoUpdatedAt pgtype.Timestamptz `json:"pedido_updated_at"`
-}
-
-// ---------------------------------------------------------------------------
-// El espejo de PEDIDO  (POST /api/quote/batch)
-// ---------------------------------------------------------------------------
-// Alta o actualización idempotente por (`source`, `external_id`): volver a pasar el mismo
-// lote no duplica. Va sin alcance porque el espejo entra con clave de servicio y trae las
-// ocho sucursales de una vez; la sucursal de cada pedido la decide el propio lote.
-//
-// POR QUÉ SON TRES CONSULTAS Y NO UN `ON CONFLICT`: en la migración, `orders_origen_idx`
-// sobre (`source`, `external_id`) es un índice NORMAL, no único, así que no hay nada que
-// inferir en un `ON CONFLICT` y Postgres lo rechazaría al ejecutarlo. Se busca primero y
-// se escribe después, que es además lo que hace el contrato.
-//
-// PENDIENTE DE DECIDIR: hacer ese índice UNIQUE. Hoy nada impide que dos pasadas
-// simultáneas del espejo creen el mismo pedido dos veces — las dos leen «no existe» antes
-// de que ninguna escriba. Con el índice único, la segunda falla y se reintenta como
-// actualización; sin él, queda un duplicado que nadie ve hasta que el pedido sale dos
-// veces en la lista del armador.
-func (q *Queries) BuscarPedidoDelEspejo(ctx context.Context, arg BuscarPedidoDelEspejoParams) (BuscarPedidoDelEspejoRow, error) {
-	row := q.db.QueryRow(ctx, buscarPedidoDelEspejo, arg.Source, arg.ExternalID)
-	var i BuscarPedidoDelEspejoRow
-	err := row.Scan(
-		&i.ID,
-		&i.BranchID,
-		&i.RouteID,
-		&i.UltimaRutaID,
-		&i.StopOrder,
-		&i.PedidoUpdatedAt,
-	)
-	return i, err
 }
 
 const contarPedidos = `-- name: ContarPedidos :one
@@ -605,101 +445,6 @@ func (q *Queries) ContarPedidosDisponibles(ctx context.Context, arg ContarPedido
 	return count, err
 }
 
-const crearPedidoDelEspejo = `-- name: CrearPedidoDelEspejo :one
-INSERT INTO orders (
-    operation_number, customer_name, customer_phone, address, end_address,
-    end_lat, end_lng, weight, branch_id, source, external_id, order_date,
-    pedido_updated_at, estado, archivado, fecha_comprometida, requiere_domicilio,
-    pedido_costo, municipio, vendedor, sucursal_codigo, factura_estado,
-    factura_numero, factura_at, factura_domicilio, factura_corregido_at,
-    delivery_distance_km, delivery_price
-) VALUES (
-    $1, $2, $3,
-    $4, $5, $6, $7,
-    $8, $9, $10, $11,
-    $12, $13, $14,
-    $15, $16, $17,
-    $18, $19, $20,
-    $21, $22, $23,
-    $24, $25, $26,
-    $27, $28
-)
-RETURNING id, branch_id, external_id
-`
-
-type CrearPedidoDelEspejoParams struct {
-	OperationNumber    *string            `json:"operation_number"`
-	CustomerName       string             `json:"customer_name"`
-	CustomerPhone      *string            `json:"customer_phone"`
-	Address            string             `json:"address"`
-	EndAddress         *string            `json:"end_address"`
-	EndLat             *float64           `json:"end_lat"`
-	EndLng             *float64           `json:"end_lng"`
-	Weight             float64            `json:"weight"`
-	BranchID           pgtype.UUID        `json:"branch_id"`
-	Source             *Procedencia       `json:"source"`
-	ExternalID         *string            `json:"external_id"`
-	OrderDate          pgtype.Timestamptz `json:"order_date"`
-	PedidoUpdatedAt    pgtype.Timestamptz `json:"pedido_updated_at"`
-	Estado             *PedidoEstado      `json:"estado"`
-	Archivado          bool               `json:"archivado"`
-	FechaComprometida  pgtype.Timestamptz `json:"fecha_comprometida"`
-	RequiereDomicilio  *bool              `json:"requiere_domicilio"`
-	PedidoCosto        *float64           `json:"pedido_costo"`
-	Municipio          *string            `json:"municipio"`
-	Vendedor           *string            `json:"vendedor"`
-	SucursalCodigo     *string            `json:"sucursal_codigo"`
-	FacturaEstado      *FacturaEstado     `json:"factura_estado"`
-	FacturaNumero      *string            `json:"factura_numero"`
-	FacturaAt          pgtype.Timestamptz `json:"factura_at"`
-	FacturaDomicilio   *float64           `json:"factura_domicilio"`
-	FacturaCorregidoAt pgtype.Timestamptz `json:"factura_corregido_at"`
-	DeliveryDistanceKm *float64           `json:"delivery_distance_km"`
-	DeliveryPrice      *float64           `json:"delivery_price"`
-}
-
-type CrearPedidoDelEspejoRow struct {
-	ID         uuid.UUID   `json:"id"`
-	BranchID   pgtype.UUID `json:"branch_id"`
-	ExternalID *string     `json:"external_id"`
-}
-
-func (q *Queries) CrearPedidoDelEspejo(ctx context.Context, arg CrearPedidoDelEspejoParams) (CrearPedidoDelEspejoRow, error) {
-	row := q.db.QueryRow(ctx, crearPedidoDelEspejo,
-		arg.OperationNumber,
-		arg.CustomerName,
-		arg.CustomerPhone,
-		arg.Address,
-		arg.EndAddress,
-		arg.EndLat,
-		arg.EndLng,
-		arg.Weight,
-		arg.BranchID,
-		arg.Source,
-		arg.ExternalID,
-		arg.OrderDate,
-		arg.PedidoUpdatedAt,
-		arg.Estado,
-		arg.Archivado,
-		arg.FechaComprometida,
-		arg.RequiereDomicilio,
-		arg.PedidoCosto,
-		arg.Municipio,
-		arg.Vendedor,
-		arg.SucursalCodigo,
-		arg.FacturaEstado,
-		arg.FacturaNumero,
-		arg.FacturaAt,
-		arg.FacturaDomicilio,
-		arg.FacturaCorregidoAt,
-		arg.DeliveryDistanceKm,
-		arg.DeliveryPrice,
-	)
-	var i CrearPedidoDelEspejoRow
-	err := row.Scan(&i.ID, &i.BranchID, &i.ExternalID)
-	return i, err
-}
-
 const crearRenglonDePedido = `-- name: CrearRenglonDePedido :one
 INSERT INTO order_items (order_id, linea, description, quantity, packs, product_id)
 VALUES (
@@ -870,6 +615,167 @@ func (q *Queries) FacetasVendedores(ctx context.Context, sucursal pgtype.UUID) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const guardarPedidoDelEspejo = `-- name: GuardarPedidoDelEspejo :one
+
+INSERT INTO orders (
+    operation_number, customer_name, customer_phone, address, end_address,
+    lat, lng, end_lat, end_lng, weight, branch_id, source, external_id, order_date,
+    pedido_updated_at, estado, archivado, fecha_comprometida, requiere_domicilio,
+    pedido_costo, municipio, vendedor, sucursal_codigo, factura_estado,
+    factura_numero, factura_at, factura_domicilio, factura_corregido_at,
+    delivery_distance_km, delivery_price
+) VALUES (
+    $1, $2, $3,
+    $4, $5,
+    $6, $7, $8, $9,
+    $10, $11, $12, $13,
+    $14, $15, $16,
+    $17, $18, $19,
+    $20, $21, $22,
+    $23, $24, $25,
+    $26, $27, $28,
+    $29, $30
+)
+ON CONFLICT (source, external_id) WHERE source IS NOT NULL AND external_id IS NOT NULL
+DO UPDATE SET
+    operation_number     = excluded.operation_number,
+    customer_name        = excluded.customer_name,
+    customer_phone       = excluded.customer_phone,
+    address              = excluded.address,
+    end_address          = excluded.end_address,
+    lat                  = excluded.lat,
+    lng                  = excluded.lng,
+    end_lat              = excluded.end_lat,
+    end_lng              = excluded.end_lng,
+    weight               = excluded.weight,
+    branch_id            = excluded.branch_id,
+    order_date           = excluded.order_date,
+    pedido_updated_at    = excluded.pedido_updated_at,
+    estado               = excluded.estado,
+    archivado            = excluded.archivado,
+    fecha_comprometida   = excluded.fecha_comprometida,
+    requiere_domicilio   = excluded.requiere_domicilio,
+    pedido_costo         = excluded.pedido_costo,
+    municipio            = excluded.municipio,
+    vendedor             = excluded.vendedor,
+    sucursal_codigo      = excluded.sucursal_codigo,
+    factura_estado       = excluded.factura_estado,
+    factura_numero       = excluded.factura_numero,
+    factura_at           = excluded.factura_at,
+    factura_domicilio    = excluded.factura_domicilio,
+    factura_corregido_at = excluded.factura_corregido_at,
+    delivery_distance_km = excluded.delivery_distance_km,
+    delivery_price       = excluded.delivery_price
+RETURNING id, branch_id, external_id, (xmax = 0)::boolean AS es_nuevo
+`
+
+type GuardarPedidoDelEspejoParams struct {
+	OperationNumber    *string            `json:"operation_number"`
+	CustomerName       string             `json:"customer_name"`
+	CustomerPhone      *string            `json:"customer_phone"`
+	Address            string             `json:"address"`
+	EndAddress         *string            `json:"end_address"`
+	Lat                *float64           `json:"lat"`
+	Lng                *float64           `json:"lng"`
+	EndLat             *float64           `json:"end_lat"`
+	EndLng             *float64           `json:"end_lng"`
+	Weight             float64            `json:"weight"`
+	BranchID           pgtype.UUID        `json:"branch_id"`
+	Source             *Procedencia       `json:"source"`
+	ExternalID         *string            `json:"external_id"`
+	OrderDate          pgtype.Timestamptz `json:"order_date"`
+	PedidoUpdatedAt    pgtype.Timestamptz `json:"pedido_updated_at"`
+	Estado             *PedidoEstado      `json:"estado"`
+	Archivado          bool               `json:"archivado"`
+	FechaComprometida  pgtype.Timestamptz `json:"fecha_comprometida"`
+	RequiereDomicilio  *bool              `json:"requiere_domicilio"`
+	PedidoCosto        *float64           `json:"pedido_costo"`
+	Municipio          *string            `json:"municipio"`
+	Vendedor           *string            `json:"vendedor"`
+	SucursalCodigo     *string            `json:"sucursal_codigo"`
+	FacturaEstado      *FacturaEstado     `json:"factura_estado"`
+	FacturaNumero      *string            `json:"factura_numero"`
+	FacturaAt          pgtype.Timestamptz `json:"factura_at"`
+	FacturaDomicilio   *float64           `json:"factura_domicilio"`
+	FacturaCorregidoAt pgtype.Timestamptz `json:"factura_corregido_at"`
+	DeliveryDistanceKm *float64           `json:"delivery_distance_km"`
+	DeliveryPrice      *float64           `json:"delivery_price"`
+}
+
+type GuardarPedidoDelEspejoRow struct {
+	ID         uuid.UUID   `json:"id"`
+	BranchID   pgtype.UUID `json:"branch_id"`
+	ExternalID *string     `json:"external_id"`
+	EsNuevo    bool        `json:"es_nuevo"`
+}
+
+// ---------------------------------------------------------------------------
+// El espejo de PEDIDO  (POST /api/quote/batch)
+// ---------------------------------------------------------------------------
+// Alta o actualización idempotente por (`source`, `external_id`): volver a pasar el mismo
+// lote no duplica. Va sin alcance porque el espejo entra con clave de servicio y trae las
+// ocho sucursales de una vez; la sucursal de cada pedido la decide el propio lote.
+//
+// POR QUÉ UNA SOLA CONSULTA CON `ON CONFLICT` Y NO BUSCAR-Y-ESCRIBIR: `orders_origen_idx`
+// es un índice ÚNICO parcial (ver la migración). Con buscar-y-escribir, dos pasadas del
+// espejo a la vez leen «no existe» antes de que ninguna escriba y crean el mismo pedido
+// DOS VECES — y entonces sale dos veces en la lista del armador, con el mismo folio, y
+// alguien lo carga dos veces en el camión. Con el upsert la carrera la resuelve Postgres.
+//
+// El `WHERE` del `ON CONFLICT` repite el del índice parcial: sin él Postgres no sabe qué
+// índice inferir y rechaza la consulta al ejecutarla.
+//
+// LO QUE NO SE PISA NUNCA al actualizar: `route_id`, `ultima_ruta_id`, `stop_order`,
+// `resultado`, `resultado_nota` y `delivered_at`. Eso es del reparto y PEDIDO no sabe nada
+// de ello: dejarlo entrar borraría de un plumazo el resultado de una parada ya cerrada,
+// que es justo el dato que dice qué mercancía bajó del camión.
+//
+// `xmax = 0` es el truco de Postgres para saber si la fila se INSERTÓ o se ACTUALIZÓ: en
+// una fila recién insertada el id de la transacción que la borró todavía es cero. Hace
+// falta para poder decir en el registro cuántos pedidos son nuevos sin una consulta más.
+func (q *Queries) GuardarPedidoDelEspejo(ctx context.Context, arg GuardarPedidoDelEspejoParams) (GuardarPedidoDelEspejoRow, error) {
+	row := q.db.QueryRow(ctx, guardarPedidoDelEspejo,
+		arg.OperationNumber,
+		arg.CustomerName,
+		arg.CustomerPhone,
+		arg.Address,
+		arg.EndAddress,
+		arg.Lat,
+		arg.Lng,
+		arg.EndLat,
+		arg.EndLng,
+		arg.Weight,
+		arg.BranchID,
+		arg.Source,
+		arg.ExternalID,
+		arg.OrderDate,
+		arg.PedidoUpdatedAt,
+		arg.Estado,
+		arg.Archivado,
+		arg.FechaComprometida,
+		arg.RequiereDomicilio,
+		arg.PedidoCosto,
+		arg.Municipio,
+		arg.Vendedor,
+		arg.SucursalCodigo,
+		arg.FacturaEstado,
+		arg.FacturaNumero,
+		arg.FacturaAt,
+		arg.FacturaDomicilio,
+		arg.FacturaCorregidoAt,
+		arg.DeliveryDistanceKm,
+		arg.DeliveryPrice,
+	)
+	var i GuardarPedidoDelEspejoRow
+	err := row.Scan(
+		&i.ID,
+		&i.BranchID,
+		&i.ExternalID,
+		&i.EsNuevo,
+	)
+	return i, err
 }
 
 const listarPedidos = `-- name: ListarPedidos :many

@@ -62,21 +62,13 @@ const (
 // Geometría  (reglas-negocio §1.1 a §1.3)
 // ---------------------------------------------------------------------------
 
-// radioTierraKm: la constante de la fórmula, la misma en toda la casa.
-const radioTierraKm = 6371.0
-
-// haversineKm es la distancia en línea recta entre dos puntos. SIN REDONDEO: el redondeo
-// es cosa de quien lo enseña, y redondear aquí cambia el orden de visita cuando dos
-// paradas caen casi a la misma distancia.
-func haversineKm(lat1, lng1, lat2, lng2 float64) float64 {
-	rad := math.Pi / 180
-	dLat := (lat2 - lat1) * rad
-	dLng := (lng2 - lng1) * rad
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLng/2)*math.Sin(dLng/2)
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-	return radioTierraKm * c
-}
+// La distancia en línea recta es `kmHaversine`, en `clientes.go`: UNA sola en todo el
+// paquete. Aquí había una tercera copia (`haversineKm`) escrita en paralelo con las otras
+// dos; son la misma cuenta y ahora hay una.
+//
+// LO QUE NO SE PUEDE PERDER DE AQUÍ: se usa SIN REDONDEAR. El redondeo es cosa de quien lo
+// enseña, y redondear antes de ordenar cambia el orden de visita cuando dos paradas caen
+// casi a la misma distancia.
 
 // paradaGeo es lo mínimo que hace falta para ordenar: dónde está cada pedido.
 type paradaGeo struct {
@@ -109,7 +101,7 @@ func ordenVecinoMasProximo(origenLat, origenLng float64, paradas []paradaGeo) []
 		mejor := 0
 		mejorKm := math.Inf(1)
 		for i, p := range pendientes {
-			km := haversineKm(actualLat, actualLng, p.lat, p.lng)
+			km := kmHaversine(actualLat, actualLng, p.lat, p.lng)
 			if km < mejorKm {
 				mejorKm = km
 				mejor = i
@@ -141,9 +133,48 @@ type ParteAPedido struct {
 
 // AvisoDeParada es un pedido y en qué punto del reparto quedó.
 type AvisoDeParada struct {
+	// PedidoID es el id EN PEDIDO, no el nuestro. Cada copia del espejo lo guarda en
+	// `external_id`; un pedido sin él no tiene a quién avisarle y no entra en el lote.
 	PedidoID string `json:"pedidoId"`
 	Estado   string `json:"estado"`
 	Nota     string `json:"nota,omitempty"`
+
+	// At es LA HORA DEL SUCESO, no la de la llamada.
+	//
+	// Es la diferencia entre que en PEDIDO ponga las cuatro o las siete y media. Con el
+	// trabajo sin conexión, el logístico marca el cierre a las 16:04 en un patio sin
+	// señal y la cola sube a las 19:30: el vendedor tiene que ver cuándo recibió su
+	// cliente, no cuándo pilló señal el teléfono (`docs/sincronizacion.md`, «La hora es
+	// la del aparato»).
+	//
+	// `omitzero` y no `omitempty`: un `time.Time` vacío no es «vacío» para el JSON, se
+	// serializaría como el año 1, y PEDIDO se creería esa fecha. Sin hora, el campo no
+	// va y PEDIDO pone la suya, que es lo que dice el contrato (`at?`).
+	At time.Time `json:"at,omitzero"`
+}
+
+// horaDelSuceso: CUÁNDO PASÓ, que no siempre es cuándo se está contando.
+//
+// El sincronizador reenvía cada apunte de la cola de un aparato con `X-Hecho-At`, la hora
+// que marcó el aparato cuando la persona pulsó el botón (ver `sync/internal/reparto`). Si
+// viene, es LA buena. Si no viene, quien llama tiene señal ahora mismo y la hora de la
+// llamada ES la del suceso.
+//
+// POR QUÉ SE LEE DE LA CABECERA Y NO DEL CUERPO: el cuerpo es el contrato con la pantalla,
+// que no sabe nada de colas ni de reintentos y manda lo mismo tenga o no señal. La hora
+// del aparato es cosa del transporte, y ponerla en el cuerpo obligaría a que cada
+// pantalla se acordara de rellenarla —y la que se olvidara mentiría sin que nada fallara.
+func horaDelSuceso(r *http.Request) time.Time {
+	if crudo := strings.TrimSpace(r.Header.Get("X-Hecho-At")); crudo != "" {
+		if t, err := time.Parse(time.RFC3339Nano, crudo); err == nil {
+			return t.UTC()
+		}
+		// Una cabecera ilegible NO tumba el aviso y NO se cuela: se cae a la hora de
+		// ahora, que es peor dato pero es un dato honesto. Lo que no puede pasar es que
+		// un reloj mal escrito ponga en PEDIDO una fecha del año 1970.
+		httpx.Registro(r).Warn("X-Hecho-At no se entiende: se usa la hora de ahora", "valor", crudo)
+	}
+	return time.Now().UTC()
 }
 
 // Los cinco estados del contrato. `despachado` al armar, `en_transito` al salir y los
@@ -153,15 +184,13 @@ const (
 	estadoEnTransito = "en_transito"
 )
 
-// SIN CANAL TODAVÍA. Este servicio aún no tiene a dónde mandarlo: no hay URL de PEDIDO en
-// la configuración. Se dice CLARAMENTE en la respuesta y se deja en el registro en vez de
-// devolver `ok: true` — un aviso que nadie recibe y que además se declara enviado es peor
-// que no avisar, porque nadie lo busca. Es exactamente lo que ya pasó con Entrega.
-const msgSinCanalAPedido = "no hay canal a PEDIDO configurado en esta API: el aviso no se envió"
-
-var avisarEstadoAPedido = func(_ context.Context, avisos []AvisoDeParada) ParteAPedido {
-	return ParteAPedido{Ok: false, Enviados: len(avisos), Aplicados: 0, Error: msgSinCanalAPedido}
-}
+// EL CANAL YA NO ES UN GANCHO VACÍO: lo monta `NuevoServidor` a partir de la
+// configuración y vive en `s.aPedido` (ver `canal_pedido.go`). Sigue siendo un campo y no
+// una llamada directa por lo de siempre —la prueba lo sustituye sin levantar nada— pero
+// cuando hay `PEDIDO_API_URL` y `SERVICE_API_KEY` sale de verdad a la red.
+//
+// Si NO las hay, el canal que se monta es el mudo: no llama a nadie, lo dice en el parte y
+// lo deja en el registro. Nunca `ok: true` sin haber avisado.
 
 // avisarCambio publica «algo cambió en rutas» para que las pantallas abiertas se enteren.
 // Mientras no haya Redis no hace nada, y por eso NO devuelve error: una ruta no se deja de
@@ -531,12 +560,12 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 	anteriorLat, anteriorLng := origenLat, origenLng
 	for _, id := range orden {
 		p := porID[id]
-		distanciaTotal += haversineKm(anteriorLat, anteriorLng, p.lat, p.lng)
-		segmentos[id] = haversineKm(origenLat, origenLng, p.lat, p.lng)
+		distanciaTotal += kmHaversine(anteriorLat, anteriorLng, p.lat, p.lng)
+		segmentos[id] = kmHaversine(origenLat, origenLng, p.lat, p.lng)
 		anteriorLat, anteriorLng = p.lat, p.lng
 	}
 	if len(orden) > 0 {
-		distanciaTotal += haversineKm(anteriorLat, anteriorLng, origenLat, origenLng)
+		distanciaTotal += kmHaversine(anteriorLat, anteriorLng, origenLat, origenLng)
 	}
 
 	// --- El código de ruta --------------------------------------------------
@@ -629,10 +658,16 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 	// El vendedor se entera AQUÍ de que su pedido se movió. Va de fondo: si PEDIDO no
 	// contesta la ruta se crea igual — lo que no puede pasar es no poder armar una ruta
 	// porque otra aplicación esté caída.
+	// La hora se lee UNA vez y se reparte: todos estos pedidos se cargaron en el mismo
+	// acto —armar la ruta— y tienen que constar con la misma hora, no con la de cada
+	// vuelta del bucle.
+	cuando := horaDelSuceso(r)
 	var avisos []AvisoDeParada
 	for _, p := range pedidos {
 		if p.Source != nil && *p.Source == sqlc.ProcedenciaPedido && p.ExternalID != nil {
-			avisos = append(avisos, AvisoDeParada{PedidoID: *p.ExternalID, Estado: estadoDespachado})
+			avisos = append(avisos, AvisoDeParada{
+				PedidoID: *p.ExternalID, Estado: estadoDespachado, At: cuando,
+			})
 		}
 	}
 	s.avisarDeFondo(r, avisos)
@@ -984,6 +1019,14 @@ func (s *Servidor) cerrarRuta(w http.ResponseWriter, r *http.Request) {
 	salida := salidaDeCierre{Aplicados: []aplicadoDeCierre{}, Rechazados: []rechazadoDeCierre{}}
 	var avisos []AvisoDeParada
 
+	// LA HORA DEL CIERRE, que es el caso por el que existe todo esto. Una hoja de cierre
+	// se marca en el patio, sin señal, y sube cuando la hay: el apunte llega con
+	// `X-Hecho-At` puesto por el sincronizador y ésa es la hora que va a PEDIDO. Toda la
+	// hoja comparte una sola hora porque un apunte es un acto: si algún día hiciera falta
+	// la hora parada por parada, tendría que venir en el cuerpo y eso es cambiar el
+	// contrato con la pantalla.
+	cuando := horaDelSuceso(r)
+
 	// NO ABORTA: acumula. Cada parada es un hecho independiente —el camión volvió y ese
 	// pedido se entregó—, así que tumbar las nueve buenas porque la décima venga mal
 	// borraría información real que ya nadie va a volver a teclear. Por lo mismo esto no
@@ -1030,7 +1073,7 @@ func (s *Servidor) cerrarRuta(w http.ResponseWriter, r *http.Request) {
 		}
 		salida.Aplicados = append(salida.Aplicados, aplicadoDeCierre{OrderID: pedidoID.String(), Resultado: string(resultado)})
 		if parada.Source != nil && *parada.Source == sqlc.ProcedenciaPedido && parada.ExternalID != nil {
-			aviso := AvisoDeParada{PedidoID: *parada.ExternalID, Estado: string(resultado)}
+			aviso := AvisoDeParada{PedidoID: *parada.ExternalID, Estado: string(resultado), At: cuando}
 			if nota != nil {
 				aviso.Nota = *nota
 			}
@@ -1040,7 +1083,7 @@ func (s *Servidor) cerrarRuta(w http.ResponseWriter, r *http.Request) {
 
 	// El aviso del CIERRE se espera (síncrono): el vendedor tiene que poder ver en PEDIDO
 	// lo que pasó con su pedido, y aquí ya no hay prisa por contestar.
-	salida.APedido = avisarEstadoAPedido(r.Context(), avisos)
+	salida.APedido = s.aPedido(r.Context(), avisos)
 	if !salida.APedido.Ok && len(avisos) > 0 {
 		httpx.Registro(r).Error("el cierre se guardó pero PEDIDO no se enteró",
 			"ruta", ruta.ID, "avisos", len(avisos), "err", salida.APedido.Error)
@@ -1337,10 +1380,11 @@ func (s *Servidor) avisosDeLasParadas(r *http.Request, a *alcance.Acotado, ruta 
 		httpx.Registro(r).Error("no se pudieron leer las paradas para avisar a PEDIDO", "ruta", ruta, "err", err)
 		return nil
 	}
+	cuando := horaDelSuceso(r)
 	var avisos []AvisoDeParada
 	for _, p := range paradas {
 		if p.Source != nil && *p.Source == sqlc.ProcedenciaPedido && p.ExternalID != nil {
-			avisos = append(avisos, AvisoDeParada{PedidoID: *p.ExternalID, Estado: estado})
+			avisos = append(avisos, AvisoDeParada{PedidoID: *p.ExternalID, Estado: estado, At: cuando})
 		}
 	}
 	return avisos
@@ -1355,9 +1399,9 @@ func (s *Servidor) avisarDeFondo(r *http.Request, avisos []AvisoDeParada) {
 	}
 	reg := httpx.Registro(r)
 	// El canal se lee AQUÍ y no dentro de la goroutine: así el disparo de fondo no toca
-	// una variable de paquete desde otro hilo, que es una carrera de las que sólo se ven
-	// en producción y un martes.
-	enviar := avisarEstadoAPedido
+	// el campo del servidor desde otro hilo, que es una carrera de las que sólo se ven en
+	// producción y un martes.
+	enviar := s.aPedido
 	// El contexto de la petición muere al contestar, así que el aviso se lleva uno propio.
 	go func() {
 		ctx, cancelar := context.WithTimeout(context.Background(), 20*time.Second)

@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -121,19 +120,22 @@ type LectorDeVentra interface {
 	Catalogo(ctx context.Context, base string) ([]FilaDeVentra, error)
 }
 
-// Ventra es el lector de verdad, que se enchufa al arrancar.
+// YA NO HAY `var Ventra`: el lector es `s.ventra`, un campo del servidor (ver
+// `servidor.go`). Estaba como variable de paquete a regañadientes, porque `Servidor` se
+// construye en `servidor.go` y este fichero no lo tocaba mientras se escribían los dos a
+// la vez. Se enchufa al arrancar con `PonerLectorDeVentra`.
 //
-// VARIABLE DE PAQUETE Y NO CAMPO DEL SERVIDOR, a regañadientes: `Servidor` se construye en
-// `servidor.go` y este fichero no lo toca. Cuando se junte el paquete, esto tiene que
-// pasar a ser un campo más de `Servidor`, como `salud`.
-//
-// MIENTRAS SEA nil, la ruta contesta 502 y NO 200 con ceros. Un catálogo que dice «he
-// escrito 0 productos» cuando en realidad no ha preguntado a nadie deja al logístico
-// mirando precios de hace tres semanas sin un solo aviso.
-var Ventra LectorDeVentra
+// LO QUE NO CAMBIA: mientras sea nil, la ruta contesta 502 y NO 200 con ceros. Un catálogo
+// que dice «he escrito 0 productos» cuando en realidad no ha preguntado a nadie deja al
+// logístico mirando precios de hace tres semanas sin un solo aviso.
 
-// CatalogoCadaMs es el intervalo de la bajada. Se puede saltar con `?forzar=1`.
+// CatalogoCadaMs es el intervalo por defecto de la bajada, en milisegundos. Se puede
+// cambiar con `CATALOGO_CADA_MS` y saltar de una vez con `?forzar=1`.
 const CatalogoCadaMs = 12 * 60 * 60 * 1000
+
+// PonerLectorDeVentra enchufa el lector. Lo llama el arranque, una vez, ANTES de servir:
+// no hay candado porque no está pensado para cambiarse con el servidor ya en pie.
+func (s *Servidor) PonerLectorDeVentra(v LectorDeVentra) { s.ventra = v }
 
 type SucursalDelCatalogo struct {
 	Sucursal string `json:"sucursal"`
@@ -158,7 +160,7 @@ func (s *Servidor) sincronizarProductos(w http.ResponseWriter, r *http.Request) 
 	// El intervalo: sin forzar, no se vuelve a preguntar antes de las doce horas. El
 	// catálogo de ocho sucursales por la VPN de allá no es una consulta barata.
 	if !forzar && ajustes.CatalogoTraidoAt.Valid {
-		if time.Since(ajustes.CatalogoTraidoAt.Time) < intervaloDelCatalogo() {
+		if time.Since(ajustes.CatalogoTraidoAt.Time) < s.intervaloDelCatalogo() {
 			httpx.JSON(w, r, http.StatusOK, map[string]any{
 				"saltado": true, "traidoAt": hora(ajustes.CatalogoTraidoAt),
 			})
@@ -166,12 +168,12 @@ func (s *Servidor) sincronizarProductos(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if Ventra == nil {
+	if s.ventra == nil {
 		httpx.Error(w, r, http.StatusBadGateway,
 			"No se pudo preguntar a Ventra (¿VPN?): este servicio todavía no tiene lector de Ventra configurado")
 		return
 	}
-	bases, err := Ventra.Bases(r.Context())
+	bases, err := s.ventra.Bases(r.Context())
 	if err != nil {
 		httpx.Error(w, r, http.StatusBadGateway,
 			fmt.Sprintf("No se pudo preguntar a Ventra (¿VPN?): %s", err))
@@ -234,7 +236,7 @@ func (s *Servidor) sincronizarProductos(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Servidor) catalogoDeUnaSucursal(r *http.Request, a *alcance.Acotado, base, codigo string) (int, int, error) {
-	lineas, err := Ventra.Catalogo(r.Context(), base)
+	lineas, err := s.ventra.Catalogo(r.Context(), base)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -275,11 +277,15 @@ func (s *Servidor) catalogoDeUnaSucursal(r *http.Request, a *alcance.Acotado, ba
 	return len(lineas), escritos, nil
 }
 
-func intervaloDelCatalogo() time.Duration {
-	if crudo := strings.TrimSpace(os.Getenv("CATALOGO_CADA_MS")); crudo != "" {
-		if ms, err := strconv.Atoi(crudo); err == nil && ms > 0 {
-			return time.Duration(ms) * time.Millisecond
-		}
+// intervaloDelCatalogo: cada cuánto se vuelve a bajar el catálogo. Sale de
+// `CATALOGO_CADA_MS`, ya validada en `config` (doce horas por defecto).
+//
+// Con la configuración a cero se cae a las doce horas y NO a «siempre»: un intervalo de
+// cero convierte cada visita a la pantalla en una bajada entera del catálogo de las ocho
+// sucursales por la VPN, que es exactamente lo que este freno existe para evitar.
+func (s *Servidor) intervaloDelCatalogo() time.Duration {
+	if s.cfg != nil && s.cfg.CatalogoCada > 0 {
+		return s.cfg.CatalogoCada
 	}
 	return CatalogoCadaMs * time.Millisecond
 }
@@ -315,7 +321,10 @@ func (s *Servidor) recomputar(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusInternalServerError, "SERVICE_API_KEY no configurada en el servidor")
 		return
 	}
-	pedidoURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PEDIDO_API_URL")), "/")
+	// De `config`, que ya la validó y le quitó la barra final. Vacía sigue siendo un 500
+	// con el nombre de la variable dentro: sin PEDIDO no hay nada que recostear, y
+	// enterarse después de bajar 5.000 pedidos es enterarse tarde.
+	pedidoURL := s.cfg.PedidoAPIURL
 	if pedidoURL == "" {
 		httpx.Error(w, r, http.StatusInternalServerError, "PEDIDO_API_URL no configurada en el servidor")
 		return
@@ -378,7 +387,7 @@ func (s *Servidor) recomputar(w http.ResponseWriter, r *http.Request) {
 	// El recosteo de verdad lo hace `/api/quote/batch`, que es quien sabe repartir la
 	// carga. Aquí NO se duplica esa cuenta: dos sitios calculando el mismo precio es la
 	// forma más rápida de que discrepen, y este número acaba en la factura del cliente.
-	destino := strings.TrimRight(strings.TrimSpace(os.Getenv("DELIVERY_URL")), "/")
+	destino := s.cfg.DeliveryURL
 	if destino == "" {
 		destino = "http://127.0.0.1:" + s.cfg.Puerto
 	}
