@@ -9,6 +9,7 @@
 /app/.flutter-plugins*
 /app/android/local.properties
 /app/ios/Pods/
+/app/**/*.g.dart.lock
 
 # entornos
 .env
