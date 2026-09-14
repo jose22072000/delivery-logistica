@@ -120,9 +120,7 @@ class _Insignia extends StatelessWidget {
       ),
       child: Text(
         dePedido ? 'PEDIDO' : 'Manual',
-        style: Theme.of(
-          context,
-        ).textTheme.labelSmall?.copyWith(color: color),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
       ),
     );
   }

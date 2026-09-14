@@ -13,26 +13,18 @@ void main() {
 
   test('marcar uno desmarca a los demás', () {
     final resultado = conUnSoloPrincipal(lista, 2);
-    expect(
-      [for (final a in resultado) a.principal],
-      [false, false, true],
-    );
+    expect([for (final a in resultado) a.principal], [false, false, true]);
     // Lo demas no se toca.
-    expect([for (final a in resultado) a.nombre], [
-      'Central',
-      'Patio sur',
-      'Nave 3',
-    ]);
+    expect(
+      [for (final a in resultado) a.nombre],
+      ['Central', 'Patio sur', 'Nave 3'],
+    );
     expect([for (final a in resultado) a.id], ['w1', 'w2', 'w3']);
   });
 
   test('«sin punto» es no tener coordenadas, no tenerlas en cero', () {
     const sinPunto = AlmacenDeAccesos(nombre: 'Nuevo');
-    const enElGolfo = AlmacenDeAccesos(
-      nombre: 'Cero',
-      latitud: 0,
-      longitud: 0,
-    );
+    const enElGolfo = AlmacenDeAccesos(nombre: 'Cero', latitud: 0, longitud: 0);
     expect(sinPunto.sinPunto, isTrue);
     // 0,0 es un punto de verdad —en el golfo de Guinea— y como tal se trata:
     // el aviso que hay que dar entonces es otro.

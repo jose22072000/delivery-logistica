@@ -170,12 +170,15 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
               )
             else if (lista.value case final vehiculos?)
               _Rejilla(
-                vehiculos: vehiculos.where((v) => v.cuadraCon(busqueda)).toList(),
+                vehiculos: vehiculos
+                    .where((v) => v.cuadraCon(busqueda))
+                    .toList(),
                 pagina: pagina,
                 porPagina: porPagina,
                 alAgregar: () => _abrirFicha(),
                 alEditar: _abrirFicha,
-                alIr: (n) => ref.read(paginaVehiculosProvider.notifier).poner(n),
+                alIr: (n) =>
+                    ref.read(paginaVehiculosProvider.notifier).poner(n),
                 alCambiarTamano: (n) {
                   ref.read(porPaginaVehiculosProvider.notifier).poner(n);
                   ref.read(paginaVehiculosProvider.notifier).poner(1);
@@ -309,7 +312,8 @@ class _Rejilla extends ConsumerWidget {
                       alEditar: () => alEditar(v),
                       alEliminar: () => control.eliminar(v.id),
                       alMarcarDisponible: () => control.marcarDisponible(v.id),
-                      alUsarParaDomicilio: () => control.usarParaDomicilio(v.id),
+                      alUsarParaDomicilio: () =>
+                          control.usarParaDomicilio(v.id),
                     ),
                   ),
               ],

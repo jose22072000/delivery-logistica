@@ -31,7 +31,9 @@ final filtrosClientesProvider =
 /// Es un stream y no una peticion porque la fuente de verdad es la base: cuando
 /// la bajada mete clientes nuevos o cambia el almacen principal, la pantalla se
 /// repinta sola. Nadie espera a un servidor para ver esto.
-final clientesProvider = StreamProvider.autoDispose<PaginaClientes>((ref) async* {
+final clientesProvider = StreamProvider.autoDispose<PaginaClientes>((
+  ref,
+) async* {
   final base = ref.watch(baseProvider);
   final repositorio = ref.watch(repositorioClientesProvider);
   final filtros = ref.watch(filtrosClientesProvider);

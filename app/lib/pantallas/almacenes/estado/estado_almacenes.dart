@@ -54,10 +54,7 @@ class ControlAlmacenes extends Notifier<AvisoAlmacenes?> {
 
   void limpiar() => state = null;
 
-  Future<bool> guardar(
-    String codigo,
-    List<AlmacenDeAccesos> almacenes,
-  ) async {
+  Future<bool> guardar(String codigo, List<AlmacenDeAccesos> almacenes) async {
     state = null;
     try {
       final resultado = await ref

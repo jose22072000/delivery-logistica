@@ -28,13 +28,16 @@ void main() {
   Future<List<Pedido>> todos() =>
       consultas.pagina(const FiltrosPedidos.sinNada()).first;
 
-  test('la consulta sale en el orden del SERVIDOR, con los sin fecha al final', () async {
-    final pagina = await todos();
-    expect(pagina.first.id, 'o10'); // 10 de septiembre, el mas nuevo
-    // o11 no tiene `orderDate`: SQLite pone los NULL al final en DESC, que es el
-    // `nulls last` del servidor.
-    expect(pagina.last.id, 'o11');
-  });
+  test(
+    'la consulta sale en el orden del SERVIDOR, con los sin fecha al final',
+    () async {
+      final pagina = await todos();
+      expect(pagina.first.id, 'o10'); // 10 de septiembre, el mas nuevo
+      // o11 no tiene `orderDate`: SQLite pone los NULL al final en DESC, que es el
+      // `nulls last` del servidor.
+      expect(pagina.last.id, 'o11');
+    },
+  );
 
   test('los seis ordenes reordenan la lista que se les da', () async {
     final pagina = await todos();

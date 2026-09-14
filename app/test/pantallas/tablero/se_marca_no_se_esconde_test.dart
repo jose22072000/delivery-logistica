@@ -33,10 +33,8 @@ void main() {
 
   tearDown(() => base.close());
 
-  Future<void> colocar(String id) => repo.colocar(
-    pedidoId: id,
-    columnaId: centro,
-  );
+  Future<void> colocar(String id) =>
+      repo.colocar(pedidoId: id, columnaId: centro);
 
   test('un pedido que se factura mal se queda puesto y marcado', () async {
     await sembrarPedido(base, id: 'p1');
@@ -44,9 +42,7 @@ void main() {
 
     // A las once, PEDIDO lo coteja contra Ventra y no hay factura.
     await (base.update(base.orders)..where((o) => o.id.equals('p1'))).write(
-      const OrdersCompanion(
-        facturaEstado: Value(EstadoFactura.sinFactura),
-      ),
+      const OrdersCompanion(facturaEstado: Value(EstadoFactura.sinFactura)),
     );
 
     final puestas = await consultas.colocados(sucursalStg, origen);
@@ -142,8 +138,7 @@ void main() {
     });
   });
 
-  test('el pedido que PEDIDO borró de verdad: la cascada no se calla',
-      () async {
+  test('el pedido que PEDIDO borró de verdad: la cascada no se calla', () async {
     await sembrarPedido(base, id: 'p1', operacion: 'SC06-1257');
     await sembrarPedido(base, id: 'p2');
     await colocar('p1');
@@ -170,8 +165,9 @@ void main() {
   test('archivar NO borra la tarjeta: la marca', () async {
     await sembrarPedido(base, id: 'p1');
     await colocar('p1');
-    await (base.update(base.orders)..where((o) => o.id.equals('p1')))
-        .write(const OrdersCompanion(archivado: Value(true)));
+    await (base.update(base.orders)..where((o) => o.id.equals('p1'))).write(
+      const OrdersCompanion(archivado: Value(true)),
+    );
 
     final puestas = await consultas.colocados(sucursalStg, origen);
     expect(puestas.single.pedido.marcas, contains(MarcaTarjeta.archivado));

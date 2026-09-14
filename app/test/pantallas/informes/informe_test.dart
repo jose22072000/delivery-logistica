@@ -133,7 +133,8 @@ void main() {
       await pedido('b', rutaId: 'r1', precio: 10, peso: 50);
       await pedido('c', rutaId: 'r2', precio: 100, peso: 30);
 
-      final v = (await informes.mirar(const FiltroDeInforme()).first).porVehiculo;
+      final v =
+          (await informes.mirar(const FiltroDeInforme()).first).porVehiculo;
       expect(v.map((f) => f.nombre).toList(), ['F-350', 'Ford 600']);
       expect(v.last.ordenes, 2);
       expect(v.last.ingresos, 40);
@@ -216,7 +217,9 @@ void main() {
     await pedido('a', precio: 10);
     await pedido('b', sucursal: 'hol', precio: 10);
 
-    final i = await informes.mirar(const FiltroDeInforme(), sucursalId: 'hol').first;
+    final i = await informes
+        .mirar(const FiltroDeInforme(), sucursalId: 'hol')
+        .first;
     expect(i.filas.map((f) => f.id).toList(), ['b']);
   });
 }

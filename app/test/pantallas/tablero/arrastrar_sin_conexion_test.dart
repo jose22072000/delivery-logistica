@@ -86,11 +86,11 @@ void main() {
       var contenedor = montar(base);
       var tablero = await contenedor.read(tableroProvider.future);
       expect(tablero.sinColocar.total, 3);
-      expect(
-        tablero.sinColocar.pedidos.map((p) => p.pedidoId).toList(),
-        ['p-cerca', 'p-medio', 'p-lejos'],
-        reason: 'el más cerca del almacén primero',
-      );
+      expect(tablero.sinColocar.pedidos.map((p) => p.pedidoId).toList(), [
+        'p-cerca',
+        'p-medio',
+        'p-lejos',
+      ], reason: 'el más cerca del almacén primero');
 
       // ---- Por la tarde, en el patio y sin señal. -----------------------
       final mando = contenedor.read(tableroProvider.notifier);
@@ -126,10 +126,10 @@ void main() {
         '/api/board/placements/p-medio',
       ]);
       expect(lote.first.provisional, columnaId);
-      expect(
-        jsonDecode(lote[1].cuerpo),
-        {'columnaId': columnaId, 'posicion': 1},
-      );
+      expect(jsonDecode(lote[1].cuerpo), {
+        'columnaId': columnaId,
+        'posicion': 1,
+      });
       final claves = lote.map((a) => a.clave).toList();
 
       // ---- Se cierra la aplicación del todo y se vuelve a abrir. --------
@@ -160,51 +160,48 @@ void main() {
     },
   );
 
-  test(
-    'cuando la columna sube, su «local-…» se sustituye en la cola y en el '
-    'tablero',
-    () async {
-      final base = abrirBase();
-      await sembrarSucursal(base);
-      await sembrarAlmacen(base);
-      await sembrarPedido(base, id: 'p1');
-      final contenedor = montar(base);
-      await contenedor.read(tableroProvider.future);
+  test('cuando la columna sube, su «local-…» se sustituye en la cola y en el '
+      'tablero', () async {
+    final base = abrirBase();
+    await sembrarSucursal(base);
+    await sembrarAlmacen(base);
+    await sembrarPedido(base, id: 'p1');
+    final contenedor = montar(base);
+    await contenedor.read(tableroProvider.future);
 
-      final mando = contenedor.read(tableroProvider.notifier);
-      final provisional = await mando.crearColumna('Vista Alegre');
-      await mando.colocar(pedidoId: 'p1', columnaId: provisional);
+    final mando = contenedor.read(tableroProvider.notifier);
+    final provisional = await mando.crearColumna('Vista Alegre');
+    await mando.colocar(pedidoId: 'p1', columnaId: provisional);
 
-      // Sube la creación de la columna y el servidor devuelve el id de verdad.
-      final cola = ColaDeSalida(base);
-      final creacion = (await cola.lote()).first;
-      await cola.resolver(
-        creacion.clave,
-        const ResultadoApunte(
-          estado: EstadoResultado.aplicado,
-          id: 'col-de-verdad',
-        ),
-      );
+    // Sube la creación de la columna y el servidor devuelve el id de verdad.
+    final cola = ColaDeSalida(base);
+    final creacion = (await cola.lote()).first;
+    await cola.resolver(
+      creacion.clave,
+      const ResultadoApunte(
+        estado: EstadoResultado.aplicado,
+        id: 'col-de-verdad',
+      ),
+    );
 
-      // Sin esto, las colocaciones que van detrás irían a una columna que no
-      // existe en ningún sitio y se perderían justo después de subirse.
-      final pendientes = await cola.lote();
-      expect(pendientes.single.ruta, '/api/board/placements/p1');
-      expect(
-        jsonDecode(pendientes.single.cuerpo),
-        {'columnaId': 'col-de-verdad', 'posicion': 1},
-      );
+    // Sin esto, las colocaciones que van detrás irían a una columna que no
+    // existe en ningún sitio y se perderían justo después de subirse.
+    final pendientes = await cola.lote();
+    expect(pendientes.single.ruta, '/api/board/placements/p1');
+    expect(jsonDecode(pendientes.single.cuerpo), {
+      'columnaId': 'col-de-verdad',
+      'posicion': 1,
+    });
 
-      // Y la pantalla deja de enseñar el provisional.
-      await contenedor.read(tableroProvider.notifier).refrescar();
-      final tablero = contenedor.read(tableroProvider).value!;
-      expect(tablero.columnas.single.id, 'col-de-verdad');
-      expect(tablero.columnas.single.esProvisional, isFalse);
-      expect(tablero.deColumna('col-de-verdad').single.pedido.pedidoId, 'p1');
+    // Y la pantalla deja de enseñar el provisional.
+    await contenedor.read(tableroProvider.notifier).refrescar();
+    final tablero = contenedor.read(tableroProvider).value!;
+    expect(tablero.columnas.single.id, 'col-de-verdad');
+    expect(tablero.columnas.single.esProvisional, isFalse);
+    expect(tablero.deColumna('col-de-verdad').single.pedido.pedidoId, 'p1');
 
-      await base.close();
-    },
-  );
+    await base.close();
+  });
 
   test('sin sucursal elegida no se enseña «todo»', () async {
     final base = abrirBase();

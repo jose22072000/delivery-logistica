@@ -46,37 +46,38 @@ void main() {
 
   tearDown(() => base.close());
 
-  test('la distancia es haversine desde el almacén principal, a 2 decimales', () async {
-    final pagina = await repositorio.consultar(
-      const FiltrosClientes(),
-      sucursalId: 'b-stg',
-    );
-    final porId = {
-      for (final c in pagina.clientes) c.cliente.id: c.km,
-    };
-    for (final (id, _, _, km) in puntos) {
-      expect(porId[id], km, reason: 'los km de $id');
-    }
-  });
+  test(
+    'la distancia es haversine desde el almacén principal, a 2 decimales',
+    () async {
+      final pagina = await repositorio.consultar(
+        const FiltrosClientes(),
+        sucursalId: 'b-stg',
+      );
+      final porId = {for (final c in pagina.clientes) c.cliente.id: c.km};
+      for (final (id, _, _, km) in puntos) {
+        expect(porId[id], km, reason: 'los km de $id');
+      }
+    },
+  );
 
   test('`Hasta 10 km` deja fuera lo que está a 16,09 y a 49,95', () async {
     final pagina = await repositorio.consultar(
       const FiltrosClientes(kmMax: 10),
       sucursalId: 'b-stg',
     );
-    expect(
-      pagina.clientes.map((c) => c.cliente.id),
-      ['c1', 'c2', 'c3'],
-    );
+    expect(pagina.clientes.map((c) => c.cliente.id), ['c1', 'c2', 'c3']);
   });
 
-  test('`Hasta 50 km` deja dentro el de 49,95 — el límite no se pasa de largo', () async {
-    final pagina = await repositorio.consultar(
-      const FiltrosClientes(kmMax: 50),
-      sucursalId: 'b-stg',
-    );
-    expect(pagina.clientes.length, 5);
-  });
+  test(
+    '`Hasta 50 km` deja dentro el de 49,95 — el límite no se pasa de largo',
+    () async {
+      final pagina = await repositorio.consultar(
+        const FiltrosClientes(kmMax: 50),
+        sucursalId: 'b-stg',
+      );
+      expect(pagina.clientes.length, 5);
+    },
+  );
 
   test('sin almacén con coordenadas la distancia es null, NO cero', () async {
     final otra = baseDePrueba();
@@ -90,9 +91,8 @@ void main() {
       lng: -75.8,
     );
 
-    final pagina = await RepositorioClientes(
-      otra,
-    ).consultar(const FiltrosClientes(), sucursalId: 'b-stg');
+    final pagina = await RepositorioClientes(otra)
+        .consultar(const FiltrosClientes(), sucursalId: 'b-stg');
 
     expect(pagina.almacenDeReferencia, isNull);
     // Cero km significaria «esta en la puerta del almacen». Un cliente sin

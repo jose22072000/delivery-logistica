@@ -43,7 +43,12 @@ void main() {
   void abrir() {
     base = BaseLocal.con(NativeDatabase(fichero));
     cola = ColaDeSalida(base, reloj: reloj.leer);
-    acciones = AccionesDeRuta(base, cola, reloj: reloj.leer, sufijoAparato: 'MSI');
+    acciones = AccionesDeRuta(
+      base,
+      cola,
+      reloj: reloj.leer,
+      sufijoAparato: 'MSI',
+    );
   }
 
   setUp(() async {
@@ -53,7 +58,12 @@ void main() {
     abrir();
 
     await sembrarCatalogo(base);
-    await sembrarRuta(base, id: 'R1', estado: EstadoRuta.enCurso, codigo: 'RT-001');
+    await sembrarRuta(
+      base,
+      id: 'R1',
+      estado: EstadoRuta.enCurso,
+      codigo: 'RT-001',
+    );
     for (final (i, nombre) in <String>['Ana', 'Beto', 'Carla'].indexed) {
       await sembrarPedido(
         base,
@@ -79,69 +89,76 @@ void main() {
     await carpeta.delete(recursive: true);
   });
 
-  test('sin conexion: el cierre queda en la cola con la hora del aparato', () async {
-    final clave = await acciones.cerrar('R1', const [
-      MarcaDeParada(pedidoId: 'p1', resultado: ResultadoParada.entregado),
-      MarcaDeParada(
-        pedidoId: 'p2',
-        resultado: ResultadoParada.devuelto,
-        nota: '  no había nadie  ',
-      ),
-      // p3 no se marca: cuenta como que sigue en el camion.
-    ]);
+  test(
+    'sin conexion: el cierre queda en la cola con la hora del aparato',
+    () async {
+      final clave = await acciones.cerrar('R1', const [
+        MarcaDeParada(pedidoId: 'p1', resultado: ResultadoParada.entregado),
+        MarcaDeParada(
+          pedidoId: 'p2',
+          resultado: ResultadoParada.devuelto,
+          nota: '  no había nadie  ',
+        ),
+        // p3 no se marca: cuenta como que sigue en el camion.
+      ]);
 
-    // ---- 1. La cola: UN apunte, con la hora del patio.
-    final pendientes = await cola.pendientes().first;
-    expect(pendientes.length, 1, reason: 'un cierre es UN apunte, no uno por parada');
+      // ---- 1. La cola: UN apunte, con la hora del patio.
+      final pendientes = await cola.pendientes().first;
+      expect(
+        pendientes.length,
+        1,
+        reason: 'un cierre es UN apunte, no uno por parada',
+      );
 
-    final apunte = pendientes.single;
-    expect(apunte.clave, clave);
-    expect(apunte.metodo, 'POST');
-    expect(apunte.ruta, '/routes/R1/results');
-    expect(apunte.estado, EstadoApunte.pendiente);
-    expect(
-      apunte.hechoAt,
-      laHoraDelPatio,
-      reason: 'la hora es la del APARATO al marcar, no la de la subida',
-    );
+      final apunte = pendientes.single;
+      expect(apunte.clave, clave);
+      expect(apunte.metodo, 'POST');
+      expect(apunte.ruta, '/routes/R1/results');
+      expect(apunte.estado, EstadoApunte.pendiente);
+      expect(
+        apunte.hechoAt,
+        laHoraDelPatio,
+        reason: 'la hora es la del APARATO al marcar, no la de la subida',
+      );
 
-    final cuerpo = ColaDeSalida.cuerpoDe(apunte)! as Map<String, Object?>;
-    final resultados = cuerpo['resultados']! as List<Object?>;
-    expect(resultados.length, 2);
-    final segunda = resultados[1]! as Map<String, Object?>;
-    expect(segunda['orderId'], 'p2');
-    expect(segunda['resultado'], ResultadoParada.devuelto);
-    // La nota va recortada, como la recorta el servidor.
-    expect(segunda['nota'], 'no había nadie');
+      final cuerpo = ColaDeSalida.cuerpoDe(apunte)! as Map<String, Object?>;
+      final resultados = cuerpo['resultados']! as List<Object?>;
+      expect(resultados.length, 2);
+      final segunda = resultados[1]! as Map<String, Object?>;
+      expect(segunda['orderId'], 'p2');
+      expect(segunda['resultado'], ResultadoParada.devuelto);
+      // La nota va recortada, como la recorta el servidor.
+      expect(segunda['nota'], 'no había nadie');
 
-    // ---- 2. Y ya esta pintado como hecho, sin haber hablado con nadie.
-    final p1 = await (base.select(
-      base.orders,
-    )..where((o) => o.id.equals('p1'))).getSingle();
-    expect(p1.resultado, ResultadoParada.entregado);
-    expect(p1.resultadoAt, laHoraDelPatio);
-    expect(p1.deliveredAt, laHoraDelPatio);
-    expect(p1.status, EstadoPedido.entregado);
-    expect(p1.routeId, 'R1', reason: 'lo entregado no suelta la ruta');
+      // ---- 2. Y ya esta pintado como hecho, sin haber hablado con nadie.
+      final p1 = await (base.select(
+        base.orders,
+      )..where((o) => o.id.equals('p1'))).getSingle();
+      expect(p1.resultado, ResultadoParada.entregado);
+      expect(p1.resultadoAt, laHoraDelPatio);
+      expect(p1.deliveredAt, laHoraDelPatio);
+      expect(p1.status, EstadoPedido.entregado);
+      expect(p1.routeId, 'R1', reason: 'lo entregado no suelta la ruta');
 
-    final p2 = await (base.select(
-      base.orders,
-    )..where((o) => o.id.equals('p2'))).getSingle();
-    expect(p2.resultado, ResultadoParada.devuelto);
-    expect(p2.deliveredAt, isNull);
-    expect(p2.status, EstadoPedido.pendiente);
-    expect(
-      p2.routeId,
-      isNull,
-      reason: 'lo que vuelve suelta el camion para poder ir mañana',
-    );
-    expect(
-      p2.ultimaRutaId,
-      'R1',
-      reason: 'pero conserva en que ruta viajo, o desaparece de la hoja',
-    );
-    expect(p2.stopOrder, 2, reason: '`stopOrder` no se toca nunca');
-  });
+      final p2 = await (base.select(
+        base.orders,
+      )..where((o) => o.id.equals('p2'))).getSingle();
+      expect(p2.resultado, ResultadoParada.devuelto);
+      expect(p2.deliveredAt, isNull);
+      expect(p2.status, EstadoPedido.pendiente);
+      expect(
+        p2.routeId,
+        isNull,
+        reason: 'lo que vuelve suelta el camion para poder ir mañana',
+      );
+      expect(
+        p2.ultimaRutaId,
+        'R1',
+        reason: 'pero conserva en que ruta viajo, o desaparece de la hoja',
+      );
+      expect(p2.stopOrder, 2, reason: '`stopOrder` no se toca nunca');
+    },
+  );
 
   test('AL REABRIR sigue todo marcado y el cierre sigue en la cola', () async {
     await acciones.cerrar('R1', const [
@@ -181,88 +198,96 @@ void main() {
     );
   });
 
-  test('corregir una parada ya marcada: manda la ultima, y el orden lo da la cola', () async {
-    await acciones.cerrar('R1', const [
-      MarcaDeParada(pedidoId: 'p1', resultado: ResultadoParada.entregado),
-    ]);
+  test(
+    'corregir una parada ya marcada: manda la ultima, y el orden lo da la cola',
+    () async {
+      await acciones.cerrar('R1', const [
+        MarcaDeParada(pedidoId: 'p1', resultado: ResultadoParada.entregado),
+      ]);
 
-    // El reloj SALTA HACIA ATRAS —se cambio a mano, se fue la bateria—: no puede
-    // reordenar el trabajo. El orden lo da `orden`, el autoincremento.
-    reloj.ahora = laHoraDelPatio.subtract(const Duration(hours: 3));
-    await acciones.cerrar('R1', const [
-      MarcaDeParada(
-        pedidoId: 'p1',
-        resultado: ResultadoParada.devuelto,
-        nota: 'me equivoqué',
-      ),
-    ]);
+      // El reloj SALTA HACIA ATRAS —se cambio a mano, se fue la bateria—: no puede
+      // reordenar el trabajo. El orden lo da `orden`, el autoincremento.
+      reloj.ahora = laHoraDelPatio.subtract(const Duration(hours: 3));
+      await acciones.cerrar('R1', const [
+        MarcaDeParada(
+          pedidoId: 'p1',
+          resultado: ResultadoParada.devuelto,
+          nota: 'me equivoqué',
+        ),
+      ]);
 
-    final pendientes = await cola.pendientes().first;
-    expect(pendientes.length, 2);
-    expect(pendientes.first.orden < pendientes.last.orden, isTrue);
-    final ultimo =
-        ColaDeSalida.cuerpoDe(pendientes.last)! as Map<String, Object?>;
-    final resultado =
-        (ultimo['resultados']! as List<Object?>).single! as Map<String, Object?>;
-    expect(resultado['resultado'], ResultadoParada.devuelto);
+      final pendientes = await cola.pendientes().first;
+      expect(pendientes.length, 2);
+      expect(pendientes.first.orden < pendientes.last.orden, isTrue);
+      final ultimo =
+          ColaDeSalida.cuerpoDe(pendientes.last)! as Map<String, Object?>;
+      final resultado =
+          (ultimo['resultados']! as List<Object?>).single!
+              as Map<String, Object?>;
+      expect(resultado['resultado'], ResultadoParada.devuelto);
 
-    // Y en local ya se ve la correccion, sin esperar a subir nada.
-    final p1 = await (base.select(
-      base.orders,
-    )..where((o) => o.id.equals('p1'))).getSingle();
-    expect(p1.resultado, ResultadoParada.devuelto);
-    expect(p1.routeId, isNull);
-  });
+      // Y en local ya se ve la correccion, sin esperar a subir nada.
+      final p1 = await (base.select(
+        base.orders,
+      )..where((o) => o.id.equals('p1'))).getSingle();
+      expect(p1.resultado, ResultadoParada.devuelto);
+      expect(p1.routeId, isNull);
+    },
+  );
 
-  test('una ruta armada sin red: el cierre deja de decir `local-` cuando sube', () async {
-    // Un pedido suelto con coordenadas, para armar la ruta aqui mismo.
-    await sembrarPedido(
-      base,
-      id: 'p9',
-      cliente: 'Dani',
-      peso: 5,
-      endLat: 0,
-      endLng: 0.1,
-    );
-    final rutaId = await acciones.armar(
-      vehiculoId: 'V1',
-      pedidoIds: ['p9'],
-      origenLat: 0,
-      origenLng: 0,
-      sucursalId: 'B1',
-    );
-    expect(rutaId, startsWith('local-'));
+  test(
+    'una ruta armada sin red: el cierre deja de decir `local-` cuando sube',
+    () async {
+      // Un pedido suelto con coordenadas, para armar la ruta aqui mismo.
+      await sembrarPedido(
+        base,
+        id: 'p9',
+        cliente: 'Dani',
+        peso: 5,
+        endLat: 0,
+        endLng: 0.1,
+      );
+      final rutaId = await acciones.armar(
+        vehiculoId: 'V1',
+        pedidoIds: ['p9'],
+        origenLat: 0,
+        origenLng: 0,
+        sucursalId: 'B1',
+      );
+      expect(rutaId, startsWith('local-'));
 
-    await acciones.cerrar(rutaId, const [
-      MarcaDeParada(pedidoId: 'p9', resultado: ResultadoParada.entregado),
-    ]);
+      await acciones.cerrar(rutaId, const [
+        MarcaDeParada(pedidoId: 'p9', resultado: ResultadoParada.entregado),
+      ]);
 
-    var pendientes = await cola.pendientes().first;
-    expect(pendientes.length, 2);
-    expect(pendientes.last.ruta, '/routes/$rutaId/results');
+      var pendientes = await cola.pendientes().first;
+      expect(pendientes.length, 2);
+      expect(pendientes.last.ruta, '/routes/$rutaId/results');
 
-    // Sube la creacion de la ruta y el servidor devuelve el id de verdad.
-    await cola.resolver(
-      pendientes.first.clave,
-      const ResultadoApunte(estado: EstadoResultado.aplicado, id: 'cm2xreal'),
-    );
+      // Sube la creacion de la ruta y el servidor devuelve el id de verdad.
+      await cola.resolver(
+        pendientes.first.clave,
+        const ResultadoApunte(estado: EstadoResultado.aplicado, id: 'cm2xreal'),
+      );
 
-    pendientes = await cola.pendientes().first;
-    expect(pendientes.length, 1);
-    expect(
-      pendientes.single.ruta,
-      '/routes/cm2xreal/results',
-      reason: 'sin esto el cierre se perderia JUSTO DESPUES de subir (caso S4)',
-    );
-    expect(pendientes.single.ruta, isNot(contains('local-')));
+      pendientes = await cola.pendientes().first;
+      expect(pendientes.length, 1);
+      expect(
+        pendientes.single.ruta,
+        '/routes/cm2xreal/results',
+        reason:
+            'sin esto el cierre se perderia JUSTO DESPUES de subir (caso S4)',
+      );
+      expect(pendientes.single.ruta, isNot(contains('local-')));
 
-    // Y la fila local tambien deja de decir `local-`.
-    final ruta = await (base.select(
-      base.routes,
-    )..where((r) => r.id.equals('cm2xreal'))).getSingleOrNull();
-    expect(ruta, isNotNull);
-    expect(await Provisionales(base).real(rutaId), 'cm2xreal');
-  });
+      // Y la fila local tambien deja de decir `local-`.
+      final ruta = await (base.select(
+        base.routes,
+      )..where((r) => r.id.equals('cm2xreal'))).getSingleOrNull();
+      expect(ruta, isNotNull);
+      expect(await Provisionales(base).real(rutaId), 'cm2xreal');
+    },
+  );
 
   test('un cierre vacio no se encola', () async {
     expect(

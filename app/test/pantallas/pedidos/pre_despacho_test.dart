@@ -24,33 +24,36 @@ void main() {
 
   tearDown(() => base.close());
 
-  test('el pre-despacho de lo marcado suma empaques, unidades y kilos', () async {
-    // o1: Arroz 2 empaques / 20 uds (producto con 25 kg por empaque) + Frijol 1/10
-    // o2: Arroz 3 empaques / 30 uds
-    final totales = await consultas.preDespachoDe(['o1', 'o2']);
+  test(
+    'el pre-despacho de lo marcado suma empaques, unidades y kilos',
+    () async {
+      // o1: Arroz 2 empaques / 20 uds (producto con 25 kg por empaque) + Frijol 1/10
+      // o2: Arroz 3 empaques / 30 uds
+      final totales = await consultas.preDespachoDe(['o1', 'o2']);
 
-    expect(totales.lineas.length, 2);
-    // Lo que mas empaques tiene, primero.
-    final arroz = totales.lineas.first;
-    expect(arroz.producto, 'Arroz');
-    expect(arroz.empaques, 5);
-    expect(arroz.unidades, 50);
-    // 5 empaques × 25 kg = 125 kg, hecho a mano.
-    expect(arroz.pesoKg, 125);
+      expect(totales.lineas.length, 2);
+      // Lo que mas empaques tiene, primero.
+      final arroz = totales.lineas.first;
+      expect(arroz.producto, 'Arroz');
+      expect(arroz.empaques, 5);
+      expect(arroz.unidades, 50);
+      // 5 empaques × 25 kg = 125 kg, hecho a mano.
+      expect(arroz.pesoKg, 125);
 
-    final frijol = totales.lineas.last;
-    expect(frijol.producto, 'Frijol');
-    expect(frijol.empaques, 1);
-    expect(frijol.unidades, 10);
-    // Sin producto emparejado no hay peso resuelto: **null, no cero**. Un cero se
-    // leeria como «no pesa» y la hoja del almacen cuadraria mal.
-    expect(frijol.pesoKg, isNull);
+      final frijol = totales.lineas.last;
+      expect(frijol.producto, 'Frijol');
+      expect(frijol.empaques, 1);
+      expect(frijol.unidades, 10);
+      // Sin producto emparejado no hay peso resuelto: **null, no cero**. Un cero se
+      // leeria como «no pesa» y la hoja del almacen cuadraria mal.
+      expect(frijol.pesoKg, isNull);
 
-    expect(totales.productos, 2);
-    expect(totales.empaques, 6);
-    expect(totales.unidades, 60);
-    expect(totales.pesoKg, 125);
-  });
+      expect(totales.productos, 2);
+      expect(totales.empaques, 6);
+      expect(totales.unidades, 60);
+      expect(totales.pesoKg, 125);
+    },
+  );
 
   test('una linea sin empaques suma 0 empaques pero sus unidades enteras', () async {
     // El contrato del servidor dice `formatos: Σ packs`. La linea de o3 no trae
@@ -68,10 +71,7 @@ void main() {
     final acotado = await consultas.preDespachoDeLoFiltrado(
       const FiltrosPedidos(),
     );
-    expect(
-      acotado.lineas.map((l) => l.producto),
-      isNot(contains('Aceite')),
-    );
+    expect(acotado.lineas.map((l) => l.producto), isNot(contains('Aceite')));
 
     // Sin filtros, si sale.
     final todo = await consultas.preDespachoDeLoFiltrado(

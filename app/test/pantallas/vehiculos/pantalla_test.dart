@@ -13,10 +13,7 @@ import 'apoyo_vehiculos.dart';
 /// El cartel no es decoracion: es lo que evita que alguien se ponga a dar de
 /// alta camiones en la calle creyendo que se estan guardando.
 void main() {
-  Future<void> pintar(
-    WidgetTester tester,
-    ClienteApi cliente,
-  ) async {
+  Future<void> pintar(WidgetTester tester, ClienteApi cliente) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [clienteApiProvider.overrideWithValue(cliente)],

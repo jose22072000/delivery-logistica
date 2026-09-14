@@ -121,10 +121,7 @@ class TipoDeVehiculo {
   final String nombre;
   final double? costoKmUsd;
 
-  Map<String, Object?> aJson() => {
-    'nombre': nombre,
-    'costoKmUsd': costoKmUsd,
-  };
+  Map<String, Object?> aJson() => {'nombre': nombre, 'costoKmUsd': costoKmUsd};
 }
 
 /// Lo que hace falta de `GET /api/settings`: los tipos y la tasa.

@@ -107,14 +107,19 @@ class _Cifras extends StatelessWidget {
             ],
           );
         }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (var i = 0; i < tarjetas.length; i++) ...[
-              if (i > 0) const SizedBox(width: 12),
-              Expanded(child: tarjetas[i]),
+        // `IntrinsicHeight` para que las cuatro midan lo mismo aunque solo una
+        // tenga subtexto. Sin el, `stretch` dentro de un `ListView` pide altura
+        // infinita y la pantalla no llega a pintarse.
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < tarjetas.length; i++) ...[
+                if (i > 0) const SizedBox(width: 12),
+                Expanded(child: tarjetas[i]),
+              ],
             ],
-          ],
+          ),
         );
       },
     );

@@ -11,21 +11,24 @@ void main() {
   const unDecimoDeGrado = 11.1195;
 
   test('haversine da los km y no redondea', () {
-    expect(haversineKm(origen, const Punto(0, 0.1)), closeTo(unDecimoDeGrado, 0.001));
+    expect(
+      haversineKm(origen, const Punto(0, 0.1)),
+      closeTo(unDecimoDeGrado, 0.001),
+    );
     expect(haversineKm(origen, origen), 0);
     // Simetrica: de ida y de vuelta es lo mismo.
     expect(
       haversineKm(const Punto(21.38, -77.91), const Punto(20.88, -76.26)),
-      closeTo(haversineKm(const Punto(20.88, -76.26), const Punto(21.38, -77.91)), 1e-9),
+      closeTo(
+        haversineKm(const Punto(20.88, -76.26), const Punto(21.38, -77.91)),
+        1e-9,
+      ),
     );
   });
 
   test('los casos limite del orden de visita son explicitos', () {
     expect(vecinoMasCercano(origen, const []), isEmpty);
-    expect(
-      vecinoMasCercano(origen, const [Parada('a', 5, 5)]),
-      ['a'],
-    );
+    expect(vecinoMasCercano(origen, const [Parada('a', 5, 5)]), ['a']);
   });
 
   test('el orden es vecino mas proximo, no el orden de entrada', () {

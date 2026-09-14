@@ -26,7 +26,12 @@ void main() {
     base = baseDePrueba();
     reloj = RelojFalso(DateTime.utc(2026, 9, 14, 16, 5));
     cola = ColaDeSalida(base, reloj: reloj.leer);
-    acciones = AccionesDeRuta(base, cola, reloj: reloj.leer, sufijoAparato: 'MSI');
+    acciones = AccionesDeRuta(
+      base,
+      cola,
+      reloj: reloj.leer,
+      sufijoAparato: 'MSI',
+    );
     await sembrarCatalogo(base);
 
     // Tres paradas en el ecuador, a 0.1 / 0.3 / 0.2 grados de longitud del
@@ -95,10 +100,9 @@ void main() {
 
   test('el orden de visita es el del vecino mas proximo', () async {
     final rutaId = await armarLasTres();
-    final paradas =
-        await (base.select(base.orders)
-              ..where((o) => o.ultimaRutaId.equals(rutaId)))
-            .get();
+    final paradas = await (base.select(
+      base.orders,
+    )..where((o) => o.ultimaRutaId.equals(rutaId))).get();
     final porOrden = {for (final p in paradas) p.stopOrder: p.id};
     expect(porOrden[1], 'q1'); // 0.1
     expect(porOrden[2], 'q3'); // 0.2
@@ -115,23 +119,26 @@ void main() {
     }
   });
 
-  test('el apunte queda en la cola con el id provisional como bisagra', () async {
-    final rutaId = await armarLasTres();
-    final pendientes = await cola.pendientes().first;
-    expect(pendientes.length, 1);
+  test(
+    'el apunte queda en la cola con el id provisional como bisagra',
+    () async {
+      final rutaId = await armarLasTres();
+      final pendientes = await cola.pendientes().first;
+      expect(pendientes.length, 1);
 
-    final apunte = pendientes.single;
-    expect(apunte.metodo, 'POST');
-    expect(apunte.ruta, '/routes');
-    expect(apunte.provisional, rutaId);
-    // La hora del APARATO, escrita al encolar.
-    expect(apunte.hechoAt, reloj.ahora);
+      final apunte = pendientes.single;
+      expect(apunte.metodo, 'POST');
+      expect(apunte.ruta, '/routes');
+      expect(apunte.provisional, rutaId);
+      // La hora del APARATO, escrita al encolar.
+      expect(apunte.hechoAt, reloj.ahora);
 
-    final cuerpo = ColaDeSalida.cuerpoDe(apunte)! as Map<String, Object?>;
-    expect(cuerpo['orderIds'], ['q1', 'q3', 'q2']);
-    expect(cuerpo['vehicleId'], 'V1');
-    expect(cuerpo['branchId'], 'B1');
-  });
+      final cuerpo = ColaDeSalida.cuerpoDe(apunte)! as Map<String, Object?>;
+      expect(cuerpo['orderIds'], ['q1', 'q3', 'q2']);
+      expect(cuerpo['vehicleId'], 'V1');
+      expect(cuerpo['branchId'], 'B1');
+    },
+  );
 
   group('los rechazos, con el texto literal del servidor', () {
     test('sin coordenadas de partida', () async {
@@ -255,22 +262,24 @@ void main() {
       );
     });
 
-    test('sobrepeso: el peso a un decimal y la capacidad sin formatear', () async {
-      await (base.update(base.vehicles)..where((v) => v.id.equals('V1'))).write(
-        const VehiclesCompanion(capacity: Value(500)),
-      );
+    test(
+      'sobrepeso: el peso a un decimal y la capacidad sin formatear',
+      () async {
+        await (base.update(base.vehicles)..where((v) => v.id.equals('V1')))
+            .write(const VehiclesCompanion(capacity: Value(500)));
 
-      expect(
-        armarLasTres,
-        throwsA(
-          isA<RechazoLocal>().having(
-            (r) => r.mensaje,
-            'mensaje',
-            'Peso total (600.0 kg) supera la capacidad del vehículo (500 kg)',
+        expect(
+          armarLasTres,
+          throwsA(
+            isA<RechazoLocal>().having(
+              (r) => r.mensaje,
+              'mensaje',
+              'Peso total (600.0 kg) supera la capacidad del vehículo (500 kg)',
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     test('igualar la capacidad exacta SI pasa', () async {
       await (base.update(base.vehicles)..where((v) => v.id.equals('V1'))).write(

@@ -81,8 +81,16 @@ class FiltrosClientes {
       other.pagina == pagina;
 
   @override
-  int get hashCode =>
-      Object.hash(q, municipio, zona, vendedor, telefono, kmMax, origen, pagina);
+  int get hashCode => Object.hash(
+    q,
+    municipio,
+    zona,
+    vendedor,
+    telefono,
+    kmMax,
+    origen,
+    pagina,
+  );
 }
 
 /// Una opcion de un selector, con su conteo a la derecha.
@@ -321,7 +329,12 @@ class RepositorioClientes {
       double? km;
       if (almacen?.lat != null) {
         km = Geo.km2(
-          Geo.haversineKm(almacen!.lat!, almacen.lng!, cliente.lat, cliente.lng),
+          Geo.haversineKm(
+            almacen!.lat!,
+            almacen.lng!,
+            cliente.lat,
+            cliente.lng,
+          ),
         );
         if (f.kmMax != null && f.kmMax! > 0 && km > f.kmMax!) continue;
       }
@@ -339,9 +352,10 @@ class RepositorioClientes {
       vendedores: await _faceta(c.vendedor, codigo),
       sinTelefono: await _sinTelefono(codigo),
       seDescargo:
-          (await (_base.select(_base.frescura)..where(
-            (fr) => fr.coleccion.equals(Colecciones.clientes),
-          )).getSingleOrNull())?.bajadaAt !=
+          (await (_base.select(_base.frescura)
+                    ..where((fr) => fr.coleccion.equals(Colecciones.clientes)))
+                  .getSingleOrNull())
+              ?.bajadaAt !=
           null,
     );
   }

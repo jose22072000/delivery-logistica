@@ -59,7 +59,9 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
     _nombre = TextEditingController(text: v?.nombre ?? '');
     _placa = TextEditingController(text: v?.placa ?? '');
     // Los defectos exactos del pliego: `truck`, 1000 kg, `available`.
-    _capacidad = TextEditingController(text: '${(v?.capacidad ?? 1000).toInt()}');
+    _capacidad = TextEditingController(
+      text: '${(v?.capacidad ?? 1000).toInt()}',
+    );
     _costo = TextEditingController(
       text: v?.costoKmUsd == null ? '' : '${v!.costoKmUsd}',
     );
@@ -112,7 +114,9 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
     DatosVehiculo(
       nombre: _nombre.text.trim(),
       tipo: _tipo,
-      placa: _placa.text.trim().isEmpty ? null : _placa.text.trim().toUpperCase(),
+      placa: _placa.text.trim().isEmpty
+          ? null
+          : _placa.text.trim().toUpperCase(),
       capacidad: double.tryParse(_capacidad.text.trim()) ?? 1000,
       estado: _estado,
       notas: _notas.text.trim().isEmpty ? null : _notas.text.trim(),
@@ -225,9 +229,7 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
             onChanged: (v) => setState(() => _domicilio = v ?? false),
             controlAffinity: ListTileControlAffinity.leading,
             contentPadding: EdgeInsets.zero,
-            title: const Text(
-              'Usar este vehículo para calcular el domicilio',
-            ),
+            title: const Text('Usar este vehículo para calcular el domicilio'),
             subtitle: const Text('Solo un vehículo por TIPO.'),
           ),
           const SizedBox(height: 8),
@@ -368,9 +370,7 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
             ),
             const SizedBox(width: 12),
             if (_resultado != null)
-              Expanded(
-                child: Text('= \$${_resultado!.toStringAsFixed(2)}/km'),
-              ),
+              Expanded(child: Text('= \$${_resultado!.toStringAsFixed(2)}/km')),
           ],
         ),
         const SizedBox(height: 4),

@@ -69,35 +69,41 @@ void main() {
     expect(await banco.base.cuantosPendientes(), 0);
   });
 
-  test('la lista sin conexión sale como FalloDeRed, no como lista vacía', () async {
-    // Son cosas distintas y pintarlas igual hace creer que la flota se borro.
-    // Lo que la pantalla hace con esto se comprueba en `pantalla_test.dart`.
-    await expectLater(
-      banco.contenedor.read(repositorioVehiculosProvider).listar(),
-      throwsA(isA<FalloDeRed>()),
-    );
-  });
+  test(
+    'la lista sin conexión sale como FalloDeRed, no como lista vacía',
+    () async {
+      // Son cosas distintas y pintarlas igual hace creer que la flota se borro.
+      // Lo que la pantalla hace con esto se comprueba en `pantalla_test.dart`.
+      await expectLater(
+        banco.contenedor.read(repositorioVehiculosProvider).listar(),
+        throwsA(isA<FalloDeRed>()),
+      );
+    },
+  );
 
-  test('un rechazo del servidor se enseña LITERAL, y tampoco se encola', () async {
-    final conRechazo = Banco(
-      (p) async => RespuestaFalsa(400, {'error': 'Vehicle name is required'}),
-    );
-    addTearDown(conRechazo.cerrar);
+  test(
+    'un rechazo del servidor se enseña LITERAL, y tampoco se encola',
+    () async {
+      final conRechazo = Banco(
+        (p) async => RespuestaFalsa(400, {'error': 'Vehicle name is required'}),
+      );
+      addTearDown(conRechazo.cerrar);
 
-    final guardo = await conRechazo.contenedor
-        .read(controlVehiculosProvider.notifier)
-        .crear(const DatosVehiculo(nombre: ''));
+      final guardo = await conRechazo.contenedor
+          .read(controlVehiculosProvider.notifier)
+          .crear(const DatosVehiculo(nombre: ''));
 
-    expect(guardo, isFalse);
-    expect(
-      conRechazo.contenedor.read(controlVehiculosProvider)!.texto,
-      'Vehicle name is required',
-    );
-    // Un `Rechazo` no se reintenta jamas y tampoco se guarda: el servidor ya
-    // dijo que no.
-    expect(await conRechazo.base.cuantosPendientes(), 0);
-    expect(conRechazo.servidor.cuantas('POST', '/vehicles'), 1);
-  });
+      expect(guardo, isFalse);
+      expect(
+        conRechazo.contenedor.read(controlVehiculosProvider)!.texto,
+        'Vehicle name is required',
+      );
+      // Un `Rechazo` no se reintenta jamas y tampoco se guarda: el servidor ya
+      // dijo que no.
+      expect(await conRechazo.base.cuantosPendientes(), 0);
+      expect(conRechazo.servidor.cuantas('POST', '/vehicles'), 1);
+    },
+  );
 
   test('con conexión sí guarda, y sólo entonces dice que guardó', () async {
     final conRed = Banco((p) async => RespuestaFalsa(201, {'id': 'v9'}));

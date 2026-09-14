@@ -81,10 +81,7 @@ void main() {
     expect(ultimo.metodo, 'POST');
     expect(ultimo.ruta, '/api/board/columns/$centro/route');
     expect(ultimo.provisional, rutaId);
-    expect(jsonDecode(ultimo.cuerpo), {
-      'vehiculoId': 'v1',
-      'optimizar': false,
-    });
+    expect(jsonDecode(ultimo.cuerpo), {'vehiculoId': 'v1', 'optimizar': false});
   });
 
   test('los que no se pueden repartir se quedan puestos y marcados', () async {
@@ -108,44 +105,46 @@ void main() {
     expect(quedan.single.pedido.marcas, [MarcaTarjeta.sinFactura]);
   });
 
-  test('sin nada repartible no se crea una ruta vacía, y se dice por qué',
-      () async {
-    await sembrarPedido(
-      base,
-      id: 'sin-cotejar',
-      cliente: 'Bodega La Palma',
-      operacion: 'SC06-1257',
-      facturaEstado: null,
-    );
-    await sembrarPedido(base, id: 'archivado', archivado: true);
-    await repo.colocar(pedidoId: 'sin-cotejar', columnaId: centro);
-    await repo.colocar(pedidoId: 'archivado', columnaId: centro);
+  test(
+    'sin nada repartible no se crea una ruta vacía, y se dice por qué',
+    () async {
+      await sembrarPedido(
+        base,
+        id: 'sin-cotejar',
+        cliente: 'Bodega La Palma',
+        operacion: 'SC06-1257',
+        facturaEstado: null,
+      );
+      await sembrarPedido(base, id: 'archivado', archivado: true);
+      await repo.colocar(pedidoId: 'sin-cotejar', columnaId: centro);
+      await repo.colocar(pedidoId: 'archivado', columnaId: centro);
 
-    await expectLater(
-      repo.armarRuta(
-        columnaId: centro,
-        origen: origen,
-        sucursalId: sucursalStg,
-      ),
-      throwsA(
-        isA<RechazoDelTablero>()
-            .having(
-              (e) => e.mensaje,
-              'mensaje',
-              'La columna no tiene ningún pedido que se pueda repartir hoy',
-            )
-            // Nombrados: una columna que produce una ruta mas corta sin
-            // explicacion es la manera mas rapida de que el logistico deje de
-            // fiarse.
-            .having(
-              (e) => e.detalles.join(' | '),
-              'detalles',
-              contains('SC06-1257 · Bodega La Palma: Sin cotejar'),
-            ),
-      ),
-    );
+      await expectLater(
+        repo.armarRuta(
+          columnaId: centro,
+          origen: origen,
+          sucursalId: sucursalStg,
+        ),
+        throwsA(
+          isA<RechazoDelTablero>()
+              .having(
+                (e) => e.mensaje,
+                'mensaje',
+                'La columna no tiene ningún pedido que se pueda repartir hoy',
+              )
+              // Nombrados: una columna que produce una ruta mas corta sin
+              // explicacion es la manera mas rapida de que el logistico deje de
+              // fiarse.
+              .having(
+                (e) => e.detalles.join(' | '),
+                'detalles',
+                contains('SC06-1257 · Bodega La Palma: Sin cotejar'),
+              ),
+        ),
+      );
 
-    expect(await base.select(base.routes).get(), isEmpty);
-    expect((await consultas.colocados(sucursalStg, origen)).length, 2);
-  });
+      expect(await base.select(base.routes).get(), isEmpty);
+      expect((await consultas.colocados(sucursalStg, origen)).length, 2);
+    },
+  );
 }

@@ -83,17 +83,21 @@ void main() {
     return [for (final c in pagina.clientes) c.cliente.id];
   }
 
-  test('el alcance deja fuera otra sucursal y deja dentro los manuales', () async {
-    // Los manuales no llevan codigo: si se filtraran por sucursal
-    // desaparecerian de TODAS, y son los unicos que nadie puede recuperar.
-    expect(await ids(const FiltrosClientes()), ['c1', 'c2', 'c3', 'c4']);
-  });
+  test(
+    'el alcance deja fuera otra sucursal y deja dentro los manuales',
+    () async {
+      // Los manuales no llevan codigo: si se filtraran por sucursal
+      // desaparecerian de TODAS, y son los unicos que nadie puede recuperar.
+      expect(await ids(const FiltrosClientes()), ['c1', 'c2', 'c3', 'c4']);
+    },
+  );
 
   test('municipio', () async {
-    expect(
-      await ids(const FiltrosClientes(municipio: 'Santiago')),
-      ['c1', 'c3', 'c4'],
-    );
+    expect(await ids(const FiltrosClientes(municipio: 'Santiago')), [
+      'c1',
+      'c3',
+      'c4',
+    ]);
   });
 
   test('zona', () async {
@@ -110,14 +114,14 @@ void main() {
   });
 
   test('origen: de PEDIDO y manuales', () async {
-    expect(
-      await ids(const FiltrosClientes(origen: OrigenCliente.pedido)),
-      ['c1', 'c2', 'c3'],
-    );
-    expect(
-      await ids(const FiltrosClientes(origen: OrigenCliente.manual)),
-      ['c4'],
-    );
+    expect(await ids(const FiltrosClientes(origen: OrigenCliente.pedido)), [
+      'c1',
+      'c2',
+      'c3',
+    ]);
+    expect(await ids(const FiltrosClientes(origen: OrigenCliente.manual)), [
+      'c4',
+    ]);
   });
 
   test('la búsqueda mira nombre, dirección, municipio, zona, teléfono, código y vendedor', () async {

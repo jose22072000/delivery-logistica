@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 /// Una opcion de un selector: etiqueta y una **nota** pequena a la derecha (un
 /// conteo, un codigo).
 class OpcionSelector<T> {
-  const OpcionSelector({required this.valor, required this.etiqueta, this.nota});
+  const OpcionSelector({
+    required this.valor,
+    required this.etiqueta,
+    this.nota,
+  });
 
   final T valor;
   final String etiqueta;
@@ -75,7 +79,10 @@ class SelectorFiltro<T> extends StatelessWidget {
     final sitio = RelativeRect.fromRect(
       Rect.fromPoints(
         caja.localToGlobal(Offset.zero, ancestor: pantalla),
-        caja.localToGlobal(caja.size.bottomRight(Offset.zero), ancestor: pantalla),
+        caja.localToGlobal(
+          caja.size.bottomRight(Offset.zero),
+          ancestor: pantalla,
+        ),
       ),
       Offset.zero & pantalla.size,
     );

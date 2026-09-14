@@ -11,14 +11,14 @@ final repositorioVehiculosProvider = Provider<RepositorioVehiculos>(
 
 /// La flota. Es una peticion y no un stream sobre la base **porque aqui no hay
 /// base**: lo que se ve es lo que hay en el servidor ahora mismo, o no se ve.
-final vehiculosProvider = FutureProvider.autoDispose<List<VehiculoDeLaApi>>(
-  (ref) {
-    // Al cambiar de sucursal en la barra se vuelve a pedir: el alcance lo
-    // resuelve el servidor con la cabecera `x-sucursal-id`.
-    ref.watch(sucursalMiradaProvider);
-    return ref.watch(repositorioVehiculosProvider).listar();
-  },
-);
+final vehiculosProvider = FutureProvider.autoDispose<List<VehiculoDeLaApi>>((
+  ref,
+) {
+  // Al cambiar de sucursal en la barra se vuelve a pedir: el alcance lo
+  // resuelve el servidor con la cabecera `x-sucursal-id`.
+  ref.watch(sucursalMiradaProvider);
+  return ref.watch(repositorioVehiculosProvider).listar();
+});
 
 final ajustesVehiculosProvider = FutureProvider.autoDispose<AjustesDeLaApi>(
   (ref) => ref.watch(repositorioVehiculosProvider).ajustes(),

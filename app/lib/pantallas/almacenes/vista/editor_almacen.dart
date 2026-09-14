@@ -63,9 +63,8 @@ class _EditorAlmacenState extends State<EditorAlmacen> {
     super.dispose();
   }
 
-  PuntoEnElMapa? get _coordenadas => _punto.text.trim().isEmpty
-      ? null
-      : leerCoordenadas(_punto.text);
+  PuntoEnElMapa? get _coordenadas =>
+      _punto.text.trim().isEmpty ? null : leerCoordenadas(_punto.text);
 
   bool get _puntoMalEscrito =>
       _punto.text.trim().isNotEmpty && _coordenadas == null;
@@ -77,9 +76,7 @@ class _EditorAlmacenState extends State<EditorAlmacen> {
     final seguro = await showDialog<bool>(
       context: context,
       builder: (contexto) => AlertDialog(
-        content: Text(
-          '¿Quitar «$nombre»? Deja de poder medirse desde ahí.',
-        ),
+        content: Text('¿Quitar «$nombre»? Deja de poder medirse desde ahí.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(contexto).pop(false),
@@ -101,9 +98,7 @@ class _EditorAlmacenState extends State<EditorAlmacen> {
     final punto = _coordenadas;
 
     return MarcoCajon(
-      titulo: widget.almacen == null
-          ? 'Nuevo almacén'
-          : widget.almacen!.titulo,
+      titulo: widget.almacen == null ? 'Nuevo almacén' : widget.almacen!.titulo,
       subtitulo: widget.sucursal,
       cuerpo: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

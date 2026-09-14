@@ -60,17 +60,18 @@ void main() {
     await asentar(tester);
   }
 
-  testWidgets('sin bajar nada: no dice «no hay clientes», dice que no se ha descargado', (
-    tester,
-  ) async {
-    await sembrarSucursal(base);
-    await pintar(tester);
+  testWidgets(
+    'sin bajar nada: no dice «no hay clientes», dice que no se ha descargado',
+    (tester) async {
+      await sembrarSucursal(base);
+      await pintar(tester);
 
-    // Una lista vacia aqui es un FALLO, no un dato (caso S7).
-    expect(find.text(SinDescargar.textoDeLaPantallaVacia), findsOneWidget);
-    expect(find.text('Sin descargar todavía'), findsOneWidget);
-    await desmontar(tester);
-  });
+      // Una lista vacia aqui es un FALLO, no un dato (caso S7).
+      expect(find.text(SinDescargar.textoDeLaPantallaVacia), findsOneWidget);
+      expect(find.text('Sin descargar todavía'), findsOneWidget);
+      await desmontar(tester);
+    },
+  );
 
   testWidgets('bajado y vacío: el texto es otro', (tester) async {
     await sembrarSucursal(base);
@@ -159,38 +160,41 @@ void main() {
     await desmontar(tester);
   });
 
-  test('50 por página, y la cuenta de arriba es la del filtro, no la de la página', () async {
-    await sembrarSucursal(base);
-    await marcarBajada(base, bajada);
-    for (var i = 0; i < 60; i++) {
-      await sembrarCliente(
-        base,
-        id: 'c${i.toString().padLeft(2, '0')}',
-        nombre: 'Cliente ${i.toString().padLeft(2, '0')}',
-        lat: 20.03,
-        lng: -75.82,
+  test(
+    '50 por página, y la cuenta de arriba es la del filtro, no la de la página',
+    () async {
+      await sembrarSucursal(base);
+      await marcarBajada(base, bajada);
+      for (var i = 0; i < 60; i++) {
+        await sembrarCliente(
+          base,
+          id: 'c${i.toString().padLeft(2, '0')}',
+          nombre: 'Cliente ${i.toString().padLeft(2, '0')}',
+          lat: 20.03,
+          lng: -75.82,
+        );
+      }
+
+      final repositorio = RepositorioClientes(base);
+      final primera = await repositorio.consultar(
+        const FiltrosClientes(),
+        sucursalId: 'b-stg',
       );
-    }
+      expect(primera.clientes.length, 50);
+      expect(primera.total, 60);
+      expect(primera.paginas, 2);
+      expect(primera.desde, 1);
+      expect(primera.hasta, 50);
 
-    final repositorio = RepositorioClientes(base);
-    final primera = await repositorio.consultar(
-      const FiltrosClientes(),
-      sucursalId: 'b-stg',
-    );
-    expect(primera.clientes.length, 50);
-    expect(primera.total, 60);
-    expect(primera.paginas, 2);
-    expect(primera.desde, 1);
-    expect(primera.hasta, 50);
-
-    final segunda = await repositorio.consultar(
-      const FiltrosClientes(pagina: 2),
-      sucursalId: 'b-stg',
-    );
-    expect(segunda.clientes.length, 10);
-    expect(segunda.desde, 51);
-    expect(segunda.hasta, 60);
-  });
+      final segunda = await repositorio.consultar(
+        const FiltrosClientes(pagina: 2),
+        sucursalId: 'b-stg',
+      );
+      expect(segunda.clientes.length, 10);
+      expect(segunda.desde, 51);
+      expect(segunda.hasta, 60);
+    },
+  );
 }
 
 /// Un filtro que no cuadra con nada, puesto desde fuera.

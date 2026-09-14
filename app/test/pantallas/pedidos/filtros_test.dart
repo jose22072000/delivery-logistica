@@ -34,13 +34,16 @@ void main() {
     expect(await cuantos(sinNada), 11);
   });
 
-  test('el arranque acotado deja fuera lo archivado y lo no facturado', () async {
-    // Por defecto: `factura=con_factura` (igual o cambiado) y `archivado=0`.
-    // Quedan fuera o3 (sin factura), o4 (sin cotejar) y o5 (archivado).
-    const porDefecto = FiltrosPedidos();
-    expect(porDefecto.arranqueAcotado, isTrue);
-    expect(await cuantos(porDefecto), 8);
-  });
+  test(
+    'el arranque acotado deja fuera lo archivado y lo no facturado',
+    () async {
+      // Por defecto: `factura=con_factura` (igual o cambiado) y `archivado=0`.
+      // Quedan fuera o3 (sin factura), o4 (sin cotejar) y o5 (archivado).
+      const porDefecto = FiltrosPedidos();
+      expect(porDefecto.arranqueAcotado, isTrue);
+      expect(await cuantos(porDefecto), 8);
+    },
+  );
 
   test('el alcance por sucursal no es un filtro de la pantalla', () async {
     expect(await cuantos(sinNada, sucursalId: 'B2'), 1);
@@ -63,28 +66,61 @@ void main() {
     });
 
     test('cotizado mira `pedidoCosto`, y un nulo NO es un cero', () async {
-      expect(await cuantos(sinNada.copiarCon(cotizado: CotizadoFiltro.conPrecio)), 10);
-      expect(await cuantos(sinNada.copiarCon(cotizado: CotizadoFiltro.sinCotizar)), 1);
+      expect(
+        await cuantos(sinNada.copiarCon(cotizado: CotizadoFiltro.conPrecio)),
+        10,
+      );
+      expect(
+        await cuantos(sinNada.copiarCon(cotizado: CotizadoFiltro.sinCotizar)),
+        1,
+      );
     });
 
     test('archivado tiene TRES estados, no dos', () async {
-      expect(await cuantos(sinNada.copiarCon(archivado: ArchivadoFiltro.si)), 1);
-      expect(await cuantos(sinNada.copiarCon(archivado: ArchivadoFiltro.no)), 10);
+      expect(
+        await cuantos(sinNada.copiarCon(archivado: ArchivadoFiltro.si)),
+        1,
+      );
+      expect(
+        await cuantos(sinNada.copiarCon(archivado: ArchivadoFiltro.no)),
+        10,
+      );
       expect(await cuantos(sinNada), 11);
     });
 
     test('factura: `cuadra` es mas duro que `con_factura`', () async {
-      expect(await cuantos(sinNada.copiarCon(factura: FacturaFiltro.conFactura)), 9);
-      expect(await cuantos(sinNada.copiarCon(factura: FacturaFiltro.cuadra)), 8);
+      expect(
+        await cuantos(sinNada.copiarCon(factura: FacturaFiltro.conFactura)),
+        9,
+      );
+      expect(
+        await cuantos(sinNada.copiarCon(factura: FacturaFiltro.cuadra)),
+        8,
+      );
       // NULL es «sin cotejar», y es un pedido, no ninguno.
-      expect(await cuantos(sinNada.copiarCon(factura: FacturaFiltro.sinCotejar)), 1);
+      expect(
+        await cuantos(sinNada.copiarCon(factura: FacturaFiltro.sinCotejar)),
+        1,
+      );
     });
 
     test('reparto manda `resultado`, no el estado de la ruta', () async {
-      expect(await cuantos(sinNada.copiarCon(reparto: RepartoFiltro.enDespacho)), 1);
-      expect(await cuantos(sinNada.copiarCon(reparto: RepartoFiltro.enRuta)), 1);
-      expect(await cuantos(sinNada.copiarCon(reparto: RepartoFiltro.entregado)), 1);
-      expect(await cuantos(sinNada.copiarCon(reparto: RepartoFiltro.devuelto)), 1);
+      expect(
+        await cuantos(sinNada.copiarCon(reparto: RepartoFiltro.enDespacho)),
+        1,
+      );
+      expect(
+        await cuantos(sinNada.copiarCon(reparto: RepartoFiltro.enRuta)),
+        1,
+      );
+      expect(
+        await cuantos(sinNada.copiarCon(reparto: RepartoFiltro.entregado)),
+        1,
+      );
+      expect(
+        await cuantos(sinNada.copiarCon(reparto: RepartoFiltro.devuelto)),
+        1,
+      );
       // o9 volvio del camion: solto su ruta y vuelve a estar sin entregar.
       expect(
         await cuantos(sinNada.copiarCon(reparto: RepartoFiltro.sinEntregar)),

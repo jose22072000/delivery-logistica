@@ -56,11 +56,20 @@ class FranjaDeEstado extends ConsumerWidget {
           Expanded(
             child: estado == null
                 ? const SizedBox.shrink()
-                : RelojDeDatos(
-                    estado: estado,
-                    actualizando: actualizando,
-                    sinSubir: pendientes,
-                    alPulsarPendientes: alPulsarPendientes,
+                // `FittedBox` y no un recorte: en un telefono estrecho, con la
+                // hora y «<n> sin subir` a la vez, el texto no cabe — y aqui no
+                // se puede cortar nada, porque las dos mitades son el aviso. Se
+                // encoge la letra, que sigue leyendose, en vez de perder media
+                // franja por la derecha.
+                : FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: RelojDeDatos(
+                      estado: estado,
+                      actualizando: actualizando,
+                      sinSubir: pendientes,
+                      alPulsarPendientes: alPulsarPendientes,
+                    ),
                   ),
           ),
         ],

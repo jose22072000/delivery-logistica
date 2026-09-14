@@ -71,7 +71,8 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
               cargando: pagina.isLoading,
               sinSubir: sinSubir,
               pagina: pagina.value,
-              alIr: (n) => ref.read(filtrosClientesProvider.notifier).aPagina(n),
+              alIr: (n) =>
+                  ref.read(filtrosClientesProvider.notifier).aPagina(n),
             ),
             const SizedBox(height: 12),
             _Filtros(
@@ -140,7 +141,9 @@ class _Cabecera extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: Text('Clientes', style: tema.textTheme.headlineSmall)),
+            Expanded(
+              child: Text('Clientes', style: tema.textTheme.headlineSmall),
+            ),
             // Siempre visible, en las 7 pantallas (caso S8): sin esto, unos
             // datos de anteayer son indistinguibles de unos al dia.
             RelojDeDatos(
@@ -342,7 +345,8 @@ class _Lista extends StatelessWidget {
         return const _Aviso(texto: 'Sin resultados.');
       }
       return const _Aviso(
-        texto: 'Sin clientes todavía. Los de PEDIDO aparecen solos cuando '
+        texto:
+            'Sin clientes todavía. Los de PEDIDO aparecen solos cuando '
             'tengan geolocalización.',
       );
     }
@@ -352,7 +356,8 @@ class _Lista extends StatelessWidget {
       children: [
         if (datos.almacenDeReferencia == null)
           const _Aviso(
-            texto: 'Esta sucursal no tiene ningún almacén con coordenadas: '
+            texto:
+                'Esta sucursal no tiene ningún almacén con coordenadas: '
                 'aquí no se puede medir la distancia.',
           ),
         TablaClientes(

@@ -39,7 +39,10 @@ void main() {
       );
 
       final columnas = await consultas.columnas(sucursalStg);
-      expect(columnas.map((c) => c.nombre).toList(), ['Centro', 'Vista Alegre']);
+      expect(columnas.map((c) => c.nombre).toList(), [
+        'Centro',
+        'Vista Alegre',
+      ]);
       expect(columnas.map((c) => c.posicion).toList(), [1, 2]);
       expect(centro, startsWith('local-'));
       expect(vista, startsWith('local-'));
@@ -153,26 +156,32 @@ void main() {
       expect((await consultas.sinColocar(sucursalStg, origen)).total, 3);
     });
 
-    test('con destino, se van a la otra columna y detrás de lo que haya',
-        () async {
-      final otra = await repo.crearColumna(
-        sucursalId: sucursalStg,
-        nombre: 'Carretera',
-      );
-      await sembrarPedido(base, id: 'ya-estaba', aGrados: 0.5);
-      await repo.colocar(pedidoId: 'ya-estaba', columnaId: otra);
+    test(
+      'con destino, se van a la otra columna y detrás de lo que haya',
+      () async {
+        final otra = await repo.crearColumna(
+          sucursalId: sucursalStg,
+          nombre: 'Carretera',
+        );
+        await sembrarPedido(base, id: 'ya-estaba', aGrados: 0.5);
+        await repo.colocar(pedidoId: 'ya-estaba', columnaId: otra);
 
-      await repo.borrarColumna(centro, destinoId: otra);
+        await repo.borrarColumna(centro, destinoId: otra);
 
-      final origen = await consultas.almacenDe(sucursalStg);
-      final puestas = await consultas.colocados(sucursalStg, origen);
-      expect(
-        puestas.map((t) => t.pedido.pedidoId).toList(),
-        ['ya-estaba', 'p1', 'p2', 'p3'],
-        reason: 'detrás de lo que ya había y en su orden',
-      );
-      expect((await consultas.columnas(sucursalStg)).single.nombre, 'Carretera');
-    });
+        final origen = await consultas.almacenDe(sucursalStg);
+        final puestas = await consultas.colocados(sucursalStg, origen);
+        expect(puestas.map((t) => t.pedido.pedidoId).toList(), [
+          'ya-estaba',
+          'p1',
+          'p2',
+          'p3',
+        ], reason: 'detrás de lo que ya había y en su orden');
+        expect(
+          (await consultas.columnas(sucursalStg)).single.nombre,
+          'Carretera',
+        );
+      },
+    );
   });
 
   group('el orden dentro de la columna', () {

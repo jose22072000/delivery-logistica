@@ -55,9 +55,8 @@ class RepositorioVehiculos {
     <String, Object?>{'usarParaDomicilio': true},
   );
 
-  Future<void> guardarTipos(List<TipoDeVehiculo> tipos) => _api.mandar<Object?>(
-    'PUT',
-    '/settings',
-    <String, Object?>{'tiposVehiculo': [for (final t in tipos) t.aJson()]},
-  );
+  Future<void> guardarTipos(List<TipoDeVehiculo> tipos) =>
+      _api.mandar<Object?>('PUT', '/settings', <String, Object?>{
+        'tiposVehiculo': [for (final t in tipos) t.aJson()],
+      });
 }

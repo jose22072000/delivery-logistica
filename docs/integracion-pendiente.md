@@ -211,6 +211,21 @@ Pero son decisiones de negocio, no técnicas, y alguien tiene que mirarlas:
 - [ ] `CatalogoDePesos` sin montar: `weightsSource` sale `"none"`, valor que el contrato
       ya prevé.
 
+## Error mío al repartir el trabajo — hay que corregirlo en TODAS las pantallas
+
+- [ ] **El cajón va también en escritorio.** Les dije a los agentes «cajón en móvil, modal
+      en escritorio», que es la regla general de la casa. Pero `pantallas.md:25` dice que
+      **delivery es una excepción aprobada el 05/09/2026: usa SIEMPRE cajón lateral,
+      también en escritorio**, y que no hay variante modal (§757).
+
+      Apliqué la regla general sin mirar la excepción del proyecto. Afecta a todas las
+      pantallas que se escribieron hoy. El arreglo es la constante `anchoDeEscritorio` y el
+      `if (esEscritorio)` de `cajon.dart` — y hoy hay **dos copias** de ese fichero
+      (vehículos y almacenes) porque `lib/diseno/` no existía cuando se escribieron. Al
+      unificarlo en `lib/diseno/cajon.dart` se corrige de una vez.
+
+      La ✕ que nunca desaparece sí es correcta y se queda.
+
 ## Lo que salió al traspasar los DATOS REALES (14/09/2026)
 
 Volcado de producción: 55.495 pedidos, 85.902 renglones, 7.975 clientes, 8 sucursales.

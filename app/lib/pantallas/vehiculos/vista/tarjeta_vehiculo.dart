@@ -42,9 +42,7 @@ class TarjetaVehiculo extends StatelessWidget {
             Row(
               children: [
                 Icon(
-                  vehiculo.enMantenimiento
-                      ? Icons.build
-                      : Icons.local_shipping,
+                  vehiculo.enMantenimiento ? Icons.build : Icons.local_shipping,
                   color: _colorEstado,
                 ),
                 const SizedBox(width: 8),

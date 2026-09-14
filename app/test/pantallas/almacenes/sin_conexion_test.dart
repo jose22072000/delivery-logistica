@@ -20,25 +20,28 @@ void main() {
     AlmacenDeAccesos(id: 'w2', nombre: 'Patio sur'),
   ];
 
-  test('sin conexión NO dice «Guardado en Accesos.» y no encola nada', () async {
-    final banco = Banco.sinRed();
-    addTearDown(banco.cerrar);
+  test(
+    'sin conexión NO dice «Guardado en Accesos.» y no encola nada',
+    () async {
+      final banco = Banco.sinRed();
+      addTearDown(banco.cerrar);
 
-    final guardo = await banco.contenedor
-        .read(controlAlmacenesProvider.notifier)
-        .guardar('STG', almacenes);
+      final guardo = await banco.contenedor
+          .read(controlAlmacenesProvider.notifier)
+          .guardar('STG', almacenes);
 
-    expect(guardo, isFalse);
-    final aviso = banco.contenedor.read(controlAlmacenesProvider)!;
-    expect(aviso.esFallo, isTrue);
-    expect(aviso.texto, contains('Sin conexión'));
-    expect(aviso.texto, contains('no se guardó nada en Accesos'));
-    expect(aviso.texto, isNot(contains('Guardado en Accesos.')));
+      expect(guardo, isFalse);
+      final aviso = banco.contenedor.read(controlAlmacenesProvider)!;
+      expect(aviso.esFallo, isTrue);
+      expect(aviso.texto, contains('Sin conexión'));
+      expect(aviso.texto, contains('no se guardó nada en Accesos'));
+      expect(aviso.texto, isNot(contains('Guardado en Accesos.')));
 
-    // Ni cola ni copia local: el almacen vive en Accesos y hay UNA copia.
-    expect(await banco.base.cuantosPendientes(), 0);
-    expect(await banco.base.select(banco.base.warehouses).get(), isEmpty);
-  });
+      // Ni cola ni copia local: el almacen vive en Accesos y hay UNA copia.
+      expect(await banco.base.cuantosPendientes(), 0);
+      expect(await banco.base.select(banco.base.warehouses).get(), isEmpty);
+    },
+  );
 
   test('con conexión manda la LISTA COMPLETA de la sucursal', () async {
     final banco = Banco(
@@ -47,7 +50,8 @@ void main() {
           {'id': 'w1', 'nombre': 'Almacén central', 'principal': true},
           {'id': 'w2', 'nombre': 'Patio sur'},
         ],
-        'aviso': '1 almacén(es) sin coordenadas: desde ésos no se puede medir '
+        'aviso':
+            '1 almacén(es) sin coordenadas: desde ésos no se puede medir '
             'el domicilio.',
       }),
     );

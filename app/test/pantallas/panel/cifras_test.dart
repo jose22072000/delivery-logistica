@@ -76,15 +76,16 @@ void main() {
         ),
       );
 
-  Future<void> ruta(String id, String estado, {String? sucursal = 'stg'}) => base
-      .into(base.routes)
-      .insert(
-        RoutesCompanion.insert(
-          id: id,
-          status: Value(estado),
-          branchId: Value(sucursal),
-        ),
-      );
+  Future<void> ruta(String id, String estado, {String? sucursal = 'stg'}) =>
+      base
+          .into(base.routes)
+          .insert(
+            RoutesCompanion.insert(
+              id: id,
+              status: Value(estado),
+              branchId: Value(sucursal),
+            ),
+          );
 
   Future<void> vehiculo(String id, {String? sucursal = 'stg'}) => base
       .into(base.vehicles)

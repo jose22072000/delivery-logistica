@@ -40,25 +40,33 @@ void main() {
 
     test('si ninguno es principal, vale el primero con coordenadas', () async {
       await base.delete(base.warehouses).go();
-      await sembrarAlmacen(base, id: 'alm-2', nombre: 'Patio', principal: false);
+      await sembrarAlmacen(
+        base,
+        id: 'alm-2',
+        nombre: 'Patio',
+        principal: false,
+      );
       final elegido = await consultas.almacenDe(sucursalStg);
       expect(elegido.nombre, 'Patio');
     });
 
-    test('sin ninguno con coordenadas NO HAY TABLERO, y se dice cuál', () async {
-      await base.delete(base.warehouses).go();
-      await sembrarAlmacen(base, id: 'alm-3', lat: null, lng: null);
-      expect(
-        () => consultas.almacenDe(sucursalStg),
-        throwsA(
-          isA<SinAlmacenConCoordenadas>().having(
-            (e) => e.mensaje,
-            'mensaje',
-            'Santiago no tiene ningún almacén con coordenadas',
+    test(
+      'sin ninguno con coordenadas NO HAY TABLERO, y se dice cuál',
+      () async {
+        await base.delete(base.warehouses).go();
+        await sembrarAlmacen(base, id: 'alm-3', lat: null, lng: null);
+        expect(
+          () => consultas.almacenDe(sucursalStg),
+          throwsA(
+            isA<SinAlmacenConCoordenadas>().having(
+              (e) => e.mensaje,
+              'mensaje',
+              'Santiago no tiene ningún almacén con coordenadas',
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     test('(0,0) no son coordenadas: es el golfo de Guinea', () async {
       await base.delete(base.warehouses).go();
@@ -93,10 +101,11 @@ void main() {
       );
 
       final izquierda = await consultas.sinColocar(sucursalStg, origen);
-      expect(
-        izquierda.pedidos.map((p) => p.pedidoId).toList(),
-        ['cerca', 'medio', 'lejos'],
-      );
+      expect(izquierda.pedidos.map((p) => p.pedidoId).toList(), [
+        'cerca',
+        'medio',
+        'lejos',
+      ]);
       expect(izquierda.pedidos.first.kmAlAlmacen, closeTo(gradoKm * 0.01, 0.2));
     });
 
@@ -128,32 +137,35 @@ void main() {
   });
 
   group('qué entra y qué no en la mitad izquierda', () {
-    test('las cinco condiciones del armador, ni una más ni una menos', () async {
-      await sembrarPedido(base, id: 'bueno');
-      await sembrarPedido(base, id: 'con-ruta', rutaId: 'r1');
-      await sembrarPedido(base, id: 'sin-coords', conCoordenadas: false);
-      await sembrarPedido(base, id: 'sin-cotejar', facturaEstado: null);
-      await sembrarPedido(
-        base,
-        id: 'sin-factura',
-        facturaEstado: EstadoFactura.sinFactura,
-      );
-      await sembrarPedido(base, id: 'a-mano', fuente: null);
-      await sembrarPedido(base, id: 'de-otra', sucursal: 'suc-hol');
-      // `cambiado` SI se puede repartir: lo que sube al camion son las lineas
-      // de la factura.
-      await sembrarPedido(
-        base,
-        id: 'cambiado',
-        facturaEstado: EstadoFactura.cambiado,
-      );
+    test(
+      'las cinco condiciones del armador, ni una más ni una menos',
+      () async {
+        await sembrarPedido(base, id: 'bueno');
+        await sembrarPedido(base, id: 'con-ruta', rutaId: 'r1');
+        await sembrarPedido(base, id: 'sin-coords', conCoordenadas: false);
+        await sembrarPedido(base, id: 'sin-cotejar', facturaEstado: null);
+        await sembrarPedido(
+          base,
+          id: 'sin-factura',
+          facturaEstado: EstadoFactura.sinFactura,
+        );
+        await sembrarPedido(base, id: 'a-mano', fuente: null);
+        await sembrarPedido(base, id: 'de-otra', sucursal: 'suc-hol');
+        // `cambiado` SI se puede repartir: lo que sube al camion son las lineas
+        // de la factura.
+        await sembrarPedido(
+          base,
+          id: 'cambiado',
+          facturaEstado: EstadoFactura.cambiado,
+        );
 
-      final izquierda = await consultas.sinColocar(sucursalStg, origen);
-      expect(
-        izquierda.pedidos.map((p) => p.pedidoId).toSet(),
-        {'bueno', 'cambiado'},
-      );
-    });
+        final izquierda = await consultas.sinColocar(sucursalStg, origen);
+        expect(izquierda.pedidos.map((p) => p.pedidoId).toSet(), {
+          'bueno',
+          'cambiado',
+        });
+      },
+    );
 
     test('lo que ya está colocado sale de la lista', () async {
       await sembrarPedido(base, id: 'p1');

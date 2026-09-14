@@ -67,22 +67,23 @@ void main() {
     await asentar(tester);
   }
 
-  testWidgets('sin descargar NO es «no hay pedidos»: son dos textos distintos', (
-    tester,
-  ) async {
-    await sembrarCatalogo(base);
-    await pintar(tester);
+  testWidgets(
+    'sin descargar NO es «no hay pedidos»: son dos textos distintos',
+    (tester) async {
+      await sembrarCatalogo(base);
+      await pintar(tester);
 
-    expect(find.text(SinDescargar.textoDeLaPantallaVacia), findsOneWidget);
-    // Y el reloj de arriba lo dice tambien, en ambar.
-    expect(find.text('Sin descargar todavía'), findsOneWidget);
-    // Lo que NO puede salir es el vacio de «no hay nada».
-    expect(
-      find.text('Aún no hay pedidos. Crea una ruta con pedidos.'),
-      findsNothing,
-    );
-    await desmontar(tester);
-  });
+      expect(find.text(SinDescargar.textoDeLaPantallaVacia), findsOneWidget);
+      // Y el reloj de arriba lo dice tambien, en ambar.
+      expect(find.text('Sin descargar todavía'), findsOneWidget);
+      // Lo que NO puede salir es el vacio de «no hay nada».
+      expect(
+        find.text('Aún no hay pedidos. Crea una ruta con pedidos.'),
+        findsNothing,
+      );
+      await desmontar(tester);
+    },
+  );
 
   testWidgets('con datos sale la franja azul del arranque acotado', (
     tester,
@@ -93,7 +94,10 @@ void main() {
       hasta: '2026-09-14T16:00:00Z',
       bajadaAt: ahora.subtract(const Duration(minutes: 20)),
     );
-    for (final coleccion in const [Colecciones.renglones, Colecciones.productos]) {
+    for (final coleccion in const [
+      Colecciones.renglones,
+      Colecciones.productos,
+    ]) {
       await RegistroDeFrescura(base, reloj: () => ahora).marcar(
         coleccion,
         hasta: '2026-09-14T16:00:00Z',
@@ -122,11 +126,10 @@ void main() {
     tester,
   ) async {
     await sembrarLosOnce(base);
-    await RegistroDeFrescura(base, reloj: () => ahora).marcar(
-      Colecciones.pedidos,
-      hasta: null,
-      bajadaAt: ahora,
-    );
+    await RegistroDeFrescura(
+      base,
+      reloj: () => ahora,
+    ).marcar(Colecciones.pedidos, hasta: null, bajadaAt: ahora);
     await pintar(tester);
 
     await tester.tap(find.text('Ver todos los pedidos'));

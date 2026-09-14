@@ -45,10 +45,7 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
     return bien;
   }
 
-  Future<void> _abrirEditor(
-    SucursalDeAccesos sucursal, {
-    int? indice,
-  }) async {
+  Future<void> _abrirEditor(SucursalDeAccesos sucursal, {int? indice}) async {
     final almacen = indice == null ? null : sucursal.almacenes[indice];
     await abrirCajon<void>(
       context: context,
@@ -75,10 +72,7 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
             // Un solo principal: al marcar uno se desmarcan los demas, sobre la
             // lista entera y antes de mandarla.
             if (editado.principal) {
-              lista = conUnSoloPrincipal(
-                lista,
-                indice ?? lista.length - 1,
-              );
+              lista = conUnSoloPrincipal(lista, indice ?? lista.length - 1);
             }
             final bien = await _mandar(sucursal, lista);
             if (bien && contexto.mounted) Navigator.of(contexto).pop();
@@ -163,7 +157,9 @@ class _Contenido extends StatelessWidget {
     if (sucursales.isEmpty || sucursal == null) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 32),
-        child: Text('No hay ninguna sucursal a la vista con código en Accesos.'),
+        child: Text(
+          'No hay ninguna sucursal a la vista con código en Accesos.',
+        ),
       );
     }
 
