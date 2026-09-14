@@ -348,6 +348,57 @@ func (q *Queries) ObtenerProducto(ctx context.Context, id uuid.UUID) (Product, e
 	return i, err
 }
 
+const obtenerProductoDelAlcance = `-- name: ObtenerProductoDelAlcance :one
+
+SELECT
+    p.id, p.name, p.weight, p.packaging, p.units_per_package, p.category,
+    p.sku, p.sucursal_codigo, p.price, p.stock, p.unit, p.traido_at,
+    p.created_at, p.updated_at
+FROM products p
+WHERE p.id = $1
+  AND ($2::text IS NULL OR p.sucursal_codigo = $2::text)
+`
+
+type ObtenerProductoDelAlcanceParams struct {
+	ID       uuid.UUID `json:"id"`
+	Sucursal *string   `json:"sucursal"`
+}
+
+// ---------------------------------------------------------------------------
+// Un producto suelto, ACOTADO  (GET /api/products/[id])
+// ---------------------------------------------------------------------------
+// El mismo producto que `ObtenerProducto`, pero filtrado por el código de la sucursal.
+//
+// POR QUÉ HAY DOS. `ObtenerProducto` va sin alcance a propósito: es la que usan las
+// correcciones del Super Admin, que son de toda la empresa. Ésta es la de la PANTALLA, y
+// ahí enseñar el producto de otra sucursal no es sólo un fallo de permisos: el PRECIO y
+// las EXISTENCIAS son por sucursal, así que una ficha de La Habana abierta desde Camagüey
+// lleva un precio que en Camagüey no se cobra y unas existencias que allí no hay. Eso se
+// copia en un pedido y no lo desmiente nadie hasta que llega la factura.
+//
+// NULL en `sucursal` = todas (Super Admin sin sucursal elegida).
+func (q *Queries) ObtenerProductoDelAlcance(ctx context.Context, arg ObtenerProductoDelAlcanceParams) (Product, error) {
+	row := q.db.QueryRow(ctx, obtenerProductoDelAlcance, arg.ID, arg.Sucursal)
+	var i Product
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Weight,
+		&i.Packaging,
+		&i.UnitsPerPackage,
+		&i.Category,
+		&i.Sku,
+		&i.SucursalCodigo,
+		&i.Price,
+		&i.Stock,
+		&i.Unit,
+		&i.TraidoAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const usoDeProductos = `-- name: UsoDeProductos :many
 SELECT oi.product_id, sum(oi.quantity)::double precision AS unidades
 FROM order_items oi

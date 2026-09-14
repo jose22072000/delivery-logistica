@@ -12,6 +12,60 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const actualizarOrigen = `-- name: ActualizarOrigen :one
+UPDATE saved_origins SET
+    name    = coalesce($1::text, name),
+    address = coalesce($2::text, address),
+    lat     = coalesce($3::double precision, lat),
+    lng     = coalesce($4::double precision, lng)
+WHERE id = $5
+  AND ($6::uuid IS NULL OR branch_id = $6::uuid)
+RETURNING id, name, address, lat, lng, creado_por, branch_id, created_at, updated_at
+`
+
+type ActualizarOrigenParams struct {
+	Name     *string     `json:"name"`
+	Address  *string     `json:"address"`
+	Lat      *float64    `json:"lat"`
+	Lng      *float64    `json:"lng"`
+	ID       uuid.UUID   `json:"id"`
+	Sucursal pgtype.UUID `json:"sucursal"`
+}
+
+// Corregir un punto de partida ya guardado (PATCH /api/origins/[id]).
+//
+// `branch_id` NO SE PUEDE CAMBIAR AQUÍ, y no es un olvido: mover un origen de sucursal
+// por un PATCH es exactamente la forma de plantar un punto de partida en la sucursal de
+// otro —el mismo agujero que ya se tapó en el alta, donde la sucursal la pone el alcance y
+// no el cuerpo—. Para llevarlo a otra sucursal se borra y se crea allí, que además deja
+// constancia de quién lo hizo.
+//
+// `coalesce` y no `CASE WHEN tocar_*`: aquí ninguno de los cuatro campos admite NULL en el
+// esquema, así que «mandarlo vacío» no existe y el tri-estado no hace falta.
+func (q *Queries) ActualizarOrigen(ctx context.Context, arg ActualizarOrigenParams) (SavedOrigin, error) {
+	row := q.db.QueryRow(ctx, actualizarOrigen,
+		arg.Name,
+		arg.Address,
+		arg.Lat,
+		arg.Lng,
+		arg.ID,
+		arg.Sucursal,
+	)
+	var i SavedOrigin
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Address,
+		&i.Lat,
+		&i.Lng,
+		&i.CreadoPor,
+		&i.BranchID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const actualizarSucursal = `-- name: ActualizarSucursal :one
 UPDATE branches SET
     name        = coalesce($1::text, name),

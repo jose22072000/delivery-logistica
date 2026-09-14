@@ -1,0 +1,66 @@
+name: reparto
+description: "reparto-app — la interfaz del reparto, web y APK del mismo codigo."
+# Privado: nunca sale a pub.dev.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.3
+
+# Las versiones van EXACTAS, sin `^`, a proposito: una APK que se compila distinto
+# en dos maquinas no se puede depurar (PLAN.md §1).
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: 1.0.9
+
+  # Estado — la fuente de verdad es la base local, no el widget.
+  flutter_riverpod: 3.1.0
+  riverpod_annotation: 4.0.0
+
+  # Navegacion, con URL de verdad en web.
+  go_router: 18.0.1
+
+  # Base local — el MISMO Dart y el MISMO SQL en Android y en web.
+  drift: 2.31.0
+  drift_flutter: 0.2.8        # abre el fichero en Android, en un isolate aparte
+  sqlite3_flutter_libs: 0.5.42 # SQLite embebido en el APK (minSdk 23)
+  sqlite3: 2.9.4               # de aqui sale web/sqlite3.wasm
+  path_provider: 2.1.6
+
+  # Red — hace falta interceptor con candado, no un `http.get`.
+  dio: 5.11.1
+
+  # El par de tokens, SOLO en la APK. En web manda la cookie.
+  flutter_secure_storage: 11.1.1
+
+  synchronized: 3.4.2  # el Lock del candado de renovacion
+  ulid: 2.0.1          # las claves de idempotencia (01J8…)
+  uuid: 4.6.0          # los id provisionales local-…
+
+  intl: 0.20.3
+  collection: 1.19.1
+  web: 1.1.1           # nada de dart:html
+
+  connectivity_plus: 7.3.1   # PISTA de que hay red, nunca la verdad
+  device_info_plus: 13.2.0   # el nombre del aparato para POST /sync/aparato
+  package_info_plus: 10.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: 6.0.0
+  build_runner: 2.15.1
+  drift_dev: 2.31.0
+  riverpod_generator: 4.0.0+1
+  riverpod_lint: 3.1.0
+  custom_lint: 0.8.1
+  json_serializable: 6.11.2
+  mocktail: 1.0.5
+  http_mock_adapter: 0.6.1   # el servidor falso para los tests de red
+
+flutter:
+  uses-material-design: true

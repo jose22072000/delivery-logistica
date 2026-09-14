@@ -140,3 +140,23 @@ WHERE id = sqlc.arg('id')
 -- name: ContarOrigenesDeSucursal :one
 SELECT count(*) FROM saved_origins so
 WHERE so.branch_id = sqlc.arg('sucursal_id');
+
+-- Corregir un punto de partida ya guardado (PATCH /api/origins/[id]).
+--
+-- `branch_id` NO SE PUEDE CAMBIAR AQUÍ, y no es un olvido: mover un origen de sucursal
+-- por un PATCH es exactamente la forma de plantar un punto de partida en la sucursal de
+-- otro —el mismo agujero que ya se tapó en el alta, donde la sucursal la pone el alcance y
+-- no el cuerpo—. Para llevarlo a otra sucursal se borra y se crea allí, que además deja
+-- constancia de quién lo hizo.
+--
+-- `coalesce` y no `CASE WHEN tocar_*`: aquí ninguno de los cuatro campos admite NULL en el
+-- esquema, así que «mandarlo vacío» no existe y el tri-estado no hace falta.
+-- name: ActualizarOrigen :one
+UPDATE saved_origins SET
+    name    = coalesce(sqlc.narg('name')::text, name),
+    address = coalesce(sqlc.narg('address')::text, address),
+    lat     = coalesce(sqlc.narg('lat')::double precision, lat),
+    lng     = coalesce(sqlc.narg('lng')::double precision, lng)
+WHERE id = sqlc.arg('id')
+  AND (sqlc.narg('sucursal')::uuid IS NULL OR branch_id = sqlc.narg('sucursal')::uuid)
+RETURNING id, name, address, lat, lng, creado_por, branch_id, created_at, updated_at;

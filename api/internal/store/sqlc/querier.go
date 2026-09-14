@@ -36,6 +36,17 @@ type Querier interface {
 	// Ninguna de las dos se deduce de `created_at` —la ruta se arma la noche anterior— ni de
 	// `updated_at`, que se mueve al tocar cualquier cosa.
 	ActualizarEstadoDeRuta(ctx context.Context, arg ActualizarEstadoDeRutaParams) (ActualizarEstadoDeRutaRow, error)
+	// Corregir un punto de partida ya guardado (PATCH /api/origins/[id]).
+	//
+	// `branch_id` NO SE PUEDE CAMBIAR AQUÍ, y no es un olvido: mover un origen de sucursal
+	// por un PATCH es exactamente la forma de plantar un punto de partida en la sucursal de
+	// otro —el mismo agujero que ya se tapó en el alta, donde la sucursal la pone el alcance y
+	// no el cuerpo—. Para llevarlo a otra sucursal se borra y se crea allí, que además deja
+	// constancia de quién lo hizo.
+	//
+	// `coalesce` y no `CASE WHEN tocar_*`: aquí ninguno de los cuatro campos admite NULL en el
+	// esquema, así que «mandarlo vacío» no existe y el tri-estado no hace falta.
+	ActualizarOrigen(ctx context.Context, arg ActualizarOrigenParams) (SavedOrigin, error)
 	// ---------------------------------------------------------------------------
 	// Escrituras del catálogo
 	// ---------------------------------------------------------------------------
@@ -429,6 +440,15 @@ type Querier interface {
 	//
 	// Va por `route_id`: es la hoja del camión de HOY, lo que lleva cargado ahora mismo.
 	ListarParadasDeRuta(ctx context.Context, arg ListarParadasDeRutaParams) ([]ListarParadasDeRutaRow, error)
+	// Las paradas de VARIAS rutas de una vez, para el tablero.
+	//
+	// Existe para no repetir `ListarParadasDeRuta` una vez por ruta: el tablero sale sin
+	// filtro de fecha y con un año de trabajo son cientos de rutas, o sea cientos de idas y
+	// vueltas a la base para pintar UNA pantalla. Con un array de ids son tres consultas
+	// fijas: las rutas, sus paradas y sus renglones.
+	//
+	// Va por `route_id` —lo que el camión lleva cargado— igual que la de una sola.
+	ListarParadasDeRutas(ctx context.Context, arg ListarParadasDeRutasParams) ([]ListarParadasDeRutasRow, error)
 	// Las paradas que VIAJARON en esta ruta, se hayan bajado del camión o no.
 	//
 	// Va por `ultima_ruta_id`, que no se libera nunca, y por eso son dos campos y no uno: un
@@ -578,6 +598,13 @@ type Querier interface {
 	// Por `ultima_ruta_id` para que el post-despacho siga viendo los renglones de lo que se
 	// devolvió: al cerrar, esos pedidos ya soltaron su `route_id`.
 	ListarRenglonesDeRuta(ctx context.Context, arg ListarRenglonesDeRutaParams) ([]ListarRenglonesDeRutaRow, error)
+	// Los renglones de las paradas de VARIAS rutas, de una vez.
+	//
+	// Por `route_id` y no por `ultima_ruta_id` a propósito: éstos son los renglones de lo que
+	// va EN el camión, que es lo que acompaña a cada parada de la lista. Los de lo que ya se
+	// bajó (un devuelto que soltó su `route_id`) son otra pregunta y los trae
+	// `ListarRenglonesDeRuta`, que es la del post-despacho.
+	ListarRenglonesDeRutas(ctx context.Context, arg ListarRenglonesDeRutasParams) ([]ListarRenglonesDeRutasRow, error)
 	// Rutas: el tablero, el detalle con sus paradas y sus renglones, el armado y el cierre.
 	//
 	// El alcance por sucursal va en el SQL de TODAS, incluidas las escrituras: si el filtro se
@@ -732,6 +759,20 @@ type Querier interface {
 	ObtenerPedido(ctx context.Context, arg ObtenerPedidoParams) (ObtenerPedidoRow, error)
 	ObtenerProducto(ctx context.Context, id uuid.UUID) (Product, error)
 	// ---------------------------------------------------------------------------
+	// Un producto suelto, ACOTADO  (GET /api/products/[id])
+	// ---------------------------------------------------------------------------
+	// El mismo producto que `ObtenerProducto`, pero filtrado por el código de la sucursal.
+	//
+	// POR QUÉ HAY DOS. `ObtenerProducto` va sin alcance a propósito: es la que usan las
+	// correcciones del Super Admin, que son de toda la empresa. Ésta es la de la PANTALLA, y
+	// ahí enseñar el producto de otra sucursal no es sólo un fallo de permisos: el PRECIO y
+	// las EXISTENCIAS son por sucursal, así que una ficha de La Habana abierta desde Camagüey
+	// lleva un precio que en Camagüey no se cobra y unas existencias que allí no hay. Eso se
+	// copia en un pedido y no lo desmiente nadie hasta que llega la factura.
+	//
+	// NULL en `sucursal` = todas (Super Admin sin sucursal elegida).
+	ObtenerProductoDelAlcance(ctx context.Context, arg ObtenerProductoDelAlcanceParams) (Product, error)
+	// ---------------------------------------------------------------------------
 	// El detalle de una ruta  (GET /api/routes/[id])
 	// ---------------------------------------------------------------------------
 	// La cabecera. Cero filas es «no existe O no es de tu sucursal»: desde fuera son lo mismo,
@@ -795,6 +836,20 @@ type Querier interface {
 	// nombrar en el error cuál falla y por qué («cambió en la factura» / «sin cotejar»).
 	// Un WHERE que los descarte aquí deja el mismo 409 sin nada que decir.
 	PedidosParaArmarRuta(ctx context.Context, arg PedidosParaArmarRutaParams) ([]PedidosParaArmarRutaRow, error)
+	// El peso que le TOCA a cada pedido según el catálogo, junto al que tiene guardado.
+	//
+	// POR QUÉ SE SUMA EN LA BASE Y NO EN GO: el repaso es sobre el espejo ENTERO —decenas de
+	// miles de pedidos y sus renglones—, y traérselo todo para multiplicar y sumar es cargar
+	// el espejo en la memoria del proceso para devolver dos números por fila.
+	//
+	// El peso sale de `products.weight`, que es el mismo dato con el que PEDIDO cotiza. El
+	// `pesoLineaKg` que venía dentro del JSON de `items` YA NO EXISTE: era una copia, y una
+	// copia acaba discrepando del catálogo que la originó.
+	//
+	// El LEFT JOIN a `order_items` es a propósito: un pedido SIN renglones tiene que salir
+	// igual, con peso calculado 0. Si se cayera de la lista, `totalOrders` diría menos
+	// pedidos de los que hay y nadie sabría cuáles faltan.
+	PesosDelCatalogoPorFuente(ctx context.Context, source Procedencia) ([]PesosDelCatalogoPorFuenteRow, error)
 	// Las tarjetas de los pedidos que acaban de subirse a una ruta salen del tablero.
 	//
 	// Se llama DENTRO de la misma transacción que engancha las paradas. La columna se vacía
@@ -809,6 +864,13 @@ type Querier interface {
 	// en su sitio por cercanía. Devuelve la columna y la posición que tenía para poder cerrar
 	// el hueco sin volver a preguntar.
 	QuitarPedidoDelTablero(ctx context.Context, arg QuitarPedidoDelTableroParams) (QuitarPedidoDelTableroRow, error)
+	// Los renglones que el catálogo NO sabe pesar, contados por nombre. Es la lista que hay
+	// que llevarle a quien mantiene el catálogo de Ventra: sin ella, `ordersSinPeso` dice que
+	// hay un problema pero no dice de qué producto.
+	//
+	// `(sin nombre)` literal para el renglón con la descripción en blanco: agruparlos bajo la
+	// cadena vacía deja una fila sin etiqueta en la pantalla que nadie sabe leer.
+	RenglonesSinPesoPorFuente(ctx context.Context, source Procedencia) ([]RenglonesSinPesoPorFuenteRow, error)
 	// Reordenar el tablero entero de una vez: llega la lista de ids en el orden nuevo y la
 	// posición de cada uno es su sitio en esa lista.
 	//

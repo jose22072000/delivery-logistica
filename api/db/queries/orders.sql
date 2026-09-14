@@ -602,6 +602,49 @@ FROM orders o
 WHERE o.source = sqlc.arg('source')::procedencia
 ORDER BY o.created_at ASC;
 
+-- El peso que le TOCA a cada pedido según el catálogo, junto al que tiene guardado.
+--
+-- POR QUÉ SE SUMA EN LA BASE Y NO EN GO: el repaso es sobre el espejo ENTERO —decenas de
+-- miles de pedidos y sus renglones—, y traérselo todo para multiplicar y sumar es cargar
+-- el espejo en la memoria del proceso para devolver dos números por fila.
+--
+-- El peso sale de `products.weight`, que es el mismo dato con el que PEDIDO cotiza. El
+-- `pesoLineaKg` que venía dentro del JSON de `items` YA NO EXISTE: era una copia, y una
+-- copia acaba discrepando del catálogo que la originó.
+--
+-- El LEFT JOIN a `order_items` es a propósito: un pedido SIN renglones tiene que salir
+-- igual, con peso calculado 0. Si se cayera de la lista, `totalOrders` diría menos
+-- pedidos de los que hay y nadie sabría cuáles faltan.
+-- name: PesosDelCatalogoPorFuente :many
+SELECT
+    o.id,
+    o.weight AS peso_guardado,
+    coalesce(sum(coalesce(p.weight, 0) * oi.quantity), 0)::double precision AS peso_catalogo
+FROM orders o
+LEFT JOIN order_items oi ON oi.order_id = o.id
+LEFT JOIN products    p  ON p.id = oi.product_id
+WHERE o.source = sqlc.arg('source')::procedencia
+GROUP BY o.id, o.weight
+ORDER BY o.created_at ASC;
+
+-- Los renglones que el catálogo NO sabe pesar, contados por nombre. Es la lista que hay
+-- que llevarle a quien mantiene el catálogo de Ventra: sin ella, `ordersSinPeso` dice que
+-- hay un problema pero no dice de qué producto.
+--
+-- `(sin nombre)` literal para el renglón con la descripción en blanco: agruparlos bajo la
+-- cadena vacía deja una fila sin etiqueta en la pantalla que nadie sabe leer.
+-- name: RenglonesSinPesoPorFuente :many
+SELECT
+    (coalesce(nullif(btrim(oi.description), ''), '(sin nombre)'))::text AS nombre,
+    count(*) AS veces
+FROM order_items oi
+JOIN orders o        ON o.id = oi.order_id
+LEFT JOIN products p ON p.id = oi.product_id
+WHERE o.source = sqlc.arg('source')::procedencia
+  AND coalesce(p.weight, 0) <= 0
+GROUP BY 1
+ORDER BY veces DESC, nombre ASC;
+
 -- ---------------------------------------------------------------------------
 -- El espejo de PEDIDO  (POST /api/quote/batch)
 -- ---------------------------------------------------------------------------
@@ -726,8 +769,8 @@ SELECT
     count(*) FILTER (WHERE o.delivered_at >= sqlc.arg('hoy')::timestamptz) AS entregados_hoy,
     coalesce(sum(o.weight) FILTER (WHERE o.route_id IS NULL
                        AND o.end_lat IS NOT NULL
-                       AND o.factura_estado IN ('igual','cambiado')), 0) AS peso_pendiente,
-    coalesce(sum(o.pedido_costo), 0)                                AS total_domicilios
+                       AND o.factura_estado IN ('igual','cambiado')), 0)::double precision AS peso_pendiente,
+    coalesce(sum(o.pedido_costo), 0)::double precision              AS total_domicilios
 FROM orders o
 WHERE (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid);
 
@@ -738,7 +781,7 @@ SELECT
     o.branch_id,
     b.name    AS sucursal_nombre,
     count(*)  AS pedidos,
-    coalesce(sum(o.weight), 0) AS peso_kg
+    coalesce(sum(o.weight), 0)::double precision AS peso_kg
 FROM orders o
 LEFT JOIN branches b ON b.id = o.branch_id
 WHERE o.route_id IS NULL
@@ -757,6 +800,11 @@ SELECT
     coalesce(o.price, o.pedido_costo, 0) AS ingreso,
     o.segment_km, o.created_at,
     coalesce(r.route_code, r.name) AS ruta_nombre,
+    -- El id del camión sale para poder AGRUPAR por él en `byVehicle`. Agrupar por nombre
+    -- juntaría dos camiones distintos que se llamen igual —«Camión 1» lo hay en varias
+    -- sucursales, y la matrícula puede estar vacía—, y el informe daría un vehículo con el
+    -- doble de ingresos sin que nada falle.
+    v.id    AS vehiculo_id,
     v.name  AS vehiculo_nombre,
     v.plate AS vehiculo_matricula
 FROM orders o

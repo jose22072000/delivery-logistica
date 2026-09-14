@@ -1,0 +1,18 @@
+# Configuracion de los generadores.
+targets:
+  $default:
+    builders:
+      # Sólo el builder normal de drift. `drift_dev:analyzer` NO se activa aqui:
+      # ya va dentro de este y activarlo aparte hace que los dos escriban el
+      # mismo `.drift_elements.json` y el build se caiga por colision.
+      drift_dev:
+        options:
+          # Los nombres de columna son los del esquema del servidor
+          # (../api/db/migrations/00001_init.sql): asi la bajada es un
+          # `insertOnConflictUpdate` del JSON que llega, y nada mas.
+          case_from_dart_to_sql: snake_case
+          # Las fechas como TEXTO ISO-8601 y no como enteros de segundos: la
+          # hora del aparato tiene que llegar con su precision y su zona
+          # (regla 7), y un entero de segundos las pierde las dos.
+          store_date_time_values_as_text: true
+          named_parameters: true

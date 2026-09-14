@@ -1,0 +1,31 @@
+# Reglas del analizador. `flutter analyze` tiene que salir LIMPIO antes de dar
+# cualquier cosa por buena (PLAN.md §5.2).
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"          # lo generado por drift_dev / riverpod_generator
+    - "build/**"
+    - "android/**"
+    - "web/**"
+  errors:
+    todo: ignore
+  language:
+    strict-casts: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    always_declare_return_types: true
+    avoid_dynamic_calls: true
+    prefer_final_locals: true
+    # Una subida sin `await` se pierde en silencio.
+    unawaited_futures: true
+    require_trailing_commas: true
+
+    # Apagada a proposito: un parametro CON NOMBRE no puede ser `this._campo`
+    # —Dart no admite parametros con nombre que empiecen por guion bajo—, asi
+    # que la regla salta en cada constructor que recibe una pieza por nombre y
+    # la guarda en un campo privado, que es medio nucleo, sin que haya ningun
+    # arreglo posible.
+    prefer_initializing_formals: false

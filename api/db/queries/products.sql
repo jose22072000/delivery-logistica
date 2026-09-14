@@ -138,3 +138,26 @@ RETURNING id, name, weight, packaging, units_per_package, category, sku,
 
 -- name: BorrarProducto :execrows
 DELETE FROM products WHERE id = sqlc.arg('id');
+
+-- ---------------------------------------------------------------------------
+-- Un producto suelto, ACOTADO  (GET /api/products/[id])
+-- ---------------------------------------------------------------------------
+
+-- El mismo producto que `ObtenerProducto`, pero filtrado por el código de la sucursal.
+--
+-- POR QUÉ HAY DOS. `ObtenerProducto` va sin alcance a propósito: es la que usan las
+-- correcciones del Super Admin, que son de toda la empresa. Ésta es la de la PANTALLA, y
+-- ahí enseñar el producto de otra sucursal no es sólo un fallo de permisos: el PRECIO y
+-- las EXISTENCIAS son por sucursal, así que una ficha de La Habana abierta desde Camagüey
+-- lleva un precio que en Camagüey no se cobra y unas existencias que allí no hay. Eso se
+-- copia en un pedido y no lo desmiente nadie hasta que llega la factura.
+--
+-- NULL en `sucursal` = todas (Super Admin sin sucursal elegida).
+-- name: ObtenerProductoDelAlcance :one
+SELECT
+    p.id, p.name, p.weight, p.packaging, p.units_per_package, p.category,
+    p.sku, p.sucursal_codigo, p.price, p.stock, p.unit, p.traido_at,
+    p.created_at, p.updated_at
+FROM products p
+WHERE p.id = sqlc.arg('id')
+  AND (sqlc.narg('sucursal')::text IS NULL OR p.sucursal_codigo = sqlc.narg('sucursal')::text);

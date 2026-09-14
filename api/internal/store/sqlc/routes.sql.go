@@ -566,6 +566,108 @@ func (q *Queries) ListarParadasDeRuta(ctx context.Context, arg ListarParadasDeRu
 	return items, nil
 }
 
+const listarParadasDeRutas = `-- name: ListarParadasDeRutas :many
+SELECT
+    o.route_id, o.id, o.operation_number, o.customer_name, o.customer_phone, o.address,
+    o.end_address, o.end_lat, o.end_lng, o.lat, o.lng, o.status, o.weight,
+    o.price, o.segment_km, o.stop_order, o.trip_leg, o.resultado,
+    o.resultado_at, o.resultado_nota, o.delivered_at, o.municipio,
+    o.pedido_costo, o.external_id, o.source, o.branch_id
+FROM orders o
+WHERE o.route_id = ANY($1::uuid[])
+  AND ($2::uuid IS NULL OR o.branch_id = $2::uuid)
+ORDER BY o.stop_order ASC NULLS LAST, o.created_at ASC
+`
+
+type ListarParadasDeRutasParams struct {
+	RutaIds  []uuid.UUID `json:"ruta_ids"`
+	Sucursal pgtype.UUID `json:"sucursal"`
+}
+
+type ListarParadasDeRutasRow struct {
+	RouteID         pgtype.UUID        `json:"route_id"`
+	ID              uuid.UUID          `json:"id"`
+	OperationNumber *string            `json:"operation_number"`
+	CustomerName    string             `json:"customer_name"`
+	CustomerPhone   *string            `json:"customer_phone"`
+	Address         string             `json:"address"`
+	EndAddress      *string            `json:"end_address"`
+	EndLat          *float64           `json:"end_lat"`
+	EndLng          *float64           `json:"end_lng"`
+	Lat             *float64           `json:"lat"`
+	Lng             *float64           `json:"lng"`
+	Status          OrderStatus        `json:"status"`
+	Weight          float64            `json:"weight"`
+	Price           *float64           `json:"price"`
+	SegmentKm       *float64           `json:"segment_km"`
+	StopOrder       *int32             `json:"stop_order"`
+	TripLeg         TripLeg            `json:"trip_leg"`
+	Resultado       *StopResult        `json:"resultado"`
+	ResultadoAt     pgtype.Timestamptz `json:"resultado_at"`
+	ResultadoNota   *string            `json:"resultado_nota"`
+	DeliveredAt     pgtype.Timestamptz `json:"delivered_at"`
+	Municipio       *string            `json:"municipio"`
+	PedidoCosto     *float64           `json:"pedido_costo"`
+	ExternalID      *string            `json:"external_id"`
+	Source          *Procedencia       `json:"source"`
+	BranchID        pgtype.UUID        `json:"branch_id"`
+}
+
+// Las paradas de VARIAS rutas de una vez, para el tablero.
+//
+// Existe para no repetir `ListarParadasDeRuta` una vez por ruta: el tablero sale sin
+// filtro de fecha y con un año de trabajo son cientos de rutas, o sea cientos de idas y
+// vueltas a la base para pintar UNA pantalla. Con un array de ids son tres consultas
+// fijas: las rutas, sus paradas y sus renglones.
+//
+// Va por `route_id` —lo que el camión lleva cargado— igual que la de una sola.
+func (q *Queries) ListarParadasDeRutas(ctx context.Context, arg ListarParadasDeRutasParams) ([]ListarParadasDeRutasRow, error) {
+	rows, err := q.db.Query(ctx, listarParadasDeRutas, arg.RutaIds, arg.Sucursal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListarParadasDeRutasRow
+	for rows.Next() {
+		var i ListarParadasDeRutasRow
+		if err := rows.Scan(
+			&i.RouteID,
+			&i.ID,
+			&i.OperationNumber,
+			&i.CustomerName,
+			&i.CustomerPhone,
+			&i.Address,
+			&i.EndAddress,
+			&i.EndLat,
+			&i.EndLng,
+			&i.Lat,
+			&i.Lng,
+			&i.Status,
+			&i.Weight,
+			&i.Price,
+			&i.SegmentKm,
+			&i.StopOrder,
+			&i.TripLeg,
+			&i.Resultado,
+			&i.ResultadoAt,
+			&i.ResultadoNota,
+			&i.DeliveredAt,
+			&i.Municipio,
+			&i.PedidoCosto,
+			&i.ExternalID,
+			&i.Source,
+			&i.BranchID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listarParadasQueViajaronEnRuta = `-- name: ListarParadasQueViajaronEnRuta :many
 SELECT
     o.id, o.operation_number, o.customer_name, o.address, o.end_address,
@@ -695,6 +797,65 @@ func (q *Queries) ListarRenglonesDeRuta(ctx context.Context, arg ListarRenglones
 			&i.CustomerName,
 			&i.StopOrder,
 			&i.Resultado,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listarRenglonesDeRutas = `-- name: ListarRenglonesDeRutas :many
+SELECT
+    o.route_id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs, oi.product_id
+FROM order_items oi
+JOIN orders o ON o.id = oi.order_id
+WHERE o.route_id = ANY($1::uuid[])
+  AND ($2::uuid IS NULL OR o.branch_id = $2::uuid)
+ORDER BY o.stop_order ASC NULLS LAST, oi.linea ASC
+`
+
+type ListarRenglonesDeRutasParams struct {
+	RutaIds  []uuid.UUID `json:"ruta_ids"`
+	Sucursal pgtype.UUID `json:"sucursal"`
+}
+
+type ListarRenglonesDeRutasRow struct {
+	RouteID     pgtype.UUID `json:"route_id"`
+	OrderID     uuid.UUID   `json:"order_id"`
+	Linea       int32       `json:"linea"`
+	Description string      `json:"description"`
+	Quantity    float64     `json:"quantity"`
+	Packs       *float64    `json:"packs"`
+	ProductID   pgtype.UUID `json:"product_id"`
+}
+
+// Los renglones de las paradas de VARIAS rutas, de una vez.
+//
+// Por `route_id` y no por `ultima_ruta_id` a propósito: éstos son los renglones de lo que
+// va EN el camión, que es lo que acompaña a cada parada de la lista. Los de lo que ya se
+// bajó (un devuelto que soltó su `route_id`) son otra pregunta y los trae
+// `ListarRenglonesDeRuta`, que es la del post-despacho.
+func (q *Queries) ListarRenglonesDeRutas(ctx context.Context, arg ListarRenglonesDeRutasParams) ([]ListarRenglonesDeRutasRow, error) {
+	rows, err := q.db.Query(ctx, listarRenglonesDeRutas, arg.RutaIds, arg.Sucursal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListarRenglonesDeRutasRow
+	for rows.Next() {
+		var i ListarRenglonesDeRutasRow
+		if err := rows.Scan(
+			&i.RouteID,
+			&i.OrderID,
+			&i.Linea,
+			&i.Description,
+			&i.Quantity,
+			&i.Packs,
+			&i.ProductID,
 		); err != nil {
 			return nil, err
 		}

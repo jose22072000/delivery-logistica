@@ -1382,6 +1382,11 @@ SELECT
     coalesce(o.price, o.pedido_costo, 0) AS ingreso,
     o.segment_km, o.created_at,
     coalesce(r.route_code, r.name) AS ruta_nombre,
+    -- El id del camión sale para poder AGRUPAR por él en ` + "`" + `byVehicle` + "`" + `. Agrupar por nombre
+    -- juntaría dos camiones distintos que se llamen igual —«Camión 1» lo hay en varias
+    -- sucursales, y la matrícula puede estar vacía—, y el informe daría un vehículo con el
+    -- doble de ingresos sin que nada falle.
+    v.id    AS vehiculo_id,
     v.name  AS vehiculo_nombre,
     v.plate AS vehiculo_matricula
 FROM orders o
@@ -1412,6 +1417,7 @@ type ListarPedidosParaInformeRow struct {
 	SegmentKm         *float64           `json:"segment_km"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	RutaNombre        *string            `json:"ruta_nombre"`
+	VehiculoID        pgtype.UUID        `json:"vehiculo_id"`
 	VehiculoNombre    *string            `json:"vehiculo_nombre"`
 	VehiculoMatricula *string            `json:"vehiculo_matricula"`
 }
@@ -1443,6 +1449,7 @@ func (q *Queries) ListarPedidosParaInforme(ctx context.Context, arg ListarPedido
 			&i.SegmentKm,
 			&i.CreatedAt,
 			&i.RutaNombre,
+			&i.VehiculoID,
 			&i.VehiculoNombre,
 			&i.VehiculoMatricula,
 		); err != nil {
@@ -1773,7 +1780,7 @@ SELECT
     o.branch_id,
     b.name    AS sucursal_nombre,
     count(*)  AS pedidos,
-    coalesce(sum(o.weight), 0) AS peso_kg
+    coalesce(sum(o.weight), 0)::double precision AS peso_kg
 FROM orders o
 LEFT JOIN branches b ON b.id = o.branch_id
 WHERE o.route_id IS NULL
@@ -1788,7 +1795,7 @@ type PanelPorSucursalRow struct {
 	BranchID       pgtype.UUID `json:"branch_id"`
 	SucursalNombre *string     `json:"sucursal_nombre"`
 	Pedidos        int64       `json:"pedidos"`
-	PesoKg         interface{} `json:"peso_kg"`
+	PesoKg         float64     `json:"peso_kg"`
 }
 
 // El reparto de lo repartible por sucursal. Lo ve quien no tiene alcance —el Super Admin—;
@@ -1828,8 +1835,8 @@ SELECT
     count(*) FILTER (WHERE o.delivered_at >= $1::timestamptz) AS entregados_hoy,
     coalesce(sum(o.weight) FILTER (WHERE o.route_id IS NULL
                        AND o.end_lat IS NOT NULL
-                       AND o.factura_estado IN ('igual','cambiado')), 0) AS peso_pendiente,
-    coalesce(sum(o.pedido_costo), 0)                                AS total_domicilios
+                       AND o.factura_estado IN ('igual','cambiado')), 0)::double precision AS peso_pendiente,
+    coalesce(sum(o.pedido_costo), 0)::double precision              AS total_domicilios
 FROM orders o
 WHERE ($2::uuid IS NULL OR o.branch_id = $2::uuid)
 `
@@ -1840,11 +1847,11 @@ type PanelResumenParams struct {
 }
 
 type PanelResumenRow struct {
-	TotalPedidos    int64       `json:"total_pedidos"`
-	SinRuta         int64       `json:"sin_ruta"`
-	EntregadosHoy   int64       `json:"entregados_hoy"`
-	PesoPendiente   interface{} `json:"peso_pendiente"`
-	TotalDomicilios interface{} `json:"total_domicilios"`
+	TotalPedidos    int64   `json:"total_pedidos"`
+	SinRuta         int64   `json:"sin_ruta"`
+	EntregadosHoy   int64   `json:"entregados_hoy"`
+	PesoPendiente   float64 `json:"peso_pendiente"`
+	TotalDomicilios float64 `json:"total_domicilios"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1866,6 +1873,102 @@ func (q *Queries) PanelResumen(ctx context.Context, arg PanelResumenParams) (Pan
 		&i.TotalDomicilios,
 	)
 	return i, err
+}
+
+const pesosDelCatalogoPorFuente = `-- name: PesosDelCatalogoPorFuente :many
+SELECT
+    o.id,
+    o.weight AS peso_guardado,
+    coalesce(sum(coalesce(p.weight, 0) * oi.quantity), 0)::double precision AS peso_catalogo
+FROM orders o
+LEFT JOIN order_items oi ON oi.order_id = o.id
+LEFT JOIN products    p  ON p.id = oi.product_id
+WHERE o.source = $1::procedencia
+GROUP BY o.id, o.weight
+ORDER BY o.created_at ASC
+`
+
+type PesosDelCatalogoPorFuenteRow struct {
+	ID           uuid.UUID `json:"id"`
+	PesoGuardado float64   `json:"peso_guardado"`
+	PesoCatalogo float64   `json:"peso_catalogo"`
+}
+
+// El peso que le TOCA a cada pedido según el catálogo, junto al que tiene guardado.
+//
+// POR QUÉ SE SUMA EN LA BASE Y NO EN GO: el repaso es sobre el espejo ENTERO —decenas de
+// miles de pedidos y sus renglones—, y traérselo todo para multiplicar y sumar es cargar
+// el espejo en la memoria del proceso para devolver dos números por fila.
+//
+// El peso sale de `products.weight`, que es el mismo dato con el que PEDIDO cotiza. El
+// `pesoLineaKg` que venía dentro del JSON de `items` YA NO EXISTE: era una copia, y una
+// copia acaba discrepando del catálogo que la originó.
+//
+// El LEFT JOIN a `order_items` es a propósito: un pedido SIN renglones tiene que salir
+// igual, con peso calculado 0. Si se cayera de la lista, `totalOrders` diría menos
+// pedidos de los que hay y nadie sabría cuáles faltan.
+func (q *Queries) PesosDelCatalogoPorFuente(ctx context.Context, source Procedencia) ([]PesosDelCatalogoPorFuenteRow, error) {
+	rows, err := q.db.Query(ctx, pesosDelCatalogoPorFuente, source)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PesosDelCatalogoPorFuenteRow
+	for rows.Next() {
+		var i PesosDelCatalogoPorFuenteRow
+		if err := rows.Scan(&i.ID, &i.PesoGuardado, &i.PesoCatalogo); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const renglonesSinPesoPorFuente = `-- name: RenglonesSinPesoPorFuente :many
+SELECT
+    (coalesce(nullif(btrim(oi.description), ''), '(sin nombre)'))::text AS nombre,
+    count(*) AS veces
+FROM order_items oi
+JOIN orders o        ON o.id = oi.order_id
+LEFT JOIN products p ON p.id = oi.product_id
+WHERE o.source = $1::procedencia
+  AND coalesce(p.weight, 0) <= 0
+GROUP BY 1
+ORDER BY veces DESC, nombre ASC
+`
+
+type RenglonesSinPesoPorFuenteRow struct {
+	Nombre string `json:"nombre"`
+	Veces  int64  `json:"veces"`
+}
+
+// Los renglones que el catálogo NO sabe pesar, contados por nombre. Es la lista que hay
+// que llevarle a quien mantiene el catálogo de Ventra: sin ella, `ordersSinPeso` dice que
+// hay un problema pero no dice de qué producto.
+//
+// `(sin nombre)` literal para el renglón con la descripción en blanco: agruparlos bajo la
+// cadena vacía deja una fila sin etiqueta en la pantalla que nadie sabe leer.
+func (q *Queries) RenglonesSinPesoPorFuente(ctx context.Context, source Procedencia) ([]RenglonesSinPesoPorFuenteRow, error) {
+	rows, err := q.db.Query(ctx, renglonesSinPesoPorFuente, source)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RenglonesSinPesoPorFuenteRow
+	for rows.Next() {
+		var i RenglonesSinPesoPorFuenteRow
+		if err := rows.Scan(&i.Nombre, &i.Veces); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const resumenPreDespacho = `-- name: ResumenPreDespacho :many

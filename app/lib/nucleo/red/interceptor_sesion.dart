@@ -1,0 +1,113 @@
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+
+import '../identidad/almacen_sesion.dart';
+import '../identidad/renovador.dart';
+import 'fallos.dart';
+
+/// Pone la sesion en cada peticion y resuelve el 401.
+///
+/// El orden importa: este va PRIMERO, antes que `InterceptorFallos`, porque un
+/// 401 que se pueda arreglar renovando no es un fallo todavia.
+class InterceptorSesion extends Interceptor {
+  InterceptorSesion({
+    required AlmacenDeSesion almacen,
+    required Renovador renovador,
+    required Dio dio,
+    this.sucursalMirada,
+  }) : _almacen = almacen,
+       _renovador = renovador,
+       _dio = dio;
+
+  final AlmacenDeSesion _almacen;
+  final Renovador _renovador;
+
+  /// El mismo Dio al que esta enganchado: hace falta para reenviar la peticion
+  /// despues de renovar.
+  final Dio _dio;
+
+  /// La sucursal que el Super Admin esta mirando. `null` = la suya.
+  final String? Function()? sucursalMirada;
+
+  /// Marca de «esta peticion ya se reintento». Sin ella, un 401 que sigue siendo
+  /// 401 entra en un bucle de renovar-reintentar que no acaba.
+  static const _yaReintentada = 'reparto.reintentada';
+
+  @override
+  Future<void> onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
+    // Web: la sesion la lleva la cookie del login unico de auth. Hace falta que
+    // la aplicacion y la API salgan bajo `*.procovar.cloud` para que valga.
+    if (kIsWeb) options.extra['withCredentials'] = true;
+
+    final sesion = await _almacen.leer();
+    if (sesion != null) {
+      options.headers['Authorization'] = 'Bearer ${sesion.token}';
+    }
+
+    final sucursal = sucursalMirada?.call();
+    if (sucursal != null) options.headers['x-sucursal-id'] = sucursal;
+
+    handler.next(options);
+  }
+
+  @override
+  Future<void> onError(
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
+    final esUn401 = err.response?.statusCode == 401;
+    final yaSeIntento = err.requestOptions.extra[_yaReintentada] == true;
+
+    if (!esUn401 || yaSeIntento) {
+      handler.next(err);
+      return;
+    }
+
+    final sesion = await _almacen.leer();
+    if (sesion == null) {
+      // En web no hay nada que renovar desde aqui: si auth dice 401 con su
+      // cookie, la sesion murio.
+      handler.reject(
+        _comoFallo(err, const SesionMuerta('401 sin sesion que renovar')),
+      );
+      return;
+    }
+
+    try {
+      // UNA renovacion. El candado se encarga de que veinte peticiones que
+      // lleguen aqui a la vez produzcan una sola llamada a `/refresh`.
+      await _renovador.renovar(sesion);
+    } on SesionMuerta catch (muerta) {
+      handler.reject(_comoFallo(err, muerta));
+      return;
+    } on FalloDeRed catch (red) {
+      // No se pudo renovar por la red: esto NO mata la sesion. Se reintenta
+      // luego con los tokens intactos.
+      handler.reject(_comoFallo(err, red));
+      return;
+    }
+
+    // Y se reenvia UNA vez. El `onRequest` de arriba volvera a leer el almacen,
+    // asi que sale con el token nuevo.
+    final opciones = err.requestOptions..extra[_yaReintentada] = true;
+    try {
+      final respuesta = await _dio.fetch<Object?>(opciones);
+      handler.resolve(respuesta);
+    } on DioException catch (segundo) {
+      // Si el segundo tambien es 401, la sesion murio de verdad.
+      if (segundo.response?.statusCode == 401) {
+        handler.reject(
+          _comoFallo(segundo, const SesionMuerta('401 despues de renovar')),
+        );
+        return;
+      }
+      handler.next(segundo);
+    }
+  }
+
+  static DioException _comoFallo(DioException original, FalloApi fallo) =>
+      original.copyWith(error: fallo);
+}

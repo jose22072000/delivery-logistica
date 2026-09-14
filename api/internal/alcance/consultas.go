@@ -21,6 +21,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"procovar/reparto-api/internal/store/sqlc"
 )
@@ -197,4 +198,294 @@ func (a *Acotado) GuardarMoneda(ctx context.Context, arg sqlc.GuardarMonedaParam
 
 func (a *Acotado) DesactivarMoneda(ctx context.Context, code string) (int64, error) {
 	return a.q.DesactivarMoneda(ctx, code)
+}
+
+// ---------------------------------------------------------------------------
+// Pedidos
+// ---------------------------------------------------------------------------
+//
+// Todas llevan `a.sucursalPg()` puesto AQUÍ y ninguna acepta la sucursal como argumento.
+// Es la regla del fichero, y en pedidos es la que más pesa: los 3.528 pedidos importados
+// de delivery quedaron a nombre de quien los dio de alta, y por eso Holguín no veía lo de
+// Holguín. El único campo que decide es `branch_id`, y lo rellena este fichero.
+
+func (a *Acotado) ListarPedidos(ctx context.Context, arg sqlc.ListarPedidosParams) ([]sqlc.ListarPedidosRow, error) {
+	arg.Sucursal = a.sucursalPg()
+	return a.q.ListarPedidos(ctx, arg)
+}
+
+// ContarPedidos va con los MISMOS filtros que ListarPedidos. Si alguna vez se llaman con
+// argumentos distintos, el contador dice una cosa y la tabla otra, y nadie sabe cuál
+// creerse: pasó con el «358» sobre una tabla vacía.
+func (a *Acotado) ContarPedidos(ctx context.Context, arg sqlc.ContarPedidosParams) (int64, error) {
+	arg.Sucursal = a.sucursalPg()
+	return a.q.ContarPedidos(ctx, arg)
+}
+
+func (a *Acotado) ListarPedidosDisponibles(ctx context.Context, arg sqlc.ListarPedidosDisponiblesParams) ([]sqlc.ListarPedidosDisponiblesRow, error) {
+	arg.Sucursal = a.sucursalPg()
+	return a.q.ListarPedidosDisponibles(ctx, arg)
+}
+
+func (a *Acotado) ContarPedidosDisponibles(ctx context.Context, arg sqlc.ContarPedidosDisponiblesParams) (int64, error) {
+	arg.Sucursal = a.sucursalPg()
+	return a.q.ContarPedidosDisponibles(ctx, arg)
+}
+
+func (a *Acotado) ObtenerPedido(ctx context.Context, id uuid.UUID) (sqlc.ObtenerPedidoRow, error) {
+	return a.q.ObtenerPedido(ctx, sqlc.ObtenerPedidoParams{ID: id, Sucursal: a.sucursalPg()})
+}
+
+func (a *Acotado) ActualizarPedido(ctx context.Context, arg sqlc.ActualizarPedidoParams) (sqlc.ActualizarPedidoRow, error) {
+	arg.Sucursal = a.sucursalPg()
+	return a.q.ActualizarPedido(ctx, arg)
+}
+
+func (a *Acotado) BorrarPedido(ctx context.Context, id uuid.UUID) (int64, error) {
+	return a.q.BorrarPedido(ctx, sqlc.BorrarPedidoParams{ID: id, Sucursal: a.sucursalPg()})
+}
+
+// Los renglones también van acotados aunque el id del pedido salga de una consulta que ya
+// lo estaba: el id llega de fuera en `/api/orders/{id}`, y sin este filtro bastaría con
+// acertar un uuid para leer qué mercancía lleva un cliente de otra sucursal.
+func (a *Acotado) ListarRenglonesDePedido(ctx context.Context, pedido uuid.UUID) ([]sqlc.ListarRenglonesDePedidoRow, error) {
+	return a.q.ListarRenglonesDePedido(ctx, sqlc.ListarRenglonesDePedidoParams{
+		PedidoID: pedido,
+		Sucursal: a.sucursalPg(),
+	})
+}
+
+func (a *Acotado) ListarRenglonesDePedidos(ctx context.Context, pedidos []uuid.UUID) ([]sqlc.ListarRenglonesDePedidosRow, error) {
+	return a.q.ListarRenglonesDePedidos(ctx, sqlc.ListarRenglonesDePedidosParams{
+		PedidoIds: pedidos,
+		Sucursal:  a.sucursalPg(),
+	})
+}
+
+func (a *Acotado) ResumenPreDespacho(ctx context.Context, pedidos []uuid.UUID) ([]sqlc.ResumenPreDespachoRow, error) {
+	return a.q.ResumenPreDespacho(ctx, sqlc.ResumenPreDespachoParams{
+		PedidoIds: pedidos,
+		Sucursal:  a.sucursalPg(),
+	})
+}
+
+// Las facetas llenan los desplegables del catálogo, así que se acotan igual que la lista:
+// ofrecer un municipio o un vendedor de otra sucursal ya cuenta lo que hay allí, aunque
+// al elegirlo no salga ni un pedido.
+func (a *Acotado) FacetasMunicipios(ctx context.Context) ([]sqlc.FacetasMunicipiosRow, error) {
+	return a.q.FacetasMunicipios(ctx, a.sucursalPg())
+}
+
+func (a *Acotado) FacetasVendedores(ctx context.Context) ([]sqlc.FacetasVendedoresRow, error) {
+	return a.q.FacetasVendedores(ctx, a.sucursalPg())
+}
+
+func (a *Acotado) FacetasSucursales(ctx context.Context) ([]sqlc.FacetasSucursalesRow, error) {
+	return a.q.FacetasSucursales(ctx, a.sucursalPg())
+}
+
+// --- El repaso de pesos: SIN alcance, y aquí está el porqué -----------------
+//
+// `POST /api/orders/recompute-weights` entra con clave de servicio y no con una persona:
+// es una faena de mantenimiento sobre el espejo ENTERO, las ocho sucursales de una vez.
+// Acotarla por sucursal dejaría a siete con el peso viejo y sin una sola traza que lo
+// dijera. El universo lo decide `source`, no `branch_id`, y por eso estas tres no llevan
+// `a.sucursalPg()`.
+
+func (a *Acotado) PesosDelCatalogoPorFuente(ctx context.Context, fuente sqlc.Procedencia) ([]sqlc.PesosDelCatalogoPorFuenteRow, error) {
+	return a.q.PesosDelCatalogoPorFuente(ctx, fuente)
+}
+
+func (a *Acotado) RenglonesSinPesoPorFuente(ctx context.Context, fuente sqlc.Procedencia) ([]sqlc.RenglonesSinPesoPorFuenteRow, error) {
+	return a.q.RenglonesSinPesoPorFuente(ctx, fuente)
+}
+
+func (a *Acotado) ActualizarPesoDePedido(ctx context.Context, arg sqlc.ActualizarPesoDePedidoParams) error {
+	return a.q.ActualizarPesoDePedido(ctx, arg)
+}
+
+// ---------------------------------------------------------------------------
+// Clientes
+// ---------------------------------------------------------------------------
+//
+// AQUÍ EL ALCANCE VA POR CÓDIGO, NO POR uuid. `customers` no tiene `branch_id`: tiene
+// `sucursal_codigo`, que es el código de Ventra (CAM, HAB, STG...). La traducción la hace
+// `Codigo()`, que la Porteria rellenó al resolver la sucursal.
+//
+// Y si la sucursal del alcance NO tiene `external_id`, `Codigo()` es nil y se pasa NULL,
+// que es lo correcto: meter el uuid donde va un código no da error, DA CERO CLIENTES. Un
+// 200 con la lista vacía es indistinguible de «esta sucursal todavía no tiene nadie».
+
+func (a *Acotado) ListarClientes(ctx context.Context, arg sqlc.ListarClientesParams) ([]sqlc.ListarClientesRow, error) {
+	arg.SucursalDelAlcance = a.Codigo()
+	return a.q.ListarClientes(ctx, arg)
+}
+
+// ContarClientes usa el MISMO where que la lista. Es el `total` de la respuesta y se
+// cuenta antes del filtro de distancia exacto, así que puede ser mayor que `count`.
+func (a *Acotado) ContarClientes(ctx context.Context, arg sqlc.ContarClientesParams) (int64, error) {
+	arg.SucursalDelAlcance = a.Codigo()
+	return a.q.ContarClientes(ctx, arg)
+}
+
+// Las facetas van con el alcance y SIN los filtros de búsqueda: los desplegables tienen
+// que seguir ofreciendo a dónde ir después de filtrar.
+func (a *Acotado) FacetasClientesMunicipios(ctx context.Context) ([]sqlc.FacetasClientesMunicipiosRow, error) {
+	return a.q.FacetasClientesMunicipios(ctx, a.Codigo())
+}
+
+func (a *Acotado) FacetasClientesZonas(ctx context.Context) ([]sqlc.FacetasClientesZonasRow, error) {
+	return a.q.FacetasClientesZonas(ctx, a.Codigo())
+}
+
+func (a *Acotado) FacetasClientesVendedores(ctx context.Context) ([]sqlc.FacetasClientesVendedoresRow, error) {
+	return a.q.FacetasClientesVendedores(ctx, a.Codigo())
+}
+
+func (a *Acotado) FacetasClientesSucursales(ctx context.Context) ([]sqlc.FacetasClientesSucursalesRow, error) {
+	return a.q.FacetasClientesSucursales(ctx, a.Codigo())
+}
+
+func (a *Acotado) ContarClientesSinTelefono(ctx context.Context) (int64, error) {
+	return a.q.ContarClientesSinTelefono(ctx, a.Codigo())
+}
+
+// ---------------------------------------------------------------------------
+// Productos (catálogo)
+// ---------------------------------------------------------------------------
+//
+// El catálogo TAMBIÉN se acota por código, y aquí importa más que en ningún otro sitio:
+// el PRECIO y las EXISTENCIAS de un producto son de su sucursal. Enseñar el catálogo de
+// otra no es sólo ver de más, es cotizar con un precio que allí no se cobra.
+
+// codigoAcotado decide entre el código del alcance y el que pidieron en la query.
+//
+// MANDA EL DEL ALCANCE. El de la query sólo sirve cuando no hay alcance —el Super Admin
+// mirando «todas», que arma un pedido para una sucursal concreta—. Al revés, un operador
+// de Santiago vería el catálogo de La Habana escribiendo `?sucursal=HAB` en la barra del
+// navegador, que es la misma línea que en delivery dejaba pasar: allí el parámetro tenía
+// prioridad SOBRE el alcance.
+func (a *Acotado) codigoAcotado(pedido *string) *string {
+	if a.codigo != nil {
+		return a.codigo
+	}
+	return pedido
+}
+
+func (a *Acotado) ListarProductos(ctx context.Context, arg sqlc.ListarProductosParams) ([]sqlc.Product, error) {
+	arg.Sucursal = a.codigoAcotado(arg.Sucursal)
+	return a.q.ListarProductos(ctx, arg)
+}
+
+// ObtenerProductoDelAlcance es la del GET de la ficha: acotada por código.
+func (a *Acotado) ObtenerProductoDelAlcance(ctx context.Context, id uuid.UUID, pedido *string) (sqlc.Product, error) {
+	return a.q.ObtenerProductoDelAlcance(ctx, sqlc.ObtenerProductoDelAlcanceParams{
+		ID: id, Sucursal: a.codigoAcotado(pedido),
+	})
+}
+
+// UsoDeProductos cuenta sobre los pedidos DEL ALCANCE, y ésos sí van por `branch_id`:
+// `orders` tiene la columna. «Lo más movido» tiene que significar algo en la sucursal de
+// quien mira, no en la empresa entera.
+func (a *Acotado) UsoDeProductos(ctx context.Context, recientes int32) ([]sqlc.UsoDeProductosRow, error) {
+	return a.q.UsoDeProductos(ctx, sqlc.UsoDeProductosParams{
+		Sucursal: a.sucursalPg(), PedidosRecientes: recientes,
+	})
+}
+
+// ObtenerProducto, ActualizarProducto y BorrarProducto van SIN ALCANCE, y está decidido:
+// son las correcciones a mano del catálogo, que es de toda la empresa —una fila tocada
+// aquí la ven las ocho sucursales—. La puerta no es la sucursal sino el ROL: sólo el
+// Super Admin, y eso lo comprueba el manejador con el literal del contrato.
+func (a *Acotado) ObtenerProducto(ctx context.Context, id uuid.UUID) (sqlc.Product, error) {
+	return a.q.ObtenerProducto(ctx, id)
+}
+
+func (a *Acotado) ActualizarProducto(ctx context.Context, arg sqlc.ActualizarProductoParams) (sqlc.ActualizarProductoRow, error) {
+	return a.q.ActualizarProducto(ctx, arg)
+}
+
+func (a *Acotado) BorrarProducto(ctx context.Context, id uuid.UUID) (int64, error) {
+	return a.q.BorrarProducto(ctx, id)
+}
+
+// ---------------------------------------------------------------------------
+// Puntos de partida guardados (/api/origins)
+// ---------------------------------------------------------------------------
+
+// ListarOrigenes: con alcance, los de esa sucursal; sin alcance, los de la que se pida
+// por query, o todos. El `pedida` NO puede ampliar el alcance — por eso se mira primero
+// el del alcance y sólo después el de fuera.
+func (a *Acotado) ListarOrigenes(ctx context.Context, pedida *uuid.UUID) ([]sqlc.ListarOrigenesRow, error) {
+	if a.sucursal != nil {
+		return a.q.ListarOrigenes(ctx, a.sucursalPg())
+	}
+	return a.q.ListarOrigenes(ctx, aPg(pedida))
+}
+
+func (a *Acotado) ActualizarOrigen(ctx context.Context, arg sqlc.ActualizarOrigenParams) (sqlc.SavedOrigin, error) {
+	arg.Sucursal = a.sucursalPg()
+	return a.q.ActualizarOrigen(ctx, arg)
+}
+
+func (a *Acotado) BorrarOrigen(ctx context.Context, id uuid.UUID) (int64, error) {
+	return a.q.BorrarOrigen(ctx, sqlc.BorrarOrigenParams{ID: id, Sucursal: a.sucursalPg()})
+}
+
+// ---------------------------------------------------------------------------
+// Almacenes (/api/almacenes)
+// ---------------------------------------------------------------------------
+
+// CodigosDeSucursalesVisibles es lo ÚNICO que pone esta base en `/api/almacenes`: los
+// almacenes viven en Accesos y no se copian aquí. Accesos devuelve las ocho sucursales
+// porque no sabe nada de nuestro alcance; con esta lista se descartan las que no tocan.
+func (a *Acotado) CodigosDeSucursalesVisibles(ctx context.Context) ([]sqlc.CodigosDeSucursalesVisiblesRow, error) {
+	return a.q.CodigosDeSucursalesVisibles(ctx, a.sucursalPg())
+}
+
+// ---------------------------------------------------------------------------
+// Panel e informes  (/api/dashboard, /api/reports)
+// ---------------------------------------------------------------------------
+//
+// AQUÍ ESTABA EL FALLO DE DELIVERY. El panel contaba «los pedidos de la cuenta que mira» y
+// no los de la SUCURSAL: como las ocho sucursales las dio de alta el Super Admin, los 3.528
+// pedidos importados quedaron a su nombre y el logístico de Holguín veía ceros con un 200.
+// Las seis consultas de abajo se acotan con `a.sucursalPg()` y con nada más — ni actor, ni
+// creador, ni «quién lo importó».
+
+// PanelResumen: los cinco números que salen de `orders` en una sola consulta. `hoy` lo
+// calcula quien atiende la petición, no Postgres: la hora local del motor no tiene por qué
+// ser la del proceso, y «entregados hoy» arrancaría a las siete de la tarde de ayer.
+func (a *Acotado) PanelResumen(ctx context.Context, hoy pgtype.Timestamptz) (sqlc.PanelResumenRow, error) {
+	return a.q.PanelResumen(ctx, sqlc.PanelResumenParams{Hoy: hoy, Sucursal: a.sucursalPg()})
+}
+
+// PanelPorSucursal: el desglose de lo repartible. Con alcance sale una sola fila —la
+// propia—, que es justo lo correcto; sin alcance salen las ocho.
+func (a *Acotado) PanelPorSucursal(ctx context.Context) ([]sqlc.PanelPorSucursalRow, error) {
+	return a.q.PanelPorSucursal(ctx, a.sucursalPg())
+}
+
+func (a *Acotado) ContarRutasActivas(ctx context.Context) (int64, error) {
+	return a.q.ContarRutasActivas(ctx, a.sucursalPg())
+}
+
+// ContarVehiculos y ContarVehiculosEnRuta se acotan como se LISTAN los vehículos (ver
+// `db/queries/vehicles.sql`): los de la sucursal más los de `branch_id` NULL, que son los
+// compartidos. Contarlos de otra forma daría una tarjeta que dice «3 vehículos» encima de
+// una lista de cuatro.
+func (a *Acotado) ContarVehiculos(ctx context.Context) (int64, error) {
+	return a.q.ContarVehiculos(ctx, a.sucursalPg())
+}
+
+func (a *Acotado) ContarVehiculosEnRuta(ctx context.Context) (int64, error) {
+	return a.q.ContarVehiculosEnRuta(ctx, a.sucursalPg())
+}
+
+// ListarPedidosParaInforme: el detalle del informe. El filtro de vehículo y el de fechas
+// llegan del manejador; la sucursal NO, se pisa aquí. Un informe es un fichero que sale de
+// la casa: si el alcance se pudiera pasar desde fuera, bastaría con no mandarlo.
+func (a *Acotado) ListarPedidosParaInforme(ctx context.Context, arg sqlc.ListarPedidosParaInformeParams) ([]sqlc.ListarPedidosParaInformeRow, error) {
+	arg.Sucursal = a.sucursalPg()
+	return a.q.ListarPedidosParaInforme(ctx, arg)
 }

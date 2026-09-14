@@ -106,6 +106,41 @@ WHERE o.ultima_ruta_id = sqlc.arg('ruta_id')
   AND (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid)
 ORDER BY o.stop_order ASC NULLS LAST, oi.linea ASC;
 
+-- Las paradas de VARIAS rutas de una vez, para el tablero.
+--
+-- Existe para no repetir `ListarParadasDeRuta` una vez por ruta: el tablero sale sin
+-- filtro de fecha y con un año de trabajo son cientos de rutas, o sea cientos de idas y
+-- vueltas a la base para pintar UNA pantalla. Con un array de ids son tres consultas
+-- fijas: las rutas, sus paradas y sus renglones.
+--
+-- Va por `route_id` —lo que el camión lleva cargado— igual que la de una sola.
+-- name: ListarParadasDeRutas :many
+SELECT
+    o.route_id, o.id, o.operation_number, o.customer_name, o.customer_phone, o.address,
+    o.end_address, o.end_lat, o.end_lng, o.lat, o.lng, o.status, o.weight,
+    o.price, o.segment_km, o.stop_order, o.trip_leg, o.resultado,
+    o.resultado_at, o.resultado_nota, o.delivered_at, o.municipio,
+    o.pedido_costo, o.external_id, o.source, o.branch_id
+FROM orders o
+WHERE o.route_id = ANY(sqlc.arg('ruta_ids')::uuid[])
+  AND (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid)
+ORDER BY o.stop_order ASC NULLS LAST, o.created_at ASC;
+
+-- Los renglones de las paradas de VARIAS rutas, de una vez.
+--
+-- Por `route_id` y no por `ultima_ruta_id` a propósito: éstos son los renglones de lo que
+-- va EN el camión, que es lo que acompaña a cada parada de la lista. Los de lo que ya se
+-- bajó (un devuelto que soltó su `route_id`) son otra pregunta y los trae
+-- `ListarRenglonesDeRuta`, que es la del post-despacho.
+-- name: ListarRenglonesDeRutas :many
+SELECT
+    o.route_id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs, oi.product_id
+FROM order_items oi
+JOIN orders o ON o.id = oi.order_id
+WHERE o.route_id = ANY(sqlc.arg('ruta_ids')::uuid[])
+  AND (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid)
+ORDER BY o.stop_order ASC NULLS LAST, oi.linea ASC;
+
 -- ---------------------------------------------------------------------------
 -- Armado de ruta  (POST /api/routes)
 -- ---------------------------------------------------------------------------
