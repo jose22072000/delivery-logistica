@@ -1601,3 +1601,64 @@ func TestLasSeisRutasExigenSesion(t *testing.T) {
 		}
 	}
 }
+
+// --- La guarda del domicilio sin calcular -----------------------------------
+//
+// Delivery no calcula nada: sólo reparte lo que Entrega ya cobró. Un pedido con
+// domicilio y sin costo entraría valiendo CERO por el `|| 0` del armador, y el total de
+// la ruta saldría más bajo sin que nadie se entere. Por eso no sube al camión.
+
+func filaParaGuarda(nombre string, costo *float64, requiere *bool, facturaDom *float64) sqlc.PedidosParaArmarRutaRow {
+	return sqlc.PedidosParaArmarRutaRow{
+		CustomerName:      nombre,
+		PedidoCosto:       costo,
+		RequiereDomicilio: requiere,
+		FacturaDomicilio:  facturaDom,
+	}
+}
+
+func TestDomicilioSinCalcularNoSubeAlCamion(t *testing.T) {
+	si, no := true, false
+	precio := 12.5
+	cobrado := 9.0
+
+	casos := []struct {
+		nombre string
+		fila   sqlc.PedidosParaArmarRutaRow
+		pasa   bool
+	}{
+		{"con domicilio marcado y calculado", filaParaGuarda("A", &precio, &si, nil), true},
+		{"con domicilio marcado y SIN calcular", filaParaGuarda("B", nil, &si, nil), false},
+		{"cobrado en factura y SIN calcular", filaParaGuarda("C", nil, nil, &cobrado), false},
+		{"cobrado en factura y calculado", filaParaGuarda("D", &precio, nil, &cobrado), true},
+		{"sin domicilio y sin costo: se recoge en el almacén", filaParaGuarda("E", nil, &no, nil), true},
+		{"sin señal ninguna: no lleva domicilio", filaParaGuarda("F", nil, nil, nil), true},
+	}
+
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			msg := mensajeSinCalcular([]sqlc.PedidosParaArmarRutaRow{c.fila})
+			if c.pasa && msg != "" {
+				t.Fatalf("debería pasar y se rechazó: %q", msg)
+			}
+			if !c.pasa && msg == "" {
+				t.Fatal("debería rechazarse y pasó: entraría en la ruta valiendo cero")
+			}
+		})
+	}
+}
+
+func TestLaGuardaDiceCualesYCuantos(t *testing.T) {
+	si := true
+	var malos []sqlc.PedidosParaArmarRutaRow
+	for _, n := range []string{"A", "B", "C", "D", "E", "F", "G"} {
+		malos = append(malos, filaParaGuarda(n, nil, &si, nil))
+	}
+	msg := mensajeSinCalcular(malos)
+	if !strings.Contains(msg, "7 pedidos") {
+		t.Fatalf("tiene que decir cuántos son: %q", msg)
+	}
+	if !strings.Contains(msg, "y 2 más.") {
+		t.Fatalf("nombra cinco y cuenta el resto: %q", msg)
+	}
+}

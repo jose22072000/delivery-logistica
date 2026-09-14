@@ -19,7 +19,11 @@ android {
         applicationId = "cloud.procovar.reparto"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // 23 fijo, no `flutter.minSdkVersion`: lo pide `sqlite3_flutter_libs`,
+        // que es quien mete SQLite dentro del APK. Sin esto la base local no
+        // abre en los aparatos viejos y no hay aviso hasta que alguien lo
+        // instala.
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)

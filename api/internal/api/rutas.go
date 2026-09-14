@@ -457,6 +457,16 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// --- Y que el domicilio esté calculado ---------------------------------
+	//
+	// Va DESPUÉS del cotejo de factura a propósito: si un pedido falla las dos cosas, lo
+	// primero que hay que arreglar es la factura, y decir las dos a la vez es dar trabajo
+	// que quizá no haga falta.
+	if mensaje := mensajeSinCalcular(pedidos); mensaje != "" {
+		httpx.Error(w, r, http.StatusConflict, mensaje)
+		return
+	}
+
 	// --- Capacidad por peso ------------------------------------------------
 	var pesoTotal, precioTotal float64
 	for _, p := range pedidos {
@@ -1115,6 +1125,66 @@ func mensajeNoFacturados(pedidos []sqlc.PedidosParaArmarRutaRow) string {
 		detalle = append(detalle, fmt.Sprintf("%s (%s)", quien, motivoDeFactura(p.FacturaEstado)))
 	}
 	mensaje := fmt.Sprintf("En una ruta sólo entra lo facturado y que cuadre. %d no cumplen: %s",
+		len(malos), strings.Join(detalle, ", "))
+	if len(malos) > 5 {
+		return mensaje + fmt.Sprintf(" y %d más.", len(malos)-5)
+	}
+	return mensaje + "."
+}
+
+// llevaDomicilio dice si este pedido va a casa del cliente.
+//
+// Se miran las DOS señales. `requiere_domicilio` es la casilla que alguien marcó al tomar
+// el pedido; `factura_domicilio` es lo que se cobró en el mostrador, que es más fiable
+// porque ya pasó por caja. Con una sola se escapan casos por los dos lados.
+func llevaDomicilio(p sqlc.PedidosParaArmarRutaRow) bool {
+	if p.FacturaDomicilio != nil {
+		return true
+	}
+	return p.RequiereDomicilio != nil && *p.RequiereDomicilio
+}
+
+// mensajeSinCalcular arma el 409 de «este pedido no tiene su domicilio calculado», o "".
+//
+// # Por qué esto es una guarda y no un filtro opcional
+//
+// Delivery NO CALCULA NADA. Sólo pone en ruta pedidos que ya vienen con su domicilio
+// puesto por la APK de Entrega, que es quien lo cobra. El armador se limita a sumar:
+//
+//	price: pedido_costo || 0
+//
+// Y ahí está el problema de ese `|| 0`. Un pedido con domicilio y sin calcular no revienta
+// nada: entra en la ruta valiendo CERO, el total de la ruta sale más bajo de lo que es, y
+// nadie se entera hasta que no cuadra la caja. Es de la misma familia que todo lo que ya
+// ha costado semanas: no da error, da un número distinto.
+//
+// En la lista de disponibles «cotizado» es un filtro que el logístico marca si quiere.
+// Aquí no puede serlo: si tiene domicilio y no tiene costo, no sube al camión.
+//
+// El que NO lleva domicilio se deja pasar sin costo, que es lo correcto: se recoge en el
+// almacén y no se le cobra reparto.
+func mensajeSinCalcular(pedidos []sqlc.PedidosParaArmarRutaRow) string {
+	var malos []sqlc.PedidosParaArmarRutaRow
+	for _, p := range pedidos {
+		if llevaDomicilio(p) && p.PedidoCosto == nil {
+			malos = append(malos, p)
+		}
+	}
+	if len(malos) == 0 {
+		return ""
+	}
+	detalle := make([]string, 0, 5)
+	for _, p := range malos {
+		if len(detalle) == 5 {
+			break
+		}
+		quien := p.CustomerName
+		if p.OperationNumber != nil && *p.OperationNumber != "" {
+			quien = *p.OperationNumber
+		}
+		detalle = append(detalle, quien)
+	}
+	mensaje := fmt.Sprintf("%d pedidos llevan domicilio y todavía no tienen el costo puesto en Entrega: %s",
 		len(malos), strings.Join(detalle, ", "))
 	if len(malos) > 5 {
 		return mensaje + fmt.Sprintf(" y %d más.", len(malos)-5)

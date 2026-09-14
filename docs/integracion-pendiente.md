@@ -62,15 +62,41 @@ bajarlas a campos:
       y no como patrón propio: con los dos registrados, el proceso se cae al arrancar. La
       URL del contrato queda intacta.
 
+## La regla de Jose, 14/09/2026 — y lo que se cerró con ella
+
+> «Delivery no se encarga de calcular nada. Él sólo pone en ruta los pedidos —o pedidos
+> cambiados por factura— que tengan domicilio y estén calculados.»
+> «El lat siempre lo va a traer, eso viene siempre en el pedido: si no, no se podría montar
+> en el camión porque no hay cómo localizarlo.»
+
+Lo que ya era así: el armador **no calcula**, suma `pedido_costo`, que lo puso la APK de
+Entrega.
+
+Lo que NO era así y se arregló: ese `price: pedido_costo || 0`. Un pedido con domicilio y
+sin calcular no reventaba nada — entraba en la ruta **valiendo cero**, el total de la ruta
+salía más bajo y nadie se enteraba hasta cuadrar la caja. En la lista de disponibles
+«cotizado» es un filtro que el logístico marca si quiere; **al armar no puede serlo**.
+
+Ahora hay guarda (`mensajeSinCalcular` en `rutas.go`), con 409 que dice cuáles y cuántos, y
+que mira **las dos señales** de domicilio: `requiere_domicilio` (la casilla que alguien
+marcó) y `factura_domicilio` (lo que se cobró en el mostrador, que es la fiable). Con una
+sola se escapan casos por los dos lados. El que no lleva domicilio pasa sin costo, que es
+lo correcto: se recoge en el almacén.
+
 ## Rarezas de la cotización — heredadas, conservadas a propósito
 
 Todas están implementadas **igual que en Next**, porque el criterio es dar el mismo número.
 Pero son decisiones de negocio, no técnicas, y alguien tiene que mirarlas:
 
-- [ ] **Un `{"lat": null}` cotiza desde la latitud 0** — el golfo de Guinea. En JavaScript
-      `Number(null)` es `0` y pasa la validación de «no finito». Si tiene que dar 400, es
-      un `if` y no cambia el importe de nadie.
-- [ ] **0 km o 0 kg dan `usd: 0`, no vacío.** Es lo que dice la regla §7 y tiene sentido,
+- [x] ~~Un `{"lat": null}` cotiza desde la latitud 0~~ — **resuelto por Jose el 14/09/2026:
+      las coordenadas vienen SIEMPRE con el pedido**, porque sin ellas no hay manera de
+      localizar al cliente y el pedido no se podría montar en el camión. El armador ya lo
+      exige (`end_lat IS NOT NULL`), así que el caso no se da por esa puerta.
+- [x] ~~0 km o 0 kg dan `usd: 0`~~ — **cerrado por otra vía.** Ver «La regla de Jose» abajo:
+      un pedido con domicilio y sin calcular ya no entra en la ruta, así que el `|| 0` del
+      armador no puede cobrar cero sin que nadie se entere.
+
+- [ ] (queda la nota original) **0 km o 0 kg dan `usd: 0`, no vacío.** Es lo que dice la regla §7 y tiene sentido,
       pero **es la única puerta por la que un domicilio sale gratis**: si un pedido entra
       con peso 0 por falta de dato y alguien cotiza igual, se cobra cero. Hoy lo tapa el
       400 de `pesoKg > 0` en `home-delivery`, y el lote no cotiza, así que no está expuesto.

@@ -1148,7 +1148,14 @@ const pedidosParaArmarRuta = `-- name: PedidosParaArmarRuta :many
 
 SELECT
     o.id, o.operation_number, o.customer_name, o.end_lat, o.end_lng,
-    o.weight, o.pedido_costo, o.factura_estado, o.branch_id, o.external_id, o.source
+    o.weight, o.pedido_costo, o.factura_estado, o.branch_id, o.external_id, o.source,
+    -- Las dos señales de que el pedido VA A DOMICILIO, y hacen falta las dos.
+    --
+    -- ` + "`" + `requiere_domicilio` + "`" + ` es una casilla que se marca al tomar el pedido;
+    -- ` + "`" + `factura_domicilio` + "`" + ` es lo que se cobró de verdad en el mostrador, y por eso es la
+    -- más fiable de las dos. Con una sola se escapan casos por los dos lados: pedidos que
+    -- se marcaron y no se cobraron, y pedidos que se cobraron sin marcar.
+    o.requiere_domicilio, o.factura_domicilio
 FROM orders o
 WHERE o.id = ANY($1::uuid[])
   AND o.source = 'pedido'
@@ -1165,17 +1172,19 @@ type PedidosParaArmarRutaParams struct {
 }
 
 type PedidosParaArmarRutaRow struct {
-	ID              uuid.UUID      `json:"id"`
-	OperationNumber *string        `json:"operation_number"`
-	CustomerName    string         `json:"customer_name"`
-	EndLat          *float64       `json:"end_lat"`
-	EndLng          *float64       `json:"end_lng"`
-	Weight          float64        `json:"weight"`
-	PedidoCosto     *float64       `json:"pedido_costo"`
-	FacturaEstado   *FacturaEstado `json:"factura_estado"`
-	BranchID        pgtype.UUID    `json:"branch_id"`
-	ExternalID      *string        `json:"external_id"`
-	Source          *Procedencia   `json:"source"`
+	ID                uuid.UUID      `json:"id"`
+	OperationNumber   *string        `json:"operation_number"`
+	CustomerName      string         `json:"customer_name"`
+	EndLat            *float64       `json:"end_lat"`
+	EndLng            *float64       `json:"end_lng"`
+	Weight            float64        `json:"weight"`
+	PedidoCosto       *float64       `json:"pedido_costo"`
+	FacturaEstado     *FacturaEstado `json:"factura_estado"`
+	BranchID          pgtype.UUID    `json:"branch_id"`
+	ExternalID        *string        `json:"external_id"`
+	Source            *Procedencia   `json:"source"`
+	RequiereDomicilio *bool          `json:"requiere_domicilio"`
+	FacturaDomicilio  *float64       `json:"factura_domicilio"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1214,6 +1223,8 @@ func (q *Queries) PedidosParaArmarRuta(ctx context.Context, arg PedidosParaArmar
 			&i.BranchID,
 			&i.ExternalID,
 			&i.Source,
+			&i.RequiereDomicilio,
+			&i.FacturaDomicilio,
 		); err != nil {
 			return nil, err
 		}
