@@ -777,10 +777,11 @@ func (s *Servidor) cotizarLote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if salida.Persisted > 0 {
-		// En la de Next aquí va `avisarCambio('pedidos', …)`, que invalida las pantallas
-		// por SSE. Ese canal todavía no existe en este servicio; queda la línea de
-		// registro para que se vea cuándo habría tocado avisar.
-		httpx.Registro(r).Info("el espejo escribió pedidos", "pedidos", salida.Persisted)
+		// El aviso a las pantallas va FUERA de toda escritura y sin mirar lo que devuelve:
+		// un aviso perdido no puede tumbar una importación de mil pedidos. Y no lleva los
+		// datos dentro —dice «los pedidos cambiaron», no cuáles—, así que quien lo reciba
+		// volverá a pedir la lista y ESA sí va acotada por sucursal.
+		s.AvisarCambio(CambioPedidos, map[string]any{"pedidos": salida.Persisted})
 	}
 	httpx.JSON(w, r, http.StatusOK, salida)
 }

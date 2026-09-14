@@ -30,6 +30,14 @@ porque tocaba fichero de otro. **Ninguna de estas es opcional.**
       `internal/alcance/tablero.go` con los de `consultas.go`. Se les puso prefijo para no
       chocar mientras se escribía en paralelo.
 
+## Variables de paquete que deberían ser campos del Servidor
+
+Se pusieron así porque `servidor.go` estaba ocupado por otro. Al integrarlas hay que
+bajarlas a campos:
+
+- [ ] `api.Ventra` (el lector de Ventra, en `espejo.go`).
+- [ ] `api.Accesos` (el cliente de Accesos con firma HMAC, en `almacenes.go`).
+
 ## Configuración
 
 - [ ] **Subir a `config.Cargar` y a `.env.example`** las variables que hoy se leen con
@@ -53,6 +61,19 @@ porque tocaba fichero de otro. **Ninguna de estas es opcional.**
 - [ ] `PUT /api/board/columns/orden` **se reparte dentro de** `PUT /api/board/columns/{id}`
       y no como patrón propio: con los dos registrados, el proceso se cae al arrancar. La
       URL del contrato queda intacta.
+
+## Hallazgos sobre delivery, el que está EN PRODUCCIÓN
+
+No son tareas de este proyecto, pero conviene saberlos:
+
+- **`?sucursal=` se saltaba el alcance en el catálogo.** En delivery ese parámetro tenía
+  prioridad, así que un operador de Santiago veía el catálogo Y LOS PRECIOS de La Habana
+  escribiéndolo en la barra del navegador. En la API nueva sólo vale cuando no hay alcance
+  (Super Admin); la decisión vive en `alcance.codigoAcotado` y hay prueba de que el precio
+  que llega es el de la sucursal propia.
+- **`Settings.tiposVehiculo` nunca existió en el esquema** (ver `esquema-cambios.md`): la
+  pantalla de vehículos creaba tipos, los mandaba a guardar y se perdían sin un error.
+- **El panel contaba «los pedidos de la cuenta que mira»**, no los de la sucursal.
 
 ## Ya cerrado
 

@@ -1,0 +1,77 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
+
+/// Una peticion que llego al servidor falso.
+class PeticionVista {
+  PeticionVista(this.metodo, this.ruta, this.cabeceras, this.cuerpo);
+
+  final String metodo;
+  final String ruta;
+  final Map<String, Object?> cabeceras;
+  final Object? cuerpo;
+
+  @override
+  String toString() => '$metodo $ruta';
+}
+
+/// Lo que el servidor falso contesta.
+class RespuestaFalsa {
+  RespuestaFalsa(this.codigo, [this.cuerpo]);
+
+  final int codigo;
+  final Object? cuerpo;
+}
+
+/// El servidor falso.
+///
+/// Escrito a mano y no con un ayudante generico a proposito: lo que estas
+/// pruebas comprueban no es el cuerpo de la respuesta, es **CUANTAS VECES se
+/// pidio `/refresh`**. Eso hace falta contarlo, y contarlo aqui.
+class ServidorFalso implements HttpClientAdapter {
+  ServidorFalso(this.responder);
+
+  /// `null` para que la peticion falle como si no hubiera red.
+  final Future<RespuestaFalsa?> Function(PeticionVista) responder;
+
+  final List<PeticionVista> vistas = <PeticionVista>[];
+
+  int cuantas(String metodo, String ruta) => vistas
+      .where((p) => p.metodo == metodo && p.ruta.endsWith(ruta))
+      .length;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions opciones,
+    Stream<Uint8List>? cuerpoStream,
+    Future<void>? cancelar,
+  ) async {
+    final peticion = PeticionVista(
+      opciones.method,
+      opciones.path,
+      Map<String, Object?>.from(opciones.headers),
+      opciones.data,
+    );
+    vistas.add(peticion);
+
+    final respuesta = await responder(peticion);
+    if (respuesta == null) {
+      throw DioException.connectionError(
+        requestOptions: opciones,
+        reason: 'sin red (servidor falso)',
+      );
+    }
+
+    return ResponseBody.fromString(
+      jsonEncode(respuesta.cuerpo ?? const <String, Object?>{}),
+      respuesta.codigo,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}

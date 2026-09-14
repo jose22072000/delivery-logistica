@@ -906,7 +906,9 @@ func TestArmarRutaValidaEnElOrdenDelPliego(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("el origen (0,0) tiene que valer: %d %s", w.Code, w.Body.String())
 	}
-	_ = d
+	if d.pedidos[stg[0]].rutaID == nil {
+		t.Fatal("el pedido no quedó enganchado con el origen en (0,0)")
+	}
 }
 
 // EL MENSAJE LITERAL, que es lo que ve el logístico cuando otro se le adelantó.
@@ -1156,7 +1158,7 @@ func TestUnaRutaDeOtraSucursalNoExisteParaTi(t *testing.T) {
 		{http.MethodPost, "/api/routes/" + ruta.ID.String() + "/results",
 			`{"resultados":[{"orderId":"` + ajeno.String() + `","resultado":"entregado"}]}`, msgRutaNoEncontrada},
 	} {
-		w := llamarRutas(t, jwt2handler(h), caso.metodo, caso.ruta, jwt, caso.cuerpo)
+		w := llamarRutas(t, h, caso.metodo, caso.ruta, jwt, caso.cuerpo)
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("%s %s: código %d", caso.metodo, caso.ruta, w.Code)
 		}
@@ -1169,9 +1171,6 @@ func TestUnaRutaDeOtraSucursalNoExisteParaTi(t *testing.T) {
 		t.Fatal("Santiago consiguió tocar un pedido de Holguín")
 	}
 }
-
-// jwt2handler existe sólo para que el bucle de arriba se lea; devuelve el mismo handler.
-func jwt2handler(h http.Handler) http.Handler { return h }
 
 // ---------------------------------------------------------------------------
 // PATCH /api/routes/{id}
