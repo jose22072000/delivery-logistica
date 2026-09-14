@@ -4,17 +4,28 @@ La migración es `api/db/migrations/00001_init.sql`. Sale del modelo de Prisma d
 en `modelo-datos.md`, con los cambios de abajo. **Todos son deliberados y ninguno es
 gratis** — si alguno no te cuadra, se discute antes de escribir código encima.
 
-> **Sin ejecutar todavía.** No había Postgres ni acceso a docker en el equipo donde se
-> escribió. Antes de darla por buena:
+> **Comprobado con el parser de Postgres** (`pglast`, que son las tripas de `libpg_query`):
+> las 64 sentencias del `Up` y las 3 del `Down` son válidas, ninguna clave ajena apunta a
+> una tabla que todavía no existe, los 8 enums declarados se usan todos y **las 13 tablas
+> tienen su trigger de `updated_at`**.
+>
+> Lo que eso NO comprueba es que el servidor la acepte al aplicarla de verdad. Falta
+> correrla contra un Postgres:
 >
 > ```
 > docker run --rm -d --name pg -e POSTGRES_PASSWORD=x -e POSTGRES_DB=reparto postgres:16-alpine
 > docker exec -i pg psql -U postgres -d reparto -v ON_ERROR_STOP=1 < api/db/migrations/00001_init.sql
 > ```
+>
+> En este equipo no se pudo: docker está parado y arrancarlo pide la contraseña del PC.
 
 ---
 
-## 1 · Tres JSON que pasan a ser tablas
+## 1 · Ni un solo JSON
+
+Lo que venía en JSON son **datos**, y los datos van en columnas y en tablas. Lo que haga
+falta de PEDIDO lo extrae el espejo al traerlo, que para eso está: guardar el documento
+entero «por si acaso» es tener el mismo dato en dos sitios y no saber cuál manda.
 
 | Antes | Ahora | Por qué |
 |---|---|---|
@@ -22,18 +33,13 @@ gratis** — si alguno no te cuadra, se discute antes de escribir código encima
 | `Order.items` | tabla **`order_items`** | Dentro de un JSON no se busca. Por eso existía `productosTexto`, una copia de los nombres en texto plano metida a mano sólo para poder preguntar «¿qué pedidos llevan malta?». **Esa copia desaparece**: un dato copiado en dos sitios acaba discrepando, y este además se copiaba a mano. |
 | `Settings.currencies` | tabla **`currencies`** | Una lista de cosas con su clave y su valor es una tabla. Así la moneda es única, se sabe cuándo cambió cada tasa, y corregir una no obliga a reescribir el array entero. |
 
-**`Order.meta` y `Customer.meta` se quedan como `jsonb`**, y esto es a propósito: no son
-datos, son **el documento original de PEDIDO sin tocar**. Nadie consulta dentro — lo que
-hay que buscar tiene su columna. Está por lo que ya pasó dos veces (el municipio y el
-vendedor se recuperaron de ahí cuando hicieron falta) y para poder comparar contra el
-origen cuando un número no cuadra. Si prefieres que también se vayan, dilo: se pierde esa
-red y hay que decidirlo a sabiendas, no por descuido.
+| `Order.meta` y `Customer.meta` | **fuera** | Eran el documento entero de PEDIDO guardado «por si acaso». Lo que haga falta se extrae en el espejo y va a su columna. La red de seguridad no es una copia del JSON: es que **PEDIDO sigue teniendo el original** y el espejo puede volver a traerlo. |
 
 ---
 
-## 2 · `updated_at` en las catorce tablas, con trigger
+## 2 · `updated_at` en las trece tablas, con trigger
 
-En delivery lo tenían 5 de 11. Ahora lo tienen todas, y lo mantiene un trigger
+En delivery lo tenían 5 de 11. Ahora lo tienen las trece, y lo mantiene un trigger
 (`set_updated_at()`) en vez de la capa de aplicación: así no depende de que nadie se
 acuerde, y **sin esa marca no hay bajada por diferencias**, que es lo que hace posible
 trabajar sin conexión.
@@ -81,11 +87,19 @@ Esto no rompe a nadie: quien consume el reparto lo hace por `external_id`, que e
 
 ---
 
-## 6 · `user_id` deja de ser obligatorio
+## 6 · No hay tabla de personas
 
-En delivery, `Order`, `Product`, `Vehicle` y `Route` exigen un usuario: «quién lo creó».
-Para un pedido que entra solo desde el espejo eso es un usuario inventado. Ahora es
-opcional y significa lo que dice: quién lo creó **si lo creó alguien**.
+El modelo `User` era un resto de cuando delivery tuvo login propio. Quien manda en
+personas, roles y sucursales es **auth**, y el propio código de delivery lo delataba:
 
-`Branch.creator_id` también, y además por una razón técnica: `branches` y `users` se
-apuntan la una a la otra, así que una de las dos tiene que poder existir primero.
+- `products/sync` tenía que **inventarse un dueño** (`findFirst where branchId null`) para
+  poder escribir una fila del catálogo.
+- Hay un comentario en `vehicles/[id]` diciendo que filtrar por `userId` devolvía **404
+  sobre vehículos que existen**, porque los dio de alta otra cuenta.
+- El tablero contaba «los pedidos de la cuenta que mira» en vez de los de la sucursal.
+- Y su propio `scope.ts` ya lo dice: *«aquí nada pertenece a una persona: los pedidos
+  entran solos desde PEDIDO y son de la sucursal que los originó»*.
+
+Así que fuera la tabla y fuera los `user_id`. Donde hace falta dejar constancia de quién
+hizo algo va **`creado_por`**: el id de esa persona en auth, como texto y sin clave ajena.
+Es constancia, no una copia de la lista de personas que habría que mantener al día.

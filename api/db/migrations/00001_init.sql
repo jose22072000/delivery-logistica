@@ -3,7 +3,11 @@
 -- Sale de `delivery` (Prisma), documentado en ../../docs/modelo-datos.md, con dos cambios
 -- deliberados que allí faltaban. Van explicados donde tocan:
 --
---   1. `updated_at` en las ONCE tablas, no en cinco, y mantenido por un trigger.
+--   0. NADA de JSON. Lo que venía en `meta`, `items`, `currencies` y `tiposVehiculo` son
+--      datos, y los datos van en columnas y en tablas. Lo que haga falta de PEDIDO se
+--      extrae en el espejo, que para eso está: guardar el documento entero «por si acaso»
+--      es tener el mismo dato en dos sitios y no saber cuál manda.
+--   1. `updated_at` en TODAS las tablas, no en cinco, y mantenido por un trigger.
 --   2. `vehicle_types` como TABLA. En delivery el catálogo se guardaba en un campo de
 --      `Settings` que nunca llegó a existir en el esquema: la pantalla escribía tipos
 --      nuevos y se perdían en silencio.
@@ -83,32 +87,26 @@ CREATE TABLE branches (
     -- Mientras sea false, el cálculo de domicilios NO corre para esta sucursal: el punto
     -- de partida real (el almacén) todavía no está fijado.
     origin_configured boolean NOT NULL DEFAULT false,
-    creator_id        uuid,
+    -- Quién la dio de alta, por su id en auth. Constancia, no clave ajena.
+    creado_por        text,
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now()
 );
 CREATE TRIGGER trg_branches_updated BEFORE UPDATE ON branches
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- Las personas las manda auth. Esta tabla es la copia local con la que se relacionan las
--- filas de aquí; la contraseña y los roles no viven en el reparto.
-CREATE TABLE users (
-    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    auth_id    text UNIQUE,
-    email      text NOT NULL UNIQUE,
-    name       text NOT NULL,
-    -- El reparto sólo distingue admin de operador. Se cae hacia operador: un rol que no
-    -- conozcamos no puede acabar dando más permisos de los debidos.
-    is_admin   boolean NOT NULL DEFAULT false,
-    branch_id  uuid REFERENCES branches(id),
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TRIGGER trg_users_updated BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-ALTER TABLE branches
-    ADD CONSTRAINT branches_creator_fk FOREIGN KEY (creator_id) REFERENCES users(id);
+-- No hay tabla de personas, y es a propósito.
+--
+-- Quien manda en personas, roles y sucursales es auth. Delivery tenía un modelo `User`
+-- que era un resto de cuando tuvo login propio, y el código lo delata: `products/sync`
+-- tenía que INVENTARSE un dueño (`findFirst where branchId null`) para poder escribir una
+-- fila, y hay un comentario diciendo que filtrar por `userId` devolvía 404 sobre vehículos
+-- que existen de verdad. Su propio `scope.ts` ya lo dice: «aquí nada pertenece a una
+-- persona: los pedidos entran solos desde PEDIDO y son de la sucursal que los originó».
+--
+-- Donde hace falta dejar constancia de quién hizo algo va `creado_por`: el id de esa
+-- persona EN AUTH, como texto y sin clave ajena. Es constancia, no una copia de la lista
+-- de personas que habría que mantener al día.
 
 CREATE TABLE saved_origins (
     id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -116,7 +114,7 @@ CREATE TABLE saved_origins (
     address    text NOT NULL,
     lat        double precision NOT NULL,
     lng        double precision NOT NULL,
-    user_id    uuid NOT NULL REFERENCES users(id),
+    creado_por text,
     branch_id  uuid REFERENCES branches(id),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
@@ -167,7 +165,6 @@ CREATE TABLE vehicles (
     usar_para_domicilio boolean NOT NULL DEFAULT false,
     status              vehicle_status NOT NULL DEFAULT 'available',
     notes               text,
-    user_id             uuid NOT NULL REFERENCES users(id),
     -- Sucursal dueña. NULL = de todas.
     branch_id           uuid REFERENCES branches(id),
     created_at          timestamptz NOT NULL DEFAULT now(),
@@ -207,7 +204,6 @@ CREATE TABLE products (
     -- Cuándo lo trajo Ventra. Dice si lo que se mira es de hace diez minutos o de hace
     -- tres días porque la VPN lleva caída desde el lunes.
     traido_at         timestamptz,
-    user_id           uuid REFERENCES users(id),
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now(),
     UNIQUE (sucursal_codigo, sku)
@@ -237,8 +233,6 @@ CREATE TABLE customers (
     lat             double precision NOT NULL,
     lng             double precision NOT NULL,
     sucursal_codigo text,
-    -- El payload COMPLETO tal como llega de PEDIDO, para no perder nada.
-    meta            jsonb,
     synced_at       timestamptz NOT NULL DEFAULT now(),
     created_at      timestamptz NOT NULL DEFAULT now(),
     updated_at      timestamptz NOT NULL DEFAULT now()
@@ -279,7 +273,6 @@ CREATE TABLE orders (
     ultima_ruta_id       uuid,
 
     vehicle_id           uuid REFERENCES vehicles(id),
-    user_id              uuid REFERENCES users(id),
 
     price                double precision,
     segment_km           double precision,
@@ -332,11 +325,6 @@ CREATE TABLE orders (
     factura_corregido_at timestamptz,
 
     customer_phone       text,
-    -- EL ORIGINAL de PEDIDO, sin tocar. No es un campo de datos y NADIE consulta dentro:
-    -- lo que hace falta buscar tiene su columna. Está por lo que ya pasó dos veces —el
-    -- municipio y el vendedor se recuperaron de aquí cuando hicieron falta— y por poder
-    -- comparar contra el origen cuando un número no cuadra.
-    meta                 jsonb,
 
     stop_order           integer,
     delivered_at         timestamptz,
@@ -418,7 +406,7 @@ CREATE TABLE routes (
     total_price    double precision NOT NULL DEFAULT 0,
     delivery_date  timestamptz,
     vehicle_id     uuid REFERENCES vehicles(id),
-    user_id        uuid REFERENCES users(id),
+    creado_por     text,
     branch_id      uuid REFERENCES branches(id),
     -- Cuándo salió y cuándo volvió: con las dos se sabe cuánto se demoró. No se deduce de
     -- `created_at` —la ruta se arma la noche anterior— ni de `updated_at`, que se mueve
@@ -528,7 +516,7 @@ INSERT INTO currencies (code, rate) VALUES ('USD', 1), ('CUP', 320);
 -- +goose Down
 DROP TABLE IF EXISTS currencies, settings, ventas_facturadas, order_vehicles,
                      order_items, routes, orders, customers, products,
-                     vehicles, vehicle_types, saved_origins, users, branches CASCADE;
+                     vehicles, vehicle_types, saved_origins, branches CASCADE;
 DROP TYPE  IF EXISTS procedencia, factura_estado, pedido_estado, trip_leg,
                      vehicle_status, route_status, stop_result, order_status;
 DROP FUNCTION IF EXISTS set_updated_at();
