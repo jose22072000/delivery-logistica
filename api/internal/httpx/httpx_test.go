@@ -96,5 +96,3 @@ func leer(t *testing.T, json string, destino any) {
 		t.Fatalf("no se pudo leer %s", json)
 	}
 }
-
-var _ = io.Discard
