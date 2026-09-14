@@ -1,0 +1,48 @@
+# LAS MIGRACIONES, en un contenedor que arranca, hace su trabajo y se muere.
+#
+# POR QUÉ APARTE Y NO AL ARRANCAR DE CADA SERVICIO — está razonado en
+# docs/despliegue.md §«Las migraciones», y en corto son cuatro cosas:
+#
+#   1. Son DOS bases y DOS series independientes (api/db/migrations sobre la base del
+#      reparto, sync/db/migrations sobre la del sincronizador). No hay un servicio que
+#      sea el dueño de las dos.
+#   2. La base del reparto la comparten la API y el espejo. Si migrara «el que arranque»,
+#      dos contenedores correrían goose a la vez sobre la misma base en cada despliegue.
+#   3. Una migración que falla tiene que PARAR el despliegue, no convertirse en un bucle
+#      de reinicios que desde fuera parece «la aplicación se estrella».
+#   4. Las imágenes de los servicios se quedan mínimas de verdad: goose no viaja en
+#      ninguna de las tres.
+#
+# EL CONTEXTO ES LA RAÍZ DEL REPO (hacen falta api/db y sync/db):
+#
+#   docker build -f deploy/Dockerfile.migraciones -t reparto-migraciones .
+#
+# Es idempotente: `goose up` sobre una base ya migrada no hace nada. Se puede repetir.
+ARG GO_VERSION=1.27
+
+FROM golang:${GO_VERSION}-alpine AS build
+
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
+# La MISMA versión de goose que se usa en el portátil (~/go/bin/goose, v3.28.0). Pinchada
+# a propósito: la herramienta que escribe en la base de producción no se coge «la última».
+ARG GOOSE_VERSION=v3.28.0
+ENV CGO_ENABLED=0
+RUN go install github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}
+
+# Alpine y no distroless: aquí SÍ hace falta un shell, porque son dos bases en orden y
+# con espera. Siguen sin estar ni el compilador ni el código.
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+
+COPY --from=build /go/bin/goose /usr/local/bin/goose
+
+# Sólo los .sql. El resto del repo no pinta nada aquí.
+COPY api/db/migrations/  /migraciones/api/
+COPY sync/db/migrations/ /migraciones/sync/
+COPY deploy/migrar.sh    /usr/local/bin/migrar
+
+RUN chmod +x /usr/local/bin/migrar
+
+ENTRYPOINT ["/usr/local/bin/migrar"]

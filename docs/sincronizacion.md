@@ -62,6 +62,20 @@ Los 11 modelos necesitan `updatedAt`. Hoy sólo lo tienen 6, y sin esa marca **n
 diferencias posibles**: habría que bajar el mundo entero cada mañana. Como no hay nada en
 producción, esto no es una migración — es escribir el esquema bien a la primera.
 
+**`orders` ya está cerrado** (14/09/2026). Y al cerrarlo salieron dos cosas que el
+protocolo no decía y que valen para las demás colecciones:
+
+- **La marca del pedido es la de sus renglones también.** Se filtra y se devuelve
+  `GREATEST(orders.updated_at, max(order_items.updated_at))`: si cambia una línea, el
+  pedido no se toca, y sin esto el aparato se queda con la lista de mercancía vieja.
+- **`quitados` son tres casos, no uno.** Borrado, archivado y *salido del alcance de la
+  sucursal*. Los dos primeros son obvios; el tercero —PEDIDO corrige la sucursal de un
+  pedido— no se ve mirando la tabla de la sucursal vieja, porque la fila ya no está en
+  ella. Hace falta dejar constancia de la salida (aquí, `orders_fuera_de_alcance`).
+- **Con `truncado`, el `hasta` que se devuelve es el de la última fila servida**, no el
+  reloj. Con el reloj, lo que no cupo cae por debajo del siguiente `desde` y no lo vuelve
+  a pedir nadie. Quien encadena las tandas tiene que anotar el `hasta` DEVUELTO.
+
 ---
 
 ## 2 · Subida por lotes

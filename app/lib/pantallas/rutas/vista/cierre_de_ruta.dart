@@ -1,0 +1,423 @@
+// El cierre parada por parada. **Es el caso de uso principal del proyecto.**
+//
+// El camion vuelve al patio del almacen, donde no hay senal, y hay que cuadrar lo
+// que baja. Asi que aqui no se espera a nadie: se marca, se guarda en la base
+// local con la hora del aparato, se encola el apunte y la pantalla se pinta como
+// hecha. Si hay red, sube por detras; si no, sube manana y sigue diciendo la hora
+// de hoy.
+//
+// Pliego: `../../../../docs/pantallas.md` §9.1.
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../nucleo/base/base.dart';
+import '../../pedidos/datos/formato.dart';
+import '../../pedidos/datos/repositorio_pedidos.dart';
+import '../../pedidos/vista/kit.dart';
+import '../datos/acciones_rutas.dart';
+import '../datos/post_despacho.dart';
+import '../estado/proveedores_rutas.dart';
+
+class CierreDeRuta extends ConsumerStatefulWidget {
+  const CierreDeRuta({required this.rutaId, super.key});
+
+  final String rutaId;
+
+  /// La cabecera, literal. Explica la regla que mas se malinterpreta: lo que no
+  /// se entrego sigue arriba, y lo devuelto no toca inventario —eso lo hace
+  /// Ventra—, aqui queda la constancia.
+  static const cabecera =
+      'Marca cada parada según cómo acabó. De aquí sale el post-despacho: lo que '
+      'tiene que quedar en el camión es todo lo que no se entregó. Lo devuelto y '
+      'lo cancelado no tocan el inventario —eso lo hace Ventra—: aquí queda la '
+      'constancia y el control de lo que baja.';
+
+  static const exito =
+      'Cierre guardado. En PEDIDO cada pedido ya dice si se entregó o volvió.';
+
+  @override
+  ConsumerState<CierreDeRuta> createState() => _CierreDeRutaState();
+}
+
+class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
+  /// Lo marcado en esta sesion. `null` en el mapa = sin marcar.
+  final _resultados = <String, String?>{};
+  final _notas = <String, TextEditingController>{};
+  bool _partidoDeLoGuardado = false;
+  bool _guardando = false;
+
+  @override
+  void dispose() {
+    for (final control in _notas.values) {
+      control.dispose();
+    }
+    super.dispose();
+  }
+
+  /// **Al abrir se parte de lo ya guardado en cada parada** (resultado y nota).
+  /// Sin esto, reabrir el cierre para corregir una parada borraria las otras
+  /// veinte de la vista y habria que marcarlas otra vez.
+  void _partirDeLoGuardado(List<Pedido> paradas) {
+    if (_partidoDeLoGuardado) return;
+    _partidoDeLoGuardado = true;
+    for (final parada in paradas) {
+      _resultados[parada.id] = parada.resultado;
+      _notas[parada.id] = TextEditingController(
+        text: parada.resultadoNota ?? '',
+      );
+    }
+  }
+
+  TextEditingController _nota(String pedidoId) =>
+      _notas.putIfAbsent(pedidoId, TextEditingController.new);
+
+  int get _marcadas =>
+      _resultados.values.where((r) => r != null).length;
+
+  void _marcar(String pedidoId, String resultado) => setState(() {
+    // **Pulsar el mismo boton dos veces desmarca.** Es como se corrige un dedazo
+    // sin tener que recargar nada.
+    _resultados[pedidoId] = _resultados[pedidoId] == resultado
+        ? null
+        : resultado;
+  });
+
+  void _todas(String resultado, List<Pedido> paradas) => setState(() {
+    for (final parada in paradas) {
+      _resultados[parada.id] = resultado;
+    }
+  });
+
+  Future<void> _guardar(List<Pedido> paradas) async {
+    final marcas = <MarcaDeParada>[
+      for (final parada in paradas)
+        if (_resultados[parada.id] != null)
+          MarcaDeParada(
+            pedidoId: parada.id,
+            resultado: _resultados[parada.id]!,
+            nota: _nota(parada.id).text,
+          ),
+    ];
+    if (marcas.isEmpty) return;
+
+    setState(() => _guardando = true);
+    final mensajero = ScaffoldMessenger.maybeOf(context);
+    final navegador = Navigator.of(context);
+    try {
+      // Sin `await` a ninguna red: esto escribe en la base y encola. Lo que
+      // tarda es un `INSERT`.
+      await ref.read(accionesDeRutaProvider).cerrar(widget.rutaId, marcas);
+      mensajero?.showSnackBar(
+        const SnackBar(content: Text(CierreDeRuta.exito)),
+      );
+      navegador.maybePop();
+    } on RechazoLocal catch (fallo) {
+      // El mensaje del servidor, literal y sin envolver.
+      mensajero?.showSnackBar(SnackBar(content: Text(fallo.mensaje)));
+    } finally {
+      if (mounted) setState(() => _guardando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ruta = ref.watch(rutaConTodoProvider(widget.rutaId)).value;
+    final paradas =
+        ref.watch(paradasDeRutaProvider(widget.rutaId)).value ??
+        const <Pedido>[];
+    final renglones =
+        ref.watch(renglonesDeParadasProvider(widget.rutaId)).value ??
+        const <String, List<RenglonConPeso>>{};
+
+    _partirDeLoGuardado(paradas);
+
+    final sinMarcar = paradas.where((p) => _resultados[p.id] == null).length;
+    final hoja = armarPostDespacho([
+      for (final parada in paradas)
+        ParadaDelCierre(
+          pedidoId: parada.id,
+          cliente: parada.customerName,
+          resultado: _resultados[parada.id],
+          lineas: [
+            for (final r in renglones[parada.id] ?? const <RenglonConPeso>[])
+              LineaDeParada(r.renglon.description, r.empaques),
+          ],
+        ),
+    ]);
+
+    return Cajon(
+      titulo: 'Cierre de ruta',
+      subtitulo:
+          '${ruta?.ruta.routeCode ?? ruta?.ruta.name ?? widget.rutaId} · '
+          '${paradas.length} parada(s)',
+      ancho: AnchoCajon.xl,
+      pie: Row(
+        children: [
+          OutlinedButton(
+            onPressed: () => _verPostDespacho(hoja),
+            child: const Text('Post-despacho'),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: () => Navigator.of(context).maybePop(),
+            child: const Text('Cerrar'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: _marcadas == 0 || _guardando
+                ? null
+                : () => _guardar(paradas),
+            child: Text(
+              _guardando ? 'Guardando…' : 'Guardar $_marcadas marcada(s)',
+            ),
+          ),
+        ],
+      ),
+      cuerpo: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(CierreDeRuta.cabecera),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text('Todas:'),
+                for (final atajo in const [
+                  (ResultadoParada.entregado, 'Entregado'),
+                  (ResultadoParada.devuelto, 'Devuelto'),
+                  (ResultadoParada.cancelado, 'Cancelado'),
+                ])
+                  OutlinedButton(
+                    onPressed: () => _todas(atajo.$1, paradas),
+                    child: Text(atajo.$2),
+                  ),
+              ],
+            ),
+            if (sinMarcar > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '$sinMarcar sin marcar · cuentan como que siguen en el camión',
+                  style: const TextStyle(color: Colores.ambar),
+                ),
+              ),
+            const SizedBox(height: 12),
+            for (var i = 0; i < paradas.length; i++)
+              _Parada(
+                numero: paradas[i].stopOrder ?? (i + 1),
+                pedido: paradas[i],
+                resultado: _resultados[paradas[i].id],
+                nota: _nota(paradas[i].id),
+                alMarcar: (cual) => _marcar(paradas[i].id, cual),
+              ),
+            const SizedBox(height: 16),
+            _QuedaEnElCamion(hoja: hoja),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// La hoja impresa es de `lib/impresion/`, que es otra ola. Mientras tanto, la
+  /// cuenta —que es la parte que decide si falta mercancia— ya esta hecha y se
+  /// ensena en un cajon, en vez de dejar un boton que no hace nada.
+  void _verPostDespacho(HojaPostDespacho hoja) {
+    abrirCajon<void>(
+      context,
+      (_) => Cajon(
+        titulo: 'Post-despacho',
+        subtitulo:
+            '${hoja.entregadas} entregadas · ${hoja.devueltas} devueltas · '
+            '${hoja.canceladas} canceladas · ${hoja.sinMarcar} sin marcar',
+        ancho: AnchoCajon.lg,
+        cuerpo: Padding(
+          padding: const EdgeInsets.all(16),
+          child: hoja.lineas.isEmpty
+              ? const Text('Nada: se entregó todo lo que salió.')
+              : DataTable(
+                  columns: const [
+                    DataColumn(label: Text('Producto')),
+                    DataColumn(label: Text('Salió')),
+                    DataColumn(label: Text('Entregado')),
+                    DataColumn(label: Text('Queda')),
+                  ],
+                  rows: [
+                    for (final linea in hoja.lineas)
+                      DataRow(
+                        cells: [
+                          DataCell(Text(linea.producto)),
+                          DataCell(Text(cantidad(linea.salio))),
+                          DataCell(Text(cantidad(linea.entregado))),
+                          DataCell(Text(cantidad(linea.queda))),
+                        ],
+                      ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Parada extends StatelessWidget {
+  const _Parada({
+    required this.numero,
+    required this.pedido,
+    required this.resultado,
+    required this.nota,
+    required this.alMarcar,
+  });
+
+  final int numero;
+  final Pedido pedido;
+  final String? resultado;
+  final TextEditingController nota;
+  final void Function(String) alMarcar;
+
+  @override
+  Widget build(BuildContext context) {
+    final pideMotivo =
+        resultado == ResultadoParada.devuelto ||
+        resultado == ResultadoParada.cancelado;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(radius: 14, child: Text('$numero')),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pedido.customerName,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        pedido.endAddress ?? pedido.address,
+                        style: const TextStyle(color: Colores.gris),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                _BotonResultado(
+                  texto: 'Entregado',
+                  color: Colores.verde,
+                  elegido: resultado == ResultadoParada.entregado,
+                  alPulsar: () => alMarcar(ResultadoParada.entregado),
+                ),
+                _BotonResultado(
+                  texto: 'Devuelto',
+                  color: Colores.rojo,
+                  elegido: resultado == ResultadoParada.devuelto,
+                  alPulsar: () => alMarcar(ResultadoParada.devuelto),
+                ),
+                _BotonResultado(
+                  texto: 'Cancelado',
+                  color: Colores.gris,
+                  elegido: resultado == ResultadoParada.cancelado,
+                  alPulsar: () => alMarcar(ResultadoParada.cancelado),
+                ),
+              ],
+            ),
+            if (pideMotivo) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: nota,
+                maxLength: AccionesDeRuta.topeDeNota,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                  hintText:
+                      '¿Por qué volvió? (el cliente cerró, no lo quiso, '
+                      'no había nadie…)',
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BotonResultado extends StatelessWidget {
+  const _BotonResultado({
+    required this.texto,
+    required this.color,
+    required this.elegido,
+    required this.alPulsar,
+  });
+
+  final String texto;
+  final Color color;
+  final bool elegido;
+  final VoidCallback alPulsar;
+
+  @override
+  Widget build(BuildContext context) => elegido
+      ? FilledButton(
+          onPressed: alPulsar,
+          style: FilledButton.styleFrom(backgroundColor: color),
+          child: Text(texto),
+        )
+      : OutlinedButton(
+          onPressed: alPulsar,
+          style: OutlinedButton.styleFrom(foregroundColor: color),
+          child: Text(texto),
+        );
+}
+
+/// La vista previa en vivo de lo que baja del camion. Se recalcula con cada
+/// marca, sin guardar nada: es la comprobacion que hace quien descarga antes de
+/// firmar.
+class _QuedaEnElCamion extends StatelessWidget {
+  const _QuedaEnElCamion({required this.hoja});
+
+  final HojaPostDespacho hoja;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Queda en el camión',
+        style: Theme.of(
+          context,
+        ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+      ),
+      const SizedBox(height: 6),
+      if (hoja.lineas.isEmpty)
+        const Text('Nada: se entregó todo lo que salió.')
+      else
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final linea in hoja.lineas)
+              Insignia(
+                '${linea.producto} ×${cantidad(linea.queda)}',
+                color: Colores.ambar,
+              ),
+          ],
+        ),
+    ],
+  );
+}

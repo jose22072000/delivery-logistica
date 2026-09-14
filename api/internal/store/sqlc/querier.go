@@ -277,6 +277,44 @@ type Querier interface {
 	// Un día que falta no sale como cero: sale como que no está, y eso es lo correcto — un
 	// cero inventado se lee como «ese día no se vendió nada».
 	DiasConFacturacion(ctx context.Context, arg DiasConFacturacionParams) ([]DiasConFacturacionRow, error)
+	// ---------------------------------------------------------------------------
+	// La bajada del aparato  (GET /api/sync/cambios, colección `orders`)
+	// ---------------------------------------------------------------------------
+	// LO QUE CAMBIÓ DESDE UNA MARCA, en una sucursal. Es la consulta que faltaba y sin la
+	// cual el trabajo sin conexión no existe: el logístico se baja los pedidos por la mañana
+	// y los prepara todo el día sin red.
+	//
+	// `cambiado_at` NO ES `o.updated_at`, y ésa es la razón de ser de esta consulta.
+	//
+	//   Es el más nuevo de los dos: el del pedido y el de sus renglones. Si cambia un renglón
+	//   —PEDIDO reescribe las líneas con lo que dijo la factura— el pedido NO se toca, así que
+	//   su `updated_at` se queda quieto y el pedido no saldría en las diferencias. El aparato
+	//   se quedaría con la lista de mercancía vieja y el camión cargaría lo que ya no es.
+	//   Por eso el renglón arrastra a su pedido.
+	//
+	//   Y es también LA MARCA QUE SE DEVUELVE: el aparato la guarda y con ella pide la
+	//   siguiente vez. Devolver `o.updated_at` y filtrar por el otro sería darle una marca
+	//   atrasada con la que volvería a bajarse lo mismo una y otra vez.
+	//
+	// EL `desde` ES ESTRICTO (`>`) y el `hasta` INCLUSIVO (`<=`): así dos bajadas seguidas
+	// —`(a,b]` y `(b,c]`— no se pisan ni dejan un hueco en `b`.
+	//
+	// LOS ARCHIVADOS ENTRAN CON INTERRUPTOR, `con_archivados`:
+	//   * En la carga inicial va en false. Un pedido archivado hace ocho meses no tiene por
+	//     qué bajarse: el aparato empieza vacío y no hay nada que quitarle. Con true, el tope
+	//     se lo comerían los archivados del histórico y lo del día no cabría.
+	//   * En las diferencias va en true, porque archivar es justamente lo que hay que
+	//     contarle al aparato para que lo BORRE. Quien contesta la bajada mira `archivado` y
+	//     lo manda a `quitados`.
+	//
+	// Las dos sucursales del WHERE son las de la casa: `sucursal` es el alcance, que lo pone
+	// `internal/alcance` y no se puede pasar desde fuera, y `branch_id` es la que pide quien
+	// llama. Van en AND: la segunda estrecha, nunca amplía.
+	// POR LA MARCA Y HACIA ADELANTE, que es lo que hace que el tope no pierda nada: lo que no
+	// cabe en esta tanda se pide en la siguiente con la marca de la última fila servida. Con
+	// cualquier otro orden, «los 2.000 primeros» son 2.000 cualesquiera y el resto no vuelve.
+	// El `id` desempata para que dos tandas iguales salgan iguales.
+	DiferenciasDePedidos(ctx context.Context, arg DiferenciasDePedidosParams) ([]DiferenciasDePedidosRow, error)
 	// Engancha un pedido a la ruta como parada número `stop_order`.
 	//
 	// `route_id` y `ultima_ruta_id` se ponen los DOS y valen lo mismo hoy: el primero dice
@@ -848,6 +886,22 @@ type Querier interface {
 	// nombrar en el error cuál falla y por qué («cambió en la factura» / «sin cotejar»).
 	// Un WHERE que los descarte aquí deja el mismo 409 sin nada que decir.
 	PedidosParaArmarRuta(ctx context.Context, arg PedidosParaArmarRutaParams) ([]PedidosParaArmarRutaRow, error)
+	// LO QUE SE FUE DE LA SUCURSAL, para `quitados`.
+	//
+	// `quitados` no es sólo lo borrado, y por eso esta consulta no mira `orders`: mira las
+	// lápidas de 00003_bajada_pedidos.sql. Un pedido borrado ya no tiene fila que consultar, y
+	// uno que se mudó de sucursal tiene la suya intacta pero con OTRA sucursal, así que no
+	// sale en ninguna consulta acotada a la vieja. En los dos casos el aparato se quedaría con
+	// él para siempre: la lista local sólo crece.
+	//
+	// EL ARCHIVADO NO ESTÁ AQUÍ y no se le olvidó a nadie: su fila sigue existiendo, con el
+	// `updated_at` movido, así que sale por `DiferenciasDePedidos` y quien contesta la bajada
+	// lo manda a `quitados` al ver `archivado`. Ponerlo también aquí sería mandarlo dos veces.
+	//
+	// Y SIN SUCURSAL —el Super Admin, que ve las ocho— sólo cuentan los BORRADOS: un pedido
+	// que se mudó de Santiago a Holguín no se le ha ido de la vista, y mandárselo en
+	// `quitados` le borraría del aparato un pedido que existe y que está en su lista.
+	PedidosQueSalieronDelAlcance(ctx context.Context, arg PedidosQueSalieronDelAlcanceParams) ([]PedidosQueSalieronDelAlcanceRow, error)
 	// El peso que le TOCA a cada pedido según el catálogo, junto al que tiene guardado.
 	//
 	// POR QUÉ SE SUMA EN LA BASE Y NO EN GO: el repaso es sobre el espejo ENTERO —decenas de

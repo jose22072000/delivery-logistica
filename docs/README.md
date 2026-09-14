@@ -14,6 +14,12 @@ Next**. Sacado del código de `delivery`, que se queda en pie hasta el final com
 | `identidad.md` | Entrar, renovar y trabajar sin conexión | diseño nuevo, patrón de `call-center-board` |
 | `pruebas.md` | El guion de QA del dominio | diseño nuevo, método de `qa-como-usuario` |
 
+Aparte del pliego, y porque no describe el reparto sino cómo se pone en pie:
+
+| Documento | Qué hay dentro |
+|---|---|
+| `despliegue.md` | Los cinco contenedores, las variables de cada servicio, el orden de arranque y cómo se comprueba que están vivos |
+
 Los cuatro primeros describen **lo que ya existe** y no hay que volver a decidir: se leen y
 se copian. Los tres últimos son **lo que hay que decidir bien**, porque no existe todavía.
 

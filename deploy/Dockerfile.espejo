@@ -1,0 +1,45 @@
+# EL ESPEJO DE PEDIDO — el proceso que trae los datos. NO ES UN SERVIDOR.
+#
+# No escucha en ningún puerto, no tiene `/health` y no se le pone dominio en Dokploy.
+# Da vueltas: cada minuto pregunta a PEDIDO qué se movió y lo copia a la base del
+# reparto. Su salud NO se mide con un sondeo HTTP —no hay a qué llamar— sino con si
+# sigue trayendo datos: ver docs/despliegue.md §«Cómo se comprueba que están vivos».
+#
+# Va en su propio contenedor y así tiene que seguir (api/cmd/espejo/main.go lo explica):
+# un barrido del histórico tarda minutos y dentro de la API tumbaría las peticiones de
+# quien está cargando un camión.
+#
+# EL CONTEXTO ES LA RAÍZ DEL REPO:
+#
+#   docker build -f deploy/Dockerfile.espejo -t reparto-espejo .
+#
+# En Dokploy:  Dockerfile Path = deploy/Dockerfile.espejo  ·  Docker Context Path = .
+ARG GO_VERSION=1.27
+
+FROM golang:${GO_VERSION}-alpine AS build
+WORKDIR /src
+
+RUN apk add --no-cache git
+
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
+COPY api/go.mod api/go.sum ./
+RUN go mod download
+
+COPY api/ .
+
+ENV CGO_ENABLED=0
+RUN go build -trimpath -ldflags="-s -w" -o /out/espejo ./cmd/espejo
+
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=build /out/espejo /app/espejo
+
+# Sin EXPOSE: no hay puerto. Si algún día aparece uno aquí es que algo se torció.
+USER nonroot:nonroot
+
+# Sin argumentos da vueltas hasta que lo paren. Con `--once` hace una pasada y se va,
+# que es lo que sirve para probar y para un cron:
+#   docker run --rm --env-file .env reparto-espejo --once
+ENTRYPOINT ["/app/espejo"]

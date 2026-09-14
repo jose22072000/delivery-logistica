@@ -1,0 +1,39 @@
+# reparto-sync — EL SINCRONIZADOR. Bajada por diferencias, subida por lotes y el
+# registro de aparatos: lo que hace posible que un logístico trabaje un día sin red.
+#
+# EL CONTEXTO ES LA RAÍZ DEL REPO (este fichero vive en deploy/ y el código en sync/):
+#
+#   docker build -f deploy/Dockerfile.sync -t reparto-sync .
+#
+# En Dokploy:  Dockerfile Path = deploy/Dockerfile.sync  ·  Docker Context Path = .
+#
+# OJO CON EL PUERTO: la identidad de quien llama sale HOY de las cabeceras que pone el
+# proxy de delante (`X-Persona`, `X-Sucursal`, `X-Super-Admin`, ver sync/internal/
+# identidad). Eso sólo es seguro si nadie más puede llegar a este puerto. Por eso
+# `SYNC_IDENTIDAD` no tiene valor por defecto y hay que escribirlo a mano.
+ARG GO_VERSION=1.27
+
+FROM golang:${GO_VERSION}-alpine AS build
+WORKDIR /src
+
+RUN apk add --no-cache git
+
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
+COPY sync/go.mod sync/go.sum ./
+RUN go mod download
+
+COPY sync/ .
+
+ENV CGO_ENABLED=0
+RUN go build -trimpath -ldflags="-s -w" -o /out/sync ./cmd/sync
+
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=build /out/sync /app/sync
+
+# El mismo que SYNC_ADDR (":8081" por defecto).
+EXPOSE 8081
+USER nonroot:nonroot
+ENTRYPOINT ["/app/sync"]

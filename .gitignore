@@ -3,18 +3,28 @@
 /sync/bin/
 *.exe
 
-# Flutter / Dart
-/app/build/
-/app/.dart_tool/
+# Flutter / Dart — TODO lo que genera la compilación, esté donde esté.
+#
+# `build/` a secas no basta: Gradle deja el suyo en `app/android/build/` y se colaron
+# informes de compilación en el repositorio.
+**/build/
+**/.dart_tool/
+**/.gradle/
 /app/.flutter-plugins*
 /app/android/local.properties
 /app/ios/Pods/
-/app/**/*.g.dart.lock
+/app/.metadata
 
-# entornos
+# entornos y secretos
 .env
 .env.*
 !.env.example
+
+# volcados de la base: SON DATOS DE PRODUCCIÓN — clientes con sus direcciones y los
+# pedidos de verdad. No entran en el repositorio ni por descuido.
+*.dump
+*.sql.gz
+*.backup
 
 # sistema
 .DS_Store

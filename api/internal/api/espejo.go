@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -522,12 +523,60 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 		desde = &t
 	}
 
+	// `hasta` CIERRA LA VENTANA POR ARRIBA, y se admite del que llama porque quien llama
+	// de verdad es el sincronizador, que lo coge de SU reloj ANTES de preguntar: lo que
+	// cambie mientras se responde tiene que caer en la ventana siguiente y no perderse
+	// entre las dos. Lo que NO se admite nunca es que lo ponga el aparato, y no puede:
+	// entre el aparato y esto está el sincronizador, que lo pisa con el suyo.
+	//
+	// Sin él, el reloj de este proceso. Un aparato que pregunte directamente sigue
+	// funcionando igual.
+	hasta := time.Now().UTC()
+	if crudo := strings.TrimSpace(q.Get("hasta")); crudo != "" {
+		t, err := time.Parse(time.RFC3339, crudo)
+		if err != nil {
+			httpx.Error(w, r, http.StatusBadRequest,
+				"«hasta» tiene que ser una fecha en formato RFC3339 (2026-09-14T11:02:31Z)")
+			return
+		}
+		hasta = t.UTC()
+	}
+
 	salida := CambiosSalida{
-		Hasta:    time.Now().UTC(),
+		Hasta:    hasta,
 		Completa: desde == nil,
 		Cambios:  map[string]Conjunto{},
 	}
 	truncado := false
+
+	// La sucursal de la bajada se resuelve ARRIBA porque los pedidos la necesitan igual
+	// que el tablero: el alcance va aparte y en AND, así que esto estrecha y nunca amplía.
+	sucursal := sucursalDeLaBajada(r, a)
+
+	ventana := alcance.VentanaDeBajada{
+		Desde: desde, Hasta: hasta, Sucursal: sucursal, Tope: int32(topeDeLaBajada(q)),
+	}
+
+	// --- Pedidos ------------------------------------------------------------
+	//
+	// LO PRIMERO, y no por orden alfabético: es lo que el logístico se baja cada mañana y
+	// lo único sin lo cual el día sin conexión no existe.
+	pedidos, corte, err := s.pedidosDeLaBajada(r, a, ventana)
+	if err != nil {
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	salida.Cambios["orders"] = pedidos
+	if corte != nil {
+		// NO CABE TODO. La marca que se devuelve deja de ser el reloj y pasa a ser la de
+		// la última fila servida: el aparato vuelve a pedir desde ahí y se lleva el
+		// resto. Devolverle el reloj entero sería decirle «ya lo tienes todo hasta ahora»
+		// con media tanda sin mandar, y eso no se vuelve a pedir nunca.
+		truncado = true
+		if corte.Before(salida.Hasta) {
+			salida.Hasta = *corte
+		}
+	}
 
 	// --- Sucursales ---------------------------------------------------------
 	sucursales, err := a.ListarSucursalesVisibles(r.Context())
@@ -659,7 +708,6 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	// Las dos colecciones del tablero son POR SUCURSAL, como el tablero mismo. Si quien
 	// pide no dice cuál —un Super Admin sin cabecera—, no se le manda el tablero de las
 	// ocho mezclado: se le dice que falta elegir.
-	sucursal := sucursalDeLaBajada(r, a)
 	if sucursal == nil {
 		salida.Faltan = append(salida.Faltan, "boardColumns", "boardPlacements")
 		salida.Aviso = "para bajar el tablero hace falta decir la sucursal (?sucursal=<id>)"
@@ -709,20 +757,35 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 
 	// --- Lo que todavía no se puede servir -----------------------------------
 	//
-	// `orders` NO ESTÁ, y no está nombrado por descuido: ninguna de las consultas de
-	// pedidos devuelve `updated_at`, así que hoy no hay manera de decir «lo que cambió
-	// desde». La columna existe en la tabla y tiene su trigger; lo que falta es la
-	// consulta. Hasta que esté, mandar `orders: {puestos: [], quitados: []}` sería
-	// decirle al aparato que no ha cambiado ningún pedido, y ése es justo el fallo que
-	// deja al logístico preparando el día con la foto de ayer.
+	// `orders` YA NO ESTÁ AQUÍ: se sirve de verdad, arriba, por `DiferenciasDePedidos`.
 	//
-	// `warehouses` tampoco: los almacenes viven en Accesos y no en esta base.
-	salida.Faltan = append(salida.Faltan, "orders", "warehouses")
+	// QUEDA `warehouses`, Y QUEDA DECLARADO — no vacío. La decisión, escrita para no
+	// tener que volver a tomarla:
+	//
+	//   Los almacenes viven en ACCESOS, no en esta base, y esto sí se podría preguntar
+	//   allí en cada bajada (`s.accesos.AlmacenesDeSucursal`). No se hace, y el motivo no
+	//   es la llamada de red: es que **Accesos no da ninguna marca de cambio ni dice qué
+	//   borró**. Sin marca no hay diferencias —habría que mandar la lista entera cada
+	//   vez— y, sobre todo, sin saber qué se fue, `quitados` sería siempre `[]`: un
+	//   almacén retirado en Accesos se quedaría en el aparato para siempre.
+	//
+	//   Y eso no es un defecto cosmético. Desde el almacén se mide lo que se le cobra al
+	//   cliente por el domicilio; un almacén viejo que sigue en el teléfono cobra mal cada
+	//   entrega del día y nadie lo nota hasta cuadrar la caja.
+	//
+	//   Así que se declara. El aparato puede decir en pantalla «los almacenes son los de
+	//   la última vez que hubo red», que es la verdad, en vez de creerse al día.
+	//
+	//   QUÉ LO DESBLOQUEARÍA, por si alguien lo retoma: que Accesos devuelva un
+	//   `actualizado_at` por almacén y un id estable siempre presente (hoy es opcional).
+	//   Con eso, esta colección se sirve como las demás y se borra este comentario.
+	//   Apuntado en `docs/integracion-pendiente.md`.
+	salida.Faltan = append(salida.Faltan, "warehouses")
 	if salida.Aviso != "" {
 		salida.Aviso += "; "
 	}
-	salida.Aviso += "«orders» necesita una consulta por updated_at que todavía no existe; " +
-		"«warehouses» vive en Accesos y se pide allí"
+	salida.Aviso += "«warehouses» vive en Accesos, que no da marca de cambio ni dice qué " +
+		"borró: se pide allí"
 
 	salida.Truncado = truncado
 	httpx.JSON(w, r, http.StatusOK, salida)
@@ -758,4 +821,226 @@ func conjunto(puestos []any) Conjunto {
 		puestos = []any{}
 	}
 	return Conjunto{Puestos: puestos, Quitados: []string{}}
+}
+
+// ---------------------------------------------------------------------------
+// Los pedidos de la bajada
+// ---------------------------------------------------------------------------
+
+// pedidosDeLaBajada arma el conjunto `orders`: lo que cambió y lo que hay que borrar.
+//
+// Devuelve además LA MARCA DE CORTE cuando no cupo todo (nil si cupo): es la de la última
+// fila servida, y quien contesta la usa como `hasta` para que el aparato vuelva a pedir
+// justo desde ahí. Es lo que hace que un tope no pierda nada.
+//
+// LAS TRES REGLAS QUE SE CUMPLEN AQUÍ:
+//
+//  1. Un pedido tocado después de la marca sale; uno anterior, no. Eso lo decide el SQL,
+//     que compara contra `cambiado_at` —el más nuevo del pedido y de sus renglones— y no
+//     contra `updated_at` a secas.
+//  2. UN PEDIDO ARCHIVADO SALE EN `quitados`, no en `puestos`. En PEDIDO archivar es el
+//     borrado blando, y son la inmensa mayoría del histórico: dejarlo en `puestos` con su
+//     bandera puesta confía en que el aparato la mire, y el día que no la mire el pedido
+//     archivado sigue apareciendo en el tablero y alguien lo carga en el camión.
+//  3. Los renglones VIAJAN CON SU PEDIDO. Si cambió una línea, lo que hay que mandar no es
+//     un aviso: es la lista de mercancía nueva, o el despacho prepara lo de ayer.
+func (s *Servidor) pedidosDeLaBajada(r *http.Request, a *alcance.Acotado, v alcance.VentanaDeBajada) (Conjunto, *time.Time, error) {
+	ctx := r.Context()
+	tope := int(v.Tope)
+
+	// SE PIDE UNA FILA DE MÁS. Es la forma barata de distinguir «caben justo `tope`» de
+	// «hay más y no caben»: con exactamente `tope` filas las dos son indistinguibles, y
+	// dar por buena la primera deja al aparato sin volver a pedir lo que falta.
+	sonda := v
+	sonda.Tope = v.Tope + 1
+
+	filas, err := a.EspejoDiferenciasDePedidos(ctx, sonda)
+	if err != nil {
+		return Conjunto{}, nil, err
+	}
+	filas, corte := recortarPorMarca(r, filas, tope, func(f sqlc.DiferenciasDePedidosRow) time.Time {
+		return f.CambiadoAt.Time
+	})
+
+	puestos := make([]any, 0, len(filas))
+	quitados := make([]string, 0)
+
+	// Los renglones de una sola vez para toda la tanda, no uno por pedido: con 2.000
+	// pedidos, lo segundo son 2.000 idas y vueltas por la conexión de allá.
+	vivos := make([]uuid.UUID, 0, len(filas))
+	for _, f := range filas {
+		if !f.Archivado {
+			vivos = append(vivos, f.ID)
+		}
+	}
+	renglones := map[uuid.UUID][]any{}
+	if len(vivos) > 0 {
+		lineas, err := a.ListarRenglonesDePedidos(ctx, vivos)
+		if err != nil {
+			return Conjunto{}, nil, err
+		}
+		for _, l := range lineas {
+			renglones[l.OrderID] = append(renglones[l.OrderID], map[string]any{
+				"id": l.ID, "linea": l.Linea, "description": l.Description,
+				"quantity": l.Quantity, "packs": l.Packs, "productId": idOpcional(l.ProductID),
+				"updatedAt": hora(l.UpdatedAt),
+			})
+		}
+	}
+
+	for _, f := range filas {
+		if f.Archivado {
+			// Archivado en PEDIDO = fuera del aparato. Ver la regla 2 de arriba.
+			quitados = append(quitados, f.ID.String())
+			continue
+		}
+		items := renglones[f.ID]
+		if items == nil {
+			// Lista vacía y no `null`: el aparato recorre lo que llega, y en Dart un nulo
+			// donde se espera una lista es una excepción en mitad de la sincronización.
+			items = []any{}
+		}
+		puestos = append(puestos, map[string]any{
+			"id":                 f.ID,
+			"operationNumber":    f.OperationNumber,
+			"customerName":       f.CustomerName,
+			"customerPhone":      f.CustomerPhone,
+			"address":            f.Address,
+			"endAddress":         f.EndAddress,
+			"endLat":             f.EndLat,
+			"endLng":             f.EndLng,
+			"lat":                f.Lat,
+			"lng":                f.Lng,
+			"weight":             f.Weight,
+			"status":             string(f.Status),
+			"tripLeg":            string(f.TripLeg),
+			"notes":              f.Notes,
+			"routeId":            idOpcional(f.RouteID),
+			"ultimaRutaId":       idOpcional(f.UltimaRutaID),
+			"vehicleId":          idOpcional(f.VehicleID),
+			"price":              f.Price,
+			"segmentKm":          f.SegmentKm,
+			"deliveryPrice":      f.DeliveryPrice,
+			"deliveryDistanceKm": f.DeliveryDistanceKm,
+			"branchId":           idOpcional(f.BranchID),
+			"source":             textoDe(f.Source),
+			"externalId":         f.ExternalID,
+			"orderDate":          hora(f.OrderDate),
+			"estado":             textoDe(f.Estado),
+			"archivado":          f.Archivado,
+			"fechaComprometida":  hora(f.FechaComprometida),
+			"requiereDomicilio":  f.RequiereDomicilio,
+			"pedidoCosto":        f.PedidoCosto,
+			"municipio":          f.Municipio,
+			"vendedor":           f.Vendedor,
+			"sucursalCodigo":     f.SucursalCodigo,
+			"facturaEstado":      textoDe(f.FacturaEstado),
+			"facturaNumero":      f.FacturaNumero,
+			"facturaDomicilio":   f.FacturaDomicilio,
+			"stopOrder":          f.StopOrder,
+			"deliveredAt":        hora(f.DeliveredAt),
+			"resultado":          textoDe(f.Resultado),
+			"resultadoNota":      f.ResultadoNota,
+			"items":              items,
+			// La marca que el aparato guarda para la próxima vez. Es `cambiado_at` y NO
+			// `updated_at`: con la del pedido a secas, un pedido al que sólo le cambió un
+			// renglón volvería a salir en cada bajada para siempre.
+			"updatedAt": hora(f.CambiadoAt),
+		})
+	}
+
+	// --- Lo que se fue ------------------------------------------------------
+	//
+	// EN LA CARGA INICIAL NO SE PREGUNTA. El aparato empieza vacío: no hay nada que
+	// quitarle, y mandarle los borrados de los últimos dos años es gastarle la conexión
+	// en decirle que borre lo que nunca tuvo.
+	if v.Desde != nil {
+		salidas, err := a.EspejoPedidosQueSalieron(ctx, sonda)
+		if err != nil {
+			return Conjunto{}, nil, err
+		}
+		salidas, corteSalidas := recortarPorMarca(r, salidas, tope,
+			func(f sqlc.PedidosQueSalieronDelAlcanceRow) time.Time { return f.SalioAt.Time })
+		for _, f := range salidas {
+			quitados = append(quitados, f.OrderID.String())
+		}
+		// De los dos cortes manda EL MÁS ATRASADO: la marca que se devuelve tiene que ser
+		// una que las dos listas hayan servido enteras. Con la más nueva, lo que quedó sin
+		// mandar de la otra cae por debajo del próximo `desde` y no se pide nunca más.
+		corte = laMasAtrasada(corte, corteSalidas)
+	}
+
+	return Conjunto{Puestos: puestos, Quitados: quitados}, corte, nil
+}
+
+// recortarPorMarca deja la tanda en `tope` filas y dice por qué marca se cortó.
+//
+// Devuelve nil como marca cuando cupo todo — que es el caso normal y el que no lleva
+// `truncado`.
+//
+// EL DETALLE QUE PARECE UN ADORNO Y NO LO ES: el corte no puede partir un grupo de filas
+// que comparten la misma marca. Postgres le pone a todas las filas de una transacción la
+// MISMA hora (`now()` es la del inicio de la transacción), así que una tanda del espejo de
+// 200 pedidos son 200 filas con el mismo `updated_at` al microsegundo. Si el corte cayera
+// en medio y se devolviera esa marca como `hasta`, la próxima bajada pediría «a partir de
+// ahí» y las que quedaron dentro del grupo no saldrían nunca más. Por eso se recorta el
+// grupo entero y se corta por la marca anterior.
+func recortarPorMarca[T any](r *http.Request, filas []T, tope int, marca func(T) time.Time) ([]T, *time.Time) {
+	if tope <= 0 || len(filas) <= tope {
+		return filas, nil
+	}
+	primeraQueNoCabe := marca(filas[tope])
+	servidas := filas[:tope]
+	ultima := marca(servidas[tope-1])
+
+	if primeraQueNoCabe.After(ultima) {
+		// El grupo de `ultima` está entero dentro. Se corta limpio por ahí.
+		return servidas, &ultima
+	}
+
+	// El grupo está partido: fuera entero.
+	i := tope - 1
+	for i >= 0 && !marca(servidas[i]).Before(ultima) {
+		i--
+	}
+	if i < 0 {
+		// TODA la tanda comparte una sola marca y aun así no cabe: una sola transacción
+		// escribió más pedidos que el tope. No hay corte posible que no parta el grupo, así
+		// que se sirve lo que cabe y SE DEJA DICHO — es el único caso en que esta bajada
+		// puede dejarse filas atrás, y tiene que verse en el registro y no adivinarse.
+		httpx.Registro(r).Warn("una sola marca no cabe en el tope de la bajada: puede perderse parte de la tanda",
+			"marca", ultima, "tope", tope)
+		return servidas, &ultima
+	}
+	corte := marca(servidas[i])
+	return servidas[:i+1], &corte
+}
+
+// laMasAtrasada: de dos cortes, el que menos avanza. Nil es «no hubo corte», así que no
+// limita nada y gana el otro.
+func laMasAtrasada(a, b *time.Time) *time.Time {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case b.Before(*a):
+		return b
+	default:
+		return a
+	}
+}
+
+// topeDeLaBajada: cuántas filas por colección y por tanda.
+//
+// Se admite del que llama —el sincronizador lo manda, porque es quien sabe la conexión que
+// hay— pero ACOTADO. Un tope de cero o negativo se traga la tanda entera sin `truncado` y
+// el aparato se queda sin la mitad del día creyendo que lo tiene todo; uno enorme es
+// pedirle a la conexión de allá algo que no va a terminar nunca.
+func topeDeLaBajada(q url.Values) int {
+	n, err := strconv.Atoi(strings.TrimSpace(q.Get("tope")))
+	if err != nil || n <= 0 {
+		return TopeDeBajada
+	}
+	return min(n, TopeDeBajada)
 }

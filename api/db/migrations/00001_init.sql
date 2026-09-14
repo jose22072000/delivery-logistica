@@ -147,10 +147,20 @@ CREATE TABLE vehicle_types (
 CREATE TRIGGER trg_vehicle_types_updated BEFORE UPDATE ON vehicle_types
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- Los cuatro que la pantalla de delivery ofrecía. El costo por km se deja vacío a
--- propósito: lo pone el camionero y ponerle un número inventado es peor que no tenerlo,
--- porque se cobra igual y nadie lo revisa.
-INSERT INTO vehicle_types (nombre) VALUES ('truck'), ('van'), ('motorcycle'), ('car');
+-- Los cuatro que la pantalla de delivery ofrecía, MÁS lo que hay de verdad en producción.
+--
+-- Comprobado el 14/09/2026 contra el volcado real: de los 12 vehículos, uno tiene el tipo
+-- `Camion` — escrito a mano, en español y con mayúscula. No está en ninguna lista de la
+-- aplicación, y es la prueba de que este catálogo era abierto de hecho aunque la pantalla
+-- ofreciera cuatro opciones: alguien lo escribió y la base lo aceptó.
+--
+-- Va aquí para que la migración de los datos no se caiga. Si al final resulta que es un
+-- duplicado de `truck`, se unifica desde la pantalla y se retira con `activo = false` —
+-- para eso está esa columna. Lo que no se puede es que un dato real no tenga dónde entrar.
+--
+-- El costo por km se deja vacío a propósito: lo pone el camionero, y ponerle un número
+-- inventado es peor que no tenerlo, porque se cobra igual y nadie lo revisa.
+INSERT INTO vehicle_types (nombre) VALUES ('truck'), ('van'), ('motorcycle'), ('car'), ('Camion');
 
 CREATE TABLE vehicles (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),

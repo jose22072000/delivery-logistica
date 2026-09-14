@@ -1,0 +1,633 @@
+import 'package:drift/drift.dart';
+import '../../../nucleo/base/base.dart';
+import '../../../nucleo/cola/cola_salida.dart';
+import '../../../nucleo/cola/provisionales.dart';
+import '../../../nucleo/reloj.dart';
+import 'consultas.dart';
+import 'esquema.dart';
+import 'modelos.dart';
+
+/// LAS ESCRITURAS DEL TABLERO.
+///
+/// La regla que manda sobre todas las demas de esta pantalla:
+///
+/// > **Arrastrar no llama a nadie.** Se escribe en la base local y se encola el
+/// > apunte, las dos cosas en LA MISMA transaccion. La subida va por detras,
+/// > cuando haya senal.
+///
+/// El porque no es una preferencia tecnica: preparar el tablero es el trabajo de
+/// la tarde, y la tarde es cuando no hay senal. Una pantalla que espera a que el
+/// servidor conteste para mover la tarjeta no se puede usar a la hora a la que
+/// se usa.
+///
+/// Y la transaccion unica tampoco es un adorno: si la colocacion se guardara y
+/// el apunte no, la tarjeta se habria movido en el aparato y no habria nadie
+/// que lo fuera a contar nunca. Al reves —el apunte sin la colocacion— la
+/// pantalla ensenaria una cosa y el servidor otra.
+class RepositorioTablero {
+  RepositorioTablero(
+    this._base,
+    this._cola, {
+    Reloj reloj = relojDelAparato,
+  }) : _reloj = reloj;
+
+  final BaseLocal _base;
+  final ColaDeSalida _cola;
+  final Reloj _reloj;
+
+  String get _tablaColumnas => EsquemaTablero.columnas;
+  String get _tablaColocaciones => EsquemaTablero.colocaciones;
+
+  Future<void> _listo() => EsquemaTablero.asegurar(_base);
+
+  /// La hora del APARATO, ya en el formato en el que la guarda el resto de la
+  /// base.
+  ///
+  /// Se escribe al hacer el gesto y no al subirlo: lo que se coloca a las
+  /// cuatro llega como las cuatro aunque suba a las siete (regla 7). Y la
+  /// conversion la hace `typeMapping`, la misma pieza de Drift que escribe las
+  /// fechas de las demas tablas: escribirla a mano aqui seria tener dos
+  /// formatos de fecha en el mismo fichero.
+  Object? get _ahora => _base.typeMapping.mapToSqlVariable(_reloj());
+
+  // -------------------------------------------------------------------------
+  // Arrastrar
+  // -------------------------------------------------------------------------
+
+  /// Colocar O mover: es la MISMA orden. Soltar una tarjeta en una columna es
+  /// decir «este pedido va aqui», venga de la mitad izquierda o de otra columna.
+  ///
+  /// Los tres pasos son los del servidor, y en el mismo orden, porque tienen
+  /// que dar el mismo tablero: se saca de donde estuviera y se cierra su hueco,
+  /// se abre hueco en el destino, y se mete. Repetido sobre el tablero que ya
+  /// quedo, el paso 1 y el 2 se cancelan: **es reaplicable**, que es lo que hace
+  /// falta cuando el lote se reintenta.
+  ///
+  /// [posicion] empieza en 1. Sin ella, al final de la columna.
+  Future<void> colocar({
+    required String pedidoId,
+    required String columnaId,
+    int? posicion,
+  }) async {
+    await _listo();
+    await _base.transaction(() async {
+      final anterior = await _base
+          .customSelect(
+            'SELECT column_id, posicion FROM $_tablaColocaciones '
+            'WHERE order_id = ?1',
+            variables: [Variable<String>(pedidoId)],
+          )
+          .getSingleOrNull();
+
+      if (anterior != null) {
+        final deColumna = anterior.read<String>('column_id');
+        final deposicion = anterior.read<int>('posicion');
+        await _base.customStatement(
+          'DELETE FROM $_tablaColocaciones WHERE order_id = ?1',
+          [pedidoId],
+        );
+        // Cerrar el hueco no es imprescindible —el orden se lee, no se
+        // cuenta— pero sin ello las posiciones se van separando hasta que un
+        // dia alguien lee «la parada numero 47» de una columna de nueve.
+        await _base.customStatement(
+          'UPDATE $_tablaColocaciones SET posicion = posicion - 1 '
+          'WHERE column_id = ?1 AND posicion > ?2',
+          [deColumna, deposicion],
+        );
+      }
+
+      final cuantos = await _cuantosEn(columnaId);
+      final donde = (posicion ?? cuantos + 1).clamp(1, cuantos + 1).toInt();
+
+      await _base.customStatement(
+        'UPDATE $_tablaColocaciones SET posicion = posicion + 1 '
+        'WHERE column_id = ?1 AND posicion >= ?2',
+        [columnaId, donde],
+      );
+      await _base.customStatement(
+        'INSERT INTO $_tablaColocaciones '
+        '(order_id, column_id, posicion, colocado_at, updated_at) '
+        'VALUES (?1, ?2, ?3, ?4, ?4)',
+        [pedidoId, columnaId, donde, _ahora],
+      );
+
+      // El apunte va DENTRO de la transaccion. Si la columna todavia es
+      // provisional, el `local-…` viaja en el cuerpo y lo sustituye
+      // `Provisionales` cuando la creacion de la columna suba: es lo que impide
+      // que las doce colocaciones de detras acaben en una columna que no existe
+      // en ningun sitio (tablero.md §9).
+      await _cola.encolar(
+        metodo: 'PUT',
+        ruta: '/api/board/placements/$pedidoId',
+        cuerpo: <String, Object?>{'columnaId': columnaId, 'posicion': donde},
+      );
+    });
+    EsquemaTablero.avisarDeCambio(_base);
+  }
+
+  /// De vuelta a «sin colocar», que es de donde salio. La lista de la izquierda
+  /// lo recoloca sola por cercania.
+  Future<void> quitar(String pedidoId) async {
+    await _listo();
+    await _base.transaction(() async {
+      final fila = await _base
+          .customSelect(
+            'SELECT column_id, posicion FROM $_tablaColocaciones '
+            'WHERE order_id = ?1',
+            variables: [Variable<String>(pedidoId)],
+          )
+          .getSingleOrNull();
+      if (fila == null) return;
+
+      await _base.customStatement(
+        'DELETE FROM $_tablaColocaciones WHERE order_id = ?1',
+        [pedidoId],
+      );
+      await _base.customStatement(
+        'UPDATE $_tablaColocaciones SET posicion = posicion - 1 '
+        'WHERE column_id = ?1 AND posicion > ?2',
+        [fila.read<String>('column_id'), fila.read<int>('posicion')],
+      );
+      await _cola.encolar(
+        metodo: 'DELETE',
+        ruta: '/api/board/placements/$pedidoId',
+        cuerpo: const <String, Object?>{},
+      );
+    });
+    EsquemaTablero.avisarDeCambio(_base);
+  }
+
+  // -------------------------------------------------------------------------
+  // Las columnas, que las pone el logistico
+  // -------------------------------------------------------------------------
+
+  /// Crea una columna al final del tablero.
+  ///
+  /// El id es provisional (`local-…`) porque sin conexion no hay quien lo
+  /// reparta: lo pone la base del servidor. La pantalla necesita uno YA para
+  /// poder colocar tarjetas dentro esta misma tarde, y cuando el apunte suba, la
+  /// respuesta trae el bueno y `Provisionales` lo sustituye en todo lo que
+  /// quede en la cola detras.
+  ///
+  /// La posicion la calcula el aparato, no viaja en el cuerpo: dos aparatos sin
+  /// conexion propondrian el mismo numero y entonces hay dos «tercera» y
+  /// ninguna «quinta».
+  Future<String> crearColumna({
+    required String sucursalId,
+    required String nombre,
+    String? vehiculoId,
+  }) async {
+    await _listo();
+    final limpio = nombre.trim();
+    if (limpio.isEmpty) {
+      throw const RechazoDelTablero('La columna necesita un nombre');
+    }
+    final id = Provisionales.nuevoId();
+    try {
+      await _base.transaction(() async {
+        final fila = await _base
+            .customSelect(
+              'SELECT coalesce(max(posicion), 0) + 1 AS siguiente '
+              'FROM $_tablaColumnas WHERE branch_id = ?1',
+              variables: [Variable<String>(sucursalId)],
+            )
+            .getSingle();
+        await _base.customStatement(
+          'INSERT INTO $_tablaColumnas '
+          '(id, branch_id, nombre, posicion, vehicle_id, created_at, updated_at) '
+          'VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)',
+          [
+            id,
+            sucursalId,
+            limpio,
+            fila.read<int>('siguiente'),
+            vehiculoId,
+            _ahora,
+          ],
+        );
+        await _cola.encolar(
+          metodo: 'POST',
+          ruta: '/api/board/columns?branchId=$sucursalId',
+          cuerpo: <String, Object?>{
+            'nombre': limpio,
+            'vehiculoId': ?vehiculoId,
+          },
+          provisional: id,
+        );
+      });
+    } on Object catch (e) {
+      throw _traducir(e, limpio);
+    }
+    EsquemaTablero.avisarDeCambio(_base);
+    return id;
+  }
+
+  /// Renombrar. El mensaje del choque es el literal del contrato.
+  Future<void> renombrarColumna(String columnaId, String nombre) async {
+    await _listo();
+    final limpio = nombre.trim();
+    if (limpio.isEmpty) {
+      throw const RechazoDelTablero('La columna necesita un nombre');
+    }
+    try {
+      await _base.transaction(() async {
+        await _base.customStatement(
+          'UPDATE $_tablaColumnas SET nombre = ?1, updated_at = ?2 '
+          'WHERE id = ?3',
+          [limpio, _ahora, columnaId],
+        );
+        await _cola.encolar(
+          metodo: 'PATCH',
+          ruta: '/api/board/columns/$columnaId',
+          cuerpo: <String, Object?>{'nombre': limpio},
+        );
+      });
+    } on Object catch (e) {
+      throw _traducir(e, limpio);
+    }
+    EsquemaTablero.avisarDeCambio(_base);
+  }
+
+  /// El camion PREVISTO de la columna. `null` lo quita.
+  ///
+  /// Es una intencion, no una decision: a media manana no se sabe cual va a ir y
+  /// el de verdad se elige al armar la ruta. Sirve para una sola cosa, saber si
+  /// lo que hay puesto cabe.
+  Future<void> elegirCamion(String columnaId, String? vehiculoId) async {
+    await _listo();
+    await _base.transaction(() async {
+      await _base.customStatement(
+        'UPDATE $_tablaColumnas SET vehicle_id = ?1, updated_at = ?2 '
+        'WHERE id = ?3',
+        [vehiculoId, _ahora, columnaId],
+      );
+      // El campo viaja SIEMPRE, tambien vacio: «no me lo toques» y «quitamelo»
+      // son dos ordenes distintas, y el servidor las distingue por que el campo
+      // este presente.
+      await _cola.encolar(
+        metodo: 'PATCH',
+        ruta: '/api/board/columns/$columnaId',
+        cuerpo: <String, Object?>{'vehiculoId': vehiculoId},
+      );
+    });
+    EsquemaTablero.avisarDeCambio(_base);
+  }
+
+  /// Reordena el tablero entero: llega la lista de ids en el orden nuevo.
+  ///
+  /// De una vez y no una columna por llamada, igual que el contrato: a mitad del
+  /// baile hay dos columnas con la misma posicion, y partirlo en trozos deja el
+  /// tablero con dos «tercera» y ninguna «quinta» el dia que algo falle por el
+  /// medio.
+  Future<void> reordenarColumnas(
+    String sucursalId,
+    List<String> idsEnOrden,
+  ) async {
+    await _listo();
+    if (idsEnOrden.isEmpty) return;
+    await _base.transaction(() async {
+      for (var i = 0; i < idsEnOrden.length; i++) {
+        await _base.customStatement(
+          'UPDATE $_tablaColumnas SET posicion = ?1, updated_at = ?2 '
+          'WHERE id = ?3 AND branch_id = ?4',
+          [i + 1, _ahora, idsEnOrden[i], sucursalId],
+        );
+      }
+      await _cola.encolar(
+        metodo: 'PUT',
+        ruta: '/api/board/columns/orden?branchId=$sucursalId',
+        cuerpo: <String, Object?>{'ids': idsEnOrden},
+      );
+    });
+    EsquemaTablero.avisarDeCambio(_base);
+  }
+
+  /// Vacia la columna: las tarjetas vuelven a «sin colocar». La columna se
+  /// queda — el distrito sigue existiendo manana.
+  Future<int> vaciarColumna(String columnaId) async {
+    await _listo();
+    final dentro = await _pedidosDe(columnaId);
+    if (dentro.isEmpty) return 0;
+    await _base.transaction(() async {
+      await _base.customStatement(
+        'DELETE FROM $_tablaColocaciones WHERE column_id = ?1',
+        [columnaId],
+      );
+      // Un apunte por tarjeta y no uno de «vaciar»: el contrato no tiene esa
+      // orden, y quitar tarjeta a tarjeta es ademas reaplicable — quitar dos
+      // veces lo que ya no esta no es un error, es el mismo tablero.
+      for (final pedidoId in dentro) {
+        await _cola.encolar(
+          metodo: 'DELETE',
+          ruta: '/api/board/placements/$pedidoId',
+          cuerpo: const <String, Object?>{},
+        );
+      }
+    });
+    EsquemaTablero.avisarDeCambio(_base);
+    return dentro.length;
+  }
+
+  /// Mueve todo lo de una columna a otra, DETRAS de lo que ya haya y en su
+  /// orden. Es la salida natural de «esta columna no cabe en el camion»: se
+  /// crea «Vista Alegre 2» y se manda lo que sobra (§7.3).
+  Future<int> moverTodo(String origenId, String destinoId) async {
+    await _listo();
+    if (origenId == destinoId) return 0;
+    final dentro = await _pedidosDe(origenId);
+    if (dentro.isEmpty) return 0;
+    await _base.transaction(() async {
+      final base = await _cuantosEn(destinoId);
+      for (var i = 0; i < dentro.length; i++) {
+        final donde = base + i + 1;
+        await _base.customStatement(
+          'UPDATE $_tablaColocaciones SET column_id = ?1, posicion = ?2, '
+          'updated_at = ?3 WHERE order_id = ?4',
+          [destinoId, donde, _ahora, dentro[i]],
+        );
+        await _cola.encolar(
+          metodo: 'PUT',
+          ruta: '/api/board/placements/${dentro[i]}',
+          cuerpo: <String, Object?>{
+            'columnaId': destinoId,
+            'posicion': donde,
+          },
+        );
+      }
+    });
+    EsquemaTablero.avisarDeCambio(_base);
+    return dentro.length;
+  }
+
+  /// Borra una columna.
+  ///
+  /// **Con pedidos dentro y sin decir que hacer con ellos, la base se niega** —
+  /// `ON DELETE RESTRICT`— y aqui se traduce a algo que se entiende: ««Centro»
+  /// tiene 8 pedidos puestos». Con cascade, las tarjetas volverian a «sin
+  /// colocar» sin decir nada y quien borro «Centro» creyendola vacia se entera
+  /// al dia siguiente, cuando a la ruta le faltan ocho paradas (§7.6).
+  Future<void> borrarColumna(
+    String columnaId, {
+    bool vaciar = false,
+    String? destinoId,
+  }) async {
+    await _listo();
+    final dentro = await _cuantosEn(columnaId);
+    if (dentro > 0 && !vaciar && destinoId == null) {
+      final nombre = await _nombreDe(columnaId);
+      throw RechazoDelTablero(
+        '«$nombre» tiene $dentro pedidos puestos',
+        pedidos: dentro,
+      );
+    }
+    if (destinoId != null) {
+      await moverTodo(columnaId, destinoId);
+    } else if (vaciar) {
+      await vaciarColumna(columnaId);
+    }
+
+    await _base.transaction(() async {
+      await _base.customStatement(
+        'DELETE FROM $_tablaColumnas WHERE id = ?1',
+        [columnaId],
+      );
+      final cola = destinoId != null
+          ? '?destino=$destinoId'
+          : (vaciar ? '?vaciar=1' : '');
+      await _cola.encolar(
+        metodo: 'DELETE',
+        ruta: '/api/board/columns/$columnaId$cola',
+        cuerpo: const <String, Object?>{},
+      );
+    });
+    EsquemaTablero.avisarDeCambio(_base);
+  }
+
+  // -------------------------------------------------------------------------
+  // De una columna sale una ruta
+  // -------------------------------------------------------------------------
+
+  /// Arma la ruta de una columna, tambien sin conexion (§5 y §6).
+  ///
+  /// Lo que hace aqui dentro, todo en una transaccion:
+  ///
+  ///  1. mira cuales de los puestos SE PUEDEN repartir hoy y **nombra** a los
+  ///     que no, con su motivo. Una columna de doce que produce una ruta de
+  ///     nueve sin explicacion es la manera mas rapida de que el logistico deje
+  ///     de fiarse;
+  ///  2. crea la ruta con identificador provisional y **respeta el orden que
+  ///     puso el logistico** —el conoce las calles de su distrito, el vecino mas
+  ///     proximo no—, asi que nace con `optimized = false`;
+  ///  3. se lleva del tablero SOLO las tarjetas que entraron. Las descartadas se
+  ///     quedan puestas y marcadas: no desaparece el trabajo de nadie;
+  ///  4. encola `POST /api/board/columns/{id}/route`.
+  ///
+  /// Devuelve el id provisional de la ruta.
+  Future<String> armarRuta({
+    required String columnaId,
+    required AlmacenOrigen origen,
+    required String sucursalId,
+    String? nombre,
+  }) async {
+    await _listo();
+    final consultas = ConsultasTablero(_base);
+    final puestas = (await consultas.colocados(sucursalId, origen))
+        .where((t) => t.columnaId == columnaId)
+        .toList();
+    if (puestas.isEmpty) {
+      throw const RechazoDelTablero(
+        'La columna no tiene ningún pedido que se pueda repartir hoy',
+      );
+    }
+
+    final buenos = puestas.where((t) => t.pedido.repartible).toList();
+    final descartados = <String>[
+      for (final t in puestas.where((t) => !t.pedido.repartible))
+        '${t.pedido.operationNumber ?? t.pedido.pedidoId} · '
+            '${t.pedido.customerName}: '
+            '${t.pedido.marcas.firstWhere((m) => m.grave).texto}',
+    ];
+    if (buenos.isEmpty) {
+      // No se crea una ruta vacia, y se dice por que se cayo cada uno.
+      throw RechazoDelTablero(
+        'La columna no tiene ningún pedido que se pueda repartir hoy',
+        detalles: descartados,
+      );
+    }
+
+    final columna = (await consultas.columnas(
+      sucursalId,
+    )).where((c) => c.id == columnaId).firstOrNull;
+    final rutaId = Provisionales.nuevoId();
+
+    await _base.transaction(() async {
+      await _base
+          .into(_base.routes)
+          .insert(
+            RoutesCompanion.insert(
+              id: rutaId,
+              name: Value(nombre ?? columna?.nombre),
+              status: const Value(EstadoRuta.planificada),
+              originLat: Value(origen.lat),
+              originLng: Value(origen.lng),
+              originAddress: Value(origen.nombre),
+              totalWeight: Value(
+                buenos.fold<double>(0, (a, t) => a + t.pedido.weight),
+              ),
+              totalPrice: Value(
+                buenos.fold<double>(
+                  0,
+                  (a, t) => a + (t.pedido.pedidoCosto ?? 0),
+                ),
+              ),
+              vehicleId: Value(columna?.vehiculoId),
+              branchId: Value(sucursalId),
+              deliveryDate: Value(_reloj()),
+              // El orden del logistico gana al greedy por defecto (§5.4).
+              optimized: const Value(false),
+              createdAt: Value(_reloj()),
+              updatedAt: Value(_reloj()),
+            ),
+          );
+
+      for (var i = 0; i < buenos.length; i++) {
+        final pedido = buenos[i].pedido;
+        await (_base.update(_base.orders)
+              ..where((o) => o.id.equals(pedido.pedidoId)))
+            .write(
+              OrdersCompanion(
+                routeId: Value(rutaId),
+                // `ultimaRutaId` NO se libera nunca: un devuelto suelta
+                // `routeId` pero conserva esta, o desaparece de la hoja de lo
+                // que bajo del camion.
+                ultimaRutaId: Value(rutaId),
+                vehicleId: Value(columna?.vehiculoId),
+                stopOrder: Value(i + 1),
+              ),
+            );
+        await _base.customStatement(
+          'DELETE FROM $_tablaColocaciones WHERE order_id = ?1',
+          [pedido.pedidoId],
+        );
+      }
+
+      await _cola.encolar(
+        metodo: 'POST',
+        ruta: '/api/board/columns/$columnaId/route',
+        cuerpo: <String, Object?>{
+          'nombre': ?nombre,
+          'vehiculoId': ?columna?.vehiculoId,
+          'optimizar': false,
+        },
+        provisional: rutaId,
+      );
+    });
+    EsquemaTablero.avisarDeCambio(_base);
+    return rutaId;
+  }
+
+  // -------------------------------------------------------------------------
+  // Mantenimiento
+  // -------------------------------------------------------------------------
+
+  /// Cambia los `local-…` ya resueltos por su id de verdad en las tablas del
+  /// tablero.
+  ///
+  /// `Provisionales` sustituye en la cola y en las tablas del nucleo, pero no
+  /// conoce estas dos —son de esta pantalla—. Esto cierra el circulo, y se llama
+  /// en cada carga: mientras no se llame, la columna sigue con su `local-…`
+  /// puesto, que funciona pero no es lo que el servidor tiene.
+  Future<int> asentarProvisionales() async {
+    await _listo();
+    final equivalencias = await _base.select(_base.equivalencias).get();
+    if (equivalencias.isEmpty) return 0;
+    var cambiadas = 0;
+    await _base.transaction(() async {
+      // Cambiar el id de una columna que tiene tarjetas dentro choca con el
+      // `ON DELETE RESTRICT` de las colocaciones: durante un instante apuntan a
+      // un id que ya no existe. En Postgres la unica es DEFERRABLE; en SQLite
+      // se pide lo mismo con este `PRAGMA`, que aplaza la comprobacion al
+      // cierre de la transaccion, cuando ya esta todo puesto.
+      await _base.customStatement('PRAGMA defer_foreign_keys = ON');
+      for (final e in equivalencias) {
+        final filas = await _base
+            .customSelect(
+              'SELECT count(*) AS n FROM $_tablaColumnas WHERE id = ?1',
+              variables: [Variable<String>(e.provisional)],
+            )
+            .getSingle();
+        if (filas.read<int>('n') == 0) continue;
+        await _base.customStatement(
+          'UPDATE $_tablaColumnas SET id = ?1 WHERE id = ?2',
+          [e.idReal, e.provisional],
+        );
+        await _base.customStatement(
+          'UPDATE $_tablaColocaciones SET column_id = ?1 WHERE column_id = ?2',
+          [e.idReal, e.provisional],
+        );
+        cambiadas++;
+      }
+    });
+    if (cambiadas > 0) EsquemaTablero.avisarDeCambio(_base);
+    return cambiadas;
+  }
+
+  /// El aviso de los que se llevo la cascada se da UNA vez (§7.5).
+  Future<void> olvidarDesaparecidos() async {
+    await _listo();
+    await _base.customStatement(
+      'DELETE FROM ${EsquemaTablero.desaparecidos}',
+    );
+    EsquemaTablero.avisarDeCambio(_base);
+  }
+
+  // -------------------------------------------------------------------------
+
+  Future<int> _cuantosEn(String columnaId) async {
+    final fila = await _base
+        .customSelect(
+          'SELECT count(*) AS n FROM $_tablaColocaciones WHERE column_id = ?1',
+          variables: [Variable<String>(columnaId)],
+        )
+        .getSingle();
+    return fila.read<int>('n');
+  }
+
+  Future<List<String>> _pedidosDe(String columnaId) async {
+    final filas = await _base
+        .customSelect(
+          'SELECT order_id FROM $_tablaColocaciones WHERE column_id = ?1 '
+          'ORDER BY posicion ASC',
+          variables: [Variable<String>(columnaId)],
+        )
+        .get();
+    return filas.map((f) => f.read<String>('order_id')).toList();
+  }
+
+  Future<String> _nombreDe(String columnaId) async {
+    final fila = await _base
+        .customSelect(
+          'SELECT nombre FROM $_tablaColumnas WHERE id = ?1',
+          variables: [Variable<String>(columnaId)],
+        )
+        .getSingleOrNull();
+    return fila?.read<String>('nombre') ?? 'La columna';
+  }
+
+  /// El choque de la unica de nombres, dicho como lo dice el contrato. El error
+  /// de clave repetida de SQLite no lo entiende nadie.
+  ///
+  /// Se mira el TEXTO y no el tipo a proposito: en el aparato la base vive en
+  /// otro isolate y lo que llega aqui ya no es la `SqliteException` original,
+  /// sino la envoltura que cruzo el puente. Un `on SqliteException` funcionaria
+  /// en los tests y no en el telefono, que es el peor de los dos mundos.
+  RechazoDelTablero _traducir(Object e, String nombre) {
+    if (e is RechazoDelTablero) return e;
+    final texto = e.toString().toLowerCase();
+    if (texto.contains('unique constraint failed') ||
+        texto.contains('constraint failed: board_columns')) {
+      return RechazoDelTablero('Ya hay una columna «$nombre» en este tablero');
+    }
+    return RechazoDelTablero(e.toString());
+  }
+}

@@ -1,0 +1,37 @@
+# Lo que NO viaja al contexto de construcción.
+#
+# La regla es la de docs/DOKPLOY-NUEVO-PROYECTO.md: se excluye lo que se REGENERA, nunca
+# lo que se NECESITA. `app/` sin esto son 484 MB, de los cuales 480 son carpetas de
+# trabajo que la imagen vuelve a crear ella sola.
+
+.git
+.gitignore
+.github
+
+# Binarios compilados a mano
+api/bin/
+sync/bin/
+*.exe
+
+# Flutter: todo esto lo rehace `flutter pub get` y `flutter build web`
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/android/build/
+app/android/.gradle/
+app/android/.kotlin/
+app/android/local.properties
+app/ios/Pods/
+app/.idea/
+app/*.iml
+app/lib/textos/generado/
+
+# Secretos. Nunca dentro de una imagen: las capas se quedan ahí aunque luego se borren.
+.env
+.env.*
+!.env.example
+
+# Ruido
+**/.DS_Store
+**/*.swp

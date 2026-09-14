@@ -224,6 +224,48 @@ func (ns NullRouteStatus) Value() (driver.Value, error) {
 	return string(ns.RouteStatus), nil
 }
 
+type SalidaDePedido string
+
+const (
+	SalidaDePedidoBorrado SalidaDePedido = "borrado"
+	SalidaDePedidoMovido  SalidaDePedido = "movido"
+)
+
+func (e *SalidaDePedido) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SalidaDePedido(s)
+	case string:
+		*e = SalidaDePedido(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SalidaDePedido: %T", src)
+	}
+	return nil
+}
+
+type NullSalidaDePedido struct {
+	SalidaDePedido SalidaDePedido `json:"salida_de_pedido"`
+	Valid          bool           `json:"valid"` // Valid is true if SalidaDePedido is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSalidaDePedido) Scan(value interface{}) error {
+	if value == nil {
+		ns.SalidaDePedido, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SalidaDePedido.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSalidaDePedido) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SalidaDePedido), nil
+}
+
 type StopResult string
 
 const (
@@ -481,6 +523,14 @@ type OrderVehicle struct {
 	IsPrimary bool               `json:"is_primary"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OrdersFueraDeAlcance struct {
+	ID       uuid.UUID          `json:"id"`
+	OrderID  uuid.UUID          `json:"order_id"`
+	BranchID pgtype.UUID        `json:"branch_id"`
+	Motivo   SalidaDePedido     `json:"motivo"`
+	SalioAt  pgtype.Timestamptz `json:"salio_at"`
 }
 
 type Product struct {

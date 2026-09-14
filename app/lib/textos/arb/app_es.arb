@@ -1,0 +1,1383 @@
+{
+  "@@locale": "es",
+  "ajustesAgregarMoneda": "+ Agregar moneda",
+  "@ajustesAgregarMoneda": {
+    "description": "De `set.addCurrency` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesAjustesGuardados": "Configuración guardada",
+  "@ajustesAjustesGuardados": {
+    "description": "De `set.configSaved` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesAyudaDomicilio": "La ÚNICA fórmula de precio del sistema. Lo que se le cobra al cliente lo pone el repartidor desde la APK; esto es lo que delivery usa para repartir la carga del camión entre los pedidos.",
+  "@ajustesAyudaDomicilio": {
+    "description": "De `set.homeHelp` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesAyudaMonedas": "USD es la moneda base (=1). Agrega otras monedas con su tasa: cuántas unidades equivalen a 1 USD. En la barra superior eliges en qué moneda ver todos los precios.",
+  "@ajustesAyudaMonedas": {
+    "description": "De `set.currenciesHelp` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesCodigo": "Código",
+  "@ajustesCodigo": {
+    "description": "De `set.code` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesDomicilioGuardado": "Precios de domicilio guardados",
+  "@ajustesDomicilioGuardado": {
+    "description": "De `set.homeSaved` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesEjemplo": "Ejemplo con {km} km y {kg} kg:",
+  "@ajustesEjemplo": {
+    "description": "De `set.example` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "km": {
+        "type": "Object",
+        "description": "kilometros"
+      },
+      "kg": {
+        "type": "Object",
+        "description": "kilogramos"
+      }
+    }
+  },
+  "ajustesGuardando": "Guardando...",
+  "@ajustesGuardando": {
+    "description": "De `set.saving` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesGuardarAjustes": "Guardar configuración",
+  "@ajustesGuardarAjustes": {
+    "description": "De `set.saveConfig` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesGuardarDomicilio": "Guardar precios de domicilio",
+  "@ajustesGuardarDomicilio": {
+    "description": "De `set.saveHome` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesGuardarMonedas": "Guardar monedas",
+  "@ajustesGuardarMonedas": {
+    "description": "De `set.saveCurrencies` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesMonedasGuardadas": "Monedas actualizadas",
+  "@ajustesMonedasGuardadas": {
+    "description": "De `set.currenciesSaved` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesNotaFormula": "El ×2 cubre ida y vuelta. Cada cliente paga según su distancia al punto de partida, no a la parada anterior.",
+  "@ajustesNotaFormula": {
+    "description": "De `set.formulaNote` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesPistaCostoPorKm": "(se aplica ×2 por ida y vuelta)",
+  "@ajustesPistaCostoPorKm": {
+    "description": "De `set.costPerKmHint` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesTitulo": "Configuración",
+  "@ajustesTitulo": {
+    "description": "De `set.title` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesTituloDomicilio": "Costo del domicilio",
+  "@ajustesTituloDomicilio": {
+    "description": "De `set.homeTitle` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesTituloFormula": "Fórmula de cálculo por cliente",
+  "@ajustesTituloFormula": {
+    "description": "De `set.formulaTitle` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesTituloMonedas": "Monedas y tasas de cambio",
+  "@ajustesTituloMonedas": {
+    "description": "De `set.currenciesTitle` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesTituloPrecios": "Configuración de Precios (USD)",
+  "@ajustesTituloPrecios": {
+    "description": "De `set.pricingTitle` en delivery/src/lib/i18n.ts."
+  },
+  "ajustesUnidadesPorUsd": "Unidades por 1 USD",
+  "@ajustesUnidadesPorUsd": {
+    "description": "De `set.unitsPerUsd` en delivery/src/lib/i18n.ts."
+  },
+  "barraIdioma": "Idioma",
+  "@barraIdioma": {
+    "description": "De `navbar.language` en delivery/src/lib/i18n.ts."
+  },
+  "barraMoneda": "Moneda de visualización",
+  "@barraMoneda": {
+    "description": "De `navbar.currency` en delivery/src/lib/i18n.ts."
+  },
+  "comunAcciones": "Acciones",
+  "@comunAcciones": {
+    "description": "De `common.actions` en delivery/src/lib/i18n.ts."
+  },
+  "comunActualizar": "Actualizar",
+  "@comunActualizar": {
+    "description": "De `common.update` en delivery/src/lib/i18n.ts."
+  },
+  "comunBuscar": "Buscar",
+  "@comunBuscar": {
+    "description": "De `common.search` en delivery/src/lib/i18n.ts."
+  },
+  "comunCancelar": "Cancelar",
+  "@comunCancelar": {
+    "description": "De `common.cancel` en delivery/src/lib/i18n.ts."
+  },
+  "comunCargando": "Cargando...",
+  "@comunCargando": {
+    "description": "De `common.loading` en delivery/src/lib/i18n.ts."
+  },
+  "comunCrear": "Crear",
+  "@comunCrear": {
+    "description": "De `common.create` en delivery/src/lib/i18n.ts."
+  },
+  "comunDesde": "Desde",
+  "@comunDesde": {
+    "description": "De `common.from` en delivery/src/lib/i18n.ts."
+  },
+  "comunEditar": "Editar",
+  "@comunEditar": {
+    "description": "De `common.edit` en delivery/src/lib/i18n.ts."
+  },
+  "comunEliminar": "Eliminar",
+  "@comunEliminar": {
+    "description": "De `common.delete` en delivery/src/lib/i18n.ts."
+  },
+  "comunEstado": "Estado",
+  "@comunEstado": {
+    "description": "De `common.status` en delivery/src/lib/i18n.ts."
+  },
+  "comunFecha": "Fecha",
+  "@comunFecha": {
+    "description": "De `common.date` en delivery/src/lib/i18n.ts."
+  },
+  "comunGuardar": "Guardar",
+  "@comunGuardar": {
+    "description": "De `common.save` en delivery/src/lib/i18n.ts."
+  },
+  "comunHasta": "Hasta",
+  "@comunHasta": {
+    "description": "De `common.to` en delivery/src/lib/i18n.ts."
+  },
+  "comunKg": "kg",
+  "@comunKg": {
+    "description": "De `common.kg` en delivery/src/lib/i18n.ts."
+  },
+  "comunKm": "km",
+  "@comunKm": {
+    "description": "De `common.km` en delivery/src/lib/i18n.ts."
+  },
+  "comunLimpiar": "Limpiar",
+  "@comunLimpiar": {
+    "description": "De `common.clear` en delivery/src/lib/i18n.ts."
+  },
+  "comunNombre": "Nombre",
+  "@comunNombre": {
+    "description": "De `common.name` en delivery/src/lib/i18n.ts."
+  },
+  "comunOpcional": "(opcional)",
+  "@comunOpcional": {
+    "description": "De `common.optional` en delivery/src/lib/i18n.ts."
+  },
+  "comunPeso": "Peso",
+  "@comunPeso": {
+    "description": "De `common.weight` en delivery/src/lib/i18n.ts."
+  },
+  "comunPrecio": "Precio",
+  "@comunPrecio": {
+    "description": "De `common.price` en delivery/src/lib/i18n.ts."
+  },
+  "comunQuitar": "Quitar",
+  "@comunQuitar": {
+    "description": "De `common.remove` en delivery/src/lib/i18n.ts."
+  },
+  "comunTodos": "Todos",
+  "@comunTodos": {
+    "description": "De `common.all` en delivery/src/lib/i18n.ts."
+  },
+  "excelFiltroFecha": "Filtro fecha",
+  "@excelFiltroFecha": {
+    "description": "De `xls.dateFilter` en delivery/src/lib/i18n.ts."
+  },
+  "excelGenerado": "Generado",
+  "@excelGenerado": {
+    "description": "De `xls.generated` en delivery/src/lib/i18n.ts."
+  },
+  "excelKmDesdePartida": "Km desde partida",
+  "@excelKmDesdePartida": {
+    "description": "De `xls.kmFromStart` en delivery/src/lib/i18n.ts."
+  },
+  "excelMoneda": "Moneda",
+  "@excelMoneda": {
+    "description": "De `xls.currency` en delivery/src/lib/i18n.ts."
+  },
+  "excelTituloReporte": "Reporte de transportación — ProCovar",
+  "@excelTituloReporte": {
+    "description": "De `xls.reportTitle` en delivery/src/lib/i18n.ts."
+  },
+  "loginContrasena": "Contraseña",
+  "@loginContrasena": {
+    "description": "De `login.password` en delivery/src/lib/i18n.ts."
+  },
+  "loginCorreo": "Correo",
+  "@loginCorreo": {
+    "description": "De `login.email` en delivery/src/lib/i18n.ts."
+  },
+  "loginEntrando": "Iniciando sesión...",
+  "@loginEntrando": {
+    "description": "De `login.signingIn` en delivery/src/lib/i18n.ts."
+  },
+  "loginEntrar": "Iniciar Sesión",
+  "@loginEntrar": {
+    "description": "De `login.signIn` en delivery/src/lib/i18n.ts."
+  },
+  "loginFallo": "Error de inicio de sesión",
+  "@loginFallo": {
+    "description": "De `login.failed` en delivery/src/lib/i18n.ts."
+  },
+  "loginNotaAdmin": "Las cuentas son gestionadas por un administrador.",
+  "@loginNotaAdmin": {
+    "description": "De `login.adminNote` en delivery/src/lib/i18n.ts."
+  },
+  "loginSubtitulo": "Optimización de Rutas de Delivery",
+  "@loginSubtitulo": {
+    "description": "De `login.subtitle` en delivery/src/lib/i18n.ts."
+  },
+  "navAlmacenes": "Almacenes",
+  "@navAlmacenes": {
+    "description": "De `nav.warehouses` en delivery/src/lib/i18n.ts."
+  },
+  "navCerrarSesion": "Cerrar sesión",
+  "@navCerrarSesion": {
+    "description": "De `nav.logout` en delivery/src/lib/i18n.ts."
+  },
+  "navClientes": "Clientes",
+  "@navClientes": {
+    "description": "De `nav.customers` en delivery/src/lib/i18n.ts."
+  },
+  "navConfiguracion": "Configuración",
+  "@navConfiguracion": {
+    "description": "De `nav.settings` en delivery/src/lib/i18n.ts."
+  },
+  "navPanel": "Panel",
+  "@navPanel": {
+    "description": "De `nav.dashboard` en delivery/src/lib/i18n.ts."
+  },
+  "navPedidos": "Pedidos",
+  "@navPedidos": {
+    "description": "De `nav.orders` en delivery/src/lib/i18n.ts."
+  },
+  "navPlataforma": "Plataforma de Delivery",
+  "@navPlataforma": {
+    "description": "De `nav.platform` en delivery/src/lib/i18n.ts."
+  },
+  "navProductos": "Productos",
+  "@navProductos": {
+    "description": "De `nav.products` en delivery/src/lib/i18n.ts."
+  },
+  "navReportes": "Reportes",
+  "@navReportes": {
+    "description": "De `nav.reports` en delivery/src/lib/i18n.ts."
+  },
+  "navRutas": "Rutas",
+  "@navRutas": {
+    "description": "De `nav.routes` en delivery/src/lib/i18n.ts."
+  },
+  "navSucursales": "Sucursales",
+  "@navSucursales": {
+    "description": "De `nav.branches` en delivery/src/lib/i18n.ts."
+  },
+  "navUsuarios": "Usuarios",
+  "@navUsuarios": {
+    "description": "De `nav.users` en delivery/src/lib/i18n.ts."
+  },
+  "navVehiculos": "Vehículos",
+  "@navVehiculos": {
+    "description": "De `nav.vehicles` en delivery/src/lib/i18n.ts."
+  },
+  "panelAccionesRapidas": "Acciones Rápidas",
+  "@panelAccionesRapidas": {
+    "description": "De `dash.quickActions` en delivery/src/lib/i18n.ts."
+  },
+  "panelFilaIngresos": "Ingresos totales",
+  "@panelFilaIngresos": {
+    "description": "De `dash.rowRevenue` en delivery/src/lib/i18n.ts."
+  },
+  "panelFilaOrdenes": "Total órdenes",
+  "@panelFilaOrdenes": {
+    "description": "De `dash.rowOrders` en delivery/src/lib/i18n.ts."
+  },
+  "panelFilaPeso": "Peso total entregado",
+  "@panelFilaPeso": {
+    "description": "De `dash.rowWeight` en delivery/src/lib/i18n.ts."
+  },
+  "panelFilaPromedio": "Precio promedio por orden",
+  "@panelFilaPromedio": {
+    "description": "De `dash.rowAvg` en delivery/src/lib/i18n.ts."
+  },
+  "panelGestionarFlota": "Gestionar Flota",
+  "@panelGestionarFlota": {
+    "description": "De `dash.manageFleet` en delivery/src/lib/i18n.ts."
+  },
+  "panelIngresosTotales": "Ingresos Totales",
+  "@panelIngresosTotales": {
+    "description": "De `dash.totalRevenue` en delivery/src/lib/i18n.ts."
+  },
+  "panelPesoTotalEntregado": "{v} kg peso total entregado",
+  "@panelPesoTotalEntregado": {
+    "description": "De `dash.totalWeightDelivered` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "v": {
+        "type": "Object",
+        "description": "valor"
+      }
+    }
+  },
+  "panelPlanificarRutas": "Planificar Rutas",
+  "@panelPlanificarRutas": {
+    "description": "De `dash.planRoutes` en delivery/src/lib/i18n.ts."
+  },
+  "panelPromedioPorOrden": "Promedio {v} por orden",
+  "@panelPromedioPorOrden": {
+    "description": "De `dash.avgPerOrder` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "v": {
+        "type": "Object",
+        "description": "valor"
+      }
+    }
+  },
+  "panelResumen": "Resumen",
+  "@panelResumen": {
+    "description": "De `dash.summary` en delivery/src/lib/i18n.ts."
+  },
+  "panelTitulo": "Panel",
+  "@panelTitulo": {
+    "description": "De `dash.title` en delivery/src/lib/i18n.ts."
+  },
+  "panelTotalPedidos": "Total de Órdenes",
+  "@panelTotalPedidos": {
+    "description": "De `dash.totalOrders` en delivery/src/lib/i18n.ts."
+  },
+  "panelVehiculosRegistrados": "Vehículos Registrados",
+  "@panelVehiculosRegistrados": {
+    "description": "De `dash.vehiclesRegistered` en delivery/src/lib/i18n.ts."
+  },
+  "panelVerReportes": "Ver Reportes",
+  "@panelVerReportes": {
+    "description": "De `dash.viewReports` en delivery/src/lib/i18n.ts."
+  },
+  "pedidoManualAgregarEste": "+ Agregar este pedido",
+  "@pedidoManualAgregarEste": {
+    "description": "De `pedido.addThis` en delivery/src/lib/i18n.ts."
+  },
+  "pedidoManualCliente": "Nombre del cliente *",
+  "@pedidoManualCliente": {
+    "description": "De `pedido.customer` en delivery/src/lib/i18n.ts."
+  },
+  "pedidoManualDireccion": "Dirección de entrega *",
+  "@pedidoManualDireccion": {
+    "description": "De `pedido.address` en delivery/src/lib/i18n.ts."
+  },
+  "pedidoManualMarcadorCliente": "Ej: Juan Pérez",
+  "@pedidoManualMarcadorCliente": {
+    "description": "De `pedido.customerPh` en delivery/src/lib/i18n.ts."
+  },
+  "pedidoManualPeso": "Peso (kg) *",
+  "@pedidoManualPeso": {
+    "description": "De `pedido.weight` en delivery/src/lib/i18n.ts."
+  },
+  "pedidosColArticulos": "Artículos",
+  "@pedidosColArticulos": {
+    "description": "De `ord.colItems` en delivery/src/lib/i18n.ts."
+  },
+  "pedidosColCliente": "Cliente",
+  "@pedidosColCliente": {
+    "description": "De `ord.colClient` en delivery/src/lib/i18n.ts."
+  },
+  "pedidosColDireccion": "Dirección",
+  "@pedidosColDireccion": {
+    "description": "De `ord.colAddress` en delivery/src/lib/i18n.ts."
+  },
+  "pedidosColEntrega": "Entrega",
+  "@pedidosColEntrega": {
+    "description": "De `ord.colDelivery` en delivery/src/lib/i18n.ts."
+  },
+  "pedidosColRuta": "Ruta",
+  "@pedidosColRuta": {
+    "description": "De `ord.colRoute` en delivery/src/lib/i18n.ts."
+  },
+  "pedidosColVehiculo": "Vehículo",
+  "@pedidosColVehiculo": {
+    "description": "De `ord.colVehicle` en delivery/src/lib/i18n.ts."
+  },
+  "pedidosSubtitulo": "Todos los pedidos acumulados de todas las rutas",
+  "@pedidosSubtitulo": {
+    "description": "De `ord.subtitle` en delivery/src/lib/i18n.ts."
+  },
+  "pedidosTitulo": "Pedidos",
+  "@pedidosTitulo": {
+    "description": "De `ord.title` en delivery/src/lib/i18n.ts."
+  },
+  "pedidosTotalPedidos": "Total de pedidos: {n}",
+  "@pedidosTotalPedidos": {
+    "description": "De `ord.totalOrders` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "pedidosVacio": "Aún no hay pedidos. Crea una ruta con pedidos.",
+  "@pedidosVacio": {
+    "description": "De `ord.empty` en delivery/src/lib/i18n.ts."
+  },
+  "productosAgregarAlPedido": "Agregar",
+  "@productosAgregarAlPedido": {
+    "description": "De `prod.addToOrder` en delivery/src/lib/i18n.ts."
+  },
+  "productosBotonImportar": "Importar productos",
+  "@productosBotonImportar": {
+    "description": "De `prod.importBtn` en delivery/src/lib/i18n.ts."
+  },
+  "productosBuscar": "Buscar producto...",
+  "@productosBuscar": {
+    "description": "De `prod.search` en delivery/src/lib/i18n.ts."
+  },
+  "productosCant": "Cant.",
+  "@productosCant": {
+    "description": "De `prod.qty` en delivery/src/lib/i18n.ts."
+  },
+  "productosCargando": "Cargando productos...",
+  "@productosCargando": {
+    "description": "De `prod.loading` en delivery/src/lib/i18n.ts."
+  },
+  "productosElegir": "Selecciona un producto",
+  "@productosElegir": {
+    "description": "De `prod.pick` en delivery/src/lib/i18n.ts."
+  },
+  "productosEmpaque": "Empaque",
+  "@productosEmpaque": {
+    "description": "De `prod.packaging` en delivery/src/lib/i18n.ts."
+  },
+  "productosErrorImportarWarehouse": "No se pudo importar del warehouse",
+  "@productosErrorImportarWarehouse": {
+    "description": "De `prod.importWarehouseError` en delivery/src/lib/i18n.ts."
+  },
+  "productosGrupo": "Grupo / tipo",
+  "@productosGrupo": {
+    "description": "De `prod.category` en delivery/src/lib/i18n.ts."
+  },
+  "productosImportandoWarehouse": "Importando...",
+  "@productosImportandoWarehouse": {
+    "description": "De `prod.importingWarehouse` en delivery/src/lib/i18n.ts."
+  },
+  "productosImportar": "Importar",
+  "@productosImportar": {
+    "description": "De `prod.import` en delivery/src/lib/i18n.ts."
+  },
+  "productosImportarWarehouse": "Importar del Warehouse",
+  "@productosImportarWarehouse": {
+    "description": "De `prod.importWarehouse` en delivery/src/lib/i18n.ts."
+  },
+  "productosMasUsados": "Más usados",
+  "@productosMasUsados": {
+    "description": "De `prod.topUsed` en delivery/src/lib/i18n.ts."
+  },
+  "productosNombre": "Nombre",
+  "@productosNombre": {
+    "description": "De `prod.name` en delivery/src/lib/i18n.ts."
+  },
+  "productosNueva": "+ Nuevo Producto",
+  "@productosNueva": {
+    "description": "De `prod.new` en delivery/src/lib/i18n.ts."
+  },
+  "productosPeso": "Peso (kg)",
+  "@productosPeso": {
+    "description": "De `prod.weight` en delivery/src/lib/i18n.ts."
+  },
+  "productosPesoAuto": "Peso calculado",
+  "@productosPesoAuto": {
+    "description": "De `prod.autoWeight` en delivery/src/lib/i18n.ts."
+  },
+  "productosPistaImportar": "Una línea por producto: nombre, peso(kg), empaque, unid/empaque, grupo",
+  "@productosPistaImportar": {
+    "description": "De `prod.importHint` en delivery/src/lib/i18n.ts."
+  },
+  "productosResultadoImportarWarehouse": "Importados: {c} creados, {u} actualizados",
+  "@productosResultadoImportarWarehouse": {
+    "description": "De `prod.importWarehouseResult` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "c": {
+        "type": "Object",
+        "description": "capacidad o creados"
+      },
+      "u": {
+        "type": "Object",
+        "description": "actualizados"
+      }
+    }
+  },
+  "productosSinResultados": "Sin resultados",
+  "@productosSinResultados": {
+    "description": "De `prod.none` en delivery/src/lib/i18n.ts."
+  },
+  "productosSubtitulo": "Catálogo de productos. Úsalos en los pedidos; el peso se calcula solo.",
+  "@productosSubtitulo": {
+    "description": "De `prod.subtitle` en delivery/src/lib/i18n.ts."
+  },
+  "productosTitulo": "Productos",
+  "@productosTitulo": {
+    "description": "De `prod.title` en delivery/src/lib/i18n.ts."
+  },
+  "productosTituloCrear": "Nuevo Producto",
+  "@productosTituloCrear": {
+    "description": "De `prod.createTitle` en delivery/src/lib/i18n.ts."
+  },
+  "productosTituloEditar": "Editar Producto",
+  "@productosTituloEditar": {
+    "description": "De `prod.editTitle` en delivery/src/lib/i18n.ts."
+  },
+  "productosTituloImportar": "Importar productos (CSV)",
+  "@productosTituloImportar": {
+    "description": "De `prod.importTitle` en delivery/src/lib/i18n.ts."
+  },
+  "productosTodosResultados": "Resultados",
+  "@productosTodosResultados": {
+    "description": "De `prod.allResults` en delivery/src/lib/i18n.ts."
+  },
+  "productosUnidadesPorEmpaque": "Unid. por empaque",
+  "@productosUnidadesPorEmpaque": {
+    "description": "De `prod.unitsPerPackage` en delivery/src/lib/i18n.ts."
+  },
+  "productosVacio": "Sin productos. Agrega o importa el primero.",
+  "@productosVacio": {
+    "description": "De `prod.empty` en delivery/src/lib/i18n.ts."
+  },
+  "registroDeshabilitado": "El registro de nuevos usuarios está deshabilitado. Las cuentas las crean y gestionan solo los administradores.",
+  "@registroDeshabilitado": {
+    "description": "De `register.disabled` en delivery/src/lib/i18n.ts."
+  },
+  "registroPolitica": "Política de acceso empresarial",
+  "@registroPolitica": {
+    "description": "De `register.policy` en delivery/src/lib/i18n.ts."
+  },
+  "registroTieneCuenta": "¿Ya tienes una cuenta?",
+  "@registroTieneCuenta": {
+    "description": "De `register.haveAccount` en delivery/src/lib/i18n.ts."
+  },
+  "reportesCargando": "Cargando reporte...",
+  "@reportesCargando": {
+    "description": "De `rep.loading` en delivery/src/lib/i18n.ts."
+  },
+  "reportesColCliente": "Cliente",
+  "@reportesColCliente": {
+    "description": "De `rep.colClient` en delivery/src/lib/i18n.ts."
+  },
+  "reportesColDestino": "Destino",
+  "@reportesColDestino": {
+    "description": "De `rep.colDest` en delivery/src/lib/i18n.ts."
+  },
+  "reportesColIngresos": "Ingresos",
+  "@reportesColIngresos": {
+    "description": "De `rep.colRevenue` en delivery/src/lib/i18n.ts."
+  },
+  "reportesColOrdenes": "Órdenes",
+  "@reportesColOrdenes": {
+    "description": "De `rep.colOrders` en delivery/src/lib/i18n.ts."
+  },
+  "reportesColPeso": "Peso Total",
+  "@reportesColPeso": {
+    "description": "De `rep.colWeight` en delivery/src/lib/i18n.ts."
+  },
+  "reportesColPlaca": "Placa",
+  "@reportesColPlaca": {
+    "description": "De `rep.colPlate` en delivery/src/lib/i18n.ts."
+  },
+  "reportesColPromedioOrden": "Promedio/Orden",
+  "@reportesColPromedioOrden": {
+    "description": "De `rep.colAvgOrder` en delivery/src/lib/i18n.ts."
+  },
+  "reportesColRuta": "Ruta",
+  "@reportesColRuta": {
+    "description": "De `rep.colRoute` en delivery/src/lib/i18n.ts."
+  },
+  "reportesCuentaOrdenes": "{n} órdenes",
+  "@reportesCuentaOrdenes": {
+    "description": "De `rep.ordersCount` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "reportesExportar": "Exportar a Excel",
+  "@reportesExportar": {
+    "description": "De `rep.export` en delivery/src/lib/i18n.ts."
+  },
+  "reportesFiltros": "Filtros",
+  "@reportesFiltros": {
+    "description": "De `rep.filters` en delivery/src/lib/i18n.ts."
+  },
+  "reportesIngresosTotales": "Ingresos Totales",
+  "@reportesIngresosTotales": {
+    "description": "De `rep.totalRevenue` en delivery/src/lib/i18n.ts."
+  },
+  "reportesPesoTotal": "Peso Total",
+  "@reportesPesoTotal": {
+    "description": "De `rep.totalWeight` en delivery/src/lib/i18n.ts."
+  },
+  "reportesPestanaOrdenes": "Detalle de Órdenes",
+  "@reportesPestanaOrdenes": {
+    "description": "De `rep.tabOrders` en delivery/src/lib/i18n.ts."
+  },
+  "reportesPestanaPorVehiculo": "Por Vehículo",
+  "@reportesPestanaPorVehiculo": {
+    "description": "De `rep.tabByVehicle` en delivery/src/lib/i18n.ts."
+  },
+  "reportesPestanaResumen": "Resumen",
+  "@reportesPestanaResumen": {
+    "description": "De `rep.tabSummary` en delivery/src/lib/i18n.ts."
+  },
+  "reportesPrecioPromedio": "Precio Promedio",
+  "@reportesPrecioPromedio": {
+    "description": "De `rep.avgPrice` en delivery/src/lib/i18n.ts."
+  },
+  "reportesSinDatosVehiculos": "No hay datos de vehículos para los filtros seleccionados.",
+  "@reportesSinDatosVehiculos": {
+    "description": "De `rep.noVehicleData` en delivery/src/lib/i18n.ts."
+  },
+  "reportesSinOrdenes": "No hay órdenes para los filtros seleccionados.",
+  "@reportesSinOrdenes": {
+    "description": "De `rep.noOrders` en delivery/src/lib/i18n.ts."
+  },
+  "reportesTitulo": "Reportes",
+  "@reportesTitulo": {
+    "description": "De `rep.title` en delivery/src/lib/i18n.ts."
+  },
+  "reportesTodosVehiculos": "Todos los vehículos",
+  "@reportesTodosVehiculos": {
+    "description": "De `rep.allVehicles` en delivery/src/lib/i18n.ts."
+  },
+  "reportesTopVehiculos": "Top vehículos",
+  "@reportesTopVehiculos": {
+    "description": "De `rep.topVehicles` en delivery/src/lib/i18n.ts."
+  },
+  "reportesTotalPedidos": "Total Órdenes",
+  "@reportesTotalPedidos": {
+    "description": "De `rep.totalOrders` en delivery/src/lib/i18n.ts."
+  },
+  "reportesTotales": "Totales",
+  "@reportesTotales": {
+    "description": "De `rep.totals` en delivery/src/lib/i18n.ts."
+  },
+  "reportesVehiculo": "Vehículo",
+  "@reportesVehiculo": {
+    "description": "De `rep.vehicle` en delivery/src/lib/i18n.ts."
+  },
+  "rutasActivas": "Activas",
+  "@rutasActivas": {
+    "description": "De `routes.active` en delivery/src/lib/i18n.ts."
+  },
+  "rutasAgregarArticulo": "+ Agregar artículo",
+  "@rutasAgregarArticulo": {
+    "description": "De `routes.addItem` en delivery/src/lib/i18n.ts."
+  },
+  "rutasAgregarPedido": "+ Agregar pedido de cliente",
+  "@rutasAgregarPedido": {
+    "description": "De `routes.addOrder` en delivery/src/lib/i18n.ts."
+  },
+  "rutasArticulos": "Artículos",
+  "@rutasArticulos": {
+    "description": "De `routes.items` en delivery/src/lib/i18n.ts."
+  },
+  "rutasAvisoSobreCapacidad": "Peso ({w} kg) supera capacidad del vehículo ({c} kg)",
+  "@rutasAvisoSobreCapacidad": {
+    "description": "De `routes.overCapWarn` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "w": {
+        "type": "Object",
+        "description": "peso"
+      },
+      "c": {
+        "type": "Object",
+        "description": "capacidad o creados"
+      }
+    }
+  },
+  "rutasBuscarPedidos": "Buscar pedido...",
+  "@rutasBuscarPedidos": {
+    "description": "De `routes.searchOrders` en delivery/src/lib/i18n.ts."
+  },
+  "rutasCantArticulo": "Cant.",
+  "@rutasCantArticulo": {
+    "description": "De `routes.itemQty` en delivery/src/lib/i18n.ts."
+  },
+  "rutasCapacidad": "cap. {c} kg",
+  "@rutasCapacidad": {
+    "description": "De `routes.capacity` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "c": {
+        "type": "Object",
+        "description": "capacidad o creados"
+      }
+    }
+  },
+  "rutasCargaTotal": "Carga total",
+  "@rutasCargaTotal": {
+    "description": "De `routes.totalLoad` en delivery/src/lib/i18n.ts."
+  },
+  "rutasCargandoPedidos": "Cargando pedidos...",
+  "@rutasCargandoPedidos": {
+    "description": "De `routes.loadingOrders` en delivery/src/lib/i18n.ts."
+  },
+  "rutasCompletando": "Completando...",
+  "@rutasCompletando": {
+    "description": "De `routes.completing` en delivery/src/lib/i18n.ts."
+  },
+  "rutasContinuar": "Continuar →",
+  "@rutasContinuar": {
+    "description": "De `routes.continue` en delivery/src/lib/i18n.ts."
+  },
+  "rutasCuentaElegidos": "{n} pedidos seleccionados",
+  "@rutasCuentaElegidos": {
+    "description": "De `routes.selectedCount` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "rutasDescripcionArticulo": "Descripción",
+  "@rutasDescripcionArticulo": {
+    "description": "De `routes.itemDesc` en delivery/src/lib/i18n.ts."
+  },
+  "rutasElegirOrigenGuardado": "— Seleccionar origen guardado —",
+  "@rutasElegirOrigenGuardado": {
+    "description": "De `routes.selectSavedOrigin` en delivery/src/lib/i18n.ts."
+  },
+  "rutasElegirParaVer": "Selecciona una ruta para ver el detalle",
+  "@rutasElegirParaVer": {
+    "description": "De `routes.selectToView` en delivery/src/lib/i18n.ts."
+  },
+  "rutasElegirVehiculo": "— Selecciona un vehículo —",
+  "@rutasElegirVehiculo": {
+    "description": "De `routes.selectVehicle` en delivery/src/lib/i18n.ts."
+  },
+  "rutasEliminarGuardado": "Eliminar guardado",
+  "@rutasEliminarGuardado": {
+    "description": "De `routes.deleteSaved` en delivery/src/lib/i18n.ts."
+  },
+  "rutasEnCurso": "En curso",
+  "@rutasEnCurso": {
+    "description": "De `routes.inProgress` en delivery/src/lib/i18n.ts."
+  },
+  "rutasEstadoCompletada": "Completada",
+  "@rutasEstadoCompletada": {
+    "description": "De `routes.status.completed` en delivery/src/lib/i18n.ts."
+  },
+  "rutasEstadoEnCurso": "En curso",
+  "@rutasEstadoEnCurso": {
+    "description": "De `routes.status.in_progress` en delivery/src/lib/i18n.ts."
+  },
+  "rutasEstadoPlanificada": "Planificada",
+  "@rutasEstadoPlanificada": {
+    "description": "De `routes.status.planned` en delivery/src/lib/i18n.ts."
+  },
+  "rutasFechaEntrega": "Fecha de entrega",
+  "@rutasFechaEntrega": {
+    "description": "De `routes.deliveryDate` en delivery/src/lib/i18n.ts."
+  },
+  "rutasFechaEntregaOpc": "Fecha de entrega (opcional)",
+  "@rutasFechaEntregaOpc": {
+    "description": "De `routes.deliveryDateOpt` en delivery/src/lib/i18n.ts."
+  },
+  "rutasGenerando": "Generando ruta...",
+  "@rutasGenerando": {
+    "description": "De `routes.generating` en delivery/src/lib/i18n.ts."
+  },
+  "rutasGenerar": "Generar Ruta",
+  "@rutasGenerar": {
+    "description": "De `routes.generate` en delivery/src/lib/i18n.ts."
+  },
+  "rutasGuardarOrigen": "+ Guardar este origen para uso futuro",
+  "@rutasGuardarOrigen": {
+    "description": "De `routes.saveOrigin` en delivery/src/lib/i18n.ts."
+  },
+  "rutasHistorial": "Historial",
+  "@rutasHistorial": {
+    "description": "De `routes.history` en delivery/src/lib/i18n.ts."
+  },
+  "rutasIniciando": "Iniciando...",
+  "@rutasIniciando": {
+    "description": "De `routes.starting` en delivery/src/lib/i18n.ts."
+  },
+  "rutasIniciar": "Iniciar ruta",
+  "@rutasIniciar": {
+    "description": "De `routes.start` en delivery/src/lib/i18n.ts."
+  },
+  "rutasKmDesdePartida": "{km} km desde partida",
+  "@rutasKmDesdePartida": {
+    "description": "De `routes.kmFromStart` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "km": {
+        "type": "Object",
+        "description": "kilometros"
+      }
+    }
+  },
+  "rutasKmInclRegreso": "{km} km (incl. regreso)",
+  "@rutasKmInclRegreso": {
+    "description": "De `routes.kmInclReturn` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "km": {
+        "type": "Object",
+        "description": "kilometros"
+      }
+    }
+  },
+  "rutasLeyendaParadas": "Paradas",
+  "@rutasLeyendaParadas": {
+    "description": "De `routes.legendStops` en delivery/src/lib/i18n.ts."
+  },
+  "rutasLeyendaPartida": "Punto de partida",
+  "@rutasLeyendaPartida": {
+    "description": "De `routes.legendStart` en delivery/src/lib/i18n.ts."
+  },
+  "rutasLeyendaRegreso": "Regreso al depósito",
+  "@rutasLeyendaRegreso": {
+    "description": "De `routes.legendReturn` en delivery/src/lib/i18n.ts."
+  },
+  "rutasMarcadorBuscar": "Buscar por código, nombre, vehículo...",
+  "@rutasMarcadorBuscar": {
+    "description": "De `routes.searchPlaceholder` en delivery/src/lib/i18n.ts."
+  },
+  "rutasMarcadorDeposito": "Dirección del depósito, coordenadas, o click en el mapa",
+  "@rutasMarcadorDeposito": {
+    "description": "De `routes.depotPlaceholder` en delivery/src/lib/i18n.ts."
+  },
+  "rutasMarcadorNombre": "Nombre (el código se genera solo)",
+  "@rutasMarcadorNombre": {
+    "description": "De `routes.namePlaceholder` en delivery/src/lib/i18n.ts."
+  },
+  "rutasMarcadorNombreOrigen": "Nombre del origen (ej: Bodega Central)",
+  "@rutasMarcadorNombreOrigen": {
+    "description": "De `routes.originNamePh` en delivery/src/lib/i18n.ts."
+  },
+  "rutasMarcarCompletada": "Marcar como completada",
+  "@rutasMarcarCompletada": {
+    "description": "De `routes.markComplete` en delivery/src/lib/i18n.ts."
+  },
+  "rutasNotaCompletada": "Ruta completada — en historial.",
+  "@rutasNotaCompletada": {
+    "description": "De `routes.completedNote` en delivery/src/lib/i18n.ts."
+  },
+  "rutasNotaSoloLectura": "Ruta activa (solo lectura). Al completarla, el vehículo queda disponible y pasa al historial.",
+  "@rutasNotaSoloLectura": {
+    "description": "De `routes.readonlyNote` en delivery/src/lib/i18n.ts."
+  },
+  "rutasNueva": "+ Nueva Ruta",
+  "@rutasNueva": {
+    "description": "De `routes.new` en delivery/src/lib/i18n.ts."
+  },
+  "rutasOIngresaNuevo": "— o ingresa uno nuevo abajo —",
+  "@rutasOIngresaNuevo": {
+    "description": "De `routes.orEnterNew` en delivery/src/lib/i18n.ts."
+  },
+  "rutasParadasKm": "{n} paradas · {km} km",
+  "@rutasParadasKm": {
+    "description": "De `routes.stopsKm` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      },
+      "km": {
+        "type": "Object",
+        "description": "kilometros"
+      }
+    }
+  },
+  "rutasParadasYPrecio": "Paradas y precio por cliente ({n})",
+  "@rutasParadasYPrecio": {
+    "description": "De `routes.stopsAndPrice` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "rutasPaso1": "Punto de partida",
+  "@rutasPaso1": {
+    "description": "De `routes.step1` en delivery/src/lib/i18n.ts."
+  },
+  "rutasPaso2Nombre": "y nombre (opcional)",
+  "@rutasPaso2Nombre": {
+    "description": "De `routes.step2Name` en delivery/src/lib/i18n.ts."
+  },
+  "rutasPaso2Vehiculo": "Vehículo *",
+  "@rutasPaso2Vehiculo": {
+    "description": "De `routes.step2Vehicle` en delivery/src/lib/i18n.ts."
+  },
+  "rutasPaso3Pedidos": "Pedidos de cliente ({n})",
+  "@rutasPaso3Pedidos": {
+    "description": "De `routes.step3Orders` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "rutasPedidosDisponibles": "Pedidos disponibles",
+  "@rutasPedidosDisponibles": {
+    "description": "De `routes.availableOrders` en delivery/src/lib/i18n.ts."
+  },
+  "rutasPlanificador": "Planificador de Rutas",
+  "@rutasPlanificador": {
+    "description": "De `routes.planner` en delivery/src/lib/i18n.ts."
+  },
+  "rutasResumenPedidos": "{n} pedidos",
+  "@rutasResumenPedidos": {
+    "description": "De `routes.ordersSummary` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "rutasSeccionPedidoManual": "Agregar pedido manual ({n})",
+  "@rutasSeccionPedidoManual": {
+    "description": "De `routes.manualOrderSection` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "rutasSinActivas": "Sin rutas activas. Crea la primera.",
+  "@rutasSinActivas": {
+    "description": "De `routes.noActive` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSinArticulos": "Sin artículos detallados",
+  "@rutasSinArticulos": {
+    "description": "De `routes.noItems` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSinCodigo": "Sin código",
+  "@rutasSinCodigo": {
+    "description": "De `routes.noCode` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSinCompletadas": "Sin rutas completadas aún.",
+  "@rutasSinCompletadas": {
+    "description": "De `routes.noCompleted` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSinDefinir": "Sin definir",
+  "@rutasSinDefinir": {
+    "description": "De `routes.notSet` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSinEnCurso": "Sin rutas en curso.",
+  "@rutasSinEnCurso": {
+    "description": "De `routes.noInProgress` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSinGps": "Sin coordenadas GPS para esta ruta",
+  "@rutasSinGps": {
+    "description": "De `routes.noGps` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSinPedidosDisponibles": "No hay pedidos disponibles para rutear.",
+  "@rutasSinPedidosDisponibles": {
+    "description": "De `routes.noAvailOrders` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSinVehiculosDisponibles": "No hay vehículos disponibles. Crea o libera uno en Vehículos para poder crear la ruta.",
+  "@rutasSinVehiculosDisponibles": {
+    "description": "De `routes.noVehiclesAvail` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSobrepeso": "Sobrepeso",
+  "@rutasSobrepeso": {
+    "description": "De `routes.overweight` en delivery/src/lib/i18n.ts."
+  },
+  "rutasSobrepesoDetalle": "Peso total ({w} kg) supera capacidad ({c} kg)",
+  "@rutasSobrepesoDetalle": {
+    "description": "De `routes.overweightFull` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "w": {
+        "type": "Object",
+        "description": "peso"
+      },
+      "c": {
+        "type": "Object",
+        "description": "capacidad o creados"
+      }
+    }
+  },
+  "rutasTitulo": "Rutas",
+  "@rutasTitulo": {
+    "description": "De `routes.title` en delivery/src/lib/i18n.ts."
+  },
+  "rutasTituloModal": "Nueva Ruta",
+  "@rutasTituloModal": {
+    "description": "De `routes.modalTitle` en delivery/src/lib/i18n.ts."
+  },
+  "rutasVerParadas": "Ver paradas ({n})",
+  "@rutasVerParadas": {
+    "description": "De `routes.viewStops` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "sucursalesAgregarPuntoPartida": "+ Agregar punto de partida",
+  "@sucursalesAgregarPuntoPartida": {
+    "description": "De `br.addStartPoint` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesArea": "Área de cobertura (km²)",
+  "@sucursalesArea": {
+    "description": "De `br.area` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesCargando": "Cargando sucursales...",
+  "@sucursalesCargando": {
+    "description": "De `br.loading` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesCodigo": "Código",
+  "@sucursalesCodigo": {
+    "description": "De `br.code` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesCuentaPuntosPartida": "{n} puntos de partida",
+  "@sucursalesCuentaPuntosPartida": {
+    "description": "De `br.startPointsCount` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "sucursalesMarcadorCodigo": "Ej: CAM, STG",
+  "@sucursalesMarcadorCodigo": {
+    "description": "De `br.codePlaceholder` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesMiembros": "{n} usuarios",
+  "@sucursalesMiembros": {
+    "description": "De `br.members` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "sucursalesNombre": "Nombre de la sucursal",
+  "@sucursalesNombre": {
+    "description": "De `br.name` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesNombrePuntoPartida": "Nombre del punto (ej: Almacén Central)",
+  "@sucursalesNombrePuntoPartida": {
+    "description": "De `br.startPointName` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesNotaCodigo": "Identifica la sucursal y la enlaza con PEDIDO. Usa el mismo código que en PEDIDO.",
+  "@sucursalesNotaCodigo": {
+    "description": "De `br.codeNote` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesNueva": "+ Nueva Sucursal",
+  "@sucursalesNueva": {
+    "description": "De `br.new` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesPistaPuntosPartida": "Una sucursal puede tener varios puntos de partida (punto de venta, almacenes...). Se usan al crear rutas.",
+  "@sucursalesPistaPuntosPartida": {
+    "description": "De `br.startPointsHint` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesPuntosPartida": "Puntos de partida",
+  "@sucursalesPuntosPartida": {
+    "description": "De `br.startPoints` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesSinCodigo": "sin código",
+  "@sucursalesSinCodigo": {
+    "description": "De `br.noCode` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesSinPermiso": "No tienes permisos para gestionar sucursales.",
+  "@sucursalesSinPermiso": {
+    "description": "De `br.noPermission` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesSinPuntosPartida": "Sin puntos de partida. Agrega el primero.",
+  "@sucursalesSinPuntosPartida": {
+    "description": "De `br.noStartPoints` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesSubtitulo": "Gestiona las sucursales. El mapa se centra en la sucursal del usuario.",
+  "@sucursalesSubtitulo": {
+    "description": "De `br.subtitle` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesTitulo": "Sucursales",
+  "@sucursalesTitulo": {
+    "description": "De `br.title` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesTituloCrear": "Crear Sucursal",
+  "@sucursalesTituloCrear": {
+    "description": "De `br.createTitle` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesTituloEditar": "Editar Sucursal",
+  "@sucursalesTituloEditar": {
+    "description": "De `br.editTitle` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesUbicacion": "Ubicación de la sucursal",
+  "@sucursalesUbicacion": {
+    "description": "De `br.location` en delivery/src/lib/i18n.ts."
+  },
+  "sucursalesVacio": "Sin sucursales. Crea la primera.",
+  "@sucursalesVacio": {
+    "description": "De `br.empty` en delivery/src/lib/i18n.ts."
+  },
+  "ubicacionAyuda": "Escribe la dirección (autocompleta), pega lat, lng, o haz click en el mapa.",
+  "@ubicacionAyuda": {
+    "description": "De `loc.help` en delivery/src/lib/i18n.ts."
+  },
+  "ubicacionBuscando": "Buscando ubicación…",
+  "@ubicacionBuscando": {
+    "description": "De `loc.searching` en delivery/src/lib/i18n.ts."
+  },
+  "ubicacionEtiqueta": "Ubicación",
+  "@ubicacionEtiqueta": {
+    "description": "De `loc.label` en delivery/src/lib/i18n.ts."
+  },
+  "ubicacionMarcador": "Escribe una dirección, pega \"lat, lng\", o haz click en el mapa",
+  "@ubicacionMarcador": {
+    "description": "De `loc.placeholder` en delivery/src/lib/i18n.ts."
+  },
+  "ubicacionNoEncontrado": "No se encontró. Sé más específico, pega coordenadas, o usa el mapa.",
+  "@ubicacionNoEncontrado": {
+    "description": "De `loc.notfound` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosActividad": "{o} órdenes, {r} rutas, {v} vehículos",
+  "@usuariosActividad": {
+    "description": "De `usr.activity` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "o": {
+        "type": "Object",
+        "description": "ordenes"
+      },
+      "r": {
+        "type": "Object",
+        "description": "rutas"
+      },
+      "v": {
+        "type": "Object",
+        "description": "valor"
+      }
+    }
+  },
+  "usuariosAdmin": "Administración de Usuarios",
+  "@usuariosAdmin": {
+    "description": "De `usr.admin` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosCargando": "Cargando usuarios...",
+  "@usuariosCargando": {
+    "description": "De `usr.loading` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosColActividad": "Actividad",
+  "@usuariosColActividad": {
+    "description": "De `usr.colActivity` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosColCorreo": "Correo",
+  "@usuariosColCorreo": {
+    "description": "De `usr.colEmail` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosColRol": "Rol",
+  "@usuariosColRol": {
+    "description": "De `usr.colRole` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosContrasenaNueva": "Nueva contraseña (opcional)",
+  "@usuariosContrasenaNueva": {
+    "description": "De `usr.newPassword` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosContrasenaTemporal": "Contraseña temporal",
+  "@usuariosContrasenaTemporal": {
+    "description": "De `usr.tempPassword` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosCorreo": "Correo electrónico",
+  "@usuariosCorreo": {
+    "description": "De `usr.email` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosNombreCompleto": "Nombre completo",
+  "@usuariosNombreCompleto": {
+    "description": "De `usr.fullName` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosNotaSucursal": "Un usuario con sucursal solo ve/gestiona los datos de ESA sucursal. Sin sucursal = admin global (ve todas).",
+  "@usuariosNotaSucursal": {
+    "description": "De `usr.branchNote` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosNueva": "+ Nuevo Usuario",
+  "@usuariosNueva": {
+    "description": "De `usr.new` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosSinPermiso": "No tienes permisos para gestionar usuarios.",
+  "@usuariosSinPermiso": {
+    "description": "De `usr.noPermission` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosSinSucursal": "Sin sucursal (admin — ve todo)",
+  "@usuariosSinSucursal": {
+    "description": "De `usr.noBranch` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosSucursal": "Sucursal",
+  "@usuariosSucursal": {
+    "description": "De `usr.branch` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosSucursalGlobal": "Global / Todas",
+  "@usuariosSucursalGlobal": {
+    "description": "De `usr.branchGlobal` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosTitulo": "Usuarios",
+  "@usuariosTitulo": {
+    "description": "De `usr.title` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosTituloCrear": "Crear Usuario",
+  "@usuariosTituloCrear": {
+    "description": "De `usr.createTitle` en delivery/src/lib/i18n.ts."
+  },
+  "usuariosTituloEditar": "Editar Usuario",
+  "@usuariosTituloEditar": {
+    "description": "De `usr.editTitle` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosAgregar": "Agregar Vehículo",
+  "@vehiculosAgregar": {
+    "description": "De `veh.add` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosCapacidad": "Capacidad",
+  "@vehiculosCapacidad": {
+    "description": "De `veh.capacity` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosCapacidadMax": "Capacidad Máx. (kg)",
+  "@vehiculosCapacidadMax": {
+    "description": "De `veh.capacityMax` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosCargando": "Cargando vehículos...",
+  "@vehiculosCargando": {
+    "description": "De `veh.loading` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosEstadoDisponible": "Disponible",
+  "@vehiculosEstadoDisponible": {
+    "description": "De `veh.status.available` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosEstadoEnUso": "En uso",
+  "@vehiculosEstadoEnUso": {
+    "description": "De `veh.status.in_use` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosEstadoMantenimiento": "Mantenimiento",
+  "@vehiculosEstadoMantenimiento": {
+    "description": "De `veh.status.maintenance` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosEtiquetaNombre": "Nombre del Vehículo *",
+  "@vehiculosEtiquetaNombre": {
+    "description": "De `veh.nameLabel` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosMarcadorNombre": "Ej: Camión #1, Furgoneta Azul",
+  "@vehiculosMarcadorNombre": {
+    "description": "De `veh.namePh` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosMarcadorNotas": "Información relevante del vehículo...",
+  "@vehiculosMarcadorNotas": {
+    "description": "De `veh.notesPh` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosMarcarDisponible": "Marcar disponible",
+  "@vehiculosMarcarDisponible": {
+    "description": "De `veh.markAvailable` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosNotas": "Notas (opcional)",
+  "@vehiculosNotas": {
+    "description": "De `veh.notes` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosOrdenesAsignadas": "{n} órdenes asignadas",
+  "@vehiculosOrdenesAsignadas": {
+    "description": "De `veh.ordersAssigned` en delivery/src/lib/i18n.ts.",
+    "placeholders": {
+      "n": {
+        "type": "Object",
+        "description": "numero"
+      }
+    }
+  },
+  "vehiculosPistaGestion": "Gestiona tu flota. Las tarifas se configuran globalmente en Configuración.",
+  "@vehiculosPistaGestion": {
+    "description": "De `veh.manageHint` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosPistaTarifas": "Las tarifas de precios se configuran globalmente en Configuración.",
+  "@vehiculosPistaTarifas": {
+    "description": "De `veh.feesHint` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosPistaVacio": "Agrega tu primer vehículo para asignarlo a rutas",
+  "@vehiculosPistaVacio": {
+    "description": "De `veh.emptyHint` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosPlaca": "Placa (opcional)",
+  "@vehiculosPlaca": {
+    "description": "De `veh.plate` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosRutaActiva": "Ruta activa",
+  "@vehiculosRutaActiva": {
+    "description": "De `veh.activeRoute` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosRutas": "Rutas",
+  "@vehiculosRutas": {
+    "description": "De `veh.routes` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTipo": "Tipo",
+  "@vehiculosTipo": {
+    "description": "De `veh.type` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTipoAuto": "Auto",
+  "@vehiculosTipoAuto": {
+    "description": "De `veh.type.car` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTipoBicicleta": "Bicicleta",
+  "@vehiculosTipoBicicleta": {
+    "description": "De `veh.type.bicycle` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTipoCamion": "Camión",
+  "@vehiculosTipoCamion": {
+    "description": "De `veh.type.truck` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTipoFurgoneta": "Furgoneta",
+  "@vehiculosTipoFurgoneta": {
+    "description": "De `veh.type.van` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTipoMoto": "Moto",
+  "@vehiculosTipoMoto": {
+    "description": "De `veh.type.motorcycle` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTipoOtro": "Otro",
+  "@vehiculosTipoOtro": {
+    "description": "De `veh.type.other` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTitulo": "Vehículos",
+  "@vehiculosTitulo": {
+    "description": "De `veh.title` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTituloEditar": "Editar Vehículo",
+  "@vehiculosTituloEditar": {
+    "description": "De `veh.editTitle` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosTituloNuevo": "Nuevo Vehículo",
+  "@vehiculosTituloNuevo": {
+    "description": "De `veh.newTitle` en delivery/src/lib/i18n.ts."
+  },
+  "vehiculosVacio": "Sin vehículos",
+  "@vehiculosVacio": {
+    "description": "De `veh.empty` en delivery/src/lib/i18n.ts."
+  },
+  "nuevoCerrar": "Cerrar",
+  "@nuevoCerrar": {
+    "description": "NUEVO: el `window.close()` del HTML de Next pasa a ser una accion del cajon."
+  },
+  "nuevoCompartir": "Compartir",
+  "@nuevoCompartir": {
+    "description": "NUEVO: no existe en Next. En el patio de un almacen la hoja se manda por WhatsApp."
+  },
+  "nuevoImprimir": "Imprimir",
+  "@nuevoImprimir": {
+    "description": "NUEVO: el boton flotante del HTML de Next pasa a ser una accion del cajon."
+  },
+  "nuevoPdfNoSePudo": "No se pudo armar la hoja",
+  "@nuevoPdfNoSePudo": {
+    "description": "NUEVO: en Next no puede fallar porque es HTML; aqui el PDF se arma y puede reventar."
+  },
+  "nuevoVistaPreviaTitulo": "Vista previa",
+  "@nuevoVistaPreviaTitulo": {
+    "description": "NUEVO: en Next la hoja se abre en una ventana del navegador; aqui es un cajon con el PDF dentro."
+  }
+}

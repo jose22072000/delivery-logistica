@@ -1,40 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
-/// El armazon de la aplicacion.
+import 'diseno/colores.dart';
+import 'navegacion/rutas.dart';
+import 'textos/textos.dart';
+
+/// La aplicacion.
 ///
-/// Hoy no pinta ninguna pantalla **a proposito**: las siete van despues del
-/// nucleo (PLAN.md §2 — «ninguna pantalla se empieza sin las cinco piezas en
-/// pie, porque las siete dependen de las cinco y arreglarlas despues significa
-/// reescribir las siete»).
-class RepartoApp extends StatelessWidget {
-  const RepartoApp({super.key});
+/// `MaterialApp.router` y no `MaterialApp` porque en web la URL tiene que ser de
+/// verdad: los filtros de las listas viajan en la direccion, y una pantalla
+/// filtrada que no se puede mandar por enlace deja a media oficina leyendo
+/// numeros por telefono.
+class RepartoApp extends StatefulWidget {
+  const RepartoApp({super.key, this.enrutador});
+
+  /// Se puede inyectar en los tests para montar el armazon con pantallas de
+  /// mentira.
+  final GoRouter? enrutador;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Reparto',
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4F46E5)),
-      useMaterial3: true,
-    ),
-    home: const _Nucleo(),
-  );
+  State<RepartoApp> createState() => _RepartoAppState();
 }
 
-class _Nucleo extends StatelessWidget {
-  const _Nucleo();
+class _RepartoAppState extends State<RepartoApp> {
+  late final GoRouter _enrutador = widget.enrutador ?? crearEnrutador();
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
-    body: Center(
-      child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Text(
-          'Núcleo en pie: base local, cola, red, identidad y frescura.\n'
-          'Las pantallas van después.',
-          textAlign: TextAlign.center,
-        ),
-      ),
-    ),
+  Widget build(BuildContext context) => MaterialApp.router(
+    title: 'Reparto',
+    debugShowCheckedModeBanner: false,
+    theme: temaDeReparto(),
+    // Sin estas dos lineas `Textos.of(context)` revienta en cada pantalla, y
+    // las de Material dejarian un selector de fecha en ingles dentro de una
+    // pantalla en espanol.
+    localizationsDelegates: delegacionesDeIdioma,
+    supportedLocales: idiomas,
+    routerConfig: _enrutador,
   );
 }

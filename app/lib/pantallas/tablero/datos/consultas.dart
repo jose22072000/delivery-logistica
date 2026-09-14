@@ -1,0 +1,490 @@
+import 'package:drift/drift.dart';
+
+import '../../../nucleo/base/base.dart';
+import 'esquema.dart';
+import 'geo.dart';
+import 'modelos.dart';
+
+/// Los filtros de la mitad izquierda (§3 «Filtros de la mitad izquierda»).
+class FiltrosSinColocar {
+  const FiltrosSinColocar({
+    this.dia,
+    this.q,
+    this.municipio,
+    this.vendedor,
+    this.kmMax,
+    this.limite = 200,
+  });
+
+  /// El dia del pedido, medio abierto por arriba igual que en el armador.
+  final DateTime? dia;
+
+  /// La misma caja de la lista de pedidos: cliente, operacion, direccion,
+  /// municipio, vendedor y el CONTENIDO DE LOS RENGLONES — «¿que pedidos llevan
+  /// malta?». Quien la usa no se para a pensar en que campo esta lo que
+  /// recuerda.
+  final String? q;
+  final String? municipio;
+  final String? vendedor;
+
+  /// El corte por kilometros.
+  final double? kmMax;
+
+  /// El tope de lo que se pinta. `total` dice cuantos hay de verdad.
+  final int limite;
+
+  FiltrosSinColocar copiaCon({
+    DateTime? dia,
+    String? q,
+    String? municipio,
+    String? vendedor,
+    double? kmMax,
+    int? limite,
+    bool quitarDia = false,
+    bool quitarMunicipio = false,
+    bool quitarVendedor = false,
+    bool quitarKmMax = false,
+  }) => FiltrosSinColocar(
+    dia: quitarDia ? null : (dia ?? this.dia),
+    q: q ?? this.q,
+    municipio: quitarMunicipio ? null : (municipio ?? this.municipio),
+    vendedor: quitarVendedor ? null : (vendedor ?? this.vendedor),
+    kmMax: quitarKmMax ? null : (kmMax ?? this.kmMax),
+    limite: limite ?? this.limite,
+  );
+
+  bool get hayAlguno =>
+      dia != null ||
+      (q != null && q!.trim().isNotEmpty) ||
+      municipio != null ||
+      vendedor != null ||
+      kmMax != null;
+}
+
+/// LAS LECTURAS DEL TABLERO, todas contra la base local.
+///
+/// Todas: con red y sin ella. La pantalla no mira nunca la respuesta de una
+/// peticion —eso lo hace el servicio, que escribe aqui— y asi lo que se ve por
+/// la tarde en el patio es exactamente lo mismo que se veia por la manana.
+class ConsultasTablero {
+  ConsultasTablero(this._base);
+
+  final BaseLocal _base;
+
+  Future<void> _listo() => EsquemaTablero.asegurar(_base);
+
+  /// El nombre de la sucursal, para poder decir «Santiago no tiene ningun
+  /// almacen con coordenadas» en vez de un uuid.
+  Future<String> nombreDeSucursal(String sucursalId) async {
+    final fila = await (_base.select(
+      _base.branches,
+    )..where((b) => b.id.equals(sucursalId))).getSingleOrNull();
+    return fila?.name ?? 'Esta sucursal';
+  }
+
+  /// DE DONDE SE MIDE LA CERCANIA. Se resuelve igual que en
+  /// `/api/quote/home-delivery` y en el servidor del tablero:
+  ///
+  ///  1. el primer almacen con `principal` **y** coordenadas;
+  ///  2. si no hay, el primero con coordenadas, principal o no;
+  ///  3. si no hay ninguno, **no hay tablero**.
+  ///
+  /// Sale de `warehouses`, que es lo que bajo por la manana: asi el orden por
+  /// cercania no depende de preguntarle a nadie.
+  Future<AlmacenOrigen> almacenDe(String sucursalId) async {
+    final sucursal = await (_base.select(
+      _base.branches,
+    )..where((b) => b.id.equals(sucursalId))).getSingleOrNull();
+    final codigo = sucursal?.externalId;
+
+    final almacenes =
+        await (_base.select(_base.warehouses)..where(
+              (w) =>
+                  w.activo.equals(true) &
+                  w.lat.isNotNull() &
+                  w.lng.isNotNull(),
+            ))
+            .get();
+
+    // `warehouses` guarda la sucursal por CODIGO (`STG`), no por id: viene de
+    // Accesos, que es otra base. Si la sucursal no tiene codigo no se adivina
+    // nada — se queda sin tablero, que es lo honesto.
+    final suyos = almacenes.where((w) => w.sucursalCodigo == codigo).toList();
+    if (suyos.isEmpty) {
+      throw SinAlmacenConCoordenadas(await nombreDeSucursal(sucursalId));
+    }
+    // (0,0) es el golfo de Guinea, no Santiago: un almacen asi no tiene
+    // coordenadas, las tiene sin poner. Ordenar desde ahi pondria el pedido mas
+    // lejano el primero.
+    final validos = suyos
+        .where((w) => !(w.lat == 0 && w.lng == 0))
+        .toList(growable: false);
+    if (validos.isEmpty) {
+      throw SinAlmacenConCoordenadas(await nombreDeSucursal(sucursalId));
+    }
+    final elegido = validos.firstWhere(
+      (w) => w.principal,
+      orElse: () => validos.first,
+    );
+    return AlmacenOrigen(
+      id: elegido.id,
+      nombre: elegido.nombre,
+      lat: elegido.lat!,
+      lng: elegido.lng!,
+    );
+  }
+
+  /// Las columnas con sus totales. Los totales salen de la BASE y no de sumar
+  /// las tarjetas pintadas (§3).
+  Future<List<ColumnaTablero>> columnas(String sucursalId) async {
+    await _listo();
+    final filas = await _base
+        .customSelect(
+          '''
+SELECT c.id, c.branch_id, c.nombre, c.posicion, c.vehicle_id,
+       v.name     AS vehiculo_nombre,
+       v.plate    AS vehiculo_matricula,
+       v.capacity AS vehiculo_capacidad,
+       (SELECT count(*) FROM ${EsquemaTablero.colocaciones} p
+         WHERE p.column_id = c.id) AS pedidos,
+       (SELECT coalesce(sum(o.weight), 0) FROM ${EsquemaTablero.colocaciones} p
+          JOIN orders o ON o.id = p.order_id
+         WHERE p.column_id = c.id) AS peso_kg,
+       (SELECT coalesce(sum(o.pedido_costo), 0) FROM ${EsquemaTablero.colocaciones} p
+          JOIN orders o ON o.id = p.order_id
+         WHERE p.column_id = c.id) AS costo_usd
+FROM ${EsquemaTablero.columnas} c
+LEFT JOIN vehicles v ON v.id = c.vehicle_id
+WHERE c.branch_id = ?1
+ORDER BY c.posicion ASC, c.created_at ASC''',
+          variables: [Variable<String>(sucursalId)],
+        )
+        .get();
+
+    return filas
+        .map(
+          (f) => ColumnaTablero(
+            id: f.read<String>('id'),
+            branchId: f.read<String>('branch_id'),
+            nombre: f.read<String>('nombre'),
+            posicion: f.read<int>('posicion'),
+            vehiculoId: f.readNullable<String>('vehicle_id'),
+            vehiculoNombre: f.readNullable<String>('vehiculo_nombre'),
+            vehiculoMatricula: f.readNullable<String>('vehiculo_matricula'),
+            vehiculoCapacidad: f.readNullable<double>('vehiculo_capacidad'),
+            pedidos: f.read<int>('pedidos'),
+            pesoKg: f.read<double>('peso_kg'),
+            costoUsd: f.read<double>('costo_usd'),
+          ),
+        )
+        .toList(growable: false);
+    }
+
+  /// TODO lo que esta puesto, se pueda repartir o no.
+  ///
+  /// Este `WHERE` **no lleva** las condiciones de «repartible» a proposito: la
+  /// tarjeta que dejo de servir se marca, no se esconde. Por eso se leen
+  /// `factura_estado`, `archivado`, `route_id` y `resultado` crudos (§7.2).
+  Future<List<TarjetaColocada>> colocados(
+    String sucursalId,
+    AlmacenOrigen origen,
+  ) async {
+    await _listo();
+    final filas = await _base
+        .customSelect(
+          '''
+SELECT p.order_id, p.column_id, p.posicion, p.colocado_at,
+       o.operation_number, o.customer_name, o.customer_phone, o.address,
+       o.end_address, o.end_lat, o.end_lng, o.weight, o.pedido_costo,
+       o.municipio, o.vendedor, o.order_date, o.factura_estado, o.archivado,
+       o.route_id, o.resultado
+FROM ${EsquemaTablero.colocaciones} p
+JOIN ${EsquemaTablero.columnas} c ON c.id = p.column_id
+JOIN orders o ON o.id = p.order_id
+WHERE c.branch_id = ?1
+ORDER BY c.posicion ASC, p.posicion ASC''',
+          variables: [Variable<String>(sucursalId)],
+        )
+        .get();
+
+    final repes = <String, int>{};
+    for (final f in filas) {
+      final clave = f.read<String>('customer_name').trim().toLowerCase();
+      repes[clave] = (repes[clave] ?? 0) + 1;
+    }
+
+    return filas.map((f) {
+      final nombre = f.read<String>('customer_name');
+      return TarjetaColocada(
+        columnaId: f.read<String>('column_id'),
+        posicion: f.read<int>('posicion'),
+        colocadoAt: f.readNullable<DateTime>('colocado_at'),
+        pedido: TarjetaPedido(
+          pedidoId: f.read<String>('order_id'),
+          operationNumber: f.readNullable<String>('operation_number'),
+          customerName: nombre,
+          customerPhone: f.readNullable<String>('customer_phone'),
+          address:
+              f.readNullable<String>('end_address') ?? f.read<String>('address'),
+          weight: f.read<double>('weight'),
+          pedidoCosto: f.readNullable<double>('pedido_costo'),
+          municipio: f.readNullable<String>('municipio'),
+          vendedor: f.readNullable<String>('vendedor'),
+          orderDate: f.readNullable<DateTime>('order_date'),
+          facturaEstado: f.readNullable<String>('factura_estado'),
+          archivado: f.read<int>('archivado') != 0,
+          rutaId: f.readNullable<String>('route_id'),
+          resultado: f.readNullable<String>('resultado'),
+          kmAlAlmacen: _km(
+            origen,
+            f.readNullable<double>('end_lat'),
+            f.readNullable<double>('end_lng'),
+          ),
+          mismoCliente: repes[nombre.trim().toLowerCase()] ?? 1,
+        ),
+      );
+    }).toList(growable: false);
+  }
+
+  /// Los tres contadores de arriba, contados en la base y no sobre lo pintado.
+  Future<AvisosTablero> avisos(String sucursalId) async {
+    await _listo();
+    final fila = await _base
+        .customSelect(
+          '''
+SELECT
+  coalesce(sum(CASE WHEN o.archivado <> 0 THEN 1 ELSE 0 END), 0) AS archivados,
+  coalesce(sum(CASE WHEN o.route_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS en_otra_ruta,
+  coalesce(sum(CASE WHEN o.factura_estado IS NULL
+                      OR o.factura_estado = 'sin_factura' THEN 1 ELSE 0 END), 0) AS sin_factura,
+  coalesce(sum(CASE WHEN o.factura_estado = 'cambiado' THEN 1 ELSE 0 END), 0) AS cambiados,
+  count(*) AS colocados
+FROM ${EsquemaTablero.colocaciones} p
+JOIN ${EsquemaTablero.columnas} c ON c.id = p.column_id
+JOIN orders o ON o.id = p.order_id
+WHERE c.branch_id = ?1''',
+          variables: [Variable<String>(sucursalId)],
+        )
+        .getSingle();
+    return AvisosTablero(
+      archivados: fila.read<int>('archivados'),
+      enOtraRuta: fila.read<int>('en_otra_ruta'),
+      sinFactura: fila.read<int>('sin_factura'),
+      cambiados: fila.read<int>('cambiados'),
+      colocados: fila.read<int>('colocados'),
+    );
+  }
+
+  /// LOS PEDIDOS SIN COLOCAR, ORDENADOS POR CERCANIA AL ALMACEN.
+  ///
+  /// Es la segunda mitad del encargo y no es un adorno: es como se decide que
+  /// se reparte hoy cuando no cabe todo. Lo que esta cerca sale igual, porque
+  /// cuesta poco; lo que esta lejos espera al dia en que haya suficiente para
+  /// ese lado. Por fecha esa decision no se puede tomar.
+  ///
+  /// **El orden se hace aqui, en el aparato.** En el servidor lo hace el SQL
+  /// (`km_haversine`), pero SQLite no trae trigonometria y, sobre todo, la
+  /// pantalla tiene que dar el mismo orden sin conexion: es la hora a la que se
+  /// usa. Son los pedidos de UNA sucursal, no del pais.
+  ///
+  /// Las condiciones de «repartible» son LAS MISMAS CINCO del armador, ni una
+  /// mas ni una menos: si el tablero ofreciera algo que la ruta luego rechaza,
+  /// el logistico prepararia una columna entera para que al final del dia le
+  /// digan que no.
+  Future<MitadIzquierda> sinColocar(
+    String sucursalId,
+    AlmacenOrigen origen, {
+    FiltrosSinColocar filtros = const FiltrosSinColocar(),
+  }) async {
+    await _listo();
+    final puestos = await _idsColocados();
+    final o = _base.orders;
+
+    final consulta = _base.select(o)
+      ..where(
+        (t) =>
+            t.branchId.equals(sucursalId) &
+            t.source.equals(Procedencia.pedido) &
+            t.routeId.isNull() &
+            t.endLat.isNotNull() &
+            t.endLng.isNotNull() &
+            t.facturaEstado.isIn(const [
+              EstadoFactura.igual,
+              EstadoFactura.cambiado,
+            ]),
+      );
+    if (puestos.isNotEmpty) {
+      // «Sin colocar» = no esta en ninguna columna. Del tablero de NADIE: un
+      // pedido es de una sucursal y sólo puede estar en el suyo.
+      consulta.where((t) => t.id.isNotIn(puestos));
+    }
+
+    final q = filtros.q?.trim();
+    if (q != null && q.isNotEmpty) {
+      final patron = '%$q%';
+      consulta.where(
+        (t) =>
+            t.customerName.like(patron) |
+            t.operationNumber.like(patron) |
+            t.endAddress.like(patron) |
+            t.address.like(patron) |
+            t.municipio.like(patron) |
+            t.vendedor.like(patron) |
+            // La pregunta del despacho: «¿que pedidos llevan malta?».
+            existsQuery(
+              _base.selectOnly(_base.orderItems)
+                ..addColumns([_base.orderItems.id])
+                ..where(
+                  _base.orderItems.orderId.equalsExp(t.id) &
+                      _base.orderItems.description.like(patron),
+                ),
+            ),
+      );
+    }
+    final municipio = filtros.municipio;
+    if (municipio != null && municipio.isNotEmpty) {
+      consulta.where((t) => t.municipio.equals(municipio));
+    }
+    final vendedor = filtros.vendedor;
+    if (vendedor != null && vendedor.isNotEmpty) {
+      consulta.where((t) => t.vendedor.equals(vendedor));
+    }
+    final dia = filtros.dia;
+    if (dia != null) {
+      final desde = DateTime(dia.year, dia.month, dia.day);
+      final hasta = desde.add(const Duration(days: 1));
+      // Medio abierto por arriba, igual que en el armador. Y con `created_at`
+      // de repuesto: un pedido sin fecha de PEDIDO no puede desaparecer del
+      // filtro del dia en que entro.
+      consulta.where(
+        (t) =>
+            (t.orderDate.isNotNull() &
+                t.orderDate.isBiggerOrEqualValue(desde) &
+                t.orderDate.isSmallerThanValue(hasta)) |
+            (t.orderDate.isNull() &
+                t.createdAt.isBiggerOrEqualValue(desde) &
+                t.createdAt.isSmallerThanValue(hasta)),
+      );
+    }
+
+    final filas = await consulta.get();
+
+    final repes = <String, int>{};
+    for (final p in filas) {
+      final clave = p.customerName.trim().toLowerCase();
+      repes[clave] = (repes[clave] ?? 0) + 1;
+    }
+
+    var tarjetas = filas
+        .map(
+          (p) => TarjetaPedido(
+            pedidoId: p.id,
+            operationNumber: p.operationNumber,
+            customerName: p.customerName,
+            customerPhone: p.customerPhone,
+            address: p.endAddress ?? p.address,
+            weight: p.weight,
+            pedidoCosto: p.pedidoCosto,
+            municipio: p.municipio,
+            vendedor: p.vendedor,
+            orderDate: p.orderDate ?? p.createdAt,
+            facturaEstado: p.facturaEstado,
+            archivado: p.archivado,
+            rutaId: p.routeId,
+            resultado: p.resultado,
+            kmAlAlmacen: _km(origen, p.endLat, p.endLng),
+            mismoCliente: repes[p.customerName.trim().toLowerCase()] ?? 1,
+          ),
+        )
+        .toList();
+
+    final kmMax = filtros.kmMax;
+    if (kmMax != null) {
+      tarjetas = tarjetas.where((t) => t.kmAlAlmacen <= kmMax).toList();
+    }
+
+    // El desempate no es adorno: dos clientes del mismo edificio dan
+    // exactamente los mismos kilometros, y sin un segundo criterio el orden
+    // cambia entre dos lecturas y las tarjetas bailan solas delante de quien
+    // las esta arrastrando. Fecha descendente y luego el id, como en el
+    // servidor.
+    tarjetas.sort((a, b) {
+      final porKm = a.kmAlAlmacen.compareTo(b.kmAlAlmacen);
+      if (porKm != 0) return porKm;
+      final fa = a.orderDate;
+      final fb = b.orderDate;
+      if (fa != null && fb != null && fa != fb) return fb.compareTo(fa);
+      if (fa == null && fb != null) return 1;
+      if (fa != null && fb == null) return -1;
+      return a.pedidoId.compareTo(b.pedidoId);
+    });
+
+    return MitadIzquierda(
+      total: tarjetas.length,
+      pedidos: tarjetas.take(filtros.limite).toList(growable: false),
+    );
+  }
+
+  /// Los municipios y vendedores que hay de verdad, para los desplegables.
+  Future<(List<String> municipios, List<String> vendedores)> facetas(
+    String sucursalId,
+  ) async {
+    final filas =
+        await (_base.select(_base.orders)
+              ..where(
+                (t) =>
+                    t.branchId.equals(sucursalId) & t.routeId.isNull(),
+              ))
+            .get();
+    final municipios = filas
+        .map((p) => p.municipio)
+        .whereType<String>()
+        .where((m) => m.trim().isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    final vendedores = filas
+        .map((p) => p.vendedor)
+        .whereType<String>()
+        .where((v) => v.trim().isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    return (municipios, vendedores);
+  }
+
+  /// Los que se llevo la cascada y todavia no se han avisado (§7.5).
+  Future<List<PedidoDesaparecido>> desaparecidos() async {
+    await _listo();
+    final filas = await _base
+        .customSelect(
+          'SELECT order_id, operation_number, customer_name, columna '
+          'FROM ${EsquemaTablero.desaparecidos} ORDER BY visto_at ASC',
+        )
+        .get();
+    return filas
+        .map(
+          (f) => PedidoDesaparecido(
+            pedidoId: f.read<String>('order_id'),
+            operationNumber: f.readNullable<String>('operation_number'),
+            customerName: f.readNullable<String>('customer_name'),
+            columna: f.readNullable<String>('columna'),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<List<String>> _idsColocados() async {
+    final filas = await _base
+        .customSelect('SELECT order_id FROM ${EsquemaTablero.colocaciones}')
+        .get();
+    return filas.map((f) => f.read<String>('order_id')).toList(growable: false);
+  }
+
+  /// Sin coordenadas no hay distancia. `infinity` y no `0`: un pedido sin
+  /// coordenadas no puede salir el primero de la lista de «lo mas cerca».
+  static double _km(AlmacenOrigen origen, double? lat, double? lng) =>
+      (lat == null || lng == null)
+      ? double.infinity
+      : kmHaversine(origen.lat, origen.lng, lat, lng);
+}

@@ -5,13 +5,68 @@ porque tocaba fichero de otro. **Ninguna de estas es opcional.**
 
 ## Grave — rompe el trabajo sin conexión
 
-- [ ] **`/api/sync/cambios` NO PUEDE SERVIR LOS PEDIDOS.** Ninguna consulta de pedidos
-      devuelve `updated_at`, así que no hay diferencias posibles — y los pedidos son
-      justamente lo que el logístico necesita bajarse cada mañana.
-      Hoy el endpoint los declara en `faltan` en vez de mandar `{"puestos":[],"quitados":[]}`,
-      **y eso está bien**: un vacío le diría al aparato «no cambió ningún pedido» y el
-      logístico prepararía el día con la foto de ayer. Hay que añadir `updated_at` a las
-      consultas de pedidos y servirlos de verdad. `warehouses` igual (viven en Accesos).
+- [x] ~~**`/api/sync/cambios` NO PUEDE SERVIR LOS PEDIDOS.**~~ — **cerrado (14/09/2026).**
+      `orders` sale de `faltan` y se sirve de verdad, con sus `puestos` y sus `quitados`.
+      Lo que hubo que poner, y por qué:
+
+      - **`DiferenciasDePedidos`** en `db/queries/orders.sql`, por sucursal y desde una
+        marca. La marca por la que filtra y que devuelve **no es `o.updated_at`**: es
+        `cambiado_at`, el más nuevo del pedido y de sus renglones. Si cambia una línea
+        —PEDIDO reescribe los renglones con lo que dijo la factura— el pedido no se toca,
+        así que sin esto el aparato se quedaría con la lista de mercancía vieja y el
+        despacho prepararía lo de ayer. Los renglones viajan dentro del pedido, no como un
+        aviso suelto.
+      - **`quitados` de verdad**, que no es sólo lo borrado. Son tres casos y sólo uno se
+        veía en la tabla:
+        * **archivado** en PEDIDO — su fila sigue ahí con `updated_at` movido, así que sale
+          en las diferencias y se manda a `quitados` (nunca a `puestos` con la bandera
+          puesta: eso confía en que el aparato la mire, y el día que no la mire el pedido
+          archivado sigue en el tablero y alguien lo carga en el camión);
+        * **borrado** — ya no hay fila que mirar;
+        * **mudado de sucursal** — su fila está intacta pero con OTRA sucursal, así que no
+          sale en ninguna consulta acotada a la vieja.
+        Los dos últimos no se pueden contestar mirando `orders`, y por eso hay una
+        migración nueva (`00003_bajada_pedidos.sql`) con la tabla de lápidas
+        `orders_fuera_de_alcance` y su trigger. Al **Super Admin**, que ve las ocho, sólo
+        se le mandan los borrados: un pedido que se mudó de Santiago a Holguín no se le ha
+        ido de la vista, y borrárselo sería quitarle del aparato un pedido que existe.
+      - **El tope ya no pierde nada.** La consulta ordena por la marca y, cuando no cabe
+        todo, la respuesta devuelve como `hasta` **la de la última fila servida** y no el
+        reloj. Con el reloj, el aparato pediría la próxima vez «a partir de ahora» y lo que
+        no cupo no lo pediría nadie nunca más. El corte además no parte un grupo de filas
+        con la misma marca (`now()` es la del inicio de la transacción: una tanda del
+        espejo son 200 filas con el mismo microsegundo).
+      - `hasta` y `tope` de la query **se obedecen**, que es lo que el sincronizador ya
+        mandaba y esto ignoraba.
+
+      Con prueba de cada cosa en `internal/api/espejo_test.go`.
+
+- [ ] **`warehouses` SIGUE DECLARADO EN `faltan`, y es una decisión, no un pendiente que se
+      olvidó.** Los almacenes viven en Accesos y se podrían pedir allí en cada bajada
+      (`s.accesos.AlmacenesDeSucursal`); lo que lo impide no es la llamada de red: **Accesos
+      no da ninguna marca de cambio ni dice qué borró**. Sin marca no hay diferencias, y sin
+      saber qué se fue, `quitados` sería siempre `[]` — un almacén retirado se quedaría en
+      el aparato para siempre. Y desde el almacén se mide lo que se le cobra al cliente por
+      el domicilio, así que uno viejo cobra mal cada entrega del día y no se nota hasta
+      cuadrar la caja. Declarado, el aparato puede decir en pantalla «los almacenes son los
+      de la última vez que hubo red», que es la verdad.
+
+      **Qué lo desbloquearía:** que Accesos devuelva un `actualizado_at` por almacén y un id
+      estable SIEMPRE presente (hoy es opcional). Con eso se sirve como las demás.
+
+- [ ] **El sincronizador ignora el `hasta` que devuelve el reparto, y con `truncado` eso
+      pierde trabajo.** `sync/internal/reparto/reparto.go` decodifica sólo `cambios` y
+      `truncado`; `sync/internal/sincro/bajada.go` anota `bajada_hasta` con el `hasta` que
+      él mismo mandó, salga truncada o no. Así, lo que no cupo en la tanda queda por debajo
+      del próximo `desde` y no se vuelve a pedir nunca. El reparto ya hace su parte —con
+      `truncado` devuelve la marca de la última fila servida—; falta que el sincronizador la
+      lea y anote ÉSA. **No se tocó `sync/` en este cambio.**
+
+- [ ] **`products` y `customers` truncan sin bajar el `hasta`.** Es el mismo fallo de
+      arriba pero dentro del reparto: sus consultas (`ListarProductos`, `ListarClientes`) no
+      ordenan por la marca, así que «los 2.000 primeros» son 2.000 cualesquiera y no hay
+      última fila servida que devolver. Se arregla igual que se arregló `orders`: ordenar
+      por la marca en el SQL y cortar por ella.
 
 ## Corrección de datos
 

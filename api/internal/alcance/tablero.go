@@ -17,8 +17,10 @@ package alcance
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"procovar/reparto-api/internal/store/sqlc"
 )
@@ -230,4 +232,69 @@ func (a *Acotado) EspejoListarClientes(ctx context.Context, limite int32) ([]sql
 		SucursalDelAlcance: a.Codigo(), // clientes también van por código
 		Limite:             limite,
 	})
+}
+
+// ---------------------------------------------------------------------------
+// La bajada del aparato: las diferencias de pedidos
+// ---------------------------------------------------------------------------
+
+// VentanaDeBajada es el trozo de tiempo que se pide, más la sucursal que lo pide.
+//
+// `Hasta` va SIEMPRE puesto y lo pone quien contesta la bajada con SU reloj, nunca el
+// aparato: el de un teléfono se cambia a mano, se va con la batería y salta de huso, y un
+// reloj atrasado se saltaría cambios para siempre sin que nadie lo note.
+//
+// `Desde` nil es la CARGA INICIAL: el aparato empieza vacío y se le manda lo que hay.
+type VentanaDeBajada struct {
+	Desde *time.Time
+	Hasta time.Time
+	// Sucursal es la que PIDE quien llama. Nil = la del alcance. Lo que no puede es
+	// ampliar: el alcance va aparte y en AND, así que quien sólo ve una sucursal no se
+	// lleva la de otra escribiéndola en la barra del navegador.
+	Sucursal *uuid.UUID
+	// Tope acota la tanda. Lo que no quepa se pide en la siguiente con la marca de la
+	// última fila servida.
+	Tope int32
+}
+
+// EspejoDiferenciasDePedidos: lo que cambió en la ventana, ordenado por su marca.
+//
+// LOS ARCHIVADOS SÓLO EN LAS DIFERENCIAS, no en la carga inicial. En la carga inicial el
+// aparato empieza vacío: un pedido archivado hace ocho meses no hay que quitárselo, porque
+// no lo tiene, y bajárselo sería llenarle el tope con el histórico y dejar fuera lo del
+// día. En una bajada por diferencias es al revés: archivar es justo lo que hay que
+// contarle, para que lo BORRE.
+func (a *Acotado) EspejoDiferenciasDePedidos(ctx context.Context, v VentanaDeBajada) ([]sqlc.DiferenciasDePedidosRow, error) {
+	return a.q.DiferenciasDePedidos(ctx, sqlc.DiferenciasDePedidosParams{
+		Desde:         marcaPg(v.Desde),
+		Hasta:         marcaPg(&v.Hasta),
+		Sucursal:      a.sucursalPg(), // el alcance, que aquí no se negocia
+		BranchID:      aPg(v.Sucursal),
+		ConArchivados: v.Desde != nil,
+		Tope:          v.Tope,
+	})
+}
+
+// EspejoPedidosQueSalieron: las lápidas de la ventana — borrados y mudados de sucursal.
+//
+// NO SE LLAMA EN LA CARGA INICIAL y por eso no tiene sentido sin `Desde`: al aparato que
+// empieza vacío no hay nada que quitarle, y mandarle los borrados de los últimos dos años
+// es gastarle la conexión en decirle que borre lo que nunca tuvo.
+func (a *Acotado) EspejoPedidosQueSalieron(ctx context.Context, v VentanaDeBajada) ([]sqlc.PedidosQueSalieronDelAlcanceRow, error) {
+	return a.q.PedidosQueSalieronDelAlcance(ctx, sqlc.PedidosQueSalieronDelAlcanceParams{
+		Desde:    marcaPg(v.Desde),
+		Hasta:    marcaPg(&v.Hasta),
+		Sucursal: a.sucursalPg(),
+		BranchID: aPg(v.Sucursal),
+		Tope:     v.Tope,
+	})
+}
+
+// marcaPg: una hora nuestra en el tipo que espera sqlc. Nil = NULL = «sin límite por ese
+// lado», que es como el SQL lo entiende.
+func marcaPg(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
 }

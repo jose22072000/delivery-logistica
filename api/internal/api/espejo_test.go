@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,11 @@ type espejoFalso struct {
 	ajustes   sqlc.Setting
 	marcada   int
 	guardados map[string]int // sucursal|sku -> veces que se escribió
+
+	// Los pedidos y las lápidas de la bajada. Van aparte de `tableroFalso.pedidos`: el
+	// tablero necesita coordenadas y peso, y esto necesita marcas de tiempo y renglones.
+	sync    []pedidoSync
+	salidas []salidaSync
 }
 
 func nuevoEspejo() *espejoFalso {
@@ -34,6 +40,150 @@ func nuevoEspejo() *espejoFalso {
 		tableroFalso: nuevoTablero(),
 		guardados:    map[string]int{},
 	}
+}
+
+// --------------------------------------------------------------- la bajada de pedidos
+//
+// EL DOBLE REPITE LAS REGLAS DEL SQL, no contesta lo que le pidan: el `desde` estricto, el
+// `hasta` inclusivo, las dos sucursales en AND, el interruptor de los archivados, el orden
+// por la marca y el tope. Lo que hay que comprobar aquí es que el manejador respeta lo que
+// la consulta le devuelve —y, sobre todo, que `cambiado_at` es el MÁS NUEVO del pedido y
+// de sus renglones—, y con un doble que dijera a todo que sí no se comprobaría nada.
+
+type renglonSync struct {
+	linea int32
+	desc  string
+	marca time.Time // el `updated_at` del renglón
+}
+
+type pedidoSync struct {
+	id        uuid.UUID
+	sucursal  uuid.UUID
+	nombre    string
+	archivado bool
+	marca     time.Time // el `updated_at` del pedido
+	renglones []renglonSync
+}
+
+// cambiadoAt es el `GREATEST(o.updated_at, max(oi.updated_at))` de la consulta.
+func (p pedidoSync) cambiadoAt() time.Time {
+	m := p.marca
+	for _, r := range p.renglones {
+		if r.marca.After(m) {
+			m = r.marca
+		}
+	}
+	return m
+}
+
+type salidaSync struct {
+	pedido   uuid.UUID
+	sucursal uuid.UUID
+	motivo   sqlc.SalidaDePedido
+	salioAt  time.Time
+}
+
+func (q *espejoFalso) DiferenciasDePedidos(_ context.Context, arg sqlc.DiferenciasDePedidosParams) ([]sqlc.DiferenciasDePedidosRow, error) {
+	var filas []sqlc.DiferenciasDePedidosRow
+	for _, p := range q.sync {
+		cambiado := p.cambiadoAt()
+		// `desde` ESTRICTO y `hasta` INCLUSIVO, como el SQL: dos ventanas seguidas no se
+		// pisan ni dejan hueco.
+		if arg.Desde.Valid && !cambiado.After(arg.Desde.Time) {
+			continue
+		}
+		if arg.Hasta.Valid && cambiado.After(arg.Hasta.Time) {
+			continue
+		}
+		if arg.Sucursal.Valid && [16]byte(p.sucursal) != arg.Sucursal.Bytes {
+			continue
+		}
+		if arg.BranchID.Valid && [16]byte(p.sucursal) != arg.BranchID.Bytes {
+			continue
+		}
+		if p.archivado && !arg.ConArchivados {
+			continue
+		}
+		filas = append(filas, sqlc.DiferenciasDePedidosRow{
+			ID:           p.id,
+			CustomerName: p.nombre,
+			Address:      "una calle",
+			Archivado:    p.archivado,
+			BranchID:     pgtype.UUID{Bytes: [16]byte(p.sucursal), Valid: true},
+			UpdatedAt:    pgtype.Timestamptz{Time: p.marca, Valid: true},
+			CambiadoAt:   pgtype.Timestamptz{Time: cambiado, Valid: true},
+		})
+	}
+	sort.Slice(filas, func(i, j int) bool {
+		if filas[i].CambiadoAt.Time.Equal(filas[j].CambiadoAt.Time) {
+			return filas[i].ID.String() < filas[j].ID.String()
+		}
+		return filas[i].CambiadoAt.Time.Before(filas[j].CambiadoAt.Time)
+	})
+	if int(arg.Tope) < len(filas) {
+		filas = filas[:arg.Tope]
+	}
+	return filas, nil
+}
+
+func (q *espejoFalso) ListarRenglonesDePedidos(_ context.Context, arg sqlc.ListarRenglonesDePedidosParams) ([]sqlc.ListarRenglonesDePedidosRow, error) {
+	pedidos := map[uuid.UUID]bool{}
+	for _, id := range arg.PedidoIds {
+		pedidos[id] = true
+	}
+	var salida []sqlc.ListarRenglonesDePedidosRow
+	for _, p := range q.sync {
+		if !pedidos[p.id] {
+			continue
+		}
+		// El alcance va también aquí, como en el SQL: `order_items` no tiene sucursal y
+		// sin el cruce bastaría con acertar un uuid para leer la mercancía de otra.
+		if arg.Sucursal.Valid && [16]byte(p.sucursal) != arg.Sucursal.Bytes {
+			continue
+		}
+		for _, r := range p.renglones {
+			salida = append(salida, sqlc.ListarRenglonesDePedidosRow{
+				ID: uuid.New(), OrderID: p.id, Linea: r.linea,
+				Description: r.desc, Quantity: 1,
+				UpdatedAt: pgtype.Timestamptz{Time: r.marca, Valid: true},
+			})
+		}
+	}
+	return salida, nil
+}
+
+func (q *espejoFalso) PedidosQueSalieronDelAlcance(_ context.Context, arg sqlc.PedidosQueSalieronDelAlcanceParams) ([]sqlc.PedidosQueSalieronDelAlcanceRow, error) {
+	var filas []sqlc.PedidosQueSalieronDelAlcanceRow
+	for _, f := range q.salidas {
+		if arg.Desde.Valid && !f.salioAt.After(arg.Desde.Time) {
+			continue
+		}
+		if arg.Hasta.Valid && f.salioAt.After(arg.Hasta.Time) {
+			continue
+		}
+		if arg.Sucursal.Valid && [16]byte(f.sucursal) != arg.Sucursal.Bytes {
+			continue
+		}
+		if arg.BranchID.Valid && [16]byte(f.sucursal) != arg.BranchID.Bytes {
+			continue
+		}
+		// Sin sucursal ninguna —el Super Admin, que ve las ocho— sólo cuentan los
+		// borrados: mudarse de sucursal no lo saca de SU vista.
+		if !arg.Sucursal.Valid && !arg.BranchID.Valid && f.motivo != sqlc.SalidaDePedidoBorrado {
+			continue
+		}
+		filas = append(filas, sqlc.PedidosQueSalieronDelAlcanceRow{
+			OrderID:  f.pedido,
+			BranchID: pgtype.UUID{Bytes: [16]byte(f.sucursal), Valid: true},
+			Motivo:   f.motivo,
+			SalioAt:  pgtype.Timestamptz{Time: f.salioAt, Valid: true},
+		})
+	}
+	sort.Slice(filas, func(i, j int) bool { return filas[i].SalioAt.Time.Before(filas[j].SalioAt.Time) })
+	if int(arg.Tope) < len(filas) {
+		filas = filas[:arg.Tope]
+	}
+	return filas, nil
 }
 
 func (q *espejoFalso) ObtenerAjustes(context.Context) (sqlc.Setting, error) { return q.ajustes, nil }
@@ -314,9 +464,12 @@ func TestRecomputeSinPedidosEs200ConMensaje(t *testing.T) {
 
 // LA BAJADA NO PUEDE MENTIR CON UN CONJUNTO VACÍO.
 //
-// `orders` todavía no se sabe servir por diferencias. Mandarlo como
-// `{"puestos":[],"quitados":[]}` le diría al aparato «no ha cambiado ningún pedido», que
-// es lo contrario de la verdad, y el logístico prepararía el día con la foto de ayer.
+// `warehouses` sigue sin poder servirse: los almacenes viven en Accesos, que no da marca de
+// cambio ni dice qué borró. Mandarlo como `{"puestos":[],"quitados":[]}` le diría al
+// aparato «no ha cambiado ningún almacén», que es lo contrario de la verdad, y desde el
+// almacén se mide lo que se le cobra al cliente por el domicilio.
+//
+// `orders` YA NO ESTÁ en esa lista: se sirve de verdad. Que no vuelva a entrar.
 func TestLaBajadaNombraLoQueNoSabeServirEnVezDeMandarloVacio(t *testing.T) {
 	h := montarTab(t, nuevoEspejo())
 	w := pedirTab(t, h, http.MethodGet, "/api/sync/cambios", tokenTab(t, sucStg.String()), "")
@@ -326,18 +479,22 @@ func TestLaBajadaNombraLoQueNoSabeServirEnVezDeMandarloVacio(t *testing.T) {
 	m := leerTab(t, w)
 
 	cambios := m["cambios"].(map[string]any)
-	if _, hay := cambios["orders"]; hay {
-		t.Fatal("«orders» sale como conjunto vacío: eso le dice al aparato que no cambió nada")
+	if _, hay := cambios["warehouses"]; hay {
+		t.Fatal("«warehouses» sale como conjunto vacío: eso le dice al aparato que no cambió nada")
 	}
-	faltan := m["faltan"].([]any)
-	visto := false
-	for _, f := range faltan {
-		if f == "orders" {
-			visto = true
-		}
+	if _, hay := cambios["orders"]; !hay {
+		t.Fatalf("«orders» tiene que venir servido: %s", w.Body.String())
 	}
-	if !visto {
-		t.Fatalf("«orders» no está nombrado en «faltan»: %s", w.Body.String())
+
+	faltan := map[string]bool{}
+	for _, f := range m["faltan"].([]any) {
+		faltan[f.(string)] = true
+	}
+	if !faltan["warehouses"] {
+		t.Fatalf("«warehouses» no está nombrado en «faltan»: %s", w.Body.String())
+	}
+	if faltan["orders"] {
+		t.Fatal("«orders» sigue declarado como que falta, y ya se sirve")
 	}
 	if m["aviso"] == nil || m["aviso"].(string) == "" {
 		t.Fatal("falta el aviso que explica por qué")
@@ -399,4 +556,241 @@ func TestLaBajadaDelTableroPideSucursal(t *testing.T) {
 	if len(cols.(map[string]any)["puestos"].([]any)) != 3 {
 		t.Fatalf("columnas: %s", w.Body.String())
 	}
+}
+
+// ---------------------------------------------------------------------------
+// LOS PEDIDOS DE LA BAJADA — lo que hace posible el día sin conexión
+// ---------------------------------------------------------------------------
+
+var (
+	pedAntiguo   = uuid.MustParse("5d000000-0000-0000-0000-000000000001")
+	pedTocado    = uuid.MustParse("5d000000-0000-0000-0000-000000000002")
+	pedArchivado = uuid.MustParse("5d000000-0000-0000-0000-000000000003")
+	pedRenglon   = uuid.MustParse("5d000000-0000-0000-0000-000000000004")
+	pedMudado    = uuid.MustParse("5d000000-0000-0000-0000-000000000005")
+	pedDeHolguin = uuid.MustParse("5d000000-0000-0000-0000-000000000006")
+)
+
+// conPedidos deja el espejo con cuatro pedidos de Santiago repartidos a los dos lados de
+// una marca, más uno de Holguín para que se vea que el alcance sigue puesto.
+//
+// Devuelve la marca: lo de antes de ella no tiene que salir, lo de después sí.
+func conPedidos(q *espejoFalso) time.Time {
+	ahora := time.Now().UTC()
+	marca := ahora.Add(-12 * time.Hour)
+	antes := ahora.Add(-24 * time.Hour)
+	despues := ahora.Add(-1 * time.Hour)
+
+	q.sync = []pedidoSync{
+		// Tocado ANTES de la marca: no cambió nada de él desde que el aparato bajó.
+		{id: pedAntiguo, sucursal: sucStg, nombre: "Ana la de siempre", marca: antes,
+			renglones: []renglonSync{{linea: 1, desc: "malta", marca: antes}}},
+		// Tocado DESPUÉS: es lo que el aparato tiene que llevarse.
+		{id: pedTocado, sucursal: sucStg, nombre: "Beto", marca: despues,
+			renglones: []renglonSync{{linea: 1, desc: "cerveza", marca: despues}}},
+		// Archivado en PEDIDO después de la marca: el aparato tiene que BORRARLO.
+		{id: pedArchivado, sucursal: sucStg, nombre: "Carlos", marca: despues, archivado: true},
+		// EL PEDIDO NO SE TOCÓ; le cambió un RENGLÓN. Tiene que salir igual, o el aparato
+		// se queda con la lista de mercancía vieja.
+		{id: pedRenglon, sucursal: sucStg, nombre: "Delia", marca: antes,
+			renglones: []renglonSync{
+				{linea: 1, desc: "refresco", marca: antes},
+				{linea: 2, desc: "ron - LÍNEA NUEVA", marca: despues},
+			}},
+		{id: pedDeHolguin, sucursal: sucHol, nombre: "De Holguín", marca: despues},
+	}
+	// Uno que se MUDÓ de Santiago a Holguín, y uno BORRADO. Los dos tienen que
+	// desaparecer del aparato de Santiago aunque su fila no diga nada (o ya no exista).
+	q.salidas = []salidaSync{
+		{pedido: pedMudado, sucursal: sucStg, motivo: sqlc.SalidaDePedidoMovido, salioAt: despues},
+	}
+	return marca
+}
+
+// conjuntoDe saca `cambios.<nombre>` de la respuesta.
+func conjuntoDe(t *testing.T, m map[string]any, nombre string) (map[string]bool, map[string]bool, []any) {
+	t.Helper()
+	c, hay := m["cambios"].(map[string]any)[nombre]
+	if !hay {
+		t.Fatalf("no vino la colección %q", nombre)
+	}
+	conj := c.(map[string]any)
+	puestos := map[string]bool{}
+	crudos := conj["puestos"].([]any)
+	for _, p := range crudos {
+		puestos[p.(map[string]any)["id"].(string)] = true
+	}
+	quitados := map[string]bool{}
+	for _, q := range conj["quitados"].([]any) {
+		quitados[q.(string)] = true
+	}
+	return puestos, quitados, crudos
+}
+
+// LA PRUEBA QUE CIERRA EL AGUJERO: lo tocado después de la marca sale, lo anterior no, y
+// lo archivado sale en `quitados` — no en `puestos` con una bandera que alguien tiene que
+// acordarse de mirar.
+func TestLaBajadaDeDiferenciasTraeLoTocadoYQuitaLoArchivado(t *testing.T) {
+	q := nuevoEspejo()
+	marca := conPedidos(q)
+	h := montarTab(t, q)
+
+	w := pedirTab(t, h, http.MethodGet,
+		"/api/sync/cambios?desde="+marca.Format(time.RFC3339), tokenTab(t, sucStg.String()), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	puestos, quitados, _ := conjuntoDe(t, leerTab(t, w), "orders")
+
+	if !puestos[pedTocado.String()] {
+		t.Fatal("un pedido tocado después de la marca no salió en las diferencias")
+	}
+	if puestos[pedAntiguo.String()] || quitados[pedAntiguo.String()] {
+		t.Fatal("un pedido anterior a la marca salió: la bajada por diferencias no diferencia nada")
+	}
+	if puestos[pedArchivado.String()] {
+		t.Fatal("un pedido archivado salió en «puestos»: seguiría en el tablero del aparato")
+	}
+	if !quitados[pedArchivado.String()] {
+		t.Fatal("un pedido archivado no salió en «quitados»: la lista local sólo crece")
+	}
+	// Y el alcance sigue puesto: lo de Holguín no se baja a un aparato de Santiago.
+	if puestos[pedDeHolguin.String()] || quitados[pedDeHolguin.String()] {
+		t.Fatal("se coló un pedido de otra sucursal")
+	}
+}
+
+// SI CAMBIA UN RENGLÓN, EL PEDIDO SALE. El pedido no se tocó —su `updated_at` es de ayer—
+// pero una de sus líneas sí, y lo que sube al camión son las líneas. Y tiene que venir con
+// los renglones dentro: mandar el aviso sin la mercancía nueva no arregla nada.
+func TestUnRenglonTocadoSacaASuPedidoConSuMercancia(t *testing.T) {
+	q := nuevoEspejo()
+	marca := conPedidos(q)
+	h := montarTab(t, q)
+
+	w := pedirTab(t, h, http.MethodGet,
+		"/api/sync/cambios?desde="+marca.Format(time.RFC3339), tokenTab(t, sucStg.String()), "")
+	puestos, _, crudos := conjuntoDe(t, leerTab(t, w), "orders")
+
+	if !puestos[pedRenglon.String()] {
+		t.Fatal("cambió un renglón y el pedido no salió: el aparato se queda con la lista de mercancía vieja")
+	}
+	for _, p := range crudos {
+		fila := p.(map[string]any)
+		if fila["id"] != pedRenglon.String() {
+			continue
+		}
+		items := fila["items"].([]any)
+		if len(items) != 2 {
+			t.Fatalf("el pedido salió sin sus renglones: %v", items)
+		}
+		// La marca que se devuelve es la del RENGLÓN, que es la más nueva. Con la del
+		// pedido, el aparato volvería a pedirlo en cada bajada para siempre.
+		devuelta, err := time.Parse(time.RFC3339, fila["updatedAt"].(string))
+		if err != nil {
+			t.Fatalf("«updatedAt» ilegible: %v", fila["updatedAt"])
+		}
+		if !devuelta.After(marca) {
+			t.Fatalf("la marca devuelta es la del pedido y no la del renglón: %v", devuelta)
+		}
+		return
+	}
+	t.Fatal("no se encontró el pedido en «puestos»")
+}
+
+// `quitados` NO ES SÓLO LO BORRADO. Un pedido que se muda de sucursal deja de salir en las
+// consultas de la vieja, así que sin las lápidas se quedaría en ese aparato para siempre —
+// y seguiría apareciendo en un tablero que ya no es el suyo.
+func TestUnPedidoQueSaleDelAlcanceDeLaSucursalSeQuita(t *testing.T) {
+	q := nuevoEspejo()
+	marca := conPedidos(q)
+	h := montarTab(t, q)
+
+	w := pedirTab(t, h, http.MethodGet,
+		"/api/sync/cambios?desde="+marca.Format(time.RFC3339), tokenTab(t, sucStg.String()), "")
+	_, quitados, _ := conjuntoDe(t, leerTab(t, w), "orders")
+	if !quitados[pedMudado.String()] {
+		t.Fatalf("el pedido que se mudó de sucursal no salió en «quitados»: %s", w.Body.String())
+	}
+}
+
+// LA CARGA INICIAL NO LLEVA ARCHIVADOS NI QUITADOS. El aparato empieza vacío: no hay nada
+// que borrarle, y bajarle el histórico archivado de ocho meses le llena el tope con lo que
+// no va a repartir y deja fuera lo del día.
+func TestLaCargaInicialNoTraeArchivadosNiQuitados(t *testing.T) {
+	q := nuevoEspejo()
+	conPedidos(q)
+	h := montarTab(t, q)
+
+	w := pedirTab(t, h, http.MethodGet, "/api/sync/cambios", tokenTab(t, sucStg.String()), "")
+	puestos, quitados, _ := conjuntoDe(t, leerTab(t, w), "orders")
+
+	if puestos[pedArchivado.String()] {
+		t.Fatal("la carga inicial trajo un pedido archivado")
+	}
+	if len(quitados) != 0 {
+		t.Fatalf("la carga inicial trae «quitados» y el aparato no tiene nada: %v", quitados)
+	}
+	if !puestos[pedAntiguo.String()] || !puestos[pedTocado.String()] {
+		t.Fatalf("la carga inicial tiene que traerlo todo: %s", w.Body.String())
+	}
+}
+
+// EL TOPE NO PUEDE PERDER PEDIDOS.
+//
+// Con `truncado`, la marca que se devuelve deja de ser el reloj y pasa a ser la de la
+// última fila servida. Si se devolviera el reloj, el aparato pediría la próxima vez «a
+// partir de ahora» y lo que no cupo no lo pediría nadie nunca más: sería trabajo perdido
+// sin un solo error.
+func TestElTopeTruncaSinPerderNiUnPedido(t *testing.T) {
+	q := nuevoEspejo()
+	marca := conPedidos(q)
+	// Marcas distintas y separadas, para que el corte pueda caer entre dos.
+	ahora := time.Now().UTC()
+	q.salidas = nil
+	q.sync = []pedidoSync{
+		{id: pedAntiguo, sucursal: sucStg, nombre: "primero", marca: ahora.Add(-4 * time.Hour)},
+		{id: pedTocado, sucursal: sucStg, nombre: "segundo", marca: ahora.Add(-3 * time.Hour)},
+		{id: pedRenglon, sucursal: sucStg, nombre: "tercero", marca: ahora.Add(-2 * time.Hour)},
+	}
+	h := montarTab(t, q)
+
+	w := pedirTab(t, h, http.MethodGet,
+		"/api/sync/cambios?tope=2&desde="+marca.Format(time.RFC3339), tokenTab(t, sucStg.String()), "")
+	m := leerTab(t, w)
+	if truncado, _ := m["truncado"].(bool); !truncado {
+		t.Fatalf("no cupo todo y no se dijo: %s", w.Body.String())
+	}
+	puestos, _, _ := conjuntoDe(t, m, "orders")
+	if len(puestos) != 2 {
+		t.Fatalf("la tanda no respetó el tope: %v", puestos)
+	}
+	hasta := m["hasta"].(string)
+	if time.Since(mustHora(t, hasta)) < time.Hour {
+		t.Fatalf("con «truncado» la marca tiene que ser la de la última fila servida, no el reloj: %s", hasta)
+	}
+
+	// Segunda vuelta con la marca devuelta: tiene que traer lo que faltaba, sin repetir.
+	w = pedirTab(t, h, http.MethodGet,
+		"/api/sync/cambios?tope=2&desde="+hasta, tokenTab(t, sucStg.String()), "")
+	m = leerTab(t, w)
+	puestos2, _, _ := conjuntoDe(t, m, "orders")
+	if !puestos2[pedRenglon.String()] {
+		t.Fatalf("el pedido que no cupo se perdió para siempre: %s", w.Body.String())
+	}
+	if puestos2[pedAntiguo.String()] || puestos2[pedTocado.String()] {
+		t.Fatalf("la segunda tanda repitió lo ya servido: %s", w.Body.String())
+	}
+	if truncado, _ := m["truncado"].(bool); truncado {
+		t.Fatal("ya cupo todo y sigue diciendo «truncado»")
+	}
+}
+
+func mustHora(t *testing.T, s string) time.Time {
+	t.Helper()
+	v, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatalf("hora ilegible %q: %v", s, err)
+	}
+	return v
 }

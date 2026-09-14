@@ -1,0 +1,51 @@
+# reparto-api — LA API. Las 35 rutas, el alcance por sucursal y los eventos en vivo.
+#
+# Dos etapas: se compila un binario estático y se mete en una imagen que no lleva
+# compilador, ni shell, ni root. Lo que no está dentro no se puede usar para nada.
+#
+# EL CONTEXTO ES LA RAÍZ DEL REPO (este fichero vive en deploy/ y el código en api/):
+#
+#   docker build -f deploy/Dockerfile.api -t reparto-api .
+#
+# En Dokploy:  Dockerfile Path = deploy/Dockerfile.api  ·  Docker Context Path = .
+#
+# UNA SOLA RÉPLICA. El bus de eventos de `/api/eventos` vive en la memoria de ESTE
+# proceso (ver api/internal/api/eventos.go). Con dos réplicas no falla nada, no aparece
+# ningún error, y la mitad de las pantallas deja de enterarse de los cambios. Está
+# explicado en docs/despliegue.md §«Una sola réplica».
+ARG GO_VERSION=1.27
+
+FROM golang:${GO_VERSION}-alpine AS build
+WORKDIR /src
+
+# git: hace falta si algún módulo se resuelve por VCS directo (GOPROXY=...,direct).
+RUN apk add --no-cache git
+
+# Espejo de módulos configurable. Si la red del servidor bloquea proxy.golang.org:
+#   --build-arg GOPROXY=https://goproxy.io,direct
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
+# Las dependencias primero: así una capa cacheada sobrevive a cualquier cambio de código.
+COPY api/go.mod api/go.sum ./
+RUN go mod download
+
+COPY api/ .
+
+# La versión la INCRUSTA el compilador. No se lee de un fichero ni se pregunta a nadie:
+# `/version` la consulta cada aparato al arrancar y la APK decide con ella si tiene que
+# actualizarse. En Dokploy va como Build Arg; en local la pone docker-compose.
+ARG VERSION=dev
+ENV CGO_ENABLED=0
+RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/api ./cmd/api
+
+# Imagen final: sólo el binario. `static-debian12` trae los certificados CA, que hacen
+# falta para hablar por HTTPS con Accesos (auth.procovar.cloud) y con PEDIDO.
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=build /out/api /app/api
+
+# El mismo que PUERTO. Si se cambia la variable hay que cambiar el dominio de Dokploy.
+EXPOSE 8080
+USER nonroot:nonroot
+ENTRYPOINT ["/app/api"]

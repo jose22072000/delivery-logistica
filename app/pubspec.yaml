@@ -14,6 +14,10 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Los textos: gen_l10n necesita este paquete del SDK para las delegaciones.
+  flutter_localizations:
+    sdk: flutter
+
   cupertino_icons: 1.0.9
 
   # Estado — la fuente de verdad es la base local, no el widget.
@@ -40,6 +44,11 @@ dependencies:
   ulid: 2.0.1          # las claves de idempotencia (01J8…)
   uuid: 4.6.0          # los id provisionales local-…
 
+  # Lo impreso — PLAN.md §4.1. `pdf` construye la hoja y `printing` la
+  # previsualiza, la manda a imprimir y la comparte, en web y en Android.
+  pdf: 3.13.0
+  printing: 5.15.0
+
   intl: 0.20.3
   collection: 1.19.1
   web: 1.1.1           # nada de dart:html
@@ -64,3 +73,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Los textos se generan con gen_l10n; la configuracion vive en l10n.yaml.
+  generate: true
+
+  assets:
+    # Roboto EMBEBIDA para el PDF: `PdfGoogleFonts` la baja por red y esto se
+    # imprime en el patio de un almacen, sin senal (PLAN.md §4.1).
+    - assets/fuentes/

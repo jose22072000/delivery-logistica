@@ -123,6 +123,10 @@ type RenglonSalida struct {
 	Quantity    float64    `json:"quantity"`
 	Packs       *float64   `json:"packs"`
 	ProductID   *uuid.UUID `json:"productId"`
+	// La marca del RENGLÓN, que no es la del pedido: PEDIDO reescribe las líneas con lo
+	// que dijo la factura sin tocar el pedido. Es lo que deja saber si la mercancía que se
+	// está mirando es la de ahora o la del papel de ayer.
+	UpdatedAt *time.Time `json:"updatedAt"`
 }
 
 // RutaDePedido y VehiculoDeRuta: el `route: { …, vehicle: {…} }` del contrato.
@@ -151,41 +155,45 @@ type SucursalDePedido struct {
 
 // PedidoSalida es una fila del catálogo (`GET /api/orders`).
 type PedidoSalida struct {
-	ID                 uuid.UUID         `json:"id"`
-	OperationNumber    *string           `json:"operationNumber"`
-	CustomerName       string            `json:"customerName"`
-	CustomerPhone      *string           `json:"customerPhone"`
-	Address            string            `json:"address"`
-	EndAddress         *string           `json:"endAddress"`
-	EndLat             *float64          `json:"endLat"`
-	EndLng             *float64          `json:"endLng"`
-	Weight             float64           `json:"weight"`
-	Status             string            `json:"status"`
-	Notes              *string           `json:"notes"`
-	RouteID            *uuid.UUID        `json:"routeId"`
-	DeliveryPrice      *float64          `json:"deliveryPrice"`
-	DeliveryDistanceKm *float64          `json:"deliveryDistanceKm"`
-	Price              *float64          `json:"price"`
-	Items              []RenglonSalida   `json:"items"`
-	OrderDate          *time.Time        `json:"orderDate"`
-	CreatedAt          *time.Time        `json:"createdAt"`
-	DeliveredAt        *time.Time        `json:"deliveredAt"`
-	Resultado          *string           `json:"resultado"`
-	ResultadoNota      *string           `json:"resultadoNota"`
-	StopOrder          *int32            `json:"stopOrder"`
-	Estado             *string           `json:"estado"`
-	Archivado          bool              `json:"archivado"`
-	FechaComprometida  *time.Time        `json:"fechaComprometida"`
-	RequiereDomicilio  *bool             `json:"requiereDomicilio"`
-	PedidoCosto        *float64          `json:"pedidoCosto"`
-	FacturaEstado      *string           `json:"facturaEstado"`
-	FacturaNumero      *string           `json:"facturaNumero"`
-	FacturaDomicilio   *float64          `json:"facturaDomicilio"`
-	Municipio          *string           `json:"municipio"`
-	Vendedor           *string           `json:"vendedor"`
-	SucursalCodigo     *string           `json:"sucursalCodigo"`
-	Route              *RutaDePedido     `json:"route"`
-	Branch             *SucursalDePedido `json:"branch"`
+	ID                 uuid.UUID       `json:"id"`
+	OperationNumber    *string         `json:"operationNumber"`
+	CustomerName       string          `json:"customerName"`
+	CustomerPhone      *string         `json:"customerPhone"`
+	Address            string          `json:"address"`
+	EndAddress         *string         `json:"endAddress"`
+	EndLat             *float64        `json:"endLat"`
+	EndLng             *float64        `json:"endLng"`
+	Weight             float64         `json:"weight"`
+	Status             string          `json:"status"`
+	Notes              *string         `json:"notes"`
+	RouteID            *uuid.UUID      `json:"routeId"`
+	DeliveryPrice      *float64        `json:"deliveryPrice"`
+	DeliveryDistanceKm *float64        `json:"deliveryDistanceKm"`
+	Price              *float64        `json:"price"`
+	Items              []RenglonSalida `json:"items"`
+	OrderDate          *time.Time      `json:"orderDate"`
+	CreatedAt          *time.Time      `json:"createdAt"`
+	DeliveredAt        *time.Time      `json:"deliveredAt"`
+	Resultado          *string         `json:"resultado"`
+	ResultadoNota      *string         `json:"resultadoNota"`
+	StopOrder          *int32          `json:"stopOrder"`
+	Estado             *string         `json:"estado"`
+	Archivado          bool            `json:"archivado"`
+	FechaComprometida  *time.Time      `json:"fechaComprometida"`
+	RequiereDomicilio  *bool           `json:"requiereDomicilio"`
+	PedidoCosto        *float64        `json:"pedidoCosto"`
+	FacturaEstado      *string         `json:"facturaEstado"`
+	FacturaNumero      *string         `json:"facturaNumero"`
+	FacturaDomicilio   *float64        `json:"facturaDomicilio"`
+	Municipio          *string         `json:"municipio"`
+	Vendedor           *string         `json:"vendedor"`
+	SucursalCodigo     *string         `json:"sucursalCodigo"`
+	// Cuándo se tocó la fila. La bajada del aparato la necesita para pedir por
+	// diferencias; la pantalla, para saber si lo que enseña es de hace un minuto o de hace
+	// tres días.
+	UpdatedAt *time.Time        `json:"updatedAt"`
+	Route     *RutaDePedido     `json:"route"`
+	Branch    *SucursalDePedido `json:"branch"`
 }
 
 // PedidoDisponibleSalida es una fila de `GET /api/orders/available`. Lleva MENOS campos
@@ -669,6 +677,7 @@ func (s *Servidor) detalleDePedido(w http.ResponseWriter, r *http.Request, a *al
 		items = append(items, RenglonSalida{
 			ID: g.ID, Linea: g.Linea, Description: g.Description, Name: g.Description,
 			Quantity: g.Quantity, Packs: g.Packs, ProductID: idOpcional(g.ProductID),
+			UpdatedAt: hora(g.UpdatedAt),
 		})
 	}
 
@@ -1123,6 +1132,7 @@ func (s *Servidor) renglonesPorPedido(r *http.Request, a *alcance.Acotado, ids [
 		porPedido[g.OrderID] = append(porPedido[g.OrderID], RenglonSalida{
 			ID: g.ID, Linea: g.Linea, Description: g.Description, Name: g.Description,
 			Quantity: g.Quantity, Packs: g.Packs, ProductID: idOpcional(g.ProductID),
+			UpdatedAt: hora(g.UpdatedAt),
 		})
 	}
 	return porPedido, nil
@@ -1160,6 +1170,7 @@ func dePedido(x sqlc.ListarPedidosRow, items []RenglonSalida) PedidoSalida {
 		FacturaDomicilio:  x.FacturaDomicilio,
 		Municipio:         x.Municipio,
 		Vendedor:          x.Vendedor,
+		UpdatedAt:         hora(x.UpdatedAt),
 		SucursalCodigo:    x.SucursalCodigo,
 	}
 	if id := idOpcional(x.RouteID); id != nil {

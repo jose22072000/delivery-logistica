@@ -495,6 +495,235 @@ func (q *Queries) CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePe
 	return i, err
 }
 
+const diferenciasDePedidos = `-- name: DiferenciasDePedidos :many
+
+WITH tocados AS (
+    -- Los pedidos tocados por sí mismos...
+    SELECT o.id
+    FROM orders o
+    WHERE $3::timestamptz IS NULL
+       OR o.updated_at > $3::timestamptz
+    UNION
+    -- ...y los que arrastra un renglón suyo. UNION y no UNION ALL: un pedido con tres
+    -- renglones tocados es un pedido, no tres.
+    SELECT oi.order_id AS id
+    FROM order_items oi
+    WHERE $3::timestamptz IS NOT NULL
+      AND oi.updated_at > $3::timestamptz
+),
+marcados AS (
+    SELECT
+        o.id, o.operation_number, o.customer_name, o.customer_phone, o.address,
+        o.end_address, o.end_lat, o.end_lng, o.lat, o.lng, o.weight, o.status,
+        o.trip_leg, o.notes, o.route_id, o.ultima_ruta_id, o.vehicle_id, o.price,
+        o.segment_km, o.delivery_price, o.delivery_distance_km, o.branch_id,
+        o.source, o.external_id, o.order_date, o.pedido_updated_at, o.estado,
+        o.archivado, o.fecha_comprometida, o.requiere_domicilio, o.pedido_costo,
+        o.municipio, o.vendedor, o.sucursal_codigo, o.factura_estado,
+        o.factura_numero, o.factura_at, o.factura_domicilio, o.factura_corregido_at,
+        o.stop_order, o.delivered_at, o.resultado, o.resultado_at, o.resultado_nota,
+        o.created_at, o.updated_at,
+        GREATEST(
+            o.updated_at,
+            coalesce(
+                (SELECT max(oi.updated_at) FROM order_items oi WHERE oi.order_id = o.id),
+                o.updated_at
+            )
+        )::timestamptz AS cambiado_at
+    FROM orders o
+    JOIN tocados t ON t.id = o.id
+    WHERE ($4::uuid  IS NULL OR o.branch_id = $4::uuid)
+      AND ($5::uuid IS NULL OR o.branch_id = $5::uuid)
+      AND ($6::boolean OR NOT o.archivado)
+)
+SELECT
+    id, operation_number, customer_name, customer_phone, address, end_address,
+    end_lat, end_lng, lat, lng, weight, status, trip_leg, notes, route_id,
+    ultima_ruta_id, vehicle_id, price, segment_km, delivery_price,
+    delivery_distance_km, branch_id, source, external_id, order_date,
+    pedido_updated_at, estado, archivado, fecha_comprometida, requiere_domicilio,
+    pedido_costo, municipio, vendedor, sucursal_codigo, factura_estado,
+    factura_numero, factura_at, factura_domicilio, factura_corregido_at,
+    stop_order, delivered_at, resultado, resultado_at, resultado_nota,
+    created_at, updated_at, cambiado_at
+FROM marcados
+WHERE $1::timestamptz IS NULL
+   OR cambiado_at <= $1::timestamptz
+ORDER BY cambiado_at ASC, id ASC
+LIMIT $2
+`
+
+type DiferenciasDePedidosParams struct {
+	Hasta         pgtype.Timestamptz `json:"hasta"`
+	Tope          int32              `json:"tope"`
+	Desde         pgtype.Timestamptz `json:"desde"`
+	Sucursal      pgtype.UUID        `json:"sucursal"`
+	BranchID      pgtype.UUID        `json:"branch_id"`
+	ConArchivados bool               `json:"con_archivados"`
+}
+
+type DiferenciasDePedidosRow struct {
+	ID                 uuid.UUID          `json:"id"`
+	OperationNumber    *string            `json:"operation_number"`
+	CustomerName       string             `json:"customer_name"`
+	CustomerPhone      *string            `json:"customer_phone"`
+	Address            string             `json:"address"`
+	EndAddress         *string            `json:"end_address"`
+	EndLat             *float64           `json:"end_lat"`
+	EndLng             *float64           `json:"end_lng"`
+	Lat                *float64           `json:"lat"`
+	Lng                *float64           `json:"lng"`
+	Weight             float64            `json:"weight"`
+	Status             OrderStatus        `json:"status"`
+	TripLeg            TripLeg            `json:"trip_leg"`
+	Notes              *string            `json:"notes"`
+	RouteID            pgtype.UUID        `json:"route_id"`
+	UltimaRutaID       pgtype.UUID        `json:"ultima_ruta_id"`
+	VehicleID          pgtype.UUID        `json:"vehicle_id"`
+	Price              *float64           `json:"price"`
+	SegmentKm          *float64           `json:"segment_km"`
+	DeliveryPrice      *float64           `json:"delivery_price"`
+	DeliveryDistanceKm *float64           `json:"delivery_distance_km"`
+	BranchID           pgtype.UUID        `json:"branch_id"`
+	Source             *Procedencia       `json:"source"`
+	ExternalID         *string            `json:"external_id"`
+	OrderDate          pgtype.Timestamptz `json:"order_date"`
+	PedidoUpdatedAt    pgtype.Timestamptz `json:"pedido_updated_at"`
+	Estado             *PedidoEstado      `json:"estado"`
+	Archivado          bool               `json:"archivado"`
+	FechaComprometida  pgtype.Timestamptz `json:"fecha_comprometida"`
+	RequiereDomicilio  *bool              `json:"requiere_domicilio"`
+	PedidoCosto        *float64           `json:"pedido_costo"`
+	Municipio          *string            `json:"municipio"`
+	Vendedor           *string            `json:"vendedor"`
+	SucursalCodigo     *string            `json:"sucursal_codigo"`
+	FacturaEstado      *FacturaEstado     `json:"factura_estado"`
+	FacturaNumero      *string            `json:"factura_numero"`
+	FacturaAt          pgtype.Timestamptz `json:"factura_at"`
+	FacturaDomicilio   *float64           `json:"factura_domicilio"`
+	FacturaCorregidoAt pgtype.Timestamptz `json:"factura_corregido_at"`
+	StopOrder          *int32             `json:"stop_order"`
+	DeliveredAt        pgtype.Timestamptz `json:"delivered_at"`
+	Resultado          *StopResult        `json:"resultado"`
+	ResultadoAt        pgtype.Timestamptz `json:"resultado_at"`
+	ResultadoNota      *string            `json:"resultado_nota"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	CambiadoAt         pgtype.Timestamptz `json:"cambiado_at"`
+}
+
+// ---------------------------------------------------------------------------
+// La bajada del aparato  (GET /api/sync/cambios, colección `orders`)
+// ---------------------------------------------------------------------------
+// LO QUE CAMBIÓ DESDE UNA MARCA, en una sucursal. Es la consulta que faltaba y sin la
+// cual el trabajo sin conexión no existe: el logístico se baja los pedidos por la mañana
+// y los prepara todo el día sin red.
+//
+// `cambiado_at` NO ES `o.updated_at`, y ésa es la razón de ser de esta consulta.
+//
+//	Es el más nuevo de los dos: el del pedido y el de sus renglones. Si cambia un renglón
+//	—PEDIDO reescribe las líneas con lo que dijo la factura— el pedido NO se toca, así que
+//	su `updated_at` se queda quieto y el pedido no saldría en las diferencias. El aparato
+//	se quedaría con la lista de mercancía vieja y el camión cargaría lo que ya no es.
+//	Por eso el renglón arrastra a su pedido.
+//
+//	Y es también LA MARCA QUE SE DEVUELVE: el aparato la guarda y con ella pide la
+//	siguiente vez. Devolver `o.updated_at` y filtrar por el otro sería darle una marca
+//	atrasada con la que volvería a bajarse lo mismo una y otra vez.
+//
+// EL `desde` ES ESTRICTO (`>`) y el `hasta` INCLUSIVO (`<=`): así dos bajadas seguidas
+// —`(a,b]` y `(b,c]`— no se pisan ni dejan un hueco en `b`.
+//
+// LOS ARCHIVADOS ENTRAN CON INTERRUPTOR, `con_archivados`:
+//   - En la carga inicial va en false. Un pedido archivado hace ocho meses no tiene por
+//     qué bajarse: el aparato empieza vacío y no hay nada que quitarle. Con true, el tope
+//     se lo comerían los archivados del histórico y lo del día no cabría.
+//   - En las diferencias va en true, porque archivar es justamente lo que hay que
+//     contarle al aparato para que lo BORRE. Quien contesta la bajada mira `archivado` y
+//     lo manda a `quitados`.
+//
+// Las dos sucursales del WHERE son las de la casa: `sucursal` es el alcance, que lo pone
+// `internal/alcance` y no se puede pasar desde fuera, y `branch_id` es la que pide quien
+// llama. Van en AND: la segunda estrecha, nunca amplía.
+// POR LA MARCA Y HACIA ADELANTE, que es lo que hace que el tope no pierda nada: lo que no
+// cabe en esta tanda se pide en la siguiente con la marca de la última fila servida. Con
+// cualquier otro orden, «los 2.000 primeros» son 2.000 cualesquiera y el resto no vuelve.
+// El `id` desempata para que dos tandas iguales salgan iguales.
+func (q *Queries) DiferenciasDePedidos(ctx context.Context, arg DiferenciasDePedidosParams) ([]DiferenciasDePedidosRow, error) {
+	rows, err := q.db.Query(ctx, diferenciasDePedidos,
+		arg.Hasta,
+		arg.Tope,
+		arg.Desde,
+		arg.Sucursal,
+		arg.BranchID,
+		arg.ConArchivados,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DiferenciasDePedidosRow
+	for rows.Next() {
+		var i DiferenciasDePedidosRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OperationNumber,
+			&i.CustomerName,
+			&i.CustomerPhone,
+			&i.Address,
+			&i.EndAddress,
+			&i.EndLat,
+			&i.EndLng,
+			&i.Lat,
+			&i.Lng,
+			&i.Weight,
+			&i.Status,
+			&i.TripLeg,
+			&i.Notes,
+			&i.RouteID,
+			&i.UltimaRutaID,
+			&i.VehicleID,
+			&i.Price,
+			&i.SegmentKm,
+			&i.DeliveryPrice,
+			&i.DeliveryDistanceKm,
+			&i.BranchID,
+			&i.Source,
+			&i.ExternalID,
+			&i.OrderDate,
+			&i.PedidoUpdatedAt,
+			&i.Estado,
+			&i.Archivado,
+			&i.FechaComprometida,
+			&i.RequiereDomicilio,
+			&i.PedidoCosto,
+			&i.Municipio,
+			&i.Vendedor,
+			&i.SucursalCodigo,
+			&i.FacturaEstado,
+			&i.FacturaNumero,
+			&i.FacturaAt,
+			&i.FacturaDomicilio,
+			&i.FacturaCorregidoAt,
+			&i.StopOrder,
+			&i.DeliveredAt,
+			&i.Resultado,
+			&i.ResultadoAt,
+			&i.ResultadoNota,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CambiadoAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const facetasMunicipios = `-- name: FacetasMunicipios :many
 
 SELECT o.municipio AS valor, count(*) AS pedidos
@@ -787,7 +1016,7 @@ SELECT
     o.created_at, o.delivered_at, o.resultado, o.resultado_nota, o.stop_order,
     o.estado, o.archivado, o.fecha_comprometida, o.requiere_domicilio,
     o.pedido_costo, o.factura_estado, o.factura_numero, o.factura_domicilio,
-    o.municipio, o.vendedor, o.sucursal_codigo, o.branch_id,
+    o.municipio, o.vendedor, o.sucursal_codigo, o.branch_id, o.updated_at,
     r.name          AS ruta_nombre,
     r.route_code    AS ruta_codigo,
     r.status        AS ruta_estado,
@@ -926,6 +1155,7 @@ type ListarPedidosRow struct {
 	Vendedor           *string            `json:"vendedor"`
 	SucursalCodigo     *string            `json:"sucursal_codigo"`
 	BranchID           pgtype.UUID        `json:"branch_id"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	RutaNombre         *string            `json:"ruta_nombre"`
 	RutaCodigo         *string            `json:"ruta_codigo"`
 	RutaEstado         *RouteStatus       `json:"ruta_estado"`
@@ -1001,6 +1231,7 @@ func (q *Queries) ListarPedidos(ctx context.Context, arg ListarPedidosParams) ([
 			&i.Vendedor,
 			&i.SucursalCodigo,
 			&i.BranchID,
+			&i.UpdatedAt,
 			&i.RutaNombre,
 			&i.RutaCodigo,
 			&i.RutaEstado,
@@ -1404,7 +1635,8 @@ func (q *Queries) ListarPedidosPorFuente(ctx context.Context, source Procedencia
 }
 
 const listarRenglonesDePedido = `-- name: ListarRenglonesDePedido :many
-SELECT oi.id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs, oi.product_id
+SELECT oi.id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs,
+       oi.product_id, oi.updated_at
 FROM order_items oi
 JOIN orders o ON o.id = oi.order_id
 WHERE oi.order_id = $1
@@ -1418,13 +1650,14 @@ type ListarRenglonesDePedidoParams struct {
 }
 
 type ListarRenglonesDePedidoRow struct {
-	ID          uuid.UUID   `json:"id"`
-	OrderID     uuid.UUID   `json:"order_id"`
-	Linea       int32       `json:"linea"`
-	Description string      `json:"description"`
-	Quantity    float64     `json:"quantity"`
-	Packs       *float64    `json:"packs"`
-	ProductID   pgtype.UUID `json:"product_id"`
+	ID          uuid.UUID          `json:"id"`
+	OrderID     uuid.UUID          `json:"order_id"`
+	Linea       int32              `json:"linea"`
+	Description string             `json:"description"`
+	Quantity    float64            `json:"quantity"`
+	Packs       *float64           `json:"packs"`
+	ProductID   pgtype.UUID        `json:"product_id"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 // Los renglones de UN pedido, en el orden del papel del vendedor. `linea` no es decorativa:
@@ -1450,6 +1683,7 @@ func (q *Queries) ListarRenglonesDePedido(ctx context.Context, arg ListarRenglon
 			&i.Quantity,
 			&i.Packs,
 			&i.ProductID,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1462,7 +1696,8 @@ func (q *Queries) ListarRenglonesDePedido(ctx context.Context, arg ListarRenglon
 }
 
 const listarRenglonesDePedidos = `-- name: ListarRenglonesDePedidos :many
-SELECT oi.id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs, oi.product_id
+SELECT oi.id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs,
+       oi.product_id, oi.updated_at
 FROM order_items oi
 JOIN orders o ON o.id = oi.order_id
 WHERE oi.order_id = ANY($1::uuid[])
@@ -1476,13 +1711,14 @@ type ListarRenglonesDePedidosParams struct {
 }
 
 type ListarRenglonesDePedidosRow struct {
-	ID          uuid.UUID   `json:"id"`
-	OrderID     uuid.UUID   `json:"order_id"`
-	Linea       int32       `json:"linea"`
-	Description string      `json:"description"`
-	Quantity    float64     `json:"quantity"`
-	Packs       *float64    `json:"packs"`
-	ProductID   pgtype.UUID `json:"product_id"`
+	ID          uuid.UUID          `json:"id"`
+	OrderID     uuid.UUID          `json:"order_id"`
+	Linea       int32              `json:"linea"`
+	Description string             `json:"description"`
+	Quantity    float64            `json:"quantity"`
+	Packs       *float64           `json:"packs"`
+	ProductID   pgtype.UUID        `json:"product_id"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 // Los renglones de VARIOS pedidos de una vez. Una sola consulta para toda la página, no
@@ -1506,6 +1742,7 @@ func (q *Queries) ListarRenglonesDePedidos(ctx context.Context, arg ListarRenglo
 			&i.Quantity,
 			&i.Packs,
 			&i.ProductID,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1779,6 +2016,85 @@ func (q *Queries) PanelResumen(ctx context.Context, arg PanelResumenParams) (Pan
 		&i.TotalDomicilios,
 	)
 	return i, err
+}
+
+const pedidosQueSalieronDelAlcance = `-- name: PedidosQueSalieronDelAlcance :many
+SELECT f.order_id, f.branch_id, f.motivo, f.salio_at
+FROM orders_fuera_de_alcance f
+WHERE ($1::timestamptz IS NULL OR f.salio_at >  $1::timestamptz)
+  AND ($2::timestamptz IS NULL OR f.salio_at <= $2::timestamptz)
+  -- El alcance primero, como siempre: aunque quien llama pida otra sucursal, sólo puede
+  -- enterarse de lo que se fue de la suya.
+  AND ($3::uuid  IS NULL OR f.branch_id = $3::uuid)
+  AND ($4::uuid IS NULL OR f.branch_id = $4::uuid)
+  AND (
+      $3::uuid  IS NOT NULL
+      OR $4::uuid IS NOT NULL
+      OR f.motivo = 'borrado'
+  )
+ORDER BY f.salio_at ASC, f.order_id ASC
+LIMIT $5
+`
+
+type PedidosQueSalieronDelAlcanceParams struct {
+	Desde    pgtype.Timestamptz `json:"desde"`
+	Hasta    pgtype.Timestamptz `json:"hasta"`
+	Sucursal pgtype.UUID        `json:"sucursal"`
+	BranchID pgtype.UUID        `json:"branch_id"`
+	Tope     int32              `json:"tope"`
+}
+
+type PedidosQueSalieronDelAlcanceRow struct {
+	OrderID  uuid.UUID          `json:"order_id"`
+	BranchID pgtype.UUID        `json:"branch_id"`
+	Motivo   SalidaDePedido     `json:"motivo"`
+	SalioAt  pgtype.Timestamptz `json:"salio_at"`
+}
+
+// LO QUE SE FUE DE LA SUCURSAL, para `quitados`.
+//
+// `quitados` no es sólo lo borrado, y por eso esta consulta no mira `orders`: mira las
+// lápidas de 00003_bajada_pedidos.sql. Un pedido borrado ya no tiene fila que consultar, y
+// uno que se mudó de sucursal tiene la suya intacta pero con OTRA sucursal, así que no
+// sale en ninguna consulta acotada a la vieja. En los dos casos el aparato se quedaría con
+// él para siempre: la lista local sólo crece.
+//
+// EL ARCHIVADO NO ESTÁ AQUÍ y no se le olvidó a nadie: su fila sigue existiendo, con el
+// `updated_at` movido, así que sale por `DiferenciasDePedidos` y quien contesta la bajada
+// lo manda a `quitados` al ver `archivado`. Ponerlo también aquí sería mandarlo dos veces.
+//
+// Y SIN SUCURSAL —el Super Admin, que ve las ocho— sólo cuentan los BORRADOS: un pedido
+// que se mudó de Santiago a Holguín no se le ha ido de la vista, y mandárselo en
+// `quitados` le borraría del aparato un pedido que existe y que está en su lista.
+func (q *Queries) PedidosQueSalieronDelAlcance(ctx context.Context, arg PedidosQueSalieronDelAlcanceParams) ([]PedidosQueSalieronDelAlcanceRow, error) {
+	rows, err := q.db.Query(ctx, pedidosQueSalieronDelAlcance,
+		arg.Desde,
+		arg.Hasta,
+		arg.Sucursal,
+		arg.BranchID,
+		arg.Tope,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PedidosQueSalieronDelAlcanceRow
+	for rows.Next() {
+		var i PedidosQueSalieronDelAlcanceRow
+		if err := rows.Scan(
+			&i.OrderID,
+			&i.BranchID,
+			&i.Motivo,
+			&i.SalioAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const pesosDelCatalogoPorFuente = `-- name: PesosDelCatalogoPorFuente :many

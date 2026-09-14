@@ -1,0 +1,176 @@
+import 'package:drift/drift.dart';
+
+import '../../../nucleo/base/base.dart';
+import '../../../nucleo/reloj.dart';
+
+/// Las siete cifras de arriba del Panel.
+class CifrasDelPanel {
+  const CifrasDelPanel({
+    required this.totalPedidos,
+    required this.sinRuta,
+    required this.rutasActivas,
+    required this.entregadosHoy,
+    required this.totalVehiculos,
+    required this.vehiculosEnRuta,
+    required this.pesoPendiente,
+    required this.totalDomicilios,
+  });
+
+  static const cero = CifrasDelPanel(
+    totalPedidos: 0,
+    sinRuta: 0,
+    rutasActivas: 0,
+    entregadosHoy: 0,
+    totalVehiculos: 0,
+    vehiculosEnRuta: 0,
+    pesoPendiente: 0,
+    totalDomicilios: 0,
+  );
+
+  final int totalPedidos;
+  final int sinRuta;
+  final int rutasActivas;
+  final int entregadosHoy;
+  final int totalVehiculos;
+  final int vehiculosEnRuta;
+  final double pesoPendiente;
+  final double totalDomicilios;
+}
+
+/// Una fila de «Pendiente por sucursal».
+class PendienteDeSucursal {
+  const PendienteDeSucursal({
+    required this.sucursal,
+    required this.pedidos,
+    required this.pesoKg,
+  });
+
+  final String sucursal;
+  final int pedidos;
+  final double pesoKg;
+}
+
+/// El Panel, calculado **en el aparato**.
+///
+/// Todo lo que pinta esta pantalla sale de la base local, no de
+/// `GET /api/dashboard`: es la regla 2 (nunca esperar al servidor) y ademas es
+/// lo que hace que la pantalla de la manana funcione en el patio del almacen sin
+/// senal.
+///
+/// La definicion de REPARTIBLE esta escrita **una sola vez**, en [_repartible],
+/// y es literalmente la del servidor (`contratos-api.md` §9): `route_id IS NULL`
+/// **y** `end_lat` no nulo **y** `factura_estado IN ('igual','cambiado')`.
+/// Tenerla dos veces es como se acaba con dos numeros distintos para la misma
+/// pregunta, y el que sobra siempre es el que alguien mira.
+class ConsultasPanel {
+  ConsultasPanel(this._base, {Reloj reloj = relojDelAparato}) : _reloj = reloj;
+
+  final BaseLocal _base;
+  final Reloj _reloj;
+
+  static const _repartible =
+      "route_id IS NULL AND end_lat IS NOT NULL "
+      "AND factura_estado IN ('igual','cambiado')";
+
+  // Las rutas que cuentan como «en marcha». Cancelada NO es completada, pero
+  // tampoco esta en marcha: ninguna de las dos suma.
+  static const _rutaViva = "status NOT IN ('completed','cancelled')";
+
+  /// Las 00:00 de hoy **con el reloj del APARATO**. No es un detalle: sin red el
+  /// aparato es el unico reloj que hay, y lo entregado «hoy» tiene que cuadrar
+  /// con el dia que la persona esta viviendo, no con el del servidor.
+  DateTime get medianoche {
+    final ahora = _reloj();
+    return DateTime(ahora.year, ahora.month, ahora.day);
+  }
+
+  Stream<CifrasDelPanel> cifras({String? sucursalId}) {
+    // `?1 IS NULL OR …` en vez de dos consultas: una sola sentencia, un solo
+    // `watch`, y la version «todas las sucursales» no puede quedarse atras de la
+    // version filtrada porque son el mismo SQL.
+    final sql =
+        '''
+SELECT
+  (SELECT COUNT(*) FROM orders o
+     WHERE (?1 IS NULL OR o.branch_id = ?1)) AS total_pedidos,
+  (SELECT COUNT(*) FROM orders o
+     WHERE (?1 IS NULL OR o.branch_id = ?1) AND $_repartible) AS sin_ruta,
+  (SELECT COALESCE(SUM(o.weight), 0) FROM orders o
+     WHERE (?1 IS NULL OR o.branch_id = ?1) AND $_repartible) AS peso_pendiente,
+  (SELECT COALESCE(SUM(o.pedido_costo), 0) FROM orders o
+     WHERE (?1 IS NULL OR o.branch_id = ?1)) AS total_domicilios,
+  (SELECT COUNT(*) FROM orders o
+     WHERE (?1 IS NULL OR o.branch_id = ?1)
+       AND o.delivered_at IS NOT NULL
+       AND o.delivered_at >= ?2) AS entregados_hoy,
+  (SELECT COUNT(*) FROM routes r
+     WHERE (?1 IS NULL OR r.branch_id = ?1) AND $_rutaViva) AS rutas_activas,
+  (SELECT COUNT(*) FROM vehicles v
+     WHERE (?1 IS NULL OR v.branch_id = ?1)) AS total_vehiculos,
+  (SELECT COUNT(DISTINCT o.vehicle_id) FROM orders o
+     JOIN routes r ON r.id = o.route_id
+     WHERE o.vehicle_id IS NOT NULL
+       AND (?1 IS NULL OR o.branch_id = ?1)
+       AND r.$_rutaViva) AS vehiculos_en_ruta
+''';
+
+    return _base
+        .customSelect(
+          sql,
+          variables: [Variable<String>(sucursalId), Variable<DateTime>(medianoche)],
+          readsFrom: {_base.orders, _base.routes, _base.vehicles},
+        )
+        .watchSingle()
+        .map(
+          (fila) => CifrasDelPanel(
+            totalPedidos: fila.read<int>('total_pedidos'),
+            sinRuta: fila.read<int>('sin_ruta'),
+            rutasActivas: fila.read<int>('rutas_activas'),
+            entregadosHoy: fila.read<int>('entregados_hoy'),
+            totalVehiculos: fila.read<int>('total_vehiculos'),
+            vehiculosEnRuta: fila.read<int>('vehiculos_en_ruta'),
+            pesoPendiente: fila.read<double>('peso_pendiente'),
+            totalDomicilios: fila.read<double>('total_domicilios'),
+          ),
+        );
+  }
+
+  /// «Pendiente por sucursal», ordenado de mas a menos pedidos.
+  ///
+  /// `'Sin sucursal'` cuando el pedido no trae `branch_id` o apunta a una
+  /// sucursal que no esta bajada: se agrupa igual y se dice, en vez de
+  /// desaparecer de la suma y dejar la tarjeta sin cuadrar con la de arriba.
+  Stream<List<PendienteDeSucursal>> porSucursal({String? sucursalId}) {
+    const sql =
+        '''
+SELECT COALESCE(b.name, 'Sin sucursal') AS sucursal,
+       COUNT(*) AS pedidos,
+       COALESCE(SUM(o.weight), 0) AS peso
+  FROM orders o
+  LEFT JOIN branches b ON b.id = o.branch_id
+ WHERE (?1 IS NULL OR o.branch_id = ?1)
+   AND $_repartible
+ GROUP BY COALESCE(b.name, 'Sin sucursal')
+ ORDER BY pedidos DESC
+''';
+
+    return _base
+        .customSelect(
+          sql,
+          variables: [Variable<String>(sucursalId)],
+          readsFrom: {_base.orders, _base.branches},
+        )
+        .watch()
+        .map(
+          (filas) => filas
+              .map(
+                (f) => PendienteDeSucursal(
+                  sucursal: f.read<String>('sucursal'),
+                  pedidos: f.read<int>('pedidos'),
+                  pesoKg: f.read<double>('peso'),
+                ),
+              )
+              .toList(),
+        );
+  }
+}

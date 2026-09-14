@@ -1665,6 +1665,34 @@ func TestDomicilioSinCalcularNoSubeAlCamion(t *testing.T) {
 	}
 }
 
+func TestElAvisoNoImpideArmarLaRuta(t *testing.T) {
+	// El caso real: 657 de 686 pedidos repartibles con domicilio no tienen costo, porque
+	// la APK de Entrega no está encendida. Si esto bloqueara, no se podría armar ni una
+	// ruta. Tiene que avisar y dejar pasar.
+	si := true
+	fila := filaParaGuarda("A", nil, &si, nil)
+
+	if msg := mensajeSinCalcular([]sqlc.PedidosParaArmarRutaRow{fila}); msg == "" {
+		t.Fatal("tiene que avisar: un domicilio sin costo entra valiendo cero")
+	}
+	if n := cuantosSinCosto([]sqlc.PedidosParaArmarRutaRow{fila}); n != 1 {
+		t.Fatalf("el recuento tiene que ser 1 para que la pantalla pueda decirlo, fue %d", n)
+	}
+}
+
+func TestElRecuentoNoCuentaLosQueNoLlevanDomicilio(t *testing.T) {
+	no := false
+	precio := 5.0
+	pedidos := []sqlc.PedidosParaArmarRutaRow{
+		filaParaGuarda("recoge en almacén", nil, &no, nil),
+		filaParaGuarda("sin señal ninguna", nil, nil, nil),
+		filaParaGuarda("con domicilio y costeado", &precio, nil, &precio),
+	}
+	if n := cuantosSinCosto(pedidos); n != 0 {
+		t.Fatalf("ninguno de estos falta: el que no lleva domicilio no se cobra reparto. Contó %d", n)
+	}
+}
+
 func TestLaGuardaDiceCualesYCuantos(t *testing.T) {
 	si := true
 	var malos []sqlc.PedidosParaArmarRutaRow

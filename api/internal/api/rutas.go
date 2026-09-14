@@ -486,15 +486,21 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Y que el domicilio esté calculado ---------------------------------
+	// --- El domicilio sin calcular: AVISO, no portazo ----------------------
 	//
-	// Va DESPUÉS del cotejo de factura a propósito: si un pedido falla las dos cosas, lo
-	// primero que hay que arreglar es la factura, y decir las dos a la vez es dar trabajo
-	// que quizá no haga falta.
-	if mensaje := mensajeSinCalcular(pedidos); mensaje != "" {
-		httpx.Error(w, r, http.StatusConflict, mensaje)
-		return
-	}
+	// Decisión de Jose el 14/09/2026, tomada con los datos reales delante: de los 686
+	// pedidos repartibles que llevan domicilio, 657 no tienen el costo puesto. El 96%. Con
+	// un portazo aquí no se podría armar NI UNA ruta con domicilio.
+	//
+	// Y no es un fallo de los datos: ese costo lo pone la APK de Entrega, que todavía no
+	// está encendida. El día que lo esté, estos avisos se apagan solos.
+	//
+	// Así que la ruta se arma y el aviso viaja en la respuesta. Lo que NO se hace es
+	// callarlo, que era el problema original: el armador suma `pedido_costo || 0`, o sea
+	// que un pedido sin costo entra valiendo cero y el total de la ruta sale más bajo sin
+	// que nadie lo note hasta cuadrar la caja.
+	avisoSinCosto := mensajeSinCalcular(pedidos)
+	sinCosto := cuantosSinCosto(pedidos)
 
 	// --- Capacidad por peso ------------------------------------------------
 	var pesoTotal, precioTotal float64
@@ -503,6 +509,9 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 		if p.PedidoCosto != nil {
 			precioTotal += *p.PedidoCosto
 		}
+		// El que no tiene costo NO suma. Ver `sinCosto` arriba: el total que sale de aquí
+		// es el de lo que sí está costeado, y la respuesta dice cuántos faltan. Un total
+		// a secas, sin ese número al lado, es un número que parece completo y no lo es.
 	}
 	// Si el id del camión no es un uuid o no existe, NO se valida capacidad y la ruta se
 	// crea igual —así lo dice el contrato— pero se crea SIN camión: guardar un id que no
@@ -673,7 +682,15 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 	s.avisarDeFondo(r, avisos)
 	avisarCambioDeRutas(r.Context())
 
-	s.responderConLaRuta(w, r, ar, creada.ID, http.StatusCreated)
+	// El aviso viaja CON la ruta creada, no en su lugar.
+	//
+	// Si hay pedidos con domicilio sin costear, la pantalla tiene que poder decirlo encima
+	// del total: «no incluye N pedidos». Un total a secas parece completo y no lo es.
+	if sinCosto > 0 {
+		s.reg.WarnContext(r.Context(), "ruta armada con domicilios sin costear",
+			"ruta", creada.ID, "sin_costo", sinCosto, "de", len(pedidos))
+	}
+	s.responderConLaRutaYAvisos(w, r, ar, creada.ID, http.StatusCreated, avisoSinCosto, sinCosto)
 }
 
 // ---------------------------------------------------------------------------
@@ -695,6 +712,41 @@ func (s *Servidor) obtenerRuta(w http.ResponseWriter, r *http.Request) {
 // responderConLaRuta relee la ruta entera —cabecera, sucursal, camión y paradas— y la
 // escribe. Se relee después de escribir a propósito: así el cliente ve lo que quedó
 // guardado y no lo que creíamos haber guardado.
+// responderConLaRutaYAvisos es responderConLaRuta más lo que hay que decir de ella.
+//
+// Se separa en vez de meterle dos parámetros a la de siempre porque la mayoría de las
+// respuestas no tienen nada que avisar, y un `"", 0` repetido por todo el fichero se acaba
+// copiando mal.
+func (s *Servidor) responderConLaRutaYAvisos(w http.ResponseWriter, r *http.Request, ar *alcance.Acotado, id uuid.UUID, codigo int, aviso string, sinCosto int) {
+	if aviso == "" {
+		s.responderConLaRuta(w, r, ar, id, codigo)
+		return
+	}
+	fila, err := ar.ObtenerRuta(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpx.Error(w, r, http.StatusNotFound, httpx.MsgNoEncontrado)
+		return
+	}
+	if err != nil {
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	porRuta, err := s.paradasPorRuta(r, ar, []uuid.UUID{id})
+	if err != nil {
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	cuerpo := map[string]any{
+		"ruta": deFilaDeDetalle(fila, porRuta[id]),
+		"avisos": map[string]any{
+			"sinCosto":  sinCosto,
+			"detalle":   aviso,
+			"elTotalNo": "incluye los pedidos sin costo de domicilio",
+		},
+	}
+	httpx.JSON(w, r, codigo, cuerpo)
+}
+
 func (s *Servidor) responderConLaRuta(w http.ResponseWriter, r *http.Request, a *alcance.Acotado, id uuid.UUID, codigo int) {
 	fila, err := a.ObtenerRuta(r.Context(), id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1187,9 +1239,31 @@ func llevaDomicilio(p sqlc.PedidosParaArmarRutaRow) bool {
 	return p.RequiereDomicilio != nil && *p.RequiereDomicilio
 }
 
-// mensajeSinCalcular arma el 409 de «este pedido no tiene su domicilio calculado», o "".
+// cuantosSinCosto cuenta los que llevan domicilio y no traen su costo.
 //
-// # Por qué esto es una guarda y no un filtro opcional
+// Va aparte del mensaje porque el número viaja en la respuesta y el texto es para leerlo:
+// la pantalla necesita poder decir «el total no incluye 12 pedidos» sin tener que parsear
+// una frase.
+func cuantosSinCosto(pedidos []sqlc.PedidosParaArmarRutaRow) int {
+	n := 0
+	for _, p := range pedidos {
+		if llevaDomicilio(p) && p.PedidoCosto == nil {
+			n++
+		}
+	}
+	return n
+}
+
+// mensajeSinCalcular arma el AVISO de «este pedido no tiene su domicilio calculado», o "".
+//
+// # Por qué es un aviso y no un portazo
+//
+// Lo fue durante unas horas. Con los datos reales delante se vio que habría bloqueado el
+// 96% de los pedidos con domicilio, porque el costo lo pone la APK de Entrega y todavía no
+// está encendida. Un sistema que no deja armar ninguna ruta no sirve, por muy correcta que
+// sea la regla.
+//
+// # Pero callarlo tampoco vale
 //
 // Delivery NO CALCULA NADA. Sólo pone en ruta pedidos que ya vienen con su domicilio
 // puesto por la APK de Entrega, que es quien lo cobra. El armador se limita a sumar:

@@ -1,0 +1,182 @@
+# EL REPARTO ENTERO EN LA MÁQUINA DE UNO. Para probar de verdad, no para producción.
+#
+#   docker compose up --build        levanta todo y deja los registros a la vista
+#   docker compose up -d --build     lo mismo, por detrás
+#   docker compose down              para todo; la base se queda
+#   docker compose down -v           para todo Y BORRA LA BASE
+#
+# Cuando esté arriba:
+#
+#   la web           http://localhost:8082
+#   la API           http://localhost:8080/health   y  /version
+#   el sincronizador http://localhost:8081/salud
+#   el espejo        no tiene puerto: `docker compose logs -f espejo`
+#   Postgres         localhost:5433  usuario/clave `reparto` / `reparto`
+#
+# En producción NO se usa este fichero: allí cada pieza es una Application de Dokploy y
+# el Postgres es el único que ya hay para toda la casa. Ver docs/despliegue.md.
+name: reparto
+
+# Los valores de aquí son de DESARROLLO y están escritos a la vista a propósito: un
+# fichero de pruebas con secretos de verdad acaba en un repositorio. Para apuntar a
+# PEDIDO o a Accesos de verdad, poner las que hagan falta en un `.env` al lado de este
+# fichero (está en .gitignore) y no tocar esto.
+x-base-reparto: &base-reparto
+  postgres://reparto:reparto@postgres:5432/reparto?sslmode=disable
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Postgres. UNO, con DOS bases dentro (deploy/postgres-init/01-bases.sql).
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: reparto
+      POSTGRES_PASSWORD: reparto
+      POSTGRES_DB: reparto
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    # A 127.0.0.1 y en 5433: para poder mirar con psql o con DBeaver sin chocar con el
+    # Postgres que pueda haber instalado en la máquina, y sin abrirlo a la red de casa.
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reparto -d reparto"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Las migraciones. Arranca, migra las DOS bases y se muere. Nadie más migra.
+  # ---------------------------------------------------------------------------
+  migraciones:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.migraciones
+    environment:
+      DATABASE_URL_API: *base-reparto
+      DATABASE_URL_SYNC: postgres://reparto:reparto@postgres:5432/reparto_sync?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Que NO se reinicie: si una migración falla, tiene que quedarse caída y a la vista.
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # La API. UNA SOLA RÉPLICA — ver docs/despliegue.md §«Una sola réplica».
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+      args:
+        VERSION: ${VERSION:-local}
+    environment:
+      ENTORNO: desarrollo
+      PUERTO: "8080"
+      DATABASE_URL: *base-reparto
+      # 32 caracteres como mínimo o no arranca. En producción es EL MISMO con el que
+      # firma auth.procovar.cloud; éste es de juguete y sólo vale contra un auth falso.
+      JWT_SECRET: ${JWT_SECRET:-secreto-de-desarrollo-de-mas-de-32-caracteres}
+      SERVICE_API_KEY: ${SERVICE_API_KEY:-clave-de-servicio-local}
+      # De dónde puede llamar el navegador. Lista cerrada: con `*` no viajan las cookies
+      # y la sesión de la web es una cookie.
+      ORIGENES_PERMITIDOS: ${ORIGENES_PERMITIDOS:-http://localhost:8082}
+      # Vacías = «no configurado», y el servicio lo DICE en el registro al arrancar en
+      # vez de callárselo. Para probar el canal hacia PEDIDO, ponerlas en un `.env`.
+      PEDIDO_API_URL: ${PEDIDO_API_URL:-}
+      DELIVERY_URL: ${DELIVERY_URL:-}
+      PROCOVAR_AUTH_URL: ${PROCOVAR_AUTH_URL:-https://auth.procovar.cloud}
+      PROCOVAR_AUTH_CLIENT_ID: ${PROCOVAR_AUTH_CLIENT_ID:-delivery}
+      PROCOVAR_AUTH_SIGNING_KEY: ${PROCOVAR_AUTH_SIGNING_KEY:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      migraciones:
+        condition: service_completed_successfully
+    # UNA. El bus de `/api/eventos` vive en la memoria de este proceso: con dos, la mitad
+    # de las pantallas deja de recibir avisos y no aparece ni un error en ningún sitio.
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # El espejo de PEDIDO. Proceso de fondo: ni puerto, ni dominio, ni /health.
+  # ---------------------------------------------------------------------------
+  espejo:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.espejo
+    environment:
+      ENTORNO: desarrollo
+      DATABASE_URL: *base-reparto
+      # La MISMA que la de la API: con ella firma hacia PEDIDO y con ella entra a
+      # /api/quote/batch. Si no coinciden, el espejo trae los pedidos y no los mete.
+      SERVICE_API_KEY: ${SERVICE_API_KEY:-clave-de-servicio-local}
+      # Sin un PEDIDO de verdad detrás, el ciclo da vueltas y falla cada minuto contra
+      # esta dirección. Es lo correcto: no se inventa nada y se ve en el registro.
+      PEDIDO_API_URL: ${PEDIDO_API_URL:-http://pedido-api:8400}
+      # Aquí SÍ hay que decirlo: «vacía = a mí mismo» es el proceso de la API, y este
+      # proceso no es la API. Se habla con ella por el nombre del servicio.
+      DELIVERY_URL: http://api:8080
+      # Los tiempos y los topes tienen valores medidos (api/internal/espejo/opciones.go).
+      # Se tocan sólo si hay un motivo, y el motivo se escribe.
+      SYNC_POLL_MS: ${SYNC_POLL_MS:-60000}
+    depends_on:
+      migraciones:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # El sincronizador. Su propia base; los datos se los pide a la API.
+  # ---------------------------------------------------------------------------
+  sync:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.sync
+    environment:
+      DATABASE_URL: postgres://reparto:reparto@postgres:5432/reparto_sync?sslmode=disable
+      SYNC_ADDR: ":8081"
+      REPARTO_URL: http://api:8080
+      REPARTO_API_KEY: ${SERVICE_API_KEY:-clave-de-servicio-local}
+      # No tiene valor por defecto a propósito: confiar en las cabeceras `X-Persona` /
+      # `X-Sucursal` sólo es seguro si nadie más puede llegar a este puerto. En local, a
+      # 127.0.0.1; en el VPS, detrás del proxy que las pone. Ver sync/internal/identidad.
+      SYNC_IDENTIDAD: cabeceras
+      SYNC_TOPE_BAJADA: ${SYNC_TOPE_BAJADA:-500}
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      migraciones:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # La web. Estáticos servidos por nginx; las URL van HORNEADAS en el build.
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.app
+      args:
+        # Las ve el NAVEGADOR, no el contenedor: por eso `localhost` y los puertos
+        # publicados, y no `http://api:8080`, que desde el navegador no existe.
+        API_URL: ${API_URL:-http://localhost:8080/api}
+        SYNC_URL: ${SYNC_URL:-http://localhost:8081/sync}
+        AUTH_URL: ${AUTH_URL:-https://auth.procovar.cloud}
+    ports:
+      - "127.0.0.1:8082:8080"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres:
