@@ -62,6 +62,34 @@ bajarlas a campos:
       y no como patrón propio: con los dos registrados, el proceso se cae al arrancar. La
       URL del contrato queda intacta.
 
+## Rarezas de la cotización — heredadas, conservadas a propósito
+
+Todas están implementadas **igual que en Next**, porque el criterio es dar el mismo número.
+Pero son decisiones de negocio, no técnicas, y alguien tiene que mirarlas:
+
+- [ ] **Un `{"lat": null}` cotiza desde la latitud 0** — el golfo de Guinea. En JavaScript
+      `Number(null)` es `0` y pasa la validación de «no finito». Si tiene que dar 400, es
+      un `if` y no cambia el importe de nadie.
+- [ ] **0 km o 0 kg dan `usd: 0`, no vacío.** Es lo que dice la regla §7 y tiene sentido,
+      pero **es la única puerta por la que un domicilio sale gratis**: si un pedido entra
+      con peso 0 por falta de dato y alguien cotiza igual, se cobra cero. Hoy lo tapa el
+      400 de `pesoKg > 0` en `home-delivery`, y el lote no cotiza, así que no está expuesto.
+- [ ] **`!tarifaBaseCup` rechaza el 0 pero no un negativo ni un infinito** (en JavaScript
+      son «verdaderos»). Conservado.
+- [ ] **`quoted` siempre vale 0** en la respuesta del lote: la variable se declara y nunca
+      se incrementa. Conservado porque está en el contrato inventariado.
+- [ ] **Dos reglas de «desde dónde se mide»**: `clientes.go` elige su almacén principal por
+      su cuenta en vez de pasar por `cotizar.ElegirAlmacen`. Unificar.
+
+## Lo que la cotización deja enganchado a medias
+
+- [ ] **El lote cotiza pero NO guarda.** Falta el método de alta de pedidos del espejo en
+      `consultas.go` (la consulta sí está en sqlc). Cada resultado sale con
+      `persisted:false, reason:"espejo-no-montado"` y deja un ERROR en el registro —
+      degrada diciéndolo, nunca con un número inventado.
+- [ ] `CatalogoDePesos` sin montar: `weightsSource` sale `"none"`, valor que el contrato
+      ya prevé.
+
 ## Hallazgos sobre delivery, el que está EN PRODUCCIÓN
 
 No son tareas de este proyecto, pero conviene saberlos:

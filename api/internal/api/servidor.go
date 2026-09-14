@@ -106,5 +106,27 @@ func (s *Servidor) Rutas() http.Handler {
 	rt.ManejarFunc(http.MethodGet, "/api/settings", s.obtenerAjustes, sesion...)
 	rt.ManejarFunc(http.MethodPut, "/api/settings", s.guardarAjustes, sesion...)
 
+	// --- El resto de los recursos ----------------------------------------------
+	//
+	// Cada módulo registra las suyas en su propio fichero y aquí sólo se llaman. No es
+	// una manía de orden: este fichero lo tocan todos, y con doce recursos escribiendo
+	// sus `ManejarFunc` aquí dentro, dos personas trabajando a la vez chocan siempre.
+	// Así cada uno es dueño de su fichero y esto es la lista de lo que hay montado.
+	//
+	// El orden no importa para el enrutado —ServeMux resuelve por especificidad, no por
+	// orden de registro— pero sí para leerlo: primero lo que se usa todos los días.
+	s.rutasPedidos(rt, sesion, admin)
+	s.rutasDeReparto(rt, sesion, admin)
+	s.rutasTablero(rt, sesion, admin)
+	s.rutasClientes(rt, sesion, admin)
+	s.rutasProductos(rt, sesion, admin)
+	s.rutasAlmacenes(rt, sesion, admin)
+	s.rutasCotizacion(rt, sesion, admin)
+	s.rutasPanel(rt, sesion, admin)
+	s.rutasInformes(rt, sesion, admin)
+	s.rutasEventos(rt, sesion, admin)
+	s.rutasYo(rt, sesion, admin)
+	s.rutasEspejo(rt, sesion, admin)
+
 	return rt.Handler()
 }
