@@ -1,0 +1,177 @@
+# El protocolo de sincronización
+
+Entre la aplicación (`app/`) y el sincronizador (`sync/`). Es lo que hace posible que un
+logístico trabaje un día entero sin conexión y no pierda nada.
+
+## El día que hay que soportar
+
+Diez logísticos, uno por sucursal, que arman las rutas de la suya. Por la mañana tienen
+conexión. Durante el día, no. Al final del día, a veces.
+
+```
+mañana     con red   →  baja el día
+día        sin red   →  prepara el tablero, arma rutas, cierra las que vuelven
+cuando     con red   →  sube lo trabajado, en orden y con su hora
+```
+
+No hay un «modo sin conexión» que se encienda. **La aplicación se comporta igual siempre**:
+guarda en el aparato y sube por detrás. Quien tenga red todo el día simplemente sube a
+medida que trabaja.
+
+---
+
+## 1 · Bajada por diferencias
+
+```
+GET /sync/bajada?desde=<marca>&sucursal=<id>
+```
+
+Devuelve lo que cambió desde `desde`. Sin `desde`, la primera carga completa.
+
+```jsonc
+{
+  "hasta": "2026-09-14T11:02:31.481Z",   // la marca para la próxima vez
+  "completa": false,                      // true si fue carga inicial
+  "cambios": {
+    "orders":    { "puestos": [ … ], "quitados": ["id", …] },
+    "routes":    { "puestos": [ … ], "quitados": [] },
+    "customers": { "puestos": [ … ], "quitados": [] },
+    "products":  { "puestos": [ … ], "quitados": [] },
+    "vehicles":  { "puestos": [ … ], "quitados": [] },
+    "branches":  { "puestos": [ … ], "quitados": [] },
+    "warehouses":{ "puestos": [ … ], "quitados": [] },
+    "settings":  { "puestos": [ … ], "quitados": [] }
+  },
+  "truncado": false                       // hay más: repetir con el `hasta` devuelto
+}
+```
+
+**`hasta` lo pone el servidor, nunca el aparato.** El reloj de un teléfono se mueve — se
+cambia a mano, se va con la batería, salta de zona horaria. Si el aparato dijera desde
+cuándo pedir, un reloj atrasado se perdería cambios para siempre sin que nadie lo note.
+
+**`quitados` hace falta de verdad.** Sin él, un pedido archivado o una ruta borrada se
+quedan en el aparato para siempre: la lista local sólo crece y nunca se limpia.
+
+**`truncado`** existe porque la primera bajada de una sucursal grande no cabe de una vez en
+la conexión de allá. Se pide por tandas hasta que venga `false`.
+
+### Requisito que hay que cerrar antes
+
+Los 11 modelos necesitan `updatedAt`. Hoy sólo lo tienen 6, y sin esa marca **no hay
+diferencias posibles**: habría que bajar el mundo entero cada mañana. Como no hay nada en
+producción, esto no es una migración — es escribir el esquema bien a la primera.
+
+---
+
+## 2 · Subida por lotes
+
+```
+POST /sync/subida
+```
+
+La cola del aparato entera, **en el orden en que se hizo**.
+
+```jsonc
+{
+  "aparato": "…",                     // el identificador de esta instalación
+  "apuntes": [
+    {
+      "clave": "01J8…",               // idempotencia: la pone el aparato, una por apunte
+      "hecho": "2026-09-14T16:04:22Z",// la hora del APARATO, no la de la subida
+      "metodo": "POST",
+      "ruta": "/api/routes/local-9f3a/results",
+      "cuerpo": { … },
+      "provisional": "local-9f3a"     // si este apunte CREA algo, el id inventado
+    }
+  ]
+}
+```
+
+Respuesta, **apunte por apunte** y en el mismo orden:
+
+```jsonc
+{
+  "resultados": [
+    { "clave": "01J8…", "estado": "aplicado", "id": "cm2x…" },
+    { "clave": "01J8…", "estado": "repetido", "id": "cm2x…" },
+    { "clave": "01J8…", "estado": "rechazado",
+      "motivo": "3 de los 8 pedidos ya están en otra ruta. Vuelve a elegirlos." }
+  ]
+}
+```
+
+### El orden importa
+
+Marcar una parada y luego corregirla son dos apuntes sobre el mismo pedido. Subirlos al
+revés deja puesta la primera marca. La cola es FIFO y el número lo pone la base local, no
+el reloj.
+
+### `repetido` no es un error
+
+Una subida a medias —el servidor guardó y se cortó antes de contestar— reintenta. La
+`clave` es lo que deja al servidor reconocerla y devolver lo mismo que la primera vez en
+vez de aplicarla otra vez. Sin esto, una ruta creada sin red puede acabar duplicada.
+
+### Los identificadores provisionales
+
+Una ruta armada sin conexión no tiene identificador: lo pone la base de datos. Pero la
+pantalla necesita uno **ya** para poder enseñarla, imprimir el despacho y cerrarla después.
+El aparato se inventa uno (`local-…`), y cuando el apunte que la crea sube, la respuesta
+trae el de verdad. **El aparato tiene que sustituirlo en todo lo que quedara en la cola
+detrás**: la ruta sube bien y el cierre de la tarde iría a `/api/routes/local-9f3a/results`,
+que no existe en ningún sitio. Se perdería el trabajo justo después de haberlo subido.
+
+### `rechazado` no se reintenta y no se borra
+
+El servidor dijo que no por algo. Queda a la vista con su motivo y su hora hasta que una
+persona decida. Un apunte que desaparece solo es trabajo perdido que nadie sabe que perdió.
+
+### La hora es la del aparato
+
+Lo que se marca a las cuatro llega como las cuatro, aunque suba a las siete. En PEDIDO el
+vendedor tiene que ver cuándo recibió su cliente, no cuándo pilló señal el teléfono.
+
+---
+
+## 3 · Registro de aparatos
+
+```
+POST /sync/aparato       alta de esta instalación
+GET  /sync/estado        lo que ve el panel de control
+```
+
+Por cada aparato: quién lo usa, de qué sucursal, cuándo bajó por última vez, cuándo subió,
+cuánto le queda pendiente y qué se le rechazó.
+
+**Esto es lo que hoy no existe y es lo más valioso de todo.** Un logístico cierra el día, se
+va a su casa y deja el cierre de la ruta sin subir; nadie se entera hasta que no cuadra el
+inventario. Con el registro se ve que Palma lleva desde el martes sin subir, y se puede
+llamar.
+
+---
+
+## Conflictos: casi no hay
+
+El alcance ya está cerrado por sucursal: quien pertenece a una ve sólo la suya. Con un
+logístico por sucursal son diez cajones que no se tocan — nadie le puede quitar un pedido a
+nadie, y desaparece todo el arbitraje entre aparatos.
+
+**La excepción es el Super Admin**, que ve todas. Si arma una ruta de Palma mientras el
+logístico de Palma está sin señal, ahí sí chocan. El servidor lo rechaza —*«N de los M
+pedidos ya están en otra ruta»*— y ese rechazo tiene que llegar de vuelta al aparato en vez
+de perderse.
+
+---
+
+## Orden al recuperar la señal
+
+```
+1. renovar la sesión        ← primero, SIEMPRE
+2. subir la cola
+3. bajar diferencias
+```
+
+Ocho horas sin conexión dejan el token de acceso caducado. Si la cola sale con el viejo,
+todo responde 401 y se para con el trabajo del día dentro. Ver `identidad.md`, y en especial
+el candado: **una sola renovación en vuelo**.

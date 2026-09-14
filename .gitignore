@@ -1,0 +1,19 @@
+# Go
+/api/bin/
+/sync/bin/
+*.exe
+
+# Flutter / Dart
+/app/build/
+/app/.dart_tool/
+/app/.flutter-plugins*
+/app/android/local.properties
+/app/ios/Pods/
+
+# entornos
+.env
+.env.*
+!.env.example
+
+# sistema
+.DS_Store
