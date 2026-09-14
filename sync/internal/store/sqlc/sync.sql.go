@@ -593,8 +593,14 @@ func (q *Queries) EstadoDeAparato(ctx context.Context, id uuid.UUID) (EstadoDeAp
 const panelDeEstado = `-- name: PanelDeEstado :many
 SELECT a.id, a.persona, a.branch_id, a.nombre, a.visto_at, a.created_at AS alta_at,
        e.bajada_at, e.bajada_hasta, e.subida_at, e.pendientes, e.rechazados,
-       -- Cuántas horas lleva sin subir. Vacío = no ha subido nunca, que no es «0 horas».
-       EXTRACT(EPOCH FROM (now() - e.subida_at)) / 3600 AS horas_sin_subir
+       -- Cuánto lleva sin subir, EN SEGUNDOS y sin decimales.
+       --
+       -- En segundos y no en horas porque el panel decide el aviso por umbral y una
+       -- división ahí obliga a decidir el redondeo en dos sitios. Y **-1, no vacío**:
+       -- el que nunca ha subido es justo el que más importa —sale el primero con
+       -- ` + "`" + `NULLS FIRST` + "`" + `— y un vacío en el tipo generado dejaba la columna sin tipo.
+       -- El panel distingue «nunca» por ` + "`" + `subida_at` + "`" + `, que sí viene vacío.
+       COALESCE(EXTRACT(EPOCH FROM (now() - e.subida_at)), -1)::bigint AS segundos_sin_subir
 FROM aparatos a
 JOIN aparato_estado e ON e.aparato_id = a.id
 WHERE ($1::uuid IS NULL OR a.branch_id = $1::uuid)
@@ -602,18 +608,18 @@ ORDER BY e.subida_at ASC NULLS FIRST
 `
 
 type PanelDeEstadoRow struct {
-	ID            uuid.UUID          `json:"id"`
-	Persona       string             `json:"persona"`
-	BranchID      uuid.UUID          `json:"branch_id"`
-	Nombre        *string            `json:"nombre"`
-	VistoAt       pgtype.Timestamptz `json:"visto_at"`
-	AltaAt        pgtype.Timestamptz `json:"alta_at"`
-	BajadaAt      pgtype.Timestamptz `json:"bajada_at"`
-	BajadaHasta   pgtype.Timestamptz `json:"bajada_hasta"`
-	SubidaAt      pgtype.Timestamptz `json:"subida_at"`
-	Pendientes    int32              `json:"pendientes"`
-	Rechazados    int32              `json:"rechazados"`
-	HorasSinSubir int32              `json:"horas_sin_subir"`
+	ID               uuid.UUID          `json:"id"`
+	Persona          string             `json:"persona"`
+	BranchID         uuid.UUID          `json:"branch_id"`
+	Nombre           *string            `json:"nombre"`
+	VistoAt          pgtype.Timestamptz `json:"visto_at"`
+	AltaAt           pgtype.Timestamptz `json:"alta_at"`
+	BajadaAt         pgtype.Timestamptz `json:"bajada_at"`
+	BajadaHasta      pgtype.Timestamptz `json:"bajada_hasta"`
+	SubidaAt         pgtype.Timestamptz `json:"subida_at"`
+	Pendientes       int32              `json:"pendientes"`
+	Rechazados       int32              `json:"rechazados"`
+	SegundosSinSubir int64              `json:"segundos_sin_subir"`
 }
 
 // EL PANEL: `GET /sync/estado`. Todo lo que hay que ver de todos los aparatos, con el que
@@ -643,7 +649,7 @@ func (q *Queries) PanelDeEstado(ctx context.Context, sucursal pgtype.UUID) ([]Pa
 			&i.SubidaAt,
 			&i.Pendientes,
 			&i.Rechazados,
-			&i.HorasSinSubir,
+			&i.SegundosSinSubir,
 		); err != nil {
 			return nil, err
 		}

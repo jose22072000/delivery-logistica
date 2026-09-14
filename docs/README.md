@@ -9,6 +9,7 @@ Next**. Sacado del código de `delivery`, que se queda en pie hasta el final com
 | `contratos-api.md` | Las 35 rutas: parámetros, cuerpos, respuestas y los mensajes de error **literales** | `src/app/api/**` |
 | `reglas-negocio.md` | Las 15 reglas con sus fórmulas, constantes y casos límite | `src/lib/` + el armado de ruta |
 | `pantallas.md` | Las 7 pantallas, la navegación, los componentes y **qué sale impreso** | `src/app/(dashboard)/` + `src/components/` |
+| `tablero.md` | El **tablero de preparación**: la pantalla nueva que no existe en delivery | diseño nuevo, encargo del 14/09/2026 |
 | `sincronizacion.md` | El protocolo entre la aplicación y el sincronizador | diseño nuevo |
 | `identidad.md` | Entrar, renovar y trabajar sin conexión | diseño nuevo, patrón de `call-center-board` |
 | `pruebas.md` | El guion de QA del dominio | diseño nuevo, método de `qa-como-usuario` |

@@ -97,8 +97,14 @@ WHERE a.id = $1;
 -- name: PanelDeEstado :many
 SELECT a.id, a.persona, a.branch_id, a.nombre, a.visto_at, a.created_at AS alta_at,
        e.bajada_at, e.bajada_hasta, e.subida_at, e.pendientes, e.rechazados,
-       -- Cuántas horas lleva sin subir. Vacío = no ha subido nunca, que no es «0 horas».
-       EXTRACT(EPOCH FROM (now() - e.subida_at)) / 3600 AS horas_sin_subir
+       -- Cuánto lleva sin subir, EN SEGUNDOS y sin decimales.
+       --
+       -- En segundos y no en horas porque el panel decide el aviso por umbral y una
+       -- división ahí obliga a decidir el redondeo en dos sitios. Y **-1, no vacío**:
+       -- el que nunca ha subido es justo el que más importa —sale el primero con
+       -- `NULLS FIRST`— y un vacío en el tipo generado dejaba la columna sin tipo.
+       -- El panel distingue «nunca» por `subida_at`, que sí viene vacío.
+       COALESCE(EXTRACT(EPOCH FROM (now() - e.subida_at)), -1)::bigint AS segundos_sin_subir
 FROM aparatos a
 JOIN aparato_estado e ON e.aparato_id = a.id
 WHERE (sqlc.narg('sucursal')::uuid IS NULL OR a.branch_id = sqlc.narg('sucursal')::uuid)

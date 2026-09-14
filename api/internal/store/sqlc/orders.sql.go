@@ -29,12 +29,19 @@ UPDATE orders SET
     trip_leg         = coalesce($12::trip_leg, trip_leg),
     price            = coalesce($13::double precision, price),
     stop_order       = coalesce($14::integer, stop_order),
+    -- ` + "`" + `route_id` + "`" + ` va con interruptor y no con coalesce porque ponerlo a NULL es la mitad
+    -- de su utilidad: es como se baja un pedido de un camión a mano. Y NO toca
+    -- ` + "`" + `ultima_ruta_id` + "`" + `, igual que en delivery: en qué ruta viajó no se reescribe desde
+    -- una corrección suelta. Meter o sacar pedidos de una ruta de verdad es cosa de
+    -- /api/routes; esto es el parche de una equivocación.
+    route_id         = CASE WHEN $15::boolean
+                            THEN $16::uuid ELSE route_id END,
     delivered_at     = CASE
         WHEN $11::order_status = 'delivered' THEN now()
         ELSE delivered_at
     END
-WHERE id = $15
-  AND ($16::uuid IS NULL OR branch_id = $16::uuid)
+WHERE id = $17
+  AND ($18::uuid IS NULL OR branch_id = $18::uuid)
 RETURNING id, operation_number, customer_name, address, end_address, end_lat,
           end_lng, lat, lng, weight, status, trip_leg, notes, route_id,
           ultima_ruta_id, price, segment_km, stop_order, delivered_at,
@@ -56,6 +63,8 @@ type ActualizarPedidoParams struct {
 	TripLeg         *TripLeg     `json:"trip_leg"`
 	Price           *float64     `json:"price"`
 	StopOrder       *int32       `json:"stop_order"`
+	TocarRouteID    bool         `json:"tocar_route_id"`
+	RouteID         pgtype.UUID  `json:"route_id"`
 	ID              uuid.UUID    `json:"id"`
 	Sucursal        pgtype.UUID  `json:"sucursal"`
 }
@@ -106,6 +115,8 @@ func (q *Queries) ActualizarPedido(ctx context.Context, arg ActualizarPedidoPara
 		arg.TripLeg,
 		arg.Price,
 		arg.StopOrder,
+		arg.TocarRouteID,
+		arg.RouteID,
 		arg.ID,
 		arg.Sucursal,
 	)

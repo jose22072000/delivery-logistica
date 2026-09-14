@@ -1,0 +1,383 @@
+package sincro
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"procovar/reparto-sync/internal/identidad"
+	"procovar/reparto-sync/internal/store/sqlc"
+)
+
+// 1 · IDEMPOTENCIA
+//
+// Una subida a medias —el servidor guardó y se cortó antes de contestar— se reintenta
+// entera. Si el reintento se aplicara otra vez, una ruta armada sin conexión acabaría
+// duplicada y saldría el mismo camión dos veces.
+func TestUnLoteQueLlegaDosVecesNoSeAplicaDosVeces(t *testing.T) {
+	b := montar(t)
+
+	creada := uuid.New()
+	b.aplicador.responde = func(p Peticion) (*uuid.UUID, error) { return &creada, nil }
+
+	lote := []apunteEntrada{{
+		Clave:       "01J8AAAA",
+		Hecho:       enPunto(t, "2026-09-14T16:04:22Z"),
+		Metodo:      http.MethodPost,
+		Ruta:        "/api/routes",
+		Cuerpo:      json.RawMessage(`{"vehicleId":"v1","orderIds":["p1","p2"]}`),
+		Provisional: "local-9f3a",
+	}}
+
+	_, primera := b.subir(lote, b.quien)
+	if len(primera) != 1 || primera[0].Estado != EstadoAplicado {
+		t.Fatalf("la primera vez tenía que aplicarse: %+v", primera)
+	}
+	if primera[0].ID == nil || *primera[0].ID != creada {
+		t.Fatalf("la primera vez tenía que devolver el id creado: %+v", primera[0])
+	}
+
+	// El mismo lote otra vez, tal cual, como lo reintentaría el teléfono.
+	_, segunda := b.subir(lote, b.quien)
+	if len(segunda) != 1 || segunda[0].Estado != EstadoRepetido {
+		t.Fatalf("la segunda vez tenía que ser `repetido`: %+v", segunda)
+	}
+	// Y CON LA MISMA RESPUESTA: el id de entonces, no uno nuevo. Un id nuevo aquí es una
+	// ruta duplicada esperando a pasar.
+	if segunda[0].ID == nil || *segunda[0].ID != creada {
+		t.Fatalf("`repetido` tiene que devolver el id de la primera vez; devolvió %+v", segunda[0].ID)
+	}
+
+	if len(b.aplicador.llamadas) != 1 {
+		t.Fatalf("el reparto tenía que ver el apunte UNA vez, lo vio %d", len(b.aplicador.llamadas))
+	}
+}
+
+// Y lo mismo dentro de un solo envío: el aparato reenvió su cola sin limpiarla.
+func TestLaMismaClaveDosVecesEnElMismoLote(t *testing.T) {
+	b := montar(t)
+	creada := uuid.New()
+	b.aplicador.responde = func(p Peticion) (*uuid.UUID, error) { return &creada, nil }
+
+	uno := apunteEntrada{
+		Clave: "01J8BBBB", Hecho: enPunto(t, "2026-09-14T16:04:22Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes", Provisional: "local-77",
+	}
+	_, res := b.subir([]apunteEntrada{uno, uno}, b.quien)
+
+	if len(res) != 2 {
+		t.Fatalf("tenía que contestar apunte por apunte: %+v", res)
+	}
+	if res[0].Estado != EstadoAplicado || res[1].Estado != EstadoRepetido {
+		t.Fatalf("el segundo tenía que ser `repetido`: %+v", res)
+	}
+	if *res[1].ID != creada {
+		t.Fatalf("y con el mismo id")
+	}
+	if len(b.aplicador.llamadas) != 1 {
+		t.Fatalf("el reparto tenía que verlo una sola vez, lo vio %d", len(b.aplicador.llamadas))
+	}
+}
+
+// 2 · EL ORDEN
+//
+// Marcar una parada y corregirla después son dos apuntes sobre el mismo pedido. Aplicarlos
+// al revés deja puesta la primera marca y borra la corrección.
+//
+// La corrección va con una hora ANTERIOR a propósito: el reloj del teléfono se mueve —se
+// cambia a mano, salta de zona horaria, se va con la batería—, así que ordenar por él sería
+// exactamente el fallo que esta prueba impide. La cola es FIFO y manda el orden en que
+// vino.
+func TestElOrdenDeLaColaMandaSobreElRelojDelAparato(t *testing.T) {
+	b := montar(t)
+
+	marca := apunteEntrada{
+		Clave: "01J8C001", Hecho: enPunto(t, "2026-09-14T16:30:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/orders/p1/estado",
+		Cuerpo: json.RawMessage(`{"estado":"ENTREGADO"}`),
+	}
+	correccion := apunteEntrada{
+		Clave: "01J8C002", Hecho: enPunto(t, "2026-09-14T15:00:00Z"), // el reloj se atrasó
+		Metodo: http.MethodPost, Ruta: "/api/orders/p1/estado",
+		Cuerpo: json.RawMessage(`{"estado":"NO_ENTREGADO","motivo":"nadie en casa"}`),
+	}
+
+	_, res := b.subir([]apunteEntrada{marca, correccion}, b.quien)
+	if len(res) != 2 || res[0].Estado != EstadoAplicado || res[1].Estado != EstadoAplicado {
+		t.Fatalf("los dos tenían que aplicarse: %+v", res)
+	}
+
+	claves := []string{b.aplicador.llamadas[0].Clave, b.aplicador.llamadas[1].Clave}
+	if claves[0] != "01J8C001" || claves[1] != "01J8C002" {
+		t.Fatalf("el reparto los tenía que ver en el orden de la cola, los vio %v", claves)
+	}
+
+	// Lo que cuenta de verdad: lo que quedó puesto al final.
+	if quedo := b.aplicador.estado["/api/orders/p1/estado"]; !strings.Contains(quedo, "NO_ENTREGADO") {
+		t.Fatalf("tenía que quedar la corrección, quedó %q", quedo)
+	}
+
+	// Y la hora que se guarda es la del APARATO, la que venía en el apunte: lo que se
+	// marcó a las cuatro consta como las cuatro aunque suba a las siete.
+	guardado := b.base.apuntes[llave(b.aparato.ID, "01J8C001")]
+	if !guardado.HechoAt.Time.Equal(marca.Hecho) {
+		t.Fatalf("se guardó la hora %v en vez de la del aparato %v", guardado.HechoAt.Time, marca.Hecho)
+	}
+	if b.aplicador.llamadas[0].Hecho != marca.Hecho {
+		t.Fatalf("al reparto se le manda la hora del aparato")
+	}
+}
+
+// 3 · LOS IDENTIFICADORES PROVISIONALES
+//
+// Si esto falla, el cierre de una ruta armada sin red se pierde con un 404 justo después de
+// haber subido bien la ruta.
+func TestElCierreDeLaRutaVaAlIdDeVerdadYNoAlLocal(t *testing.T) {
+	b := montar(t)
+
+	rutaCreada := uuid.New()
+	b.aplicador.responde = func(p Peticion) (*uuid.UUID, error) {
+		if p.Ruta == "/api/routes" {
+			return &rutaCreada, nil
+		}
+		return nil, nil
+	}
+
+	arma := apunteEntrada{
+		Clave: "01J8D001", Hecho: enPunto(t, "2026-09-14T09:10:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes",
+		Cuerpo:      json.RawMessage(`{"vehicleId":"v1","orderIds":["p1","p2"]}`),
+		Provisional: "local-9f3a",
+	}
+	cierra := apunteEntrada{
+		Clave: "01J8D002", Hecho: enPunto(t, "2026-09-14T18:40:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes/local-9f3a/results",
+		Cuerpo: json.RawMessage(`{"ruta":"local-9f3a","entregados":["p1"]}`),
+	}
+
+	_, res := b.subir([]apunteEntrada{arma, cierra}, b.quien)
+	if len(res) != 2 || res[1].Estado != EstadoAplicado {
+		t.Fatalf("el cierre tenía que aplicarse: %+v", res)
+	}
+
+	esperada := "/api/routes/" + rutaCreada.String() + "/results"
+	if got := b.aplicador.llamadas[1].Ruta; got != esperada {
+		t.Fatalf("el cierre fue a %q en vez de a %q", got, esperada)
+	}
+	// También dentro del cuerpo: el `local-…` viaja en la ruta Y en lo que se manda.
+	if cuerpo := string(b.aplicador.llamadas[1].Cuerpo); !strings.Contains(cuerpo, rutaCreada.String()) || strings.Contains(cuerpo, "local-9f3a") {
+		t.Fatalf("el cuerpo se quedó con el provisional: %s", cuerpo)
+	}
+
+	// La traducción queda guardada, que es la red debajo: si el aparato se corta antes de
+	// sustituir el `local-…` en el resto de su cola y lo manda en OTRO envío, aquí se sabe
+	// de qué ruta hablaba.
+	otroDia := apunteEntrada{
+		Clave: "01J8D003", Hecho: enPunto(t, "2026-09-15T08:00:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes/local-9f3a/results",
+	}
+	_, res2 := b.subir([]apunteEntrada{otroDia}, b.quien)
+	if res2[0].Estado != EstadoAplicado {
+		t.Fatalf("el reenvío tardío tenía que aplicarse: %+v", res2)
+	}
+	if got := b.aplicador.llamadas[2].Ruta; got != esperada {
+		t.Fatalf("en otro envío el provisional se tradujo a %q", got)
+	}
+}
+
+// Y el que no se puede traducir NO se pierde con un 404: se rechaza con un motivo que se
+// entiende y queda en la bandeja.
+func TestUnProvisionalQueNoExisteSeRechazaConMotivo(t *testing.T) {
+	b := montar(t)
+
+	huerfano := apunteEntrada{
+		Clave: "01J8E001", Hecho: enPunto(t, "2026-09-14T18:40:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes/local-nadie/results",
+	}
+	_, res := b.subir([]apunteEntrada{huerfano}, b.quien)
+
+	if res[0].Estado != EstadoRechazado {
+		t.Fatalf("tenía que rechazarse: %+v", res)
+	}
+	if !strings.Contains(res[0].Motivo, "local-nadie") {
+		t.Fatalf("el motivo tiene que decir cuál: %q", res[0].Motivo)
+	}
+	if len(b.aplicador.llamadas) != 0 {
+		t.Fatalf("no se le manda al reparto para que conteste 404")
+	}
+	if _, hay := b.base.rechazos[llave(b.aparato.ID, "01J8E001")]; !hay {
+		t.Fatalf("tenía que quedar en la bandeja")
+	}
+}
+
+// 4 · LO RECHAZADO NO SE BORRA NI SE REINTENTA
+//
+// Un apunte que desaparece solo es trabajo perdido que nadie sabe que perdió.
+func TestLoRechazadoSeGuardaConSuMotivoYNoSeVuelveAEvaluar(t *testing.T) {
+	b := montar(t)
+
+	const motivo = "3 de los 8 pedidos ya están en otra ruta. Vuelve a elegirlos."
+	b.aplicador.responde = func(p Peticion) (*uuid.UUID, error) {
+		return nil, &Rechazo{Motivo: motivo}
+	}
+
+	apunte := apunteEntrada{
+		Clave: "01J8F001", Hecho: enPunto(t, "2026-09-14T10:00:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes",
+		Cuerpo: json.RawMessage(`{"orderIds":["p1","p2"]}`),
+	}
+
+	_, res := b.subir([]apunteEntrada{apunte}, b.quien)
+	if res[0].Estado != EstadoRechazado || res[0].Motivo != motivo {
+		t.Fatalf("tenía que salir rechazado con su motivo literal: %+v", res[0])
+	}
+
+	// El apunte queda anotado como rechazado...
+	guardado, hay := b.base.apuntes[llave(b.aparato.ID, "01J8F001")]
+	if !hay || guardado.Estado != sqlc.ApunteEstadoRechazado {
+		t.Fatalf("el apunte tenía que quedar anotado como rechazado: %+v", guardado)
+	}
+	// ...y el motivo con el sobre, en la bandeja, para que una persona pueda ver qué se
+	// intentó y repetirlo a mano.
+	enLaBandeja, hay := b.base.rechazos[llave(b.aparato.ID, "01J8F001")]
+	if !hay || enLaBandeja.Motivo != motivo {
+		t.Fatalf("el motivo tenía que quedar en la bandeja: %+v", enLaBandeja)
+	}
+	if enLaBandeja.Cuerpo == nil || !strings.Contains(*enLaBandeja.Cuerpo, "p1") {
+		t.Fatalf("el cuerpo del apunte tenía que guardarse tal cual")
+	}
+	if n := b.base.subidas[0].RechazadosDelLote; n != 1 {
+		t.Fatalf("el contador del panel tenía que subir 1, subió %d", n)
+	}
+
+	// Si el aparato lo vuelve a mandar, NO se vuelve a evaluar: se le contesta lo mismo.
+	_, otra := b.subir([]apunteEntrada{apunte}, b.quien)
+	if otra[0].Estado != EstadoRepetido || otra[0].Motivo != motivo {
+		t.Fatalf("un rechazo reenviado se contesta con lo mismo de la primera vez: %+v", otra[0])
+	}
+	if len(b.aplicador.llamadas) != 1 {
+		t.Fatalf("no se vuelve a pedir al reparto: %d llamadas", len(b.aplicador.llamadas))
+	}
+
+	// Y sale en el panel, que es de donde sale la llamada de teléfono.
+	w := b.pedir(http.MethodGet, "/sync/estado", nil, b.quien)
+	var panel estadoSalida
+	if err := json.Unmarshal(w.Body.Bytes(), &panel); err != nil {
+		t.Fatalf("el estado no se entiende: %v", err)
+	}
+	if len(panel.Bandeja) != 1 || panel.Bandeja[0].Motivo != motivo {
+		t.Fatalf("el rechazo tenía que salir en el estado: %+v", panel.Bandeja)
+	}
+	if len(panel.Aparatos) != 1 || panel.Aparatos[0].Rechazados != 1 {
+		t.Fatalf("el aparato tenía que salir con 1 rechazo: %+v", panel.Aparatos)
+	}
+}
+
+// El apunte rechazado y su motivo entran juntos o no entra ninguno: un apunte marcado
+// rechazado sin motivo en la bandeja es el descarte en silencio.
+func TestSiNoSePuedeGuardarElMotivoTampocoSeMarcaElApunte(t *testing.T) {
+	b := montar(t)
+	b.base.fallaElMotivo = true
+	b.aplicador.responde = func(p Peticion) (*uuid.UUID, error) {
+		return nil, &Rechazo{Motivo: "no cabe en el vehículo"}
+	}
+
+	_, res := b.subir([]apunteEntrada{{
+		Clave: "01J8G001", Hecho: enPunto(t, "2026-09-14T10:00:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes",
+	}}, b.quien)
+
+	if len(res) != 0 {
+		t.Fatalf("el lote se corta: no se puede contestar lo que no se pudo anotar: %+v", res)
+	}
+	if _, hay := b.base.apuntes[llave(b.aparato.ID, "01J8G001")]; hay {
+		t.Fatalf("el apunte no puede quedar marcado si su motivo no entró")
+	}
+	// Y lo que quedó sin procesar cuenta como pendiente en el panel.
+	if n := b.base.subidas[0].Pendientes; n != 1 {
+		t.Fatalf("tenía que quedar 1 pendiente, quedó %d", n)
+	}
+}
+
+// 6 · EL ALCANCE POR SUCURSAL, en la subida.
+func TestNoSeSubePorUnAparatoDeOtraSucursal(t *testing.T) {
+	b := montar(t)
+	otra := identidad.Identidad{Persona: "el-de-camaguey", Sucursal: uuid.New()}
+
+	w, _ := b.subir([]apunteEntrada{{
+		Clave: "01J8H001", Hecho: enPunto(t, "2026-09-14T10:00:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes",
+	}}, otra)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("tenía que contestar 403, contestó %d", w.Code)
+	}
+	if len(b.aplicador.llamadas) != 0 {
+		t.Fatalf("no se le manda nada al reparto")
+	}
+}
+
+// Un apunte sin clave es un fallo de la aplicación, no un rechazo de negocio: 400 con el
+// lote entero sin tocar, en vez de llenar de basura técnica la bandeja de una persona.
+func TestUnApunteSinClaveNoEntraEnLaBandeja(t *testing.T) {
+	b := montar(t)
+
+	w, _ := b.subir([]apunteEntrada{{
+		Hecho:  enPunto(t, "2026-09-14T10:00:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes",
+	}}, b.quien)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("tenía que contestar 400, contestó %d", w.Code)
+	}
+	if len(b.base.rechazos) != 0 || len(b.base.apuntes) != 0 {
+		t.Fatalf("no se guarda nada de un lote malformado")
+	}
+}
+
+// Un aparato que no está en el registro tiene que poder distinguir «me borraron» de «se me
+// caducó la sesión»: 404, no 401.
+func TestUnAparatoDesconocidoRecibe404(t *testing.T) {
+	b := montar(t)
+	w := b.pedir(http.MethodPost, "/sync/subida", loteEntrada{
+		Aparato: uuid.New().String(),
+	}, b.quien)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("tenía que contestar 404, contestó %d", w.Code)
+	}
+	if !strings.Contains(b.errorDe(w), "darlo de alta") {
+		t.Fatalf("el mensaje tiene que decir qué hacer: %q", b.errorDe(w))
+	}
+}
+
+// El alta abre la fila de estado: un aparato que no aparece en el panel es un aparato del
+// que nadie se acuerda.
+func TestElAltaDejaAlAparatoEnElPanelDesdeElPrimerDia(t *testing.T) {
+	b := montar(t)
+	nombre := "el Samsung de Palma"
+	w := b.pedir(http.MethodPost, "/sync/aparato", altaEntrada{Nombre: &nombre}, b.quien)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("tenía que contestar 201, contestó %d (%s)", w.Code, w.Body.String())
+	}
+	var salida altaSalida
+	_ = json.Unmarshal(w.Body.Bytes(), &salida)
+	if salida.Aparato == uuid.Nil {
+		t.Fatalf("el identificador lo pone la base y se devuelve")
+	}
+	if salida.Sucursal != b.sucursal {
+		t.Fatalf("la sucursal sale de la sesión, no del cuerpo")
+	}
+	if _, hay := b.base.estados[salida.Aparato]; !hay {
+		t.Fatalf("el alta tiene que abrir la fila de estado")
+	}
+
+	// Y sale el primero en el panel: nunca ha subido.
+	filas, _ := b.base.PanelDeEstado(context.Background(), alcance(&b.sucursal))
+	if len(filas) != 2 || filas[0].SubidaAt.Valid {
+		t.Fatalf("el que nunca subió va arriba: %+v", filas)
+	}
+}

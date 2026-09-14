@@ -1,0 +1,304 @@
+package api_test
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"procovar/reparto-api/internal/alcance"
+	"procovar/reparto-api/internal/api"
+	"procovar/reparto-api/internal/auth"
+	"procovar/reparto-api/internal/config"
+	"procovar/reparto-api/internal/store/sqlc"
+)
+
+// Las mismas pruebas del alcance, pero ENTERAS: por HTTP, con token de verdad y pasando
+// por el router. Aquí se comprueba que la regla no se pierde en el montaje —que los
+// middlewares están puestos y en el orden bueno—, que es donde se escapan estas cosas.
+
+const secreto = "un-secreto-de-pruebas-de-al-menos-32-caracteres"
+
+var (
+	stg = uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	hol = uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	// La sucursal que ya no está: el token dura siete días y lleva dentro la que la
+	// persona tenía al entrar.
+	fantasma = uuid.MustParse("99999999-9999-9999-9999-999999999999")
+
+	vehStg = uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
+	vehHol = uuid.MustParse("bbbbbbbb-0000-0000-0000-000000000002")
+)
+
+// --------------------------------------------------------------------------- doble
+
+type doble struct {
+	sqlc.Querier
+	vehiculos []sqlc.ListarVehiculosRow
+}
+
+func (d *doble) ResolverSucursal(_ context.Context, id uuid.UUID) (sqlc.ResolverSucursalRow, error) {
+	switch id {
+	case stg:
+		c := "STG"
+		return sqlc.ResolverSucursalRow{ID: stg, Name: "Santiago", ExternalID: &c}, nil
+	case hol:
+		c := "HOL"
+		return sqlc.ResolverSucursalRow{ID: hol, Name: "Holguín", ExternalID: &c}, nil
+	}
+	return sqlc.ResolverSucursalRow{}, pgx.ErrNoRows
+}
+
+func (d *doble) ListarVehiculos(_ context.Context, sucursal pgtype.UUID) ([]sqlc.ListarVehiculosRow, error) {
+	var salida []sqlc.ListarVehiculosRow
+	for _, v := range d.vehiculos {
+		if !sucursal.Valid || !v.BranchID.Valid || v.BranchID.Bytes == sucursal.Bytes {
+			salida = append(salida, v)
+		}
+	}
+	return salida, nil
+}
+
+func (d *doble) ObtenerVehiculo(_ context.Context, arg sqlc.ObtenerVehiculoParams) (sqlc.ObtenerVehiculoRow, error) {
+	for _, v := range d.vehiculos {
+		if v.ID != arg.ID {
+			continue
+		}
+		if !arg.Sucursal.Valid || !v.BranchID.Valid || v.BranchID.Bytes == arg.Sucursal.Bytes {
+			return sqlc.ObtenerVehiculoRow{ID: v.ID, Name: v.Name, TipoNombre: v.TipoNombre, BranchID: v.BranchID}, nil
+		}
+	}
+	return sqlc.ObtenerVehiculoRow{}, pgx.ErrNoRows
+}
+
+type fuente struct{ q *doble }
+
+func (f fuente) Consultas() sqlc.Querier { return f.q }
+func (f fuente) EnTx(_ context.Context, fn func(sqlc.Querier) error) error {
+	return fn(f.q)
+}
+
+// --------------------------------------------------------------------------- montaje
+
+func servidor(t *testing.T) http.Handler {
+	t.Helper()
+	t.Setenv("DATABASE_URL", "postgres://x:y@localhost:5432/z")
+	t.Setenv("JWT_SECRET", secreto)
+	cfg, err := config.Cargar("v-pruebas")
+	if err != nil {
+		t.Fatalf("configuración: %v", err)
+	}
+	q := &doble{vehiculos: []sqlc.ListarVehiculosRow{
+		{ID: vehStg, Name: "Camión de Santiago", TipoNombre: "truck", BranchID: pg(stg)},
+		{ID: vehHol, Name: "Camión de Holguín", TipoNombre: "truck", BranchID: pg(hol)},
+		{ID: uuid.New(), Name: "Camión compartido", TipoNombre: "van"},
+	}}
+	reg := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return api.NuevoServidor(cfg, reg,
+		alcance.NuevaPorteria(fuente{q: q}, reg),
+		auth.NuevoVerificador([]byte(secreto)),
+		func(context.Context) error { return nil },
+	).Rutas()
+}
+
+func pg(id uuid.UUID) pgtype.UUID { return pgtype.UUID{Bytes: [16]byte(id), Valid: true} }
+
+// token firma un JWT HS256 como el que emite auth.
+func token(t *testing.T, reclamos map[string]any) string {
+	t.Helper()
+	if _, hay := reclamos["exp"]; !hay {
+		reclamos["exp"] = time.Now().Add(time.Hour).Unix()
+	}
+	cab := b64(t, map[string]any{"alg": "HS256", "typ": "JWT"})
+	cuerpo := b64(t, reclamos)
+	mac := hmac.New(sha256.New, []byte(secreto))
+	mac.Write([]byte(cab + "." + cuerpo))
+	return cab + "." + cuerpo + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func b64(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func pedir(t *testing.T, h http.Handler, metodo, ruta, jwt string, cabeceras map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(metodo, ruta, nil)
+	if jwt != "" {
+		r.Header.Set("Authorization", "Bearer "+jwt)
+	}
+	for k, v := range cabeceras {
+		r.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+// --------------------------------------------------------------------------- pruebas
+
+func TestSinTokenEs401ConElMensajeDelContrato(t *testing.T) {
+	w := pedir(t, servidor(t), http.MethodGet, "/api/vehicles", "", nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("código %d", w.Code)
+	}
+	if got := strings.TrimSpace(w.Body.String()); got != `{"error":"Unauthorized"}` {
+		t.Fatalf("cuerpo %q", got)
+	}
+}
+
+func TestTokenConFirmaCambiadaEs401(t *testing.T) {
+	bueno := token(t, map[string]any{"sub": "p-1", "role": "OPERADOR", "branchId": stg.String()})
+	// Se cambia un byte de la firma: el cuerpo sigue diciendo lo mismo.
+	roto := bueno[:len(bueno)-1] + "X"
+	w := pedir(t, servidor(t), http.MethodGet, "/api/vehicles", roto, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("una firma cambiada tiene que ser 401, y fue %d", w.Code)
+	}
+}
+
+// El fallo clásico del JWT: un token sin firmar que declara `alg: none`.
+func TestTokenSinFirmaEs401(t *testing.T) {
+	cab := b64(t, map[string]any{"alg": "none", "typ": "JWT"})
+	cuerpo := b64(t, map[string]any{"sub": "p-1", "role": "SUPER ADMIN", "exp": time.Now().Add(time.Hour).Unix()})
+	w := pedir(t, servidor(t), http.MethodGet, "/api/vehicles", cab+"."+cuerpo+".", nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("«alg: none» tiene que ser 401, y fue %d", w.Code)
+	}
+}
+
+func TestTokenCaducadoEs401(t *testing.T) {
+	jwt := token(t, map[string]any{"sub": "p-1", "role": "OPERADOR", "branchId": stg.String(),
+		"exp": time.Now().Add(-8 * 24 * time.Hour).Unix()})
+	w := pedir(t, servidor(t), http.MethodGet, "/api/vehicles", jwt, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("código %d", w.Code)
+	}
+}
+
+// LA PRUEBA: por HTTP, un operador de Santiago no llega a los datos de Holguín ni
+// pidiéndolo por cabecera.
+func TestPorHttpUnOperadorNoLlegaAOtraSucursal(t *testing.T) {
+	h := servidor(t)
+	jwt := token(t, map[string]any{"sub": "p-1", "email": "stg@procovar.cu", "role": "OPERADOR", "branchId": stg.String()})
+
+	w := pedir(t, h, http.MethodGet, "/api/vehicles", jwt, map[string]string{"X-Sucursal-Id": hol.String()})
+	if w.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "Holguín") {
+		t.Fatalf("Santiago vio datos de Holguín: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Santiago") {
+		t.Fatalf("Santiago no vio ni lo suyo: %s", w.Body.String())
+	}
+
+	// Y por id directo, que es por donde se cuela quien prueba a mano.
+	w = pedir(t, h, http.MethodGet, "/api/vehicles/"+vehHol.String(), jwt, nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("el camión de Holguín tenía que ser 404 para Santiago, y fue %d", w.Code)
+	}
+	if got := strings.TrimSpace(w.Body.String()); got != `{"error":"Not found"}` {
+		t.Fatalf("el mensaje literal del contrato es «Not found»; salió %q", got)
+	}
+}
+
+// El modo de fallo de producción, por HTTP: 200 con CERO filas y sin trazas.
+func TestPorHttpUnaSucursalQueNoExisteNoDevuelveCero(t *testing.T) {
+	h := servidor(t)
+	jwt := token(t, map[string]any{"sub": "p-2", "email": "vieja@procovar.cu", "role": "ADMINISTRADOR",
+		"branchId": fantasma.String()})
+
+	w := pedir(t, h, http.MethodGet, "/api/vehicles", jwt, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("código %d", w.Code)
+	}
+	var lista []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &lista); err != nil {
+		t.Fatalf("respuesta ilegible: %v", err)
+	}
+	if len(lista) != 3 {
+		t.Fatalf("una sucursal que ya no está acotó la lista a %d en vez de enseñarlas todas", len(lista))
+	}
+}
+
+func TestSuperAdminEligeSucursalPorCabecera(t *testing.T) {
+	h := servidor(t)
+	jwt := token(t, map[string]any{"sub": "p-3", "role": "SUPER ADMIN"}) // sin branchId
+
+	w := pedir(t, h, http.MethodGet, "/api/vehicles", jwt, map[string]string{"X-Sucursal-Id": hol.String()})
+	cuerpo := w.Body.String()
+	if strings.Contains(cuerpo, "Santiago") {
+		t.Fatalf("eligió Holguín y le salió Santiago: %s", cuerpo)
+	}
+	if !strings.Contains(cuerpo, "Holguín") || !strings.Contains(cuerpo, "compartido") {
+		t.Fatalf("tenía que ver el de Holguín y el compartido: %s", cuerpo)
+	}
+}
+
+// El rol se comprueba ANTES que nada en las rutas de administración.
+func TestCrearSucursalExigeAdmin(t *testing.T) {
+	jwt := token(t, map[string]any{"sub": "p-4", "role": "OPERADOR", "branchId": stg.String()})
+	w := pedir(t, servidor(t), http.MethodPost, "/api/branches", jwt, nil)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("código %d", w.Code)
+	}
+	if got := strings.TrimSpace(w.Body.String()); got != `{"error":"Admin access required"}` {
+		t.Fatalf("mensaje %q", got)
+	}
+}
+
+// /version y /health van SIN sesión: la APK consulta la versión antes de entrar y el
+// desplegador sondea la salud sin token ninguno.
+func TestVersionYSaludSinSesion(t *testing.T) {
+	h := servidor(t)
+	for _, ruta := range []string{"/version", "/api/version", "/health"} {
+		w := pedir(t, h, http.MethodGet, ruta, "", nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: código %d", ruta, w.Code)
+		}
+	}
+	w := pedir(t, h, http.MethodGet, "/api/version", "", nil)
+	if !strings.Contains(w.Body.String(), "v-pruebas") {
+		t.Fatalf("la versión no sale: %s", w.Body.String())
+	}
+	if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+		t.Fatalf("la versión no puede quedarse guardada en el navegador: %q", cc)
+	}
+}
+
+// Los 404 y los 405 también salen con {"error": ...}: un cliente que espera JSON siempre
+// y se encuentra texto plano no enseña el problema, enseña un fallo de parseo.
+func TestRutaDesconocidaYMetodoNoPermitidoSalenEnJson(t *testing.T) {
+	h := servidor(t)
+
+	w := pedir(t, h, http.MethodGet, "/api/loquesea", "", nil)
+	if w.Code != http.StatusNotFound || !strings.HasPrefix(w.Body.String(), `{"error"`) {
+		t.Fatalf("404: %d %s", w.Code, w.Body.String())
+	}
+
+	jwt := token(t, map[string]any{"sub": "p-5", "role": "SUPER ADMIN"})
+	w = pedir(t, h, http.MethodDelete, "/api/settings", jwt, nil)
+	if w.Code != http.StatusMethodNotAllowed || !strings.HasPrefix(w.Body.String(), `{"error"`) {
+		t.Fatalf("405: %d %s", w.Code, w.Body.String())
+	}
+	if allow := w.Header().Get("Allow"); !strings.Contains(allow, "PUT") {
+		t.Fatalf("falta la cabecera Allow: %q", allow)
+	}
+}

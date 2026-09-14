@@ -351,6 +351,27 @@ func (ns NullVehicleStatus) Value() (driver.Value, error) {
 	return string(ns.VehicleStatus), nil
 }
 
+type BoardColumn struct {
+	ID        uuid.UUID          `json:"id"`
+	BranchID  uuid.UUID          `json:"branch_id"`
+	Nombre    string             `json:"nombre"`
+	Posicion  int32              `json:"posicion"`
+	VehicleID pgtype.UUID        `json:"vehicle_id"`
+	CreadoPor *string            `json:"creado_por"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type BoardPlacement struct {
+	OrderID     uuid.UUID          `json:"order_id"`
+	ColumnID    uuid.UUID          `json:"column_id"`
+	Posicion    int32              `json:"posicion"`
+	ColocadoPor *string            `json:"colocado_por"`
+	ColocadoAt  pgtype.Timestamptz `json:"colocado_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Branch struct {
 	ID               uuid.UUID          `json:"id"`
 	Name             string             `json:"name"`
