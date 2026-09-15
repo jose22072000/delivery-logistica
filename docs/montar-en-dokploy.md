@@ -60,11 +60,16 @@ entra en auth y la API le contesta 401 sin decir por qué.
 ### `reparto-sync`
 
 ```
-DATABASE_URL=postgres://<usuario>:<clave>@<host-postgres>:5432/procovar_reparto_sync
-REPARTO_API_URL=http://reparto-api:8080
+DATABASE_URL=postgres://<usuario>:<clave>@procovar-postgres-nlfols:5432/procovar_reparto_sync
+REPARTO_URL=http://reparto-api-xzlmhw:8080
+REPARTO_API_KEY=<la de PEDIDO, ver abajo>
+SYNC_IDENTIDAD=cabeceras
 JWT_SECRET=<el mismo>
 PUERTO=8080
 ```
+
+Se llama **`REPARTO_URL`**, no `REPARTO_API_URL`. Y las tres de abajo son obligatorias: sin
+ellas el servicio **se niega a arrancar** y dice cuáles faltan, que es lo correcto.
 
 ### `reparto-espejo`
 
@@ -84,6 +89,43 @@ API_URL=https://reparto.procovar.cloud/api
 SYNC_URL=https://reparto.procovar.cloud/sync
 AUTH_URL=https://auth.procovar.cloud
 ```
+
+## De dónde se sacan los valores — esto es lo que más tiempo cuesta
+
+**No los copies de `.secretos/delivery_env_local.txt`.** Ese fichero es la configuración de
+DESARROLLO y engaña: su `PEDIDO_API_URL` es `http://localhost:8400`, que dentro de un
+contenedor es el contenedor mismo, y su `SERVICE_API_KEY` **no es la de producción**. Los
+dos fallos costaron seis intentos el 15/09/2026.
+
+Se leen del contenedor que ya funciona, y así el valor nunca sale del servidor:
+
+```
+docker exec $(docker ps -qf name=pedido-api    | head -1) printenv SERVICE_API_KEY
+docker exec $(docker ps -qf name=procovar-postgres | head -1) printenv POSTGRES_USER POSTGRES_PASSWORD
+```
+
+**Los servicios se llaman entre sí por su nombre COMPLETO de Dokploy**, con su sufijo:
+`reparto-api-xzlmhw`, `pedido-api-zcuspu`, `procovar-postgres-nlfols`. `reparto-api` a
+secas no resuelve. Se ven con `docker service ls`.
+
+La clave de firma de Accesos se **deriva**, no se inventa:
+
+```
+S=$(docker exec $(docker ps -qf name=procovar-auth | head -1) printenv SERVICE_AUTH_SECRET)
+printf 'svc:reparto' | openssl dgst -sha256 -hmac "$S" -hex
+```
+
+Y antes hay que dar de alta el cliente en `client_app` de `procovar_auth`, con los mismos
+permisos que `delivery`: `callback:create` y `session:verify`.
+
+## El contexto de construcción
+
+**`dockerContextPath` tiene que ser `.`**, no vacío. Los Dockerfile viven en `deploy/` pero
+hacen `COPY api/`, así que el contexto es **la raíz del repositorio**. Con el campo vacío
+Dokploy usa la carpeta del Dockerfile y el build falla con `"/api": not found`.
+
+En local no se nota porque `docker build -f deploy/Dockerfile.api .` lleva el contexto en
+ese punto del final.
 
 ## Avisos
 
