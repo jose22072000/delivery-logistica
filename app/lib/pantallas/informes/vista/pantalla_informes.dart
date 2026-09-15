@@ -50,6 +50,18 @@ class PantallaInformes extends ConsumerWidget {
     final bajada = ref.watch(frescuraGlobalProvider);
     final ahora = ref.watch(relojProvider)();
 
+    // LA MONEDA, PARA TODA LA PANTALLA. Se resuelve una vez aqui y baja como
+    // parametro: si cada tabla la mirara por su cuenta podrian pintar dos
+    // monedas distintas en la misma vista mientras la tasa se recarga.
+    //
+    // `monedaEfectivaProvider` ya se cae a USD cuando la sucursal que se mira
+    // no tiene tasa, y `TasaDeLaMirada.importe` no usa NUNCA la de otra. El
+    // porque —sin tasa, con todas las sucursales, tasa vieja— lo dice la barra
+    // de arriba; aqui sólo se pinta.
+    final tasa = ref.watch(tasaDeLaMiradaProvider);
+    final moneda = ref.watch(monedaEfectivaProvider);
+    String importe(double? usd) => tasa.importe(usd, moneda);
+
     final cuando = bajada.value;
     final sinDescargar = bajada.hasValue && cuando == null;
     final viejo =
@@ -69,7 +81,10 @@ class PantallaInformes extends ConsumerWidget {
           const PantallaSinDescargar()
         else
           switch (informe) {
-            AsyncValue<Informe>(:final value?) => _Pestanas(informe: value),
+            AsyncValue<Informe>(:final value?) => _Pestanas(
+              informe: value,
+              importe: importe,
+            ),
             AsyncValue<Informe>(:final error?) => EstadoVacio('$error'),
             _ => const Cargando('Cargando reporte...'),
           },
@@ -225,9 +240,10 @@ class _Fecha extends StatelessWidget {
 }
 
 class _Pestanas extends StatelessWidget {
-  const _Pestanas({required this.informe});
+  const _Pestanas({required this.informe, required this.importe});
 
   final Informe informe;
+  final PintarImporte importe;
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
@@ -270,9 +286,15 @@ class _Pestanas extends StatelessWidget {
           height: 560,
           child: TabBarView(
             children: [
-              SingleChildScrollView(child: _Resumen(informe: informe)),
-              SingleChildScrollView(child: _PorVehiculo(informe: informe)),
-              SingleChildScrollView(child: _Detalle(informe: informe)),
+              SingleChildScrollView(
+                child: _Resumen(informe: informe, importe: importe),
+              ),
+              SingleChildScrollView(
+                child: _PorVehiculo(informe: informe, importe: importe),
+              ),
+              SingleChildScrollView(
+                child: _Detalle(informe: informe, importe: importe),
+              ),
             ],
           ),
         ),
@@ -282,9 +304,10 @@ class _Pestanas extends StatelessWidget {
 }
 
 class _Resumen extends StatelessWidget {
-  const _Resumen({required this.informe});
+  const _Resumen({required this.informe, required this.importe});
 
   final Informe informe;
+  final PintarImporte importe;
 
   @override
   Widget build(BuildContext context) {
@@ -301,11 +324,11 @@ class _Resumen extends StatelessWidget {
       ),
       TarjetaDeCifra(
         etiqueta: 'Ingresos Totales',
-        valor: Numeros.importe(r.ingresos),
+        valor: importe(r.ingresos),
       ),
       TarjetaDeCifra(
         etiqueta: 'Precio Promedio',
-        valor: Numeros.importe(r.precioPromedio),
+        valor: importe(r.precioPromedio),
       ),
       TarjetaDeCifra(etiqueta: 'Peso Total', valor: Numeros.kg(r.peso)),
     ];
@@ -358,7 +381,7 @@ class _Resumen extends StatelessWidget {
                           ),
                         const SizedBox(height: 4),
                         Text(
-                          '${Numeros.importe(v.ingresos)} · '
+                          '${importe(v.ingresos)} · '
                           '${Numeros.entero(v.ordenes)} órdenes',
                         ),
                       ],
@@ -374,9 +397,10 @@ class _Resumen extends StatelessWidget {
 }
 
 class _PorVehiculo extends StatelessWidget {
-  const _PorVehiculo({required this.informe});
+  const _PorVehiculo({required this.informe, required this.importe});
 
   final Informe informe;
+  final PintarImporte importe;
 
   @override
   Widget build(BuildContext context) {
@@ -413,16 +437,16 @@ class _PorVehiculo extends StatelessWidget {
                 v.nombre,
                 v.placa ?? '—',
                 Numeros.entero(v.ordenes),
-                Numeros.importe(v.ingresos),
+                importe(v.ingresos),
                 Numeros.kg(v.peso),
-                Numeros.importe(v.promedioPorOrden),
+                importe(v.promedioPorOrden),
               ],
           ],
           pie: [
             'Totales',
             '',
             Numeros.entero(ordenes),
-            Numeros.importe(ingresos),
+            importe(ingresos),
             Numeros.kg(peso),
             '',
           ],
@@ -433,9 +457,10 @@ class _PorVehiculo extends StatelessWidget {
 }
 
 class _Detalle extends StatelessWidget {
-  const _Detalle({required this.informe});
+  const _Detalle({required this.informe, required this.importe});
 
   final Informe informe;
+  final PintarImporte importe;
 
   @override
   Widget build(BuildContext context) {
@@ -445,10 +470,10 @@ class _Detalle extends StatelessWidget {
       );
     }
     var peso = 0.0;
-    var importe = 0.0;
+    var total = 0.0;
     for (final f in informe.filas) {
       peso += f.pesoKg;
-      importe += f.importe;
+      total += f.importe;
     }
 
     return Padding(
@@ -476,7 +501,7 @@ class _Detalle extends StatelessWidget {
                 f.destino,
                 f.vehiculo ?? '—',
                 Numeros.kg(f.pesoKg),
-                Numeros.importe(f.importe),
+                importe(f.importe),
               ],
           ],
           pie: [
@@ -486,7 +511,7 @@ class _Detalle extends StatelessWidget {
             '',
             '',
             Numeros.kg(peso),
-            Numeros.importe(importe),
+            importe(total),
           ],
         ),
       ),

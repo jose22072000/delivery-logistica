@@ -8,6 +8,7 @@ import 'package:reparto/nucleo/red/fallos.dart';
 import '../../../diseno/cajon.dart';
 import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/tema.dart';
+import '../../../navegacion/estado_navegacion.dart';
 import '../datos/vehiculo_api.dart';
 import '../estado/estado_vehiculos.dart';
 import 'ficha_vehiculo.dart';
@@ -43,30 +44,61 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
       ref.read(ajustesVehiculosProvider).value ??
       const AjustesDeLaApi(tipos: [], cupRate: 320);
 
-  Future<void> _abrirFicha([VehiculoDeLaApi? vehiculo]) async {
+  List<VehiculoDeLaApi> get _flota =>
+      ref.read(vehiculosProvider).value ?? const [];
+
+  /// Los tipos que se enseñan: los de ajustes MAS los que ya usan los
+  /// vehiculos. Ver `TipoDeVehiculo.paraElCajon`.
+  List<TipoDeVehiculo> _tiposVisibles(AjustesDeLaApi ajustes) =>
+      TipoDeVehiculo.paraElCajon(deAjustes: ajustes.tipos, vehiculos: _flota);
+
+  /// Mete un tipo nuevo en el catalogo y lo GUARDA (`PUT /api/settings`).
+  ///
+  /// Se manda la lista entera, que es como el servidor guarda `tiposVehiculo`:
+  /// los que ya estaban mas el nuevo.
+  Future<bool> _crearTipo(TipoDeVehiculo nuevo) async {
     final ajustes = _ajustes;
+    if (ajustes.tipos.any((t) => t.nombre == nuevo.nombre)) return true;
+    return ref.read(controlVehiculosProvider.notifier).guardarTipos([
+      ...ajustes.tipos,
+      nuevo,
+    ]);
+  }
+
+  Future<void> _abrirFicha([VehiculoDeLaApi? vehiculo]) async {
     await abrirPanel<void>(
       context,
-      (contexto) => StatefulBuilder(
-        builder: (contexto, repintar) => FichaVehiculo(
-          vehiculo: vehiculo,
-          tipos: ajustes.tipos,
-          cupRate: ajustes.cupRate,
-          guardando: _guardando,
-          alGuardar: (datos) async {
-            repintar(() => _guardando = true);
-            final control = ref.read(controlVehiculosProvider.notifier);
-            final bien = vehiculo == null
-                ? await control.crear(datos)
-                : await control.editar(vehiculo.id, datos);
-            if (!contexto.mounted) return;
-            repintar(() => _guardando = false);
-            // Sólo se cierra si de verdad se guardo. Si no hubo red, el panel
-            // se queda con lo escrito y el aviso lo explica: cerrarlo seria
-            // dar por hecho que se guardo.
-            if (bien) Navigator.of(contexto).pop();
-          },
-        ),
+      // `Consumer` y no los ajustes leidos una vez: al crear un tipo desde la
+      // propia ficha, `ajustesVehiculosProvider` se invalida y el desplegable
+      // tiene que traerlo ya. Con una copia congelada el tipo recien guardado
+      // no aparecia hasta cerrar y volver a abrir.
+      (contexto) => Consumer(
+        builder: (contexto, ref, _) {
+          final ajustes =
+              ref.watch(ajustesVehiculosProvider).value ?? _ajustes;
+          return StatefulBuilder(
+            builder: (contexto, repintar) => FichaVehiculo(
+              vehiculo: vehiculo,
+              tipos: _tiposVisibles(ajustes),
+              cupRate: ajustes.cupRate,
+              guardando: _guardando,
+              alCrearTipo: _crearTipo,
+              alGuardar: (datos) async {
+                repintar(() => _guardando = true);
+                final control = ref.read(controlVehiculosProvider.notifier);
+                final bien = vehiculo == null
+                    ? await control.crear(datos)
+                    : await control.editar(vehiculo.id, datos);
+                if (!contexto.mounted) return;
+                repintar(() => _guardando = false);
+                // Sólo se cierra si de verdad se guardo. Si no hubo red, el
+                // panel se queda con lo escrito y el aviso lo explica:
+                // cerrarlo seria dar por hecho que se guardo.
+                if (bien) Navigator.of(contexto).pop();
+              },
+            ),
+          );
+        },
       ),
     );
     _guardando = false;
@@ -78,7 +110,7 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
       context,
       (contexto) => StatefulBuilder(
         builder: (contexto, repintar) => TiposDeVehiculo(
-          tipos: ajustes.tipos,
+          tipos: _tiposVisibles(ajustes),
           guardando: _guardando,
           alGuardar: (tipos) async {
             repintar(() => _guardando = true);
@@ -98,6 +130,15 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
   @override
   Widget build(BuildContext context) {
     final lista = ref.watch(vehiculosProvider);
+    // SE MIRAN LOS AJUSTES AUNQUE NO SE PINTEN AQUI.
+    //
+    // De ellos salen los tipos de vehiculo y la tasa del ayudante del costo por
+    // km. Se leian con `ref.read` desde los dos cajones y nada mas, y como el
+    // provider es `autoDispose` eso significaba que **nadie lo mantenia vivo**:
+    // cada lectura arrancaba una peticion nueva, devolvia `null` en el acto y la
+    // pantalla se quedaba con el respaldo vacio. Asi, el catalogo de tipos salia
+    // vacio siempre y un tipo recien guardado no aparecia al reabrir el cajon.
+    ref.watch(ajustesVehiculosProvider);
     final busqueda = ref.watch(busquedaVehiculosProvider);
     final porPagina = ref.watch(porPaginaVehiculosProvider);
     final pagina = ref.watch(paginaVehiculosProvider);
@@ -301,6 +342,12 @@ class _Rejilla extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // El dinero de esta pantalla —el costo por km del vehiculo de calculo— va
+    // en la moneda que se esta mirando, igual que en Panel e Informes.
+    final tasa = ref.watch(tasaDeLaMiradaProvider);
+    final moneda = ref.watch(monedaEfectivaProvider);
+    String importe(double? usd) => tasa.importe(usd, moneda);
+
     if (vehiculos.isEmpty) {
       // EL VACIO ES UNA INVITACION, no un callejon.
       //
@@ -363,6 +410,7 @@ class _Rejilla extends ConsumerWidget {
                     width: ancho,
                     child: TarjetaVehiculo(
                       vehiculo: v,
+                      importe: importe,
                       alEditar: () => alEditar(v),
                       alEliminar: () => control.eliminar(v.id),
                       alMarcarDisponible: () => control.marcarDisponible(v.id),

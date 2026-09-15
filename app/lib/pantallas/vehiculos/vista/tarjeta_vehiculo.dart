@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../diseno/colores.dart';
 import '../../../diseno/insignia.dart';
+import '../../../diseno/numeros.dart';
 import '../../../diseno/tarjeta.dart';
 import '../../../diseno/tema.dart';
 import '../datos/vehiculo_api.dart';
@@ -14,10 +15,16 @@ class TarjetaVehiculo extends StatelessWidget {
     required this.alEliminar,
     required this.alMarcarDisponible,
     required this.alUsarParaDomicilio,
+    required this.importe,
     super.key,
   });
 
   final VehiculoDeLaApi vehiculo;
+
+  /// El costo por km se pinta en la moneda que se esta mirando, como el resto
+  /// del dinero de la aplicacion y como la de Next, que lo pasa por `format()`.
+  /// Se guarda en USD; el CUP se calcula al pintarlo.
+  final PintarImporte importe;
   final VoidCallback alEditar;
   final VoidCallback alEliminar;
   final VoidCallback alMarcarDisponible;
@@ -107,7 +114,8 @@ class TarjetaVehiculo extends StatelessWidget {
                   label: Text(
                     vehiculo.costoKmUsd == null
                         ? 'Cálculo domicilio'
-                        : 'Cálculo domicilio · \$${vehiculo.costoKmUsd}/km',
+                        : 'Cálculo domicilio · '
+                              '${importe(vehiculo.costoKmUsd)}/km',
                   ),
                   visualDensity: VisualDensity.compact,
                 )

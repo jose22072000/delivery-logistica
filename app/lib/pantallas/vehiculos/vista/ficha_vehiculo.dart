@@ -22,6 +22,7 @@ class FichaVehiculo extends StatefulWidget {
     required this.guardando,
     required this.alGuardar,
     this.vehiculo,
+    this.alCrearTipo,
     super.key,
   });
 
@@ -31,6 +32,15 @@ class FichaVehiculo extends StatefulWidget {
   final double cupRate;
   final bool guardando;
   final ValueChanged<DatosVehiculo> alGuardar;
+
+  /// GUARDA el tipo nuevo en el catalogo (`PUT /api/settings`) y contesta si se
+  /// aplico. Quien guarda es la pantalla, como con el vehiculo.
+  ///
+  /// Sin esto el tipo nuevo vivia sólo en el `setState` de esta ficha y se
+  /// perdia al cerrarla, **sin un solo error** —lo mismo que ya paso en
+  /// delivery y esta contado en `docs/esquema-cambios.md`—. `null` sólo en las
+  /// pruebas que no miran esto.
+  final Future<bool> Function(TipoDeVehiculo)? alCrearTipo;
 
   @override
   State<FichaVehiculo> createState() => _FichaVehiculoState();
@@ -48,13 +58,13 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
   late bool _domicilio;
 
   bool _creandoTipo = false;
+  bool _guardandoTipo = false;
   final _tipoNuevo = TextEditingController();
   final _tipoCosto = TextEditingController();
 
   bool _ayudanteAbierto = false;
   final _cobro = TextEditingController();
   final _km = TextEditingController();
-  double? _resultado;
 
   @override
   void initState() {
@@ -106,13 +116,52 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
     });
   }
 
-  void _calcular() => setState(() {
-    _resultado = CostoPorKm.calcular(
+  /// El ayudante **rellena el campo**, no propone.
+  ///
+  /// Antes dejaba el numero a un lado y pedia pulsar `Usar este costo`: un paso
+  /// de mas que la de Next no tiene y que se olvida, y entonces el vehiculo se
+  /// guarda sin costo por km aunque el numero estuviera en pantalla. Y va con
+  /// **2 decimales**, los del Excel del pliego; los 4 de antes eran una
+  /// precision que nadie tecleó y que no cabe en la ficha.
+  void _calcular() {
+    final valor = CostoPorKm.calcular(
       cobroCup: double.tryParse(_cobro.text.trim()),
       km: double.tryParse(_km.text.trim()),
       tasa: widget.cupRate,
     );
-  });
+    // Sin un dato no se toca el campo: dejarlo en blanco borraria un costo que
+    // alguien habia puesto a mano.
+    if (valor == null) return;
+    setState(() => _costo.text = valor.toStringAsFixed(2));
+  }
+
+  Future<void> _crearTipoNuevo() async {
+    final nombre = _tipoNuevo.text.trim();
+    if (nombre.isEmpty) return;
+    final costo = double.tryParse(_tipoCosto.text.trim());
+    final guardar = widget.alCrearTipo;
+
+    if (guardar != null) {
+      setState(() => _guardandoTipo = true);
+      final bien = await guardar(
+        TipoDeVehiculo(nombre: nombre, costoKmUsd: costo),
+      );
+      if (!mounted) return;
+      setState(() => _guardandoTipo = false);
+      // No se aplico: el aviso ya lo pinta la pantalla. Lo escrito se queda
+      // donde estaba para poder reintentar; cerrar el formulario aqui seria
+      // dar por hecho que el tipo existe.
+      if (!bien) return;
+    }
+
+    setState(() {
+      _tipo = nombre;
+      if (costo != null) _costo.text = '$costo';
+      _creandoTipo = false;
+      _tipoNuevo.clear();
+      _tipoCosto.clear();
+    });
+  }
 
   void _guardar() => widget.alGuardar(
     DatosVehiculo(
@@ -170,37 +219,7 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
               ),
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: widget.tipos.any((t) => t.nombre == _tipo)
-                  ? _tipo
-                  : null,
-              decoration: const InputDecoration(
-                labelText: 'Tipo',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                for (final t in widget.tipos)
-                  DropdownMenuItem(
-                    value: t.nombre,
-                    child: Text(
-                      t.costoKmUsd == null
-                          ? t.nombre
-                          : '${t.nombre} · \$${t.costoKmUsd}/km',
-                    ),
-                  ),
-                const DropdownMenuItem(
-                  value: _crearTipo,
-                  child: Text('+ Crear tipo nuevo…'),
-                ),
-              ],
-              onChanged: (valor) {
-                if (valor == _crearTipo) {
-                  setState(() => _creandoTipo = true);
-                  return;
-                }
-                _elegirTipo(valor);
-              },
-            ),
+            _desplegableDeTipo(),
             if (_creandoTipo) _crearTipoEnLinea(),
             const SizedBox(height: 12),
             TextField(
@@ -242,6 +261,8 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
             const SizedBox(height: 12),
             TextField(
               controller: _costo,
+              // Para que el eco del ayudante siga a lo que se teclea aqui.
+              onChanged: (_) => setState(() {}),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
@@ -296,6 +317,60 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
 
   static const _crearTipo = '__crear__';
 
+  /// El desplegable de `Tipo`.
+  ///
+  /// **Un tipo heredado se pinta igual aunque no este en ajustes.** Antes el
+  /// desplegable se abria EN BLANCO en cuanto el vehiculo traia un tipo que el
+  /// catalogo no tenia —`truck`, el de todos los vehiculos nuevos, es
+  /// justamente ese caso—, y en blanco parece que el vehiculo no tiene tipo
+  /// cuando si lo tiene. Guardar desde ahi no lo borraba, pero nadie podia
+  /// saberlo mirando.
+  Widget _desplegableDeTipo() {
+    final enElCatalogo = widget.tipos.any((t) => t.nombre == _tipo);
+    final heredado = !enElCatalogo && _tipo.trim().isNotEmpty;
+
+    return DropdownButtonFormField<String>(
+      initialValue: _creandoTipo
+          ? _crearTipo
+          : (enElCatalogo || heredado ? _tipo : null),
+      decoration: const InputDecoration(
+        labelText: 'Tipo',
+        border: OutlineInputBorder(),
+      ),
+      items: [
+        // El heredado va primero y con su nombre a secas: no tiene costo en el
+        // catalogo porque no esta en el catalogo.
+        if (heredado) DropdownMenuItem(value: _tipo, child: Text(_tipo)),
+        for (final t in widget.tipos)
+          DropdownMenuItem(
+            value: t.nombre,
+            child: Text(
+              t.costoKmUsd == null
+                  ? t.nombre
+                  : '${t.nombre} · \$${t.costoKmUsd}/km',
+            ),
+          ),
+        if (widget.tipos.isEmpty && !heredado)
+          const DropdownMenuItem(
+            enabled: false,
+            child: Text('Sin tipos configurados'),
+          ),
+        const DropdownMenuItem(
+          value: _crearTipo,
+          child: Text('+ Crear tipo nuevo…'),
+        ),
+      ],
+      onChanged: (valor) {
+        if (valor == _crearTipo) {
+          setState(() => _creandoTipo = true);
+          return;
+        }
+        setState(() => _creandoTipo = false);
+        _elegirTipo(valor);
+      },
+    );
+  }
+
   Widget _crearTipoEnLinea() => Padding(
     padding: const EdgeInsets.only(top: 8),
     child: Column(
@@ -324,22 +399,19 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             TextButton(
-              onPressed: () => setState(() => _creandoTipo = false),
+              onPressed: _guardandoTipo
+                  ? null
+                  : () => setState(() {
+                      _creandoTipo = false;
+                      _tipoNuevo.clear();
+                      _tipoCosto.clear();
+                    }),
               child: const Text('Cancelar'),
             ),
             const SizedBox(width: 8),
             FilledButton(
-              onPressed: () {
-                final nombre = _tipoNuevo.text.trim();
-                if (nombre.isEmpty) return;
-                setState(() {
-                  _tipo = nombre;
-                  final costo = _tipoCosto.text.trim();
-                  if (costo.isNotEmpty) _costo.text = costo;
-                  _creandoTipo = false;
-                });
-              },
-              child: const Text('Crear tipo'),
+              onPressed: _guardandoTipo ? null : _crearTipoNuevo,
+              child: Text(_guardandoTipo ? '...' : 'Crear tipo'),
             ),
           ],
         ),
@@ -383,8 +455,10 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
               child: const Text('Calcular'),
             ),
             const SizedBox(width: 12),
-            if (_resultado != null)
-              Expanded(child: Text('= \$${_resultado!.toStringAsFixed(2)}/km')),
+            // El eco de lo que ya esta EN EL CAMPO, como la de Next: no es una
+            // propuesta a la espera de que alguien la acepte.
+            if (_costo.text.trim().isNotEmpty)
+              Expanded(child: Text('= \$${_costo.text.trim()}/km')),
           ],
         ),
         const SizedBox(height: 4),
@@ -396,15 +470,6 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
             style: tema.textTheme.bodySmall,
           ),
         ),
-        if (_resultado != null)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              onPressed: () =>
-                  setState(() => _costo.text = _resultado!.toStringAsFixed(4)),
-              child: const Text('Usar este costo'),
-            ),
-          ),
       ],
     ),
   );

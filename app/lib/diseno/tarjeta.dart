@@ -181,15 +181,27 @@ class TarjetaDeCifra extends StatelessWidget {
                 // cifra que avisa tiene que avisar ella, no sólo su franja. Los
                 // otros tres tintes —primario, verde, naranja— son de identidad,
                 // no de aviso, y se quedan en la franja y en el icono.
-                Text(
-                  valor,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: tema.textTheme.displaySmall?.copyWith(
-                    color: tinte == Colores.ambar
-                        ? Colores.ambar
-                        : Colores.tinta,
-                    fontFeatures: Tipos.cifrasEnColumna,
+                // LA CIFRA SE ENCOGE, NO SE CORTA.
+                //
+                // Con `ellipsis` a secas, `3.964.352 CUP` salia como
+                // `3.964.352 C…` en la tarjeta de Ingresos Totales: un importe
+                // a medias en la pantalla que existe para cuadrar caja. En USD
+                // no se veia porque el numero es setecientas veces mas corto.
+                //
+                // `scaleDown` sólo achica cuando no cabe; mientras quepa, el
+                // tamano es el del pliego (`text-[2.1rem]`).
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    valor,
+                    maxLines: 1,
+                    style: tema.textTheme.displaySmall?.copyWith(
+                      color: tinte == Colores.ambar
+                          ? Colores.ambar
+                          : Colores.tinta,
+                      fontFeatures: Tipos.cifrasEnColumna,
+                    ),
                   ),
                 ),
                 if (subtexto != null) ...[

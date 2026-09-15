@@ -7,6 +7,8 @@
 /// difieran, y eso es complejidad a cambio de nada.
 library;
 
+import 'package:collection/collection.dart';
+
 /// Lee un numero venga como venga: la API manda unos como numero y otros como
 /// texto segun por donde pasaron.
 double? _numero(Object? valor) => switch (valor) {
@@ -122,6 +124,41 @@ class TipoDeVehiculo {
   final double? costoKmUsd;
 
   Map<String, Object?> aJson() => {'nombre': nombre, 'costoKmUsd': costoKmUsd};
+
+  /// Los tipos que hay que ENSEÑAR en el cajon: los de ajustes **mas los que
+  /// ya usan los vehiculos** y todavia no estan en la lista.
+  ///
+  /// Sin esto, `truck` —el tipo por defecto de todo vehiculo nuevo— no aparece
+  /// en ninguna lista donde ponerle su costo por km, y ese costo es el que
+  /// cotiza el domicilio que se le cobra al cliente. En produccion los cinco
+  /// tipos tenian `costo_km_usd` en NULL por exactamente esto.
+  ///
+  /// El costo que se siembra sale de un vehiculo de ese tipo que ya lo tenga.
+  /// **Si ninguno lo tiene se deja vacio, no en cero**: aqui la de Next pone un
+  /// `0`, y un cero guardado se lee como «el kilometro es gratis» —un numero
+  /// creible y equivocado— mientras que un hueco se ve y se rellena.
+  static List<TipoDeVehiculo> paraElCajon({
+    required List<TipoDeVehiculo> deAjustes,
+    required List<VehiculoDeLaApi> vehiculos,
+  }) {
+    final conocidos = {for (final t in deAjustes) t.nombre};
+    final sembrados = <TipoDeVehiculo>[];
+    for (final v in vehiculos) {
+      final nombre = v.tipo?.trim();
+      if (nombre == null || nombre.isEmpty) continue;
+      if (!conocidos.add(nombre)) continue;
+      sembrados.add(
+        TipoDeVehiculo(
+          nombre: nombre,
+          costoKmUsd: vehiculos
+              .where((o) => o.tipo == nombre && o.costoKmUsd != null)
+              .firstOrNull
+              ?.costoKmUsd,
+        ),
+      );
+    }
+    return [...deAjustes, ...sembrados];
+  }
 }
 
 /// Lo que hace falta de `GET /api/settings`: los tipos y la tasa.

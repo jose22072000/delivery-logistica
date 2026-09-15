@@ -143,6 +143,55 @@ void main() {
       expect(v.last.placa, 'B-123');
     });
 
+    // LA GUARDA: la clave del grupo es el ID, nunca el nombre.
+    //
+    // Se agrupaba por nombre, y entonces dos camiones que se llaman igual —el
+    // de siempre y su sustituto, o uno por sucursal— se fundian en UNA fila con
+    // los ingresos de los dos sumados. Este error ya se cazo una vez en este
+    // proyecto. Si vuelve, esta prueba lo dice con esas palabras.
+    test('dos camiones que se llaman igual NO se funden en una fila', () async {
+      // `v3` se llama exactamente igual que `v1`. Son dos camiones distintos.
+      await base
+          .into(base.vehicles)
+          .insert(
+            VehiclesCompanion.insert(
+              id: 'v3',
+              name: 'Ford 600',
+              plate: const Value('B-777'),
+              branchId: const Value('stg'),
+            ),
+          );
+      await base
+          .into(base.routes)
+          .insert(
+            RoutesCompanion.insert(
+              id: 'r4',
+              routeCode: const Value('STG-0913'),
+              vehicleId: const Value('v3'),
+              branchId: const Value('stg'),
+            ),
+          );
+
+      await pedido('a', rutaId: 'r1', precio: 30, peso: 100); // v1
+      await pedido('b', rutaId: 'r4', precio: 70, peso: 20); // v3
+
+      final v =
+          (await informes.mirar(const FiltroDeInforme()).first).porVehiculo;
+
+      expect(
+        v.length,
+        2,
+        reason:
+            'Los dos «Ford 600» se fundieron en una sola fila: se esta '
+            'agrupando por NOMBRE y no por el id del vehiculo. Sus ingresos '
+            'quedan sumados en un camion que no existe.',
+      );
+      expect(v.map((f) => f.id).toSet(), {'v1', 'v3'});
+      // Y cada uno con lo suyo, no con la suma de los dos.
+      expect({for (final f in v) f.id: f.ingresos}, {'v1': 30.0, 'v3': 70.0});
+      expect({for (final f in v) f.id: f.placa}, {'v1': 'B-123', 'v3': 'B-777'});
+    });
+
     test('los pedidos sin vehiculo NO hacen una fila propia', () async {
       await pedido('a', rutaId: 'r3', precio: 30); // ruta sin vehiculo
       await pedido('b', precio: 30); // sin ruta siquiera
@@ -155,24 +204,32 @@ void main() {
   });
 
   group('el rango de fechas', () {
-    test('`hasta` incluye el DIA ENTERO', () async {
-      await pedido('tarde', creado: DateTime(2026, 9, 14, 23, 30), precio: 5);
-      await pedido('manana', creado: DateTime(2026, 9, 15, 0, 30), precio: 5);
+    test('`hasta` incluye el DIA ENTERO, contado en UTC', () async {
+      // Las 23:00 y las 02:00 UTC: el mismo dia 14 para uno y ya el 15 para el
+      // otro. Escritos en UTC a proposito, para que la prueba diga lo mismo
+      // este el portatil en Cuba o donde sea.
+      await pedido('tarde', creado: DateTime.utc(2026, 9, 14, 23), precio: 5);
+      await pedido('manana', creado: DateTime.utc(2026, 9, 15, 2), precio: 5);
 
       final i = await informes
           .mirar(FiltroDeInforme(hasta: DateTime(2026, 9, 14)))
           .first;
       // Sin el fin del dia, pedir «hasta el 14» dejaria fuera todo el 14.
+      // Cortando en hora local entraria ademas el de las 02:00 UTC del 15, que
+      // aqui son las 22:00 del 14 — y ese es justo el pedido que el informe
+      // del servidor NO cuenta.
       expect(i.filas.map((f) => f.id).toList(), ['tarde']);
     });
 
-    test('`desde` corta por abajo', () async {
-      await pedido('viejo', creado: DateTime(2026, 9, 1), precio: 5);
-      await pedido('nuevo', creado: DateTime(2026, 9, 12), precio: 5);
+    test('`desde` corta por abajo, tambien en UTC', () async {
+      await pedido('viejo', creado: DateTime.utc(2026, 9, 9, 22), precio: 5);
+      await pedido('nuevo', creado: DateTime.utc(2026, 9, 10, 1), precio: 5);
 
       final i = await informes
           .mirar(FiltroDeInforme(desde: DateTime(2026, 9, 10)))
           .first;
+      // Las 22:00 UTC del 9 son todavia el dia 9, aunque aqui sean las 18:00
+      // de ese mismo dia y aunque en un huso al este ya fuera el 10.
       expect(i.filas.map((f) => f.id).toList(), ['nuevo']);
     });
 
@@ -184,9 +241,23 @@ void main() {
       expect(i.filas.length, 2);
     });
 
-    test('finDelDia son las 23:59:59.999', () {
-      final f = ConsultasInformes.finDelDia(DateTime(2026, 9, 14, 3, 0));
-      expect(f, DateTime(2026, 9, 14, 23, 59, 59, 999));
+    // LA GUARDA, sin base de por medio: los dos limites son instantes UTC.
+    //
+    // Es lo que iguala el corte con el de la de Next (`new Date('2026-09-14')`
+    // y `new Date(to + 'T23:59:59.999Z')`). En hora local, con Cuba a −4, se
+    // colaban o se perdian hasta cinco horas de pedidos en cada extremo, y el
+    // informe del aparato y el del servidor daban dos totales distintos para el
+    // mismo dia.
+    test('los dos limites del rango son UTC, no la hora de aqui', () {
+      final desde = ConsultasInformes.comienzoDelDia(DateTime(2026, 9, 14, 3));
+      expect(desde!.isUtc, isTrue);
+      expect(desde, DateTime.utc(2026, 9, 14));
+
+      final hasta = ConsultasInformes.finDelDia(DateTime(2026, 9, 14, 3));
+      expect(hasta!.isUtc, isTrue);
+      expect(hasta, DateTime.utc(2026, 9, 14, 23, 59, 59, 999));
+
+      expect(ConsultasInformes.comienzoDelDia(null), isNull);
       expect(ConsultasInformes.finDelDia(null), isNull);
     });
   });

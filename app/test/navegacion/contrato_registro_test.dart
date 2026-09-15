@@ -34,9 +34,20 @@ void main() {
     );
   });
 
-  test('Reportes NO esta en el menu (pliego §8.1)', () {
+  test('Reportes SI esta en el menu, a proposito', () {
+    // Iba en `false` copiando al Next, que no la tiene en su barra lateral y
+    // solo se llega desde las acciones rapidas del Panel. Asi copiado, Jose no
+    // la encontro: «esa vista de reportes no sale en los links para moverse».
+    //
+    // Una pantalla entera detras de un atajo del Panel es una pantalla que nadie
+    // abre, y esta es la que se usa para cuadrar la caja. El patron se sigue
+    // salvo donde se equivoca.
     final reportes = pantallas.firstWhere((p) => p.ruta == '/reports');
-    expect(reportes.enElMenu, isFalse);
+    expect(
+      reportes.enElMenu,
+      isTrue,
+      reason: 'si vuelve a salir del menu que sea por una razon, no por copiar',
+    );
     expect(reportes.titulo, 'Reportes');
   });
 

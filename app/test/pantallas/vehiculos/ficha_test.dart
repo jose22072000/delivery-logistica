@@ -120,6 +120,99 @@ void main() {
     expect(find.widgetWithText(TextField, '0.9'), findsOneWidget);
   });
 
+  testWidgets('un tipo HEREDADO se pinta, no deja el desplegable en blanco', (
+    tester,
+  ) async {
+    // `truck` no esta en el catalogo: es justo el caso de produccion, donde los
+    // vehiculos lo traen por defecto y ajustes no lo tiene.
+    const heredado = VehiculoDeLaApi(
+      id: 'v1',
+      nombre: 'Camión #1',
+      capacidad: 1000,
+      estado: 'available',
+      tipo: 'truck',
+    );
+
+    DatosVehiculo? salida;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FichaVehiculo(
+            vehiculo: heredado,
+            // El catalogo NO tiene `truck`: es el caso de produccion.
+            tipos: const [TipoDeVehiculo(nombre: 'furgoneta', costoKmUsd: 0.9)],
+            cupRate: 320,
+            guardando: false,
+            alGuardar: (datos) => salida = datos,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('truck'),
+      findsOneWidget,
+      reason:
+          'El desplegable de Tipo se abrio EN BLANCO con un tipo heredado. En '
+          'blanco parece que el vehiculo no tiene tipo cuando si lo tiene, y '
+          'nadie puede saberlo mirando.',
+    );
+
+    // Y guardar sin tocar nada no se lo come.
+    await tester.tap(find.widgetWithText(FilledButton, 'Actualizar'));
+    await tester.pumpAndSettle();
+    expect(salida!.tipo, 'truck');
+  });
+
+  testWidgets('el ayudante RELLENA el campo, con 2 decimales', (tester) async {
+    // Pantalla alta: en 800×600 el pie del cajon tapa el ayudante y el toque no
+    // llega.
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FichaVehiculo(
+            tipos: tipos,
+            cupRate: 320,
+            guardando: false,
+            alGuardar: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('¿No sabes el costo por km?'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'El camionero cobra (CUP)'),
+      '180000',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'hasta ___ km (ida)'),
+      '72',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Calcular'));
+    await tester.pumpAndSettle();
+
+    // 180000 / (2 × 72 × 320) = 3.90625 → 3.91, los 2 decimales del Excel.
+    // NI un paso de mas —`Usar este costo`, que se olvidaba y dejaba el
+    // vehiculo sin costo por km— NI los 4 decimales de antes.
+    expect(
+      find.widgetWithText(TextField, '3.91'),
+      findsOneWidget,
+      reason:
+          'El ayudante no relleno el campo del costo por km, o lo relleno con '
+          'una precision que nadie tecleó.',
+    );
+    expect(find.text('Usar este costo'), findsNothing);
+    expect(find.text('3.9063'), findsNothing);
+  });
+
   test('el ayudante: 180000 CUP hasta 72 km con la tasa 320', () {
     // 180000 / (2 × 72 × 320) = 3.90625 $/km.
     expect(

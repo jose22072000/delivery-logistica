@@ -8,6 +8,8 @@ import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/numeros.dart';
 import '../../../diseno/tarjeta.dart';
 import '../../../diseno/tema.dart';
+import '../../../navegacion/estado_navegacion.dart';
+import '../../../nucleo/plataforma.dart';
 import 'estado_del_dia.dart';
 import 'paso_a_paso.dart';
 import '../datos/consultas_panel.dart';
@@ -50,8 +52,14 @@ class PantallaPanel extends ConsumerWidget {
         // toca traer, enviar o solo decir que se esta trabajando sin conexion,
         // y eso es trabajo que no tiene por que hacer el logistico. El porque
         // de que este aqui y no en `/sync` esta en el propio widget.
-        const EstadoDelDia(),
-        const SizedBox(height: Aire.xl),
+        //
+        // **En web no se monta**: alli no hay dia que traer a mano —se
+        // sincroniza solo— y «Trabajando sin conexion» es una frase que a quien
+        // abre un navegador no le va a pasar nunca (`nucleo/plataforma.dart`).
+        if (ref.watch(trabajaSinConexionProvider)) ...[
+          const EstadoDelDia(),
+          const SizedBox(height: Aire.xl),
+        ],
         _Cifras(c),
         // `mb-8`: las cuatro cifras de arriba respiran mas que el resto, que es
         // lo que las separa de «el detalle».
@@ -166,9 +174,17 @@ class _PendientePorSucursal extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final tema = Theme.of(context);
     final filas = ref.watch(pendientePorSucursalProvider);
-    // El importe va en USD, que es como esta guardado. La conversion a CUP entra
-    // con `nucleo/formato/dinero.dart`, que trae la tasa por sucursal; hasta
-    // entonces no se inventa ninguna.
+
+    // EL IMPORTE, EN LA MONEDA QUE SE ESTA MIRANDO. Se guarda siempre en USD y
+    // el CUP se calcula aqui, al pintarlo: guardar los dos seria tener dos
+    // verdades que se separan en cuanto se mueva la tasa.
+    //
+    // La tasa es la de ESTA sucursal o no hay ninguna. Con «todas» o con una
+    // sucursal sin tasa, `monedaEfectivaProvider` se queda en USD y el porque
+    // lo dice la barra de arriba; lo que no pasa nunca es convertir con la de
+    // otra.
+    final tasa = ref.watch(tasaDeLaMiradaProvider);
+    final moneda = ref.watch(monedaEfectivaProvider);
 
     return Tarjeta(
       titulo: 'Pendiente por sucursal',
@@ -246,7 +262,7 @@ class _PendientePorSucursal extends ConsumerWidget {
               // El dinero cobrado va en el verde de marca y en mono: es la
               // unica cifra de la tarjeta que se apunta.
               Text(
-                Numeros.importe(cifras.totalDomicilios),
+                tasa.importe(cifras.totalDomicilios, moneda),
                 style: Tipos.mono(
                   tamano: 14,
                   peso: FontWeight.w700,

@@ -46,8 +46,9 @@ List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
   // `registro.dart`.
   registrarSincronizacion(),
 
-  // Reportes NO va en el menu (pliego §8.1): se llega por URL y desde las
-  // acciones rapidas del Panel.
+  // Reportes SI va en el menu, y es un cambio deliberado respecto al patron: en
+  // delivery no esta y se llega solo desde las acciones rapidas del Panel. Asi
+  // copiado, Jose no la encontro. El porque entero, en su `registro.dart`.
   registrarInformes(),
 ];
 

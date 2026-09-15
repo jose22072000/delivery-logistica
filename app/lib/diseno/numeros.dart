@@ -1,5 +1,17 @@
 import 'package:intl/intl.dart';
 
+/// Como se pinta UN IMPORTE en la moneda que se esta mirando.
+///
+/// Sale de `TasaDeLaMirada.importe` con la moneda de `monedaEfectivaProvider`,
+/// los dos en `navegacion/estado_navegacion.dart`. Va como parametro y no como
+/// `ref.watch` dentro de cada widget para que las tablas y las tarjetas sigan
+/// siendo `StatelessWidget` y se puedan probar con una funcion a mano.
+///
+/// **Ningun importe se pinta con [Numeros.importe] a pelo.** Esa da el numero
+/// suelto, sin moneda: un `1.234,56` que lo mismo puede ser dolares que pesos,
+/// y con la tasa a 700 la diferencia entre los dos es de tres ceros.
+typedef PintarImporte = String Function(double? usd);
+
 /// Formato de numeros para pintar, **provisional**.
 ///
 /// Lo definitivo es `nucleo/formato/` (Dinero, Peso, Distancia), que es de otra
@@ -15,6 +27,10 @@ abstract final class Numeros {
   static String entero(num v) => _entero.format(v);
 
   /// Importes: **2 decimales siempre**, como el Excel del pliego.
+  ///
+  /// Da el numero PELADO, sin moneda. Para pintar dinero en una pantalla hay
+  /// que pasar por [PintarImporte], que sabe si toca USD o CUP y con que tasa;
+  /// esta se queda para quien la necesite dentro de esa conversion.
   static String importe(num v) => _dos.format(v);
 
   /// Pesos: **1 decimal**, como el pliego (`<n.n> kg`).
