@@ -74,6 +74,12 @@ type Config struct {
 	// otro: sin recuerdo, cotizar un lote de 200 pedidos son 200 llamadas a Accesos.
 	AlmacenesCache time.Duration
 
+	// TasaRefresco es cada cuánto la tarea de fondo le pregunta a Accesos la tasa de las
+	// ocho sucursales y la deja escrita en `branches`, para que baje al aparato con el
+	// resto del día. Una hora; el porqué de ese número, y de que no sean las 12 h de
+	// PEDIDO, está entero en `internal/api/refresco_de_tasas.go`.
+	TasaRefresco time.Duration
+
 	// --- Ventra (el ERP de la casa), que vive detrás de la VPN --------------
 	//
 	// De ahí sale el CATÁLOGO: nombre, peso, precio y existencias, sucursal por sucursal.
@@ -268,6 +274,9 @@ func Cargar(version string) (*Config, error) {
 		errs = append(errs, err)
 	}
 	if c.AlmacenesCache, err = milisegundos("ALMACENES_CACHE_MS", 5*time.Minute); err != nil {
+		errs = append(errs, err)
+	}
+	if c.TasaRefresco, err = milisegundos("TASA_REFRESCO_MS", time.Hour); err != nil {
 		errs = append(errs, err)
 	}
 	if c.VentraPlazo, err = milisegundos("WAREHOUSE_TIMEOUT_MS", 30*time.Second); err != nil {

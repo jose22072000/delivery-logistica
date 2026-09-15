@@ -142,6 +142,16 @@ type Querier interface {
 	// las que no le tocan. Sólo las que TIENEN código: sin él no hay nada que cotejar.
 	CodigosDeSucursalesVisibles(ctx context.Context, sucursal pgtype.UUID) ([]CodigosDeSucursalesVisiblesRow, error)
 	// ---------------------------------------------------------------------------
+	// La tasa de cambio de cada sucursal  (`internal/api/refresco_de_tasas.go`)
+	// ---------------------------------------------------------------------------
+	// A quién hay que preguntarle la tasa: las sucursales que TIENEN código, que es por lo
+	// que Accesos las conoce. Sin código no hay nada que preguntar.
+	//
+	// SIN ALCANCE, y no es un descuido: esto lo llama una tarea de fondo, que no es una
+	// persona y no mira por nadie. Acotarla dejaría sin tasa a las siete sucursales que no
+	// fueran la del último que entró.
+	CodigosParaRefrescarLaTasa(ctx context.Context) ([]CodigosParaRefrescarLaTasaRow, error)
+	// ---------------------------------------------------------------------------
 	// Arrastrar  (PUT /api/board/placements/[pedidoId])
 	// ---------------------------------------------------------------------------
 	// Colocar un pedido en una columna, o moverlo de sitio. Es la MISMA orden: soltar una
@@ -411,6 +421,22 @@ type Querier interface {
 	// vaciar el catálogo de una sucursal — lo viejo se nota por `traido_at`, que dice si lo
 	// que se está mirando es de hace diez minutos o de hace tres días.
 	GuardarProductoDelCatalogo(ctx context.Context, arg GuardarProductoDelCatalogoParams) (GuardarProductoDelCatalogoRow, error)
+	// Guardar la tasa que vino de Accesos, por CÓDIGO de sucursal.
+	//
+	// DOS COSAS QUE NO SE VEN VENIR, las dos en el WHERE:
+	//
+	//  1. **Sólo escribe si algo cambió** (`IS DISTINCT FROM`). El disparador
+	//     `trg_branches_updated` mueve `updated_at` en CADA update, y `updated_at` es lo que
+	//     decide qué entra en la bajada por diferencias. Sin esta guarda, el refresco de cada
+	//     hora haría que las ocho sucursales bajaran otra vez a todos los aparatos aunque la
+	//     tasa fuera la misma — y, peor, `updatedAt` diría que la sucursal cambió cuando no
+	//     cambió nada.
+	//  2. **NUNCA borra una tasa que ya había.** Sólo se llama con una tasa de verdad: el
+	//     «esta sucursal no tiene» de Accesos no escribe NULL aquí. Ver el porqué entero en
+	//     `refresco_de_tasas.go`; en dos líneas: si un tropiezo de Accesos borrara la tasa
+	//     guardada, el aparato que está en la calle se quedaría sin poder ver CUP con una
+	//     tasa que sigue siendo buena, y la fecha que va al lado ya cuenta lo vieja que es.
+	GuardarTasaDeSucursal(ctx context.Context, arg GuardarTasaDeSucursalParams) (int64, error)
 	// Alta o actualización por `ventra_id`, que es el id de la LÍNEA en Ventra y por el que se
 	// reconoce entre pasadas. Aquí sí hay `ON CONFLICT`: el esquema lo declara UNIQUE.
 	//
@@ -687,6 +713,10 @@ type Querier interface {
 	// ---------------------------------------------------------------------------
 	// Sucursales
 	// ---------------------------------------------------------------------------
+	// Las cuatro columnas de la tasa viajan AQUÍ porque de aquí sale la bajada del aparato
+	// (`GET /api/sync/cambios`, colección `branches`). La tasa es un dato DE LA SUCURSAL, y
+	// esta aplicación tiene que poder pintar los importes en CUP sin conexión — o sea que la
+	// tasa tiene que estar guardada en el aparato como todo lo demás del día.
 	ListarSucursales(ctx context.Context, sucursalDeLaPersona pgtype.UUID) ([]ListarSucursalesRow, error)
 	// El catálogo de tipos de vehículo — LA TABLA QUE FALTABA.
 	//

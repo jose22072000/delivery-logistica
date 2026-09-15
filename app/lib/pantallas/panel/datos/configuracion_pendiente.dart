@@ -168,8 +168,24 @@ SELECT
          SELECT b.external_id FROM branches b
           WHERE b.external_id IS NOT NULL
             AND (?1 IS NULL OR b.id = ?1))) AS almacenes,
-  (SELECT COUNT(*) FROM settings s
-     WHERE s.cup_rate_updated_at IS NOT NULL AND s.cup_rate > 0) AS tasa,
+  -- LA TASA ES DE LA SUCURSAL, y por eso sale de `branches` y no de `settings`.
+  --
+  -- Este paso se llama «la tasa de cambio de la sucursal» y miraba
+  -- `settings.cup_rate`, que es la GLOBAL y vieja de delivery — la que hacía que
+  -- Granma enseñara los 685 de La Habana. La API lo dice con todas las letras
+  -- (`api/internal/api/ajustes.go`): «los ajustes son GLOBALES… la tasa POR
+  -- SUCURSAL es otra cosa y vive en Accesos, no aquí».
+  --
+  -- Va con el mismo filtro `?1` que los otros tres pasos, así que con varias
+  -- sucursales a la vista sólo cuenta como hecho si lo está **en todas**: decir
+  -- «hecho» porque una de las ocho tiene tasa deja a las otras siete en dólares
+  -- sin que nadie lo sepa.
+  --
+  -- Y se exige la FECHA, no el número: `cup_rate` puede traer un valor sin que
+  -- nadie haya puesto nada, y un número sin fecha no es una tasa.
+  (SELECT COUNT(*) FROM branches b
+     WHERE (?1 IS NULL OR b.id = ?1)
+       AND b.cup_rate_traido_at IS NOT NULL AND b.cup_rate > 0) AS tasa,
   (SELECT COUNT(*) FROM frescura f
      WHERE f.bajada_at IS NOT NULL
        AND f.coleccion = '${Colecciones.sucursales}') AS bajo_sucursales,
@@ -272,12 +288,18 @@ SELECT
         clave: ClaveDePaso.tasa,
         coleccion: Colecciones.ajustes,
         como: como(
-          bajada: fila.read<int>('bajo_ajustes') > 0,
-          // **La marca de cuando, no el numero.** `cup_rate` trae 320 por
-          // defecto en el esquema local, asi que un 320 no demuestra que nadie
-          // la haya puesto; `cup_rate_updated_at` sólo lo escribe una bajada que
-          // trajo tasa de verdad (`sincro/bajada.dart`, coleccion `settings`).
-          esta: fila.read<int>('tasa') > 0,
+          // La tasa viaja con la SUCURSAL, no con los ajustes: se mira si
+          // bajaron las sucursales.
+          bajada: fila.read<int>('bajo_sucursales') > 0,
+          // **La marca de cuando, no el numero.** `cup_rate` puede traer un
+          // valor sin que nadie haya puesto nada; sólo `cup_rate_traido_at`
+          // —el `traidoAt` que da Accesos— demuestra que hay tasa de verdad.
+          //
+          // Y `== sucursales`, no `> 0`, por lo mismo que el punto de partida:
+          // hoy en Accesos sólo tienen tasa Habana y Santiago. Con «todas» a la
+          // vista, decir «hecho» porque dos de las ocho la tienen deja a las
+          // otras seis en dolares sin que nadie lo sepa.
+          esta: sucursales > 0 && fila.read<int>('tasa') == sucursales,
         ),
         titulo: 'La tasa de cambio de la sucursal',
         paraQue: 'Es lo que pasa los importes de USD a CUP.',

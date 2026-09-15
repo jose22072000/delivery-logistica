@@ -209,8 +209,17 @@ func (q *espejoFalso) GuardarProductoDelCatalogo(_ context.Context, arg sqlc.Gua
 func (q *espejoFalso) ListarSucursales(_ context.Context, persona pgtype.UUID) ([]sqlc.ListarSucursalesRow, error) {
 	stg, hol := "STG", "HOL"
 	ahora := pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	// EL DATO DE PRODUCCIÓN, calcado: Santiago tiene tasa (700 CUP/USD, del 09/09, que
+	// Accesos da por NO fresca) y Holguín no tiene ninguna. Las dos cosas tienen que llegar
+	// al aparato, y la segunda tan explícitamente como la primera.
+	entrega := "entrega"
+	fresca := false
+	cup := 700.0
 	todas := []sqlc.ListarSucursalesRow{
-		{ID: sucStg, Name: "Santiago", ExternalID: &stg, UpdatedAt: ahora},
+		{ID: sucStg, Name: "Santiago", ExternalID: &stg, UpdatedAt: ahora,
+			CupRate: &cup, CupRateFuente: &entrega, CupRateFresca: &fresca,
+			CupRateTraidoAt: pgtype.Timestamptz{
+				Time: time.Date(2026, 9, 9, 22, 3, 4, 0, time.UTC), Valid: true}},
 		{ID: sucHol, Name: "Holguín", ExternalID: &hol, UpdatedAt: ahora},
 	}
 	if !persona.Valid {
@@ -936,6 +945,71 @@ func TestElCursorConservaElDesdeDeLaCadena(t *testing.T) {
 	for id := range segunda {
 		if primera[id] {
 			t.Fatalf("la segunda tanda repitió lo ya servido: %s", id)
+		}
+	}
+}
+
+// LA TASA BAJA CON LA SUCURSAL, Y LA QUE NO TIENE BAJA DICIÉNDOLO.
+//
+// Es lo que hace posible que el aparato pinte los importes en CUP sin conexión. Antes no
+// bajaba por ningún lado —la barra leía una tabla local `currencies` que no llenaba
+// nadie— y el selector de moneda se quedaba en ámbar para siempre, en las ocho
+// sucursales, tuvieran tasa o no.
+//
+// Las cuatro columnas van DENTRO de la sucursal a propósito: la tasa es suya. En
+// `settings`, que es global, una sola tasa serviría a las ocho y es exactamente cómo
+// Granma acabó enseñando los 685 de La Habana.
+func TestLaBajadaTraeLaTasaDeCadaSucursal(t *testing.T) {
+	h := montarTab(t, nuevoEspejo())
+	// Sin sucursal en el token: el Super Admin se lleva las dos, la que tiene tasa y la
+	// que no.
+	w := pedirTab(t, h, http.MethodGet, "/api/sync/cambios", tokenTab(t, ""), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	m := leerTab(t, w)
+
+	porNombre := map[string]map[string]any{}
+	for _, b := range m["cambios"].(map[string]any)["branches"].(map[string]any)["puestos"].([]any) {
+		fila := b.(map[string]any)
+		porNombre[fila["name"].(string)] = fila
+	}
+
+	santiago, hay := porNombre["Santiago"]
+	if !hay {
+		t.Fatalf("no vino Santiago: %s", w.Body.String())
+	}
+	if v, _ := santiago["cupRate"].(float64); v != 700 {
+		t.Errorf("cupRate de Santiago = %v, se esperaba 700", santiago["cupRate"])
+	}
+	// LA MARCA DE CUÁNDO, que es lo único que demuestra que la tasa existe: el esquema
+	// viejo traía 320 por defecto, así que el número por sí solo no demuestra nada.
+	if v, _ := santiago["cupRateTraidoAt"].(string); !strings.HasPrefix(v, "2026-09-09") {
+		t.Errorf("cupRateTraidoAt de Santiago = %v, se esperaba la del 09/09", santiago["cupRateTraidoAt"])
+	}
+	// `fresca` la decide ACCESOS y se copia tal cual: aquí no se calcula ninguna regla de
+	// 24 h. Hoy las tasas que hay son del 09/09, así que el aviso tiene que salir.
+	if v, _ := santiago["cupRateFresca"].(bool); v {
+		t.Error("Accesos dijo que la tasa no es fresca y llegó como fresca")
+	}
+	if v, _ := santiago["cupRateFuente"].(string); v != "entrega" {
+		t.Errorf("cupRateFuente = %v, se esperaba «entrega»", santiago["cupRateFuente"])
+	}
+
+	holguin, hay := porNombre["Holguín"]
+	if !hay {
+		t.Fatalf("no vino Holguín: %s", w.Body.String())
+	}
+	// LA QUE NO TIENE LLEGA CON NULL Y CON LA CLAVE PUESTA. Ausente y null significan
+	// cosas distintas: con la clave presente el aparato sabe que se le preguntó y que no
+	// hay; sin ella no podría distinguirlo de una versión vieja del servidor.
+	for _, campo := range []string{"cupRate", "cupRateFuente", "cupRateTraidoAt", "cupRateFresca"} {
+		valor, presente := holguin[campo]
+		if !presente {
+			t.Errorf("a Holguín le falta la clave %q: ausente y null no significan lo mismo", campo)
+		}
+		if valor != nil {
+			t.Errorf("Holguín no tiene tasa y %q vino con %v: se le metió la de otra sucursal", campo, valor)
 		}
 	}
 }

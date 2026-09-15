@@ -26,6 +26,47 @@ class Branches extends Table {
   DateTimeColumn get createdAt => dateTime().nullable()();
   DateTimeColumn get updatedAt => dateTime().nullable()();
 
+  /// LA TASA DE CAMBIO DE ESTA SUCURSAL, y de ninguna otra.
+  ///
+  /// Vive aqui, en la sucursal, y no en `settings`. `settings` es GLOBAL —lo dice
+  /// la propia API: «son de toda la empresa… la tasa POR SUCURSAL es otra cosa y
+  /// vive en Accesos»— y una tasa sola para las ocho es exactamente como Granma
+  /// acabo enseñando los 685 de La Habana como si fueran suyos. Un importe asi se
+  /// lee bien y esta mal, que es lo peor que le puede pasar a un numero que
+  /// alguien va a cobrar.
+  ///
+  /// **Baja con el dia** (`GET /api/sync/cambios`, coleccion `branches`) porque
+  /// esta aplicacion tiene que pintar los importes sin conexion. La cadena entera
+  /// es: Entrega pone la tasa → Accesos la guarda por sucursal → la tarea de
+  /// fondo de la API la escribe en `branches` → aqui.
+  ///
+  /// **Los cuatro nacen nulos y no hay ningun 320 por defecto**, al reves que el
+  /// `settings.cupRate` viejo. Es la mitad del arreglo: con un valor por defecto,
+  /// ver un numero no demuestra que nadie haya puesto la tasa.
+
+  /// Cuantos CUP son 1 USD aqui. `null` = esta sucursal no tiene tasa, que es un
+  /// estado normal: hoy, seis de las ocho estan asi.
+  RealColumn get cupRate => real().nullable()();
+
+  /// De donde salio (`entrega`, `manual`…), tal como lo da Accesos.
+  TextColumn get cupRateFuente => text().nullable()();
+
+  /// Cuando se puso esa tasa en Entrega — el `traidoAt` de Accesos.
+  ///
+  /// **LA MARCA DE CUANDO, NO EL NUMERO.** Es lo unico que demuestra que la tasa
+  /// existe de verdad, y por eso quien la lee la exige. Se llama `traidoAt` y no
+  /// `updatedAt` para que no se confunda con el [updatedAt] de la fila, que es
+  /// otra cosa: cuando cambio la sucursal.
+  DateTimeColumn get cupRateTraidoAt => dateTime().nullable()();
+
+  /// Si ACCESOS la da por fresca (alli son 24 h).
+  ///
+  /// No se calcula aqui, y eso es deliberado: quien sabe cuando una tasa esta
+  /// pasada es quien la mantiene. El aparato copia el booleano y avisa; una
+  /// segunda regla de frescura se separaria de la primera el dia que una de las
+  /// dos cambie.
+  BoolColumn get cupRateFresca => boolean().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
@@ -274,16 +315,19 @@ class Settings extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
-@DataClassName('Moneda')
-class Currencies extends Table {
-  TextColumn get code => text()();
-
-  /// Unidades de esta moneda por 1 USD. CUP = 320.
-  RealColumn get rate => real()();
-  BoolColumn get activa => boolean().withDefault(const Constant(true))();
-  DateTimeColumn get createdAt => dateTime().nullable()();
-  DateTimeColumn get updatedAt => dateTime().nullable()();
-
-  @override
-  Set<Column<Object>> get primaryKey => {code};
-}
+// AQUI ESTABA `Currencies`, Y SE QUITO ENTERA (15/09/2026).
+//
+// Era la tabla que leia el selector de moneda de la barra superior, y **no la
+// llenaba nadie**: la bajada del dia no la trae, no esta en `Colecciones` y el
+// servidor no la sirve en `GET /api/sync/cambios`. Salia vacia siempre, asi que
+// la barra se quedaba PERMANENTEMENTE en la pastilla ambar «esta sucursal no
+// tiene tasa de cambio todavia», en las ocho sucursales, tuvieran tasa o no.
+//
+// Era ademas el modelo equivocado: una lista de monedas con una tasa global
+// —`CUP = 320`, la misma para las ocho— es justo lo que la regla de la casa
+// prohibe. La tasa es POR SUCURSAL y ahora vive donde vive de verdad, en
+// [Branches].
+//
+// La de la BASE DEL SERVIDOR sigue en pie: la usa `PUT /api/settings` desde la
+// pantalla de Configuracion → Monedas de `delivery` (la web). Quitarla de alli
+// es otro trabajo, con su front detras, y va en el informe.

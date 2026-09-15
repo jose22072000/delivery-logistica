@@ -76,7 +76,6 @@ abstract final class ClaveDePreferencia {
     Routes,
     Warehouses,
     Settings,
-    Currencies,
     // aparato — no suben nunca
     Apuntes,
     Equivalencias,
@@ -102,12 +101,35 @@ class BaseLocal extends _$BaseLocal {
 
   String? get dueno => _dueno;
 
+  /// ## 2 — la tasa de cambio, en la sucursal (15/09/2026)
+  ///
+  /// `branches` gana las cuatro columnas de la tasa y la tabla `currencies` se
+  /// va entera. El porque de las dos cosas esta en `tablas/dominio.dart`; en una
+  /// linea: la tasa es POR SUCURSAL y `currencies` no la llenaba nadie.
+  ///
+  /// Hay migracion y no un «borra el fichero y vuelve a entrar» aunque esto no
+  /// este todavia en produccion, porque el fichero de una base local NO es el de
+  /// un servidor: vive en el aparato de alguien, y ahi dentro esta **la cola sin
+  /// subir**. Un aparato que se quede sin poder abrir su base pierde el trabajo
+  /// del dia, que es lo unico que esta aplicacion no puede permitirse.
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async => m.createAll(),
+    onUpgrade: (m, desde, hasta) async {
+      if (desde < 2) {
+        await m.addColumn(branches, branches.cupRate);
+        await m.addColumn(branches, branches.cupRateFuente);
+        await m.addColumn(branches, branches.cupRateTraidoAt);
+        await m.addColumn(branches, branches.cupRateFresca);
+        // `currencies` ya no existe en el esquema, asi que no hay `TableInfo` que
+        // pasarle a `m.deleteTable`: se tira por SQL. `IF EXISTS` porque una base
+        // recien creada con la version 2 nunca la tuvo.
+        await customStatement('DROP TABLE IF EXISTS currencies');
+      }
+    },
     beforeOpen: (detalles) async {
       // Las claves ajenas van ENCENDIDAS. SQLite las trae apagadas por defecto y
       // sin ellas un borrado de ruta deja renglones huerfanos que luego salen en
@@ -155,7 +177,6 @@ class BaseLocal extends _$BaseLocal {
         vehicleTypes,
         warehouses,
         branches,
-        currencies,
         settings,
         frescura,
       ]) {

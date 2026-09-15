@@ -671,6 +671,28 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 			"id": b.ID, "name": b.Name, "externalId": b.ExternalID,
 			"address": b.Address, "lat": b.Lat, "lng": b.Lng,
 			"originConfigured": b.OriginConfigured, "updatedAt": hora(b.UpdatedAt),
+			// LA TASA DE CAMBIO DE ESTA SUCURSAL, y de ninguna otra.
+			//
+			// Viaja DENTRO de la sucursal a propósito. Es un dato suyo —lo mantiene
+			// Entrega, lo trae Accesos y lo deja aquí la tarea de fondo de
+			// `refresco_de_tasas.go`— y el aparato tiene que poder pintar los importes en
+			// CUP sin conexión, así que tiene que bajar con el resto del día.
+			//
+			// No va en `settings`, que es GLOBAL: una tasa sola para las ocho sucursales
+			// es exactamente cómo Granma acabó enseñando los 685 de La Habana como si
+			// fueran suyos.
+			//
+			// Los cuatro pueden venir null, y el que manda es `cupRateTraidoAt`: **la
+			// marca de cuándo, no el número**. Sin ella no hay tasa que valga, porque el
+			// esquema viejo traía 320 por defecto y un 320 no demuestra que nadie la haya
+			// puesto.
+			"cupRate":         b.CupRate,
+			"cupRateFuente":   b.CupRateFuente,
+			"cupRateTraidoAt": hora(b.CupRateTraidoAt),
+			// La frescura la decide ACCESOS (allí son 24 h), no nosotros y no el aparato:
+			// quien sabe cuándo una tasa está pasada es quien la mantiene. Aquí se copia
+			// el booleano tal cual para que el aparato pueda avisar sin decidir nada.
+			"cupRateFresca": b.CupRateFresca,
 		})
 	}
 	salida.Cambios["branches"] = conjunto(puestos)

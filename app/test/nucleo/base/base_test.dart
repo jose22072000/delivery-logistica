@@ -11,8 +11,8 @@ void main() {
   setUp(() => base = baseDePrueba());
   tearDown(() => base.close());
 
-  test('la base arranca en el esquema 1 con todas las tablas', () async {
-    expect(base.schemaVersion, 1);
+  test('la base arranca en el esquema 2 con todas las tablas', () async {
+    expect(base.schemaVersion, 2);
     final nombres = base.allTables.map((t) => t.actualTableName).toSet();
     expect(
       nombres,
@@ -27,14 +27,54 @@ void main() {
         'branches',
         'warehouses',
         'settings',
-        'currencies',
         'apuntes',
         'equivalencias',
         'frescura',
         'preferencias',
       ]),
     );
+    // `currencies` SE QUITO ENTERA (esquema 2). Era la tabla que leia el
+    // selector de moneda y no la llenaba nadie: no esta en `Colecciones`, la
+    // bajada no la trae y el servidor no la sirve, asi que la barra se quedaba
+    // en la pastilla ambar para siempre. Que no vuelva: con ella aqui, el
+    // selector volveria a mirar una tasa global de las que la casa prohibe.
+    expect(nombres, isNot(contains('currencies')));
   });
+
+  test(
+    'la tasa de cambio es UNA COLUMNA DE LA SUCURSAL, no de los ajustes',
+    () async {
+      // Donde vive la tasa es la decision de fondo de todo esto. `settings` es
+      // GLOBAL —lo dice la propia API— y una sola tasa para las ocho sucursales es
+      // como Granma acabo enseñando los 685 de La Habana como si fueran suyos.
+      final columnas = base.branches.$columns.map((c) => c.name).toSet();
+      expect(
+        columnas,
+        containsAll(<String>[
+          'cup_rate',
+          'cup_rate_fuente',
+          'cup_rate_traido_at',
+          'cup_rate_fresca',
+        ]),
+      );
+      // Y NACEN NULAS, sin ningun 320 por defecto: con un valor por defecto, ver un
+      // numero no demostraria que nadie haya puesto la tasa.
+      for (final c in base.branches.$columns.where(
+        (c) => c.name.startsWith('cup_rate'),
+      )) {
+        expect(
+          c.$nullable,
+          isTrue,
+          reason: '${c.name} tiene que poder ser nula',
+        );
+        expect(
+          c.defaultValue,
+          isNull,
+          reason: '${c.name} no puede traer un valor por defecto',
+        );
+      }
+    },
+  );
 
   test('los nombres de columna son los del servidor', () async {
     // Si esto cambia, la bajada deja de ser un `insertOnConflictUpdate` y hace

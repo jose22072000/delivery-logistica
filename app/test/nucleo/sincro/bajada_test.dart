@@ -365,40 +365,43 @@ void main() {
       expect(await base.select(base.customers).get(), hasLength(3));
     });
 
-    test('el cursor viaja de vuelta tal cual, sin mirarlo por dentro', () async {
-      final pedidas = <PeticionVista>[];
-      var vuelta = 0;
-      final bajada = Bajada(
-        cliente: clienteFalso((p) async {
-          if (p.ruta.endsWith('/almacenes')) {
+    test(
+      'el cursor viaja de vuelta tal cual, sin mirarlo por dentro',
+      () async {
+        final pedidas = <PeticionVista>[];
+        var vuelta = 0;
+        final bajada = Bajada(
+          cliente: clienteFalso((p) async {
+            if (p.ruta.endsWith('/almacenes')) {
+              return RespuestaFalsa(200, <String, Object?>{
+                'sucursales': <Object?>[],
+              });
+            }
+            pedidas.add(p);
+            vuelta++;
             return RespuestaFalsa(200, <String, Object?>{
-              'sucursales': <Object?>[],
+              'hasta': '2026-09-15T0$vuelta:00:00.000Z',
+              'completa': vuelta == 1,
+              'truncado': vuelta < 2,
+              'continuar': vuelta < 2 ? 'eyJjIjoyMDAwfQ' : null,
+              'cambios': <String, Object?>{'customers': conjunto()},
             });
-          }
-          pedidas.add(p);
-          vuelta++;
-          return RespuestaFalsa(200, <String, Object?>{
-            'hasta': '2026-09-15T0$vuelta:00:00.000Z',
-            'completa': vuelta == 1,
-            'truncado': vuelta < 2,
-            'continuar': vuelta < 2 ? 'eyJjIjoyMDAwfQ' : null,
-            'cambios': <String, Object?>{'customers': conjunto()},
-          });
-        }),
-        base: base,
-        frescura: frescura,
-        reloj: () => ahora,
-      );
+          }),
+          base: base,
+          frescura: frescura,
+          reloj: () => ahora,
+        );
 
-      await bajada.ciclo();
+        await bajada.ciclo();
 
-      expect(pedidas.first.parametros['continuar'], isNull);
-      expect(
-        pedidas.last.parametros['continuar'],
-        'eyJjIjoyMDAwfQ',
-        reason: 'el cursor es del servidor y vuelve entero',
-      );
-    });
+        expect(pedidas.first.parametros['continuar'], isNull);
+        expect(
+          pedidas.last.parametros['continuar'],
+          'eyJjIjoyMDAwfQ',
+          reason: 'el cursor es del servidor y vuelve entero',
+        );
+      },
+    );
 
     test('`truncado` con la MISMA marca Y el mismo cursor se para y LO DICE', () async {
       // Este es el caso exacto de los 2.000 clientes: el servidor contesta
@@ -453,5 +456,85 @@ void main() {
       expect(resumen.entera, isFalse);
       expect(resumen.quedoPor, contains('tope de ${Bajada.maximoDeTandas}'));
     });
+  });
+  // LA TASA BAJA DENTRO DE LA SUCURSAL, Y SE QUEDA EN EL APARATO.
+  //
+  // Es lo que hace que los importes se puedan ver en CUP sin conexion. Antes no
+  // bajaba por ningun lado: la barra leia la tabla `currencies`, que no llenaba
+  // nadie, y el selector se quedaba en ambar para siempre.
+  test('la tasa de cambio baja con la sucursal y queda guardada', () async {
+    final bajada = conRespuestas([
+      <String, Object?>{
+        'hasta': '2026-09-15T08:00:00.000Z',
+        'completa': true,
+        'cambios': <String, Object?>{
+          'branches': conjunto(
+            puestos: <Object?>[
+              <String, Object?>{
+                'id': 'suc-stg',
+                'name': 'Santiago',
+                'externalId': 'STG',
+                'lat': 20.02,
+                'lng': -75.82,
+                'originConfigured': true,
+                'updatedAt': '2026-09-15T07:00:00.000Z',
+                'cupRate': 700,
+                'cupRateFuente': 'entrega',
+                'cupRateTraidoAt': '2026-09-09T22:03:04.076Z',
+                'cupRateFresca': false,
+              },
+              // Y una SIN tasa: los cuatro campos en null. Es el estado de seis
+              // de las ocho sucursales hoy, y tiene que llegar tan explicito
+              // como el otro.
+              <String, Object?>{
+                'id': 'suc-gr',
+                'name': 'Granma',
+                'externalId': 'GR',
+                'lat': 20.38,
+                'lng': -76.64,
+                'updatedAt': '2026-09-15T07:00:00.000Z',
+                'cupRate': null,
+                'cupRateFuente': null,
+                'cupRateTraidoAt': null,
+                'cupRateFresca': null,
+              },
+            ],
+          ),
+        },
+      },
+    ]);
+
+    await bajada.ciclo();
+
+    final santiago = await (base.select(
+      base.branches,
+    )..where((b) => b.id.equals('suc-stg'))).getSingle();
+    expect(santiago.cupRate, 700);
+    expect(santiago.cupRateFuente, 'entrega');
+    expect(santiago.cupRateFresca, isFalse);
+    // LA MARCA DE CUANDO, que es lo unico que demuestra que la tasa existe.
+    expect(santiago.cupRateTraidoAt, isNotNull);
+    expect(santiago.cupRateTraidoAt!.toUtc().day, 9);
+
+    // A la que no tiene NO se le pone la tasa de la otra ni un 320 por defecto:
+    // se queda sin nada, y la barra lo dice con su nombre delante.
+    final granma = await (base.select(
+      base.branches,
+    )..where((b) => b.id.equals('suc-gr'))).getSingle();
+    expect(
+      granma.cupRate,
+      isNull,
+      reason: 'a Granma se le metio una tasa que no es suya',
+    );
+    expect(granma.cupRateTraidoAt, isNull);
+    expect(granma.cupRateFresca, isNull);
+
+    // Y AHORA SIN CONEXION: lo guardado se lee de la base, no de la red. Esta es
+    // la mitad del sentido de que la tasa baje: a las cuatro de la tarde, en el
+    // patio del almacen, no hay a quien preguntarle.
+    final deLaBase = await (base.select(
+      base.branches,
+    )..where((b) => b.id.equals('suc-stg'))).getSingle();
+    expect(deLaBase.cupRate, 700);
   });
 }

@@ -19,10 +19,15 @@
 -- Sucursales
 -- ---------------------------------------------------------------------------
 
+-- Las cuatro columnas de la tasa viajan AQUÍ porque de aquí sale la bajada del aparato
+-- (`GET /api/sync/cambios`, colección `branches`). La tasa es un dato DE LA SUCURSAL, y
+-- esta aplicación tiene que poder pintar los importes en CUP sin conexión — o sea que la
+-- tasa tiene que estar guardada en el aparato como todo lo demás del día.
 -- name: ListarSucursales :many
 SELECT
     b.id, b.name, b.address, b.lat, b.lng, b.area_km2, b.external_id,
     b.origin_configured, b.creado_por, b.created_at, b.updated_at,
+    b.cup_rate, b.cup_rate_fuente, b.cup_rate_traido_at, b.cup_rate_fresca,
     (SELECT count(*) FROM saved_origins so WHERE so.branch_id = b.id) AS origenes
 FROM branches b
 WHERE (sqlc.narg('sucursal_de_la_persona')::uuid IS NULL
@@ -32,7 +37,8 @@ ORDER BY b.created_at DESC;
 -- name: ObtenerSucursal :one
 SELECT
     b.id, b.name, b.address, b.lat, b.lng, b.area_km2, b.external_id,
-    b.origin_configured, b.creado_por, b.created_at, b.updated_at
+    b.origin_configured, b.creado_por, b.created_at, b.updated_at,
+    b.cup_rate, b.cup_rate_fuente, b.cup_rate_traido_at, b.cup_rate_fresca
 FROM branches b
 WHERE b.id = sqlc.arg('id')
   AND (sqlc.narg('sucursal')::uuid IS NULL OR b.id = sqlc.narg('sucursal')::uuid);
@@ -73,7 +79,8 @@ VALUES (
     sqlc.arg('area_km2'), sqlc.narg('external_id'), true, sqlc.narg('creado_por')
 )
 RETURNING id, name, address, lat, lng, area_km2, external_id,
-          origin_configured, creado_por, created_at, updated_at;
+          origin_configured, creado_por, created_at, updated_at,
+          cup_rate, cup_rate_fuente, cup_rate_traido_at, cup_rate_fresca;
 
 -- Tocar lat o lng da el punto de partida por configurado: si alguien se molestó en
 -- ponerle coordenadas, ya está fijado.
@@ -95,12 +102,56 @@ UPDATE branches SET
 WHERE id = sqlc.arg('id')
   AND (sqlc.narg('sucursal')::uuid IS NULL OR id = sqlc.narg('sucursal')::uuid)
 RETURNING id, name, address, lat, lng, area_km2, external_id,
-          origin_configured, creado_por, created_at, updated_at;
+          origin_configured, creado_por, created_at, updated_at,
+          cup_rate, cup_rate_fuente, cup_rate_traido_at, cup_rate_fresca;
 
 -- name: BorrarSucursal :execrows
 DELETE FROM branches
 WHERE id = sqlc.arg('id')
   AND (sqlc.narg('sucursal')::uuid IS NULL OR id = sqlc.narg('sucursal')::uuid);
+
+-- ---------------------------------------------------------------------------
+-- La tasa de cambio de cada sucursal  (`internal/api/refresco_de_tasas.go`)
+-- ---------------------------------------------------------------------------
+
+-- A quién hay que preguntarle la tasa: las sucursales que TIENEN código, que es por lo
+-- que Accesos las conoce. Sin código no hay nada que preguntar.
+--
+-- SIN ALCANCE, y no es un descuido: esto lo llama una tarea de fondo, que no es una
+-- persona y no mira por nadie. Acotarla dejaría sin tasa a las siete sucursales que no
+-- fueran la del último que entró.
+-- name: CodigosParaRefrescarLaTasa :many
+SELECT b.id, b.name, b.external_id
+FROM branches b
+WHERE b.external_id IS NOT NULL AND btrim(b.external_id) <> ''
+ORDER BY b.external_id ASC;
+
+-- Guardar la tasa que vino de Accesos, por CÓDIGO de sucursal.
+--
+-- DOS COSAS QUE NO SE VEN VENIR, las dos en el WHERE:
+--
+--  1. **Sólo escribe si algo cambió** (`IS DISTINCT FROM`). El disparador
+--     `trg_branches_updated` mueve `updated_at` en CADA update, y `updated_at` es lo que
+--     decide qué entra en la bajada por diferencias. Sin esta guarda, el refresco de cada
+--     hora haría que las ocho sucursales bajaran otra vez a todos los aparatos aunque la
+--     tasa fuera la misma — y, peor, `updatedAt` diría que la sucursal cambió cuando no
+--     cambió nada.
+--  2. **NUNCA borra una tasa que ya había.** Sólo se llama con una tasa de verdad: el
+--     «esta sucursal no tiene» de Accesos no escribe NULL aquí. Ver el porqué entero en
+--     `refresco_de_tasas.go`; en dos líneas: si un tropiezo de Accesos borrara la tasa
+--     guardada, el aparato que está en la calle se quedaría sin poder ver CUP con una
+--     tasa que sigue siendo buena, y la fecha que va al lado ya cuenta lo vieja que es.
+-- name: GuardarTasaDeSucursal :execrows
+UPDATE branches SET
+    cup_rate           = sqlc.arg('cup_rate')::double precision,
+    cup_rate_fuente    = sqlc.narg('cup_rate_fuente')::text,
+    cup_rate_traido_at = sqlc.narg('cup_rate_traido_at')::timestamptz,
+    cup_rate_fresca    = sqlc.arg('cup_rate_fresca')::boolean
+WHERE external_id = sqlc.arg('external_id')
+  AND (cup_rate           IS DISTINCT FROM sqlc.arg('cup_rate')::double precision
+    OR cup_rate_fuente    IS DISTINCT FROM sqlc.narg('cup_rate_fuente')::text
+    OR cup_rate_traido_at IS DISTINCT FROM sqlc.narg('cup_rate_traido_at')::timestamptz
+    OR cup_rate_fresca    IS DISTINCT FROM sqlc.arg('cup_rate_fresca')::boolean);
 
 -- ---------------------------------------------------------------------------
 -- Puntos de partida guardados  (/api/origins)

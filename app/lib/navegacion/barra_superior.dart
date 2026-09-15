@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../diseno/anchos.dart';
 import '../diseno/colores.dart';
+import '../diseno/numeros.dart';
 import '../diseno/selector.dart';
 import '../diseno/tema.dart';
 import '../nucleo/base/base.dart';
@@ -201,70 +202,112 @@ class _Sucursal extends ConsumerWidget {
 
 /// La moneda en la que se PINTAN los importes.
 ///
-/// Sin tasa se queda en USD fijo, con borde ambar y el motivo en el tooltip
-/// (§8.2). No se ofrece elegir CUP sin tasa: convertir sin tasa es inventarse un
-/// numero, y un numero inventado en una hoja de reparto acaba cobrado.
+/// Sin tasa se queda en USD fijo, con borde ambar y **el motivo de verdad** en el
+/// tooltip (§8.2). No se ofrece elegir CUP sin tasa: convertir sin tasa es
+/// inventarse un numero, y un numero inventado en una hoja de reparto acaba
+/// cobrado.
+///
+/// ## De donde sale la tasa, y de donde NO
+///
+/// De [tasaDeLaMiradaProvider], que la lee de la SUCURSAL que se esta mirando.
+///
+/// Antes se leia la tabla local `currencies`, **que no llenaba nadie**: no esta
+/// en `Colecciones`, la bajada del dia no la trae y el servidor no la sirve. Salia
+/// vacia siempre, asi que esta pastilla se quedaba en ambar para siempre, en las
+/// ocho sucursales, tuvieran tasa o no — y como el mensaje que enseñaba («esta
+/// sucursal no tiene tasa de cambio todavia») puede ser verdad, nadie lo iba a
+/// cuestionar. Esa tabla ya no existe.
+///
+/// Tampoco se lee `settings.cupRate`, que es el campo viejo y GLOBAL de delivery,
+/// con 320 por defecto. Leerlo seria darle a las ocho sucursales la misma tasa,
+/// que es como Granma acabo enseñando los 685 de La Habana.
 class _Moneda extends ConsumerWidget {
   const _Moneda();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final monedas = ref.watch(monedasProvider).value ?? const <Moneda>[];
-    final mirada = ref.watch(monedaMiradaProvider);
-    final conTasa = monedas
-        .where((m) => m.code != 'USD' && m.rate > 0)
-        .toList();
+    final tasa = ref.watch(tasaDeLaMiradaProvider);
+    final mirada = ref.watch(monedaEfectivaProvider);
 
-    if (conTasa.isEmpty) {
-      return Tooltip(
-        message:
-            'Esta sucursal no tiene tasa de cambio todavía: '
-            'los importes sólo se pueden ver en USD.',
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: Aire.md, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colores.blanco,
-            border: Border.all(color: Colores.ambar.withValues(alpha: 0.45)),
-            borderRadius: BorderRadius.circular(Radios.lg),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.money_off_csred_outlined,
-                size: 16,
-                color: Colores.ambar,
-              ),
-              const SizedBox(width: 6),
-              // En mono: es una cifra, aunque sea el codigo de la moneda.
-              Text(
-                'USD',
-                style: Tipos.mono(
-                  tamano: 12,
-                  peso: FontWeight.w600,
-                  color: Colores.ambar,
-                ),
-              ),
-            ],
-          ),
-        ),
+    // --- Sin tasa de ESTA sucursal: USD fijo, y se dice por que --------------
+    if (!tasa.hayCup) {
+      return _pastillaAmbar(
+        aviso: tasa.motivo ?? '',
+        icono: Icons.money_off_csred_outlined,
       );
     }
 
-    return Selector<String>(
-      tooltip: 'Moneda de visualización',
+    // --- Con tasa ------------------------------------------------------------
+    //
+    // La NOTA de la opcion lleva la tasa Y SU FECHA. La fecha no es un adorno: es
+    // lo unico que demuestra que la tasa es de verdad y lo que deja ver de cuando
+    // es sin abrir nada. Hoy las que hay son del 9 de septiembre.
+    final nota =
+        '1 USD = ${Numeros.entero(tasa.cupPorUsd!)} · '
+        'del ${tasa.traidoAt!.day}/${tasa.traidoAt!.month}/'
+        '${tasa.traidoAt!.year}';
+
+    final selector = Selector<String>(
+      tooltip: tasa.aviso ?? 'Moneda de visualización',
       etiquetaVacia: 'USD',
       valor: mirada,
       opciones: [
         const OpcionSelector<String>(valor: 'USD', etiqueta: 'USD'),
-        for (final m in conTasa)
-          OpcionSelector<String>(
-            valor: m.code,
-            etiqueta: m.code,
-            nota: '1 USD = ${m.rate}',
-          ),
+        OpcionSelector<String>(valor: 'CUP', etiqueta: 'CUP', nota: nota),
       ],
       alElegir: (v) => ref.read(monedaMiradaProvider.notifier).mirar(v),
+    );
+
+    // TASA VIEJA: SE ENSEÑA, CON AVISO. Lo decide Accesos (24 h alli), no esta
+    // pantalla. El aviso va a la vista y no solo en el tooltip cuando se esta
+    // pintando en CUP: es cuando el numero desfasado esta delante de los ojos.
+    if (tasa.aviso == null || mirada != 'CUP') return selector;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Tooltip(
+          message: tasa.aviso!,
+          child: const Icon(
+            Icons.schedule_outlined,
+            size: 16,
+            color: Colores.ambar,
+          ),
+        ),
+        const SizedBox(width: 6),
+        selector,
+      ],
+    );
+  }
+
+  /// La pastilla de «aqui no se puede ver en CUP», con el motivo dentro.
+  Widget _pastillaAmbar({required String aviso, required IconData icono}) {
+    return Tooltip(
+      message: aviso,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: Aire.md, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colores.blanco,
+          border: Border.all(color: Colores.ambar.withValues(alpha: 0.45)),
+          borderRadius: BorderRadius.circular(Radios.lg),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icono, size: 16, color: Colores.ambar),
+            const SizedBox(width: 6),
+            // En mono: es una cifra, aunque sea el codigo de la moneda.
+            Text(
+              'USD',
+              style: Tipos.mono(
+                tamano: 12,
+                peso: FontWeight.w600,
+                color: Colores.ambar,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

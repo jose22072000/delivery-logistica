@@ -132,6 +132,25 @@ func correr() error {
 			"falta", falta)
 	}
 
+	// EL REFRESCO DE LA TASA DE CAMBIO, sólo si se puede firmar contra Accesos.
+	//
+	// Sin `PROCOVAR_AUTH_SIGNING_KEY` no hay forma de preguntarle nada a Accesos, así que
+	// arrancar la tarea sería un aviso de fallo cada hora en el registro y ni una tasa
+	// guardada. Se dice al arrancar —que es cuando lo lee quien despliega— y no la tarde
+	// que alguien pregunte por qué el aparato sigue enseñando los importes en USD.
+	//
+	// Corre en su propia gorutina y muere con el contexto, igual que el servidor: la
+	// primera señal para las dos cosas.
+	if cfg.AuthSigningKey != "" {
+		refresco := api.NuevoRefrescoDeTasas(almacen, nil, reg, cfg.TasaRefresco)
+		go refresco.Correr(ctx)
+		reg.Info("refresco de la tasa de cambio arrancado", "cada", cfg.TasaRefresco)
+	} else {
+		reg.Warn("sin PROCOVAR_AUTH_SIGNING_KEY no se refresca la tasa de cambio: " +
+			"`branches.cup_rate` se queda como esté y los aparatos sólo podrán ver los " +
+			"importes en USD")
+	}
+
 	servidor := &http.Server{
 		Addr:              cfg.Direccion(),
 		Handler:           servicio.Rutas(),

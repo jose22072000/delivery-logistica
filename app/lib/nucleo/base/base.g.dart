@@ -126,6 +126,54 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Sucursal> {
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _cupRateMeta = const VerificationMeta(
+    'cupRate',
+  );
+  @override
+  late final GeneratedColumn<double> cupRate = GeneratedColumn<double>(
+    'cup_rate',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cupRateFuenteMeta = const VerificationMeta(
+    'cupRateFuente',
+  );
+  @override
+  late final GeneratedColumn<String> cupRateFuente = GeneratedColumn<String>(
+    'cup_rate_fuente',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cupRateTraidoAtMeta = const VerificationMeta(
+    'cupRateTraidoAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> cupRateTraidoAt =
+      GeneratedColumn<DateTime>(
+        'cup_rate_traido_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _cupRateFrescaMeta = const VerificationMeta(
+    'cupRateFresca',
+  );
+  @override
+  late final GeneratedColumn<bool> cupRateFresca = GeneratedColumn<bool>(
+    'cup_rate_fresca',
+    aliasedName,
+    true,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("cup_rate_fresca" IN (0, 1))',
+    ),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -139,6 +187,10 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Sucursal> {
     creadoPor,
     createdAt,
     updatedAt,
+    cupRate,
+    cupRateFuente,
+    cupRateTraidoAt,
+    cupRateFresca,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -226,6 +278,39 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Sucursal> {
         updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
       );
     }
+    if (data.containsKey('cup_rate')) {
+      context.handle(
+        _cupRateMeta,
+        cupRate.isAcceptableOrUnknown(data['cup_rate']!, _cupRateMeta),
+      );
+    }
+    if (data.containsKey('cup_rate_fuente')) {
+      context.handle(
+        _cupRateFuenteMeta,
+        cupRateFuente.isAcceptableOrUnknown(
+          data['cup_rate_fuente']!,
+          _cupRateFuenteMeta,
+        ),
+      );
+    }
+    if (data.containsKey('cup_rate_traido_at')) {
+      context.handle(
+        _cupRateTraidoAtMeta,
+        cupRateTraidoAt.isAcceptableOrUnknown(
+          data['cup_rate_traido_at']!,
+          _cupRateTraidoAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('cup_rate_fresca')) {
+      context.handle(
+        _cupRateFrescaMeta,
+        cupRateFresca.isAcceptableOrUnknown(
+          data['cup_rate_fresca']!,
+          _cupRateFrescaMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -279,6 +364,22 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Sucursal> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       ),
+      cupRate: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}cup_rate'],
+      ),
+      cupRateFuente: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cup_rate_fuente'],
+      ),
+      cupRateTraidoAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cup_rate_traido_at'],
+      ),
+      cupRateFresca: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}cup_rate_fresca'],
+      ),
     );
   }
 
@@ -300,6 +401,46 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
   final String? creadoPor;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  /// LA TASA DE CAMBIO DE ESTA SUCURSAL, y de ninguna otra.
+  ///
+  /// Vive aqui, en la sucursal, y no en `settings`. `settings` es GLOBAL —lo dice
+  /// la propia API: «son de toda la empresa… la tasa POR SUCURSAL es otra cosa y
+  /// vive en Accesos»— y una tasa sola para las ocho es exactamente como Granma
+  /// acabo enseñando los 685 de La Habana como si fueran suyos. Un importe asi se
+  /// lee bien y esta mal, que es lo peor que le puede pasar a un numero que
+  /// alguien va a cobrar.
+  ///
+  /// **Baja con el dia** (`GET /api/sync/cambios`, coleccion `branches`) porque
+  /// esta aplicacion tiene que pintar los importes sin conexion. La cadena entera
+  /// es: Entrega pone la tasa → Accesos la guarda por sucursal → la tarea de
+  /// fondo de la API la escribe en `branches` → aqui.
+  ///
+  /// **Los cuatro nacen nulos y no hay ningun 320 por defecto**, al reves que el
+  /// `settings.cupRate` viejo. Es la mitad del arreglo: con un valor por defecto,
+  /// ver un numero no demuestra que nadie haya puesto la tasa.
+  /// Cuantos CUP son 1 USD aqui. `null` = esta sucursal no tiene tasa, que es un
+  /// estado normal: hoy, seis de las ocho estan asi.
+  final double? cupRate;
+
+  /// De donde salio (`entrega`, `manual`…), tal como lo da Accesos.
+  final String? cupRateFuente;
+
+  /// Cuando se puso esa tasa en Entrega — el `traidoAt` de Accesos.
+  ///
+  /// **LA MARCA DE CUANDO, NO EL NUMERO.** Es lo unico que demuestra que la tasa
+  /// existe de verdad, y por eso quien la lee la exige. Se llama `traidoAt` y no
+  /// `updatedAt` para que no se confunda con el [updatedAt] de la fila, que es
+  /// otra cosa: cuando cambio la sucursal.
+  final DateTime? cupRateTraidoAt;
+
+  /// Si ACCESOS la da por fresca (alli son 24 h).
+  ///
+  /// No se calcula aqui, y eso es deliberado: quien sabe cuando una tasa esta
+  /// pasada es quien la mantiene. El aparato copia el booleano y avisa; una
+  /// segunda regla de frescura se separaria de la primera el dia que una de las
+  /// dos cambie.
+  final bool? cupRateFresca;
   const Sucursal({
     required this.id,
     required this.name,
@@ -312,6 +453,10 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
     this.creadoPor,
     this.createdAt,
     this.updatedAt,
+    this.cupRate,
+    this.cupRateFuente,
+    this.cupRateTraidoAt,
+    this.cupRateFresca,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -336,6 +481,18 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
     }
     if (!nullToAbsent || updatedAt != null) {
       map['updated_at'] = Variable<DateTime>(updatedAt);
+    }
+    if (!nullToAbsent || cupRate != null) {
+      map['cup_rate'] = Variable<double>(cupRate);
+    }
+    if (!nullToAbsent || cupRateFuente != null) {
+      map['cup_rate_fuente'] = Variable<String>(cupRateFuente);
+    }
+    if (!nullToAbsent || cupRateTraidoAt != null) {
+      map['cup_rate_traido_at'] = Variable<DateTime>(cupRateTraidoAt);
+    }
+    if (!nullToAbsent || cupRateFresca != null) {
+      map['cup_rate_fresca'] = Variable<bool>(cupRateFresca);
     }
     return map;
   }
@@ -363,6 +520,18 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
       updatedAt: updatedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(updatedAt),
+      cupRate: cupRate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cupRate),
+      cupRateFuente: cupRateFuente == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cupRateFuente),
+      cupRateTraidoAt: cupRateTraidoAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cupRateTraidoAt),
+      cupRateFresca: cupRateFresca == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cupRateFresca),
     );
   }
 
@@ -383,6 +552,10 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
       creadoPor: serializer.fromJson<String?>(json['creadoPor']),
       createdAt: serializer.fromJson<DateTime?>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
+      cupRate: serializer.fromJson<double?>(json['cupRate']),
+      cupRateFuente: serializer.fromJson<String?>(json['cupRateFuente']),
+      cupRateTraidoAt: serializer.fromJson<DateTime?>(json['cupRateTraidoAt']),
+      cupRateFresca: serializer.fromJson<bool?>(json['cupRateFresca']),
     );
   }
   @override
@@ -400,6 +573,10 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
       'creadoPor': serializer.toJson<String?>(creadoPor),
       'createdAt': serializer.toJson<DateTime?>(createdAt),
       'updatedAt': serializer.toJson<DateTime?>(updatedAt),
+      'cupRate': serializer.toJson<double?>(cupRate),
+      'cupRateFuente': serializer.toJson<String?>(cupRateFuente),
+      'cupRateTraidoAt': serializer.toJson<DateTime?>(cupRateTraidoAt),
+      'cupRateFresca': serializer.toJson<bool?>(cupRateFresca),
     };
   }
 
@@ -415,6 +592,10 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
     Value<String?> creadoPor = const Value.absent(),
     Value<DateTime?> createdAt = const Value.absent(),
     Value<DateTime?> updatedAt = const Value.absent(),
+    Value<double?> cupRate = const Value.absent(),
+    Value<String?> cupRateFuente = const Value.absent(),
+    Value<DateTime?> cupRateTraidoAt = const Value.absent(),
+    Value<bool?> cupRateFresca = const Value.absent(),
   }) => Sucursal(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -427,6 +608,16 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
     creadoPor: creadoPor.present ? creadoPor.value : this.creadoPor,
     createdAt: createdAt.present ? createdAt.value : this.createdAt,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
+    cupRate: cupRate.present ? cupRate.value : this.cupRate,
+    cupRateFuente: cupRateFuente.present
+        ? cupRateFuente.value
+        : this.cupRateFuente,
+    cupRateTraidoAt: cupRateTraidoAt.present
+        ? cupRateTraidoAt.value
+        : this.cupRateTraidoAt,
+    cupRateFresca: cupRateFresca.present
+        ? cupRateFresca.value
+        : this.cupRateFresca,
   );
   Sucursal copyWithCompanion(BranchesCompanion data) {
     return Sucursal(
@@ -445,6 +636,16 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
       creadoPor: data.creadoPor.present ? data.creadoPor.value : this.creadoPor,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      cupRate: data.cupRate.present ? data.cupRate.value : this.cupRate,
+      cupRateFuente: data.cupRateFuente.present
+          ? data.cupRateFuente.value
+          : this.cupRateFuente,
+      cupRateTraidoAt: data.cupRateTraidoAt.present
+          ? data.cupRateTraidoAt.value
+          : this.cupRateTraidoAt,
+      cupRateFresca: data.cupRateFresca.present
+          ? data.cupRateFresca.value
+          : this.cupRateFresca,
     );
   }
 
@@ -461,7 +662,11 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
           ..write('originConfigured: $originConfigured, ')
           ..write('creadoPor: $creadoPor, ')
           ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('cupRate: $cupRate, ')
+          ..write('cupRateFuente: $cupRateFuente, ')
+          ..write('cupRateTraidoAt: $cupRateTraidoAt, ')
+          ..write('cupRateFresca: $cupRateFresca')
           ..write(')'))
         .toString();
   }
@@ -479,6 +684,10 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
     creadoPor,
     createdAt,
     updatedAt,
+    cupRate,
+    cupRateFuente,
+    cupRateTraidoAt,
+    cupRateFresca,
   );
   @override
   bool operator ==(Object other) =>
@@ -494,7 +703,11 @@ class Sucursal extends DataClass implements Insertable<Sucursal> {
           other.originConfigured == this.originConfigured &&
           other.creadoPor == this.creadoPor &&
           other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.cupRate == this.cupRate &&
+          other.cupRateFuente == this.cupRateFuente &&
+          other.cupRateTraidoAt == this.cupRateTraidoAt &&
+          other.cupRateFresca == this.cupRateFresca);
 }
 
 class BranchesCompanion extends UpdateCompanion<Sucursal> {
@@ -509,6 +722,10 @@ class BranchesCompanion extends UpdateCompanion<Sucursal> {
   final Value<String?> creadoPor;
   final Value<DateTime?> createdAt;
   final Value<DateTime?> updatedAt;
+  final Value<double?> cupRate;
+  final Value<String?> cupRateFuente;
+  final Value<DateTime?> cupRateTraidoAt;
+  final Value<bool?> cupRateFresca;
   final Value<int> rowid;
   const BranchesCompanion({
     this.id = const Value.absent(),
@@ -522,6 +739,10 @@ class BranchesCompanion extends UpdateCompanion<Sucursal> {
     this.creadoPor = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.cupRate = const Value.absent(),
+    this.cupRateFuente = const Value.absent(),
+    this.cupRateTraidoAt = const Value.absent(),
+    this.cupRateFresca = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   BranchesCompanion.insert({
@@ -536,6 +757,10 @@ class BranchesCompanion extends UpdateCompanion<Sucursal> {
     this.creadoPor = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.cupRate = const Value.absent(),
+    this.cupRateFuente = const Value.absent(),
+    this.cupRateTraidoAt = const Value.absent(),
+    this.cupRateFresca = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -553,6 +778,10 @@ class BranchesCompanion extends UpdateCompanion<Sucursal> {
     Expression<String>? creadoPor,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
+    Expression<double>? cupRate,
+    Expression<String>? cupRateFuente,
+    Expression<DateTime>? cupRateTraidoAt,
+    Expression<bool>? cupRateFresca,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -567,6 +796,10 @@ class BranchesCompanion extends UpdateCompanion<Sucursal> {
       if (creadoPor != null) 'creado_por': creadoPor,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (cupRate != null) 'cup_rate': cupRate,
+      if (cupRateFuente != null) 'cup_rate_fuente': cupRateFuente,
+      if (cupRateTraidoAt != null) 'cup_rate_traido_at': cupRateTraidoAt,
+      if (cupRateFresca != null) 'cup_rate_fresca': cupRateFresca,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -583,6 +816,10 @@ class BranchesCompanion extends UpdateCompanion<Sucursal> {
     Value<String?>? creadoPor,
     Value<DateTime?>? createdAt,
     Value<DateTime?>? updatedAt,
+    Value<double?>? cupRate,
+    Value<String?>? cupRateFuente,
+    Value<DateTime?>? cupRateTraidoAt,
+    Value<bool?>? cupRateFresca,
     Value<int>? rowid,
   }) {
     return BranchesCompanion(
@@ -597,6 +834,10 @@ class BranchesCompanion extends UpdateCompanion<Sucursal> {
       creadoPor: creadoPor ?? this.creadoPor,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      cupRate: cupRate ?? this.cupRate,
+      cupRateFuente: cupRateFuente ?? this.cupRateFuente,
+      cupRateTraidoAt: cupRateTraidoAt ?? this.cupRateTraidoAt,
+      cupRateFresca: cupRateFresca ?? this.cupRateFresca,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -637,6 +878,18 @@ class BranchesCompanion extends UpdateCompanion<Sucursal> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
+    if (cupRate.present) {
+      map['cup_rate'] = Variable<double>(cupRate.value);
+    }
+    if (cupRateFuente.present) {
+      map['cup_rate_fuente'] = Variable<String>(cupRateFuente.value);
+    }
+    if (cupRateTraidoAt.present) {
+      map['cup_rate_traido_at'] = Variable<DateTime>(cupRateTraidoAt.value);
+    }
+    if (cupRateFresca.present) {
+      map['cup_rate_fresca'] = Variable<bool>(cupRateFresca.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -657,6 +910,10 @@ class BranchesCompanion extends UpdateCompanion<Sucursal> {
           ..write('creadoPor: $creadoPor, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('cupRate: $cupRate, ')
+          ..write('cupRateFuente: $cupRateFuente, ')
+          ..write('cupRateTraidoAt: $cupRateTraidoAt, ')
+          ..write('cupRateFresca: $cupRateFresca, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -8767,372 +9024,6 @@ class SettingsCompanion extends UpdateCompanion<Ajustes> {
   }
 }
 
-class $CurrenciesTable extends Currencies
-    with TableInfo<$CurrenciesTable, Moneda> {
-  @override
-  final GeneratedDatabase attachedDatabase;
-  final String? _alias;
-  $CurrenciesTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _codeMeta = const VerificationMeta('code');
-  @override
-  late final GeneratedColumn<String> code = GeneratedColumn<String>(
-    'code',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
-  );
-  static const VerificationMeta _rateMeta = const VerificationMeta('rate');
-  @override
-  late final GeneratedColumn<double> rate = GeneratedColumn<double>(
-    'rate',
-    aliasedName,
-    false,
-    type: DriftSqlType.double,
-    requiredDuringInsert: true,
-  );
-  static const VerificationMeta _activaMeta = const VerificationMeta('activa');
-  @override
-  late final GeneratedColumn<bool> activa = GeneratedColumn<bool>(
-    'activa',
-    aliasedName,
-    false,
-    type: DriftSqlType.bool,
-    requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("activa" IN (0, 1))',
-    ),
-    defaultValue: const Constant(true),
-  );
-  static const VerificationMeta _createdAtMeta = const VerificationMeta(
-    'createdAt',
-  );
-  @override
-  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
-    'created_at',
-    aliasedName,
-    true,
-    type: DriftSqlType.dateTime,
-    requiredDuringInsert: false,
-  );
-  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
-    'updatedAt',
-  );
-  @override
-  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
-    'updated_at',
-    aliasedName,
-    true,
-    type: DriftSqlType.dateTime,
-    requiredDuringInsert: false,
-  );
-  @override
-  List<GeneratedColumn> get $columns => [
-    code,
-    rate,
-    activa,
-    createdAt,
-    updatedAt,
-  ];
-  @override
-  String get aliasedName => _alias ?? actualTableName;
-  @override
-  String get actualTableName => $name;
-  static const String $name = 'currencies';
-  @override
-  VerificationContext validateIntegrity(
-    Insertable<Moneda> instance, {
-    bool isInserting = false,
-  }) {
-    final context = VerificationContext();
-    final data = instance.toColumns(true);
-    if (data.containsKey('code')) {
-      context.handle(
-        _codeMeta,
-        code.isAcceptableOrUnknown(data['code']!, _codeMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_codeMeta);
-    }
-    if (data.containsKey('rate')) {
-      context.handle(
-        _rateMeta,
-        rate.isAcceptableOrUnknown(data['rate']!, _rateMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_rateMeta);
-    }
-    if (data.containsKey('activa')) {
-      context.handle(
-        _activaMeta,
-        activa.isAcceptableOrUnknown(data['activa']!, _activaMeta),
-      );
-    }
-    if (data.containsKey('created_at')) {
-      context.handle(
-        _createdAtMeta,
-        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
-      );
-    }
-    if (data.containsKey('updated_at')) {
-      context.handle(
-        _updatedAtMeta,
-        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
-      );
-    }
-    return context;
-  }
-
-  @override
-  Set<GeneratedColumn> get $primaryKey => {code};
-  @override
-  Moneda map(Map<String, dynamic> data, {String? tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return Moneda(
-      code: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}code'],
-      )!,
-      rate: attachedDatabase.typeMapping.read(
-        DriftSqlType.double,
-        data['${effectivePrefix}rate'],
-      )!,
-      activa: attachedDatabase.typeMapping.read(
-        DriftSqlType.bool,
-        data['${effectivePrefix}activa'],
-      )!,
-      createdAt: attachedDatabase.typeMapping.read(
-        DriftSqlType.dateTime,
-        data['${effectivePrefix}created_at'],
-      ),
-      updatedAt: attachedDatabase.typeMapping.read(
-        DriftSqlType.dateTime,
-        data['${effectivePrefix}updated_at'],
-      ),
-    );
-  }
-
-  @override
-  $CurrenciesTable createAlias(String alias) {
-    return $CurrenciesTable(attachedDatabase, alias);
-  }
-}
-
-class Moneda extends DataClass implements Insertable<Moneda> {
-  final String code;
-
-  /// Unidades de esta moneda por 1 USD. CUP = 320.
-  final double rate;
-  final bool activa;
-  final DateTime? createdAt;
-  final DateTime? updatedAt;
-  const Moneda({
-    required this.code,
-    required this.rate,
-    required this.activa,
-    this.createdAt,
-    this.updatedAt,
-  });
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['code'] = Variable<String>(code);
-    map['rate'] = Variable<double>(rate);
-    map['activa'] = Variable<bool>(activa);
-    if (!nullToAbsent || createdAt != null) {
-      map['created_at'] = Variable<DateTime>(createdAt);
-    }
-    if (!nullToAbsent || updatedAt != null) {
-      map['updated_at'] = Variable<DateTime>(updatedAt);
-    }
-    return map;
-  }
-
-  CurrenciesCompanion toCompanion(bool nullToAbsent) {
-    return CurrenciesCompanion(
-      code: Value(code),
-      rate: Value(rate),
-      activa: Value(activa),
-      createdAt: createdAt == null && nullToAbsent
-          ? const Value.absent()
-          : Value(createdAt),
-      updatedAt: updatedAt == null && nullToAbsent
-          ? const Value.absent()
-          : Value(updatedAt),
-    );
-  }
-
-  factory Moneda.fromJson(
-    Map<String, dynamic> json, {
-    ValueSerializer? serializer,
-  }) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return Moneda(
-      code: serializer.fromJson<String>(json['code']),
-      rate: serializer.fromJson<double>(json['rate']),
-      activa: serializer.fromJson<bool>(json['activa']),
-      createdAt: serializer.fromJson<DateTime?>(json['createdAt']),
-      updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'code': serializer.toJson<String>(code),
-      'rate': serializer.toJson<double>(rate),
-      'activa': serializer.toJson<bool>(activa),
-      'createdAt': serializer.toJson<DateTime?>(createdAt),
-      'updatedAt': serializer.toJson<DateTime?>(updatedAt),
-    };
-  }
-
-  Moneda copyWith({
-    String? code,
-    double? rate,
-    bool? activa,
-    Value<DateTime?> createdAt = const Value.absent(),
-    Value<DateTime?> updatedAt = const Value.absent(),
-  }) => Moneda(
-    code: code ?? this.code,
-    rate: rate ?? this.rate,
-    activa: activa ?? this.activa,
-    createdAt: createdAt.present ? createdAt.value : this.createdAt,
-    updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
-  );
-  Moneda copyWithCompanion(CurrenciesCompanion data) {
-    return Moneda(
-      code: data.code.present ? data.code.value : this.code,
-      rate: data.rate.present ? data.rate.value : this.rate,
-      activa: data.activa.present ? data.activa.value : this.activa,
-      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
-      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('Moneda(')
-          ..write('code: $code, ')
-          ..write('rate: $rate, ')
-          ..write('activa: $activa, ')
-          ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(code, rate, activa, createdAt, updatedAt);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is Moneda &&
-          other.code == this.code &&
-          other.rate == this.rate &&
-          other.activa == this.activa &&
-          other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt);
-}
-
-class CurrenciesCompanion extends UpdateCompanion<Moneda> {
-  final Value<String> code;
-  final Value<double> rate;
-  final Value<bool> activa;
-  final Value<DateTime?> createdAt;
-  final Value<DateTime?> updatedAt;
-  final Value<int> rowid;
-  const CurrenciesCompanion({
-    this.code = const Value.absent(),
-    this.rate = const Value.absent(),
-    this.activa = const Value.absent(),
-    this.createdAt = const Value.absent(),
-    this.updatedAt = const Value.absent(),
-    this.rowid = const Value.absent(),
-  });
-  CurrenciesCompanion.insert({
-    required String code,
-    required double rate,
-    this.activa = const Value.absent(),
-    this.createdAt = const Value.absent(),
-    this.updatedAt = const Value.absent(),
-    this.rowid = const Value.absent(),
-  }) : code = Value(code),
-       rate = Value(rate);
-  static Insertable<Moneda> custom({
-    Expression<String>? code,
-    Expression<double>? rate,
-    Expression<bool>? activa,
-    Expression<DateTime>? createdAt,
-    Expression<DateTime>? updatedAt,
-    Expression<int>? rowid,
-  }) {
-    return RawValuesInsertable({
-      if (code != null) 'code': code,
-      if (rate != null) 'rate': rate,
-      if (activa != null) 'activa': activa,
-      if (createdAt != null) 'created_at': createdAt,
-      if (updatedAt != null) 'updated_at': updatedAt,
-      if (rowid != null) 'rowid': rowid,
-    });
-  }
-
-  CurrenciesCompanion copyWith({
-    Value<String>? code,
-    Value<double>? rate,
-    Value<bool>? activa,
-    Value<DateTime?>? createdAt,
-    Value<DateTime?>? updatedAt,
-    Value<int>? rowid,
-  }) {
-    return CurrenciesCompanion(
-      code: code ?? this.code,
-      rate: rate ?? this.rate,
-      activa: activa ?? this.activa,
-      createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-      rowid: rowid ?? this.rowid,
-    );
-  }
-
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    if (code.present) {
-      map['code'] = Variable<String>(code.value);
-    }
-    if (rate.present) {
-      map['rate'] = Variable<double>(rate.value);
-    }
-    if (activa.present) {
-      map['activa'] = Variable<bool>(activa.value);
-    }
-    if (createdAt.present) {
-      map['created_at'] = Variable<DateTime>(createdAt.value);
-    }
-    if (updatedAt.present) {
-      map['updated_at'] = Variable<DateTime>(updatedAt.value);
-    }
-    if (rowid.present) {
-      map['rowid'] = Variable<int>(rowid.value);
-    }
-    return map;
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('CurrenciesCompanion(')
-          ..write('code: $code, ')
-          ..write('rate: $rate, ')
-          ..write('activa: $activa, ')
-          ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt, ')
-          ..write('rowid: $rowid')
-          ..write(')'))
-        .toString();
-  }
-}
-
 class $ApuntesTable extends Apuntes with TableInfo<$ApuntesTable, Apunte> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -10610,7 +10501,6 @@ abstract class _$BaseLocal extends GeneratedDatabase {
   late final $RoutesTable routes = $RoutesTable(this);
   late final $WarehousesTable warehouses = $WarehousesTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
-  late final $CurrenciesTable currencies = $CurrenciesTable(this);
   late final $ApuntesTable apuntes = $ApuntesTable(this);
   late final $EquivalenciasTable equivalencias = $EquivalenciasTable(this);
   late final $FrescuraTable frescura = $FrescuraTable(this);
@@ -10630,7 +10520,6 @@ abstract class _$BaseLocal extends GeneratedDatabase {
     routes,
     warehouses,
     settings,
-    currencies,
     apuntes,
     equivalencias,
     frescura,
@@ -10641,34 +10530,44 @@ abstract class _$BaseLocal extends GeneratedDatabase {
       const DriftDatabaseOptions(storeDateTimeAsText: true);
 }
 
-typedef $$BranchesTableCreateCompanionBuilder = BranchesCompanion Function({
-  required String id,
-  required String name,
-  Value<String?> address,
-  required double lat,
-  required double lng,
-  Value<double> areaKm2,
-  Value<String?> externalId,
-  Value<bool> originConfigured,
-  Value<String?> creadoPor,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$BranchesTableUpdateCompanionBuilder = BranchesCompanion Function({
-  Value<String> id,
-  Value<String> name,
-  Value<String?> address,
-  Value<double> lat,
-  Value<double> lng,
-  Value<double> areaKm2,
-  Value<String?> externalId,
-  Value<bool> originConfigured,
-  Value<String?> creadoPor,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$BranchesTableCreateCompanionBuilder =
+    BranchesCompanion Function({
+      required String id,
+      required String name,
+      Value<String?> address,
+      required double lat,
+      required double lng,
+      Value<double> areaKm2,
+      Value<String?> externalId,
+      Value<bool> originConfigured,
+      Value<String?> creadoPor,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<double?> cupRate,
+      Value<String?> cupRateFuente,
+      Value<DateTime?> cupRateTraidoAt,
+      Value<bool?> cupRateFresca,
+      Value<int> rowid,
+    });
+typedef $$BranchesTableUpdateCompanionBuilder =
+    BranchesCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String?> address,
+      Value<double> lat,
+      Value<double> lng,
+      Value<double> areaKm2,
+      Value<String?> externalId,
+      Value<bool> originConfigured,
+      Value<String?> creadoPor,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<double?> cupRate,
+      Value<String?> cupRateFuente,
+      Value<DateTime?> cupRateTraidoAt,
+      Value<bool?> cupRateFresca,
+      Value<int> rowid,
+    });
 
 class $$BranchesTableFilterComposer
     extends Composer<_$BaseLocal, $BranchesTable> {
@@ -10731,6 +10630,26 @@ class $$BranchesTableFilterComposer
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get cupRate => $composableBuilder(
+    column: $table.cupRate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get cupRateFuente => $composableBuilder(
+    column: $table.cupRateFuente,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get cupRateTraidoAt => $composableBuilder(
+    column: $table.cupRateTraidoAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get cupRateFresca => $composableBuilder(
+    column: $table.cupRateFresca,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -10798,6 +10717,26 @@ class $$BranchesTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<double> get cupRate => $composableBuilder(
+    column: $table.cupRate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get cupRateFuente => $composableBuilder(
+    column: $table.cupRateFuente,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get cupRateTraidoAt => $composableBuilder(
+    column: $table.cupRateTraidoAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get cupRateFresca => $composableBuilder(
+    column: $table.cupRateFresca,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$BranchesTableAnnotationComposer
@@ -10845,6 +10784,24 @@ class $$BranchesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<double> get cupRate =>
+      $composableBuilder(column: $table.cupRate, builder: (column) => column);
+
+  GeneratedColumn<String> get cupRateFuente => $composableBuilder(
+    column: $table.cupRateFuente,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get cupRateTraidoAt => $composableBuilder(
+    column: $table.cupRateTraidoAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get cupRateFresca => $composableBuilder(
+    column: $table.cupRateFresca,
+    builder: (column) => column,
+  );
 }
 
 class $$BranchesTableTableManager
@@ -10886,6 +10843,10 @@ class $$BranchesTableTableManager
                 Value<String?> creadoPor = const Value.absent(),
                 Value<DateTime?> createdAt = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
+                Value<double?> cupRate = const Value.absent(),
+                Value<String?> cupRateFuente = const Value.absent(),
+                Value<DateTime?> cupRateTraidoAt = const Value.absent(),
+                Value<bool?> cupRateFresca = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => BranchesCompanion(
                 id: id,
@@ -10899,6 +10860,10 @@ class $$BranchesTableTableManager
                 creadoPor: creadoPor,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                cupRate: cupRate,
+                cupRateFuente: cupRateFuente,
+                cupRateTraidoAt: cupRateTraidoAt,
+                cupRateFresca: cupRateFresca,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -10914,6 +10879,10 @@ class $$BranchesTableTableManager
                 Value<String?> creadoPor = const Value.absent(),
                 Value<DateTime?> createdAt = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
+                Value<double?> cupRate = const Value.absent(),
+                Value<String?> cupRateFuente = const Value.absent(),
+                Value<DateTime?> cupRateTraidoAt = const Value.absent(),
+                Value<bool?> cupRateFresca = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => BranchesCompanion.insert(
                 id: id,
@@ -10927,6 +10896,10 @@ class $$BranchesTableTableManager
                 creadoPor: creadoPor,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                cupRate: cupRate,
+                cupRateFuente: cupRateFuente,
+                cupRateTraidoAt: cupRateTraidoAt,
+                cupRateFresca: cupRateFresca,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -11172,36 +11145,38 @@ typedef $$VehicleTypesTableProcessedTableManager =
       TipoVehiculo,
       PrefetchHooks Function()
     >;
-typedef $$VehiclesTableCreateCompanionBuilder = VehiclesCompanion Function({
-  required String id,
-  required String name,
-  Value<String?> vehicleTypeId,
-  Value<String?> plate,
-  Value<double> capacity,
-  Value<double?> costoKmUsd,
-  Value<bool> usarParaDomicilio,
-  Value<String> status,
-  Value<String?> notes,
-  Value<String?> branchId,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$VehiclesTableUpdateCompanionBuilder = VehiclesCompanion Function({
-  Value<String> id,
-  Value<String> name,
-  Value<String?> vehicleTypeId,
-  Value<String?> plate,
-  Value<double> capacity,
-  Value<double?> costoKmUsd,
-  Value<bool> usarParaDomicilio,
-  Value<String> status,
-  Value<String?> notes,
-  Value<String?> branchId,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$VehiclesTableCreateCompanionBuilder =
+    VehiclesCompanion Function({
+      required String id,
+      required String name,
+      Value<String?> vehicleTypeId,
+      Value<String?> plate,
+      Value<double> capacity,
+      Value<double?> costoKmUsd,
+      Value<bool> usarParaDomicilio,
+      Value<String> status,
+      Value<String?> notes,
+      Value<String?> branchId,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$VehiclesTableUpdateCompanionBuilder =
+    VehiclesCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String?> vehicleTypeId,
+      Value<String?> plate,
+      Value<double> capacity,
+      Value<double?> costoKmUsd,
+      Value<bool> usarParaDomicilio,
+      Value<String> status,
+      Value<String?> notes,
+      Value<String?> branchId,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$VehiclesTableFilterComposer
     extends Composer<_$BaseLocal, $VehiclesTable> {
@@ -11503,40 +11478,42 @@ typedef $$VehiclesTableProcessedTableManager =
       Vehiculo,
       PrefetchHooks Function()
     >;
-typedef $$ProductsTableCreateCompanionBuilder = ProductsCompanion Function({
-  required String id,
-  required String name,
-  Value<double> weight,
-  Value<String?> packaging,
-  Value<double?> unitsPerPackage,
-  Value<String?> category,
-  Value<String?> sku,
-  Value<String?> sucursalCodigo,
-  Value<double?> price,
-  Value<double?> stock,
-  Value<String?> unit,
-  Value<DateTime?> traidoAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$ProductsTableUpdateCompanionBuilder = ProductsCompanion Function({
-  Value<String> id,
-  Value<String> name,
-  Value<double> weight,
-  Value<String?> packaging,
-  Value<double?> unitsPerPackage,
-  Value<String?> category,
-  Value<String?> sku,
-  Value<String?> sucursalCodigo,
-  Value<double?> price,
-  Value<double?> stock,
-  Value<String?> unit,
-  Value<DateTime?> traidoAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$ProductsTableCreateCompanionBuilder =
+    ProductsCompanion Function({
+      required String id,
+      required String name,
+      Value<double> weight,
+      Value<String?> packaging,
+      Value<double?> unitsPerPackage,
+      Value<String?> category,
+      Value<String?> sku,
+      Value<String?> sucursalCodigo,
+      Value<double?> price,
+      Value<double?> stock,
+      Value<String?> unit,
+      Value<DateTime?> traidoAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$ProductsTableUpdateCompanionBuilder =
+    ProductsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<double> weight,
+      Value<String?> packaging,
+      Value<double?> unitsPerPackage,
+      Value<String?> category,
+      Value<String?> sku,
+      Value<String?> sucursalCodigo,
+      Value<double?> price,
+      Value<double?> stock,
+      Value<String?> unit,
+      Value<DateTime?> traidoAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$ProductsTableFilterComposer
     extends Composer<_$BaseLocal, $ProductsTable> {
@@ -11870,44 +11847,46 @@ typedef $$ProductsTableProcessedTableManager =
       Producto,
       PrefetchHooks Function()
     >;
-typedef $$CustomersTableCreateCompanionBuilder = CustomersCompanion Function({
-  required String id,
-  Value<String?> source,
-  Value<String?> externalId,
-  required String name,
-  Value<String?> phone,
-  Value<String?> address,
-  Value<String?> municipio,
-  Value<String?> zona,
-  Value<String?> codigo,
-  Value<String?> vendedor,
-  required double lat,
-  required double lng,
-  Value<String?> sucursalCodigo,
-  Value<DateTime?> syncedAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$CustomersTableUpdateCompanionBuilder = CustomersCompanion Function({
-  Value<String> id,
-  Value<String?> source,
-  Value<String?> externalId,
-  Value<String> name,
-  Value<String?> phone,
-  Value<String?> address,
-  Value<String?> municipio,
-  Value<String?> zona,
-  Value<String?> codigo,
-  Value<String?> vendedor,
-  Value<double> lat,
-  Value<double> lng,
-  Value<String?> sucursalCodigo,
-  Value<DateTime?> syncedAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$CustomersTableCreateCompanionBuilder =
+    CustomersCompanion Function({
+      required String id,
+      Value<String?> source,
+      Value<String?> externalId,
+      required String name,
+      Value<String?> phone,
+      Value<String?> address,
+      Value<String?> municipio,
+      Value<String?> zona,
+      Value<String?> codigo,
+      Value<String?> vendedor,
+      required double lat,
+      required double lng,
+      Value<String?> sucursalCodigo,
+      Value<DateTime?> syncedAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$CustomersTableUpdateCompanionBuilder =
+    CustomersCompanion Function({
+      Value<String> id,
+      Value<String?> source,
+      Value<String?> externalId,
+      Value<String> name,
+      Value<String?> phone,
+      Value<String?> address,
+      Value<String?> municipio,
+      Value<String?> zona,
+      Value<String?> codigo,
+      Value<String?> vendedor,
+      Value<double> lat,
+      Value<double> lng,
+      Value<String?> sucursalCodigo,
+      Value<DateTime?> syncedAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$CustomersTableFilterComposer
     extends Composer<_$BaseLocal, $CustomersTable> {
@@ -12275,104 +12254,106 @@ typedef $$CustomersTableProcessedTableManager =
       Cliente,
       PrefetchHooks Function()
     >;
-typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
-  required String id,
-  Value<String?> operationNumber,
-  required String customerName,
-  required String address,
-  Value<String?> endAddress,
-  Value<double?> endLat,
-  Value<double?> endLng,
-  Value<double?> lat,
-  Value<double?> lng,
-  Value<double> weight,
-  Value<String> status,
-  Value<String> tripLeg,
-  Value<String?> notes,
-  Value<String?> routeId,
-  Value<String?> ultimaRutaId,
-  Value<String?> vehicleId,
-  Value<double?> price,
-  Value<double?> segmentKm,
-  Value<double?> deliveryPrice,
-  Value<double?> deliveryDistanceKm,
-  Value<String?> branchId,
-  Value<String?> source,
-  Value<String?> externalId,
-  Value<DateTime?> orderDate,
-  Value<DateTime?> pedidoUpdatedAt,
-  Value<String?> estado,
-  Value<bool> archivado,
-  Value<DateTime?> fechaComprometida,
-  Value<bool?> requiereDomicilio,
-  Value<double?> pedidoCosto,
-  Value<String?> municipio,
-  Value<String?> vendedor,
-  Value<String?> sucursalCodigo,
-  Value<String?> facturaEstado,
-  Value<String?> facturaNumero,
-  Value<DateTime?> facturaAt,
-  Value<double?> facturaDomicilio,
-  Value<DateTime?> facturaCorregidoAt,
-  Value<String?> customerPhone,
-  Value<int?> stopOrder,
-  Value<DateTime?> deliveredAt,
-  Value<String?> resultado,
-  Value<DateTime?> resultadoAt,
-  Value<String?> resultadoNota,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
-  Value<String> id,
-  Value<String?> operationNumber,
-  Value<String> customerName,
-  Value<String> address,
-  Value<String?> endAddress,
-  Value<double?> endLat,
-  Value<double?> endLng,
-  Value<double?> lat,
-  Value<double?> lng,
-  Value<double> weight,
-  Value<String> status,
-  Value<String> tripLeg,
-  Value<String?> notes,
-  Value<String?> routeId,
-  Value<String?> ultimaRutaId,
-  Value<String?> vehicleId,
-  Value<double?> price,
-  Value<double?> segmentKm,
-  Value<double?> deliveryPrice,
-  Value<double?> deliveryDistanceKm,
-  Value<String?> branchId,
-  Value<String?> source,
-  Value<String?> externalId,
-  Value<DateTime?> orderDate,
-  Value<DateTime?> pedidoUpdatedAt,
-  Value<String?> estado,
-  Value<bool> archivado,
-  Value<DateTime?> fechaComprometida,
-  Value<bool?> requiereDomicilio,
-  Value<double?> pedidoCosto,
-  Value<String?> municipio,
-  Value<String?> vendedor,
-  Value<String?> sucursalCodigo,
-  Value<String?> facturaEstado,
-  Value<String?> facturaNumero,
-  Value<DateTime?> facturaAt,
-  Value<double?> facturaDomicilio,
-  Value<DateTime?> facturaCorregidoAt,
-  Value<String?> customerPhone,
-  Value<int?> stopOrder,
-  Value<DateTime?> deliveredAt,
-  Value<String?> resultado,
-  Value<DateTime?> resultadoAt,
-  Value<String?> resultadoNota,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$OrdersTableCreateCompanionBuilder =
+    OrdersCompanion Function({
+      required String id,
+      Value<String?> operationNumber,
+      required String customerName,
+      required String address,
+      Value<String?> endAddress,
+      Value<double?> endLat,
+      Value<double?> endLng,
+      Value<double?> lat,
+      Value<double?> lng,
+      Value<double> weight,
+      Value<String> status,
+      Value<String> tripLeg,
+      Value<String?> notes,
+      Value<String?> routeId,
+      Value<String?> ultimaRutaId,
+      Value<String?> vehicleId,
+      Value<double?> price,
+      Value<double?> segmentKm,
+      Value<double?> deliveryPrice,
+      Value<double?> deliveryDistanceKm,
+      Value<String?> branchId,
+      Value<String?> source,
+      Value<String?> externalId,
+      Value<DateTime?> orderDate,
+      Value<DateTime?> pedidoUpdatedAt,
+      Value<String?> estado,
+      Value<bool> archivado,
+      Value<DateTime?> fechaComprometida,
+      Value<bool?> requiereDomicilio,
+      Value<double?> pedidoCosto,
+      Value<String?> municipio,
+      Value<String?> vendedor,
+      Value<String?> sucursalCodigo,
+      Value<String?> facturaEstado,
+      Value<String?> facturaNumero,
+      Value<DateTime?> facturaAt,
+      Value<double?> facturaDomicilio,
+      Value<DateTime?> facturaCorregidoAt,
+      Value<String?> customerPhone,
+      Value<int?> stopOrder,
+      Value<DateTime?> deliveredAt,
+      Value<String?> resultado,
+      Value<DateTime?> resultadoAt,
+      Value<String?> resultadoNota,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$OrdersTableUpdateCompanionBuilder =
+    OrdersCompanion Function({
+      Value<String> id,
+      Value<String?> operationNumber,
+      Value<String> customerName,
+      Value<String> address,
+      Value<String?> endAddress,
+      Value<double?> endLat,
+      Value<double?> endLng,
+      Value<double?> lat,
+      Value<double?> lng,
+      Value<double> weight,
+      Value<String> status,
+      Value<String> tripLeg,
+      Value<String?> notes,
+      Value<String?> routeId,
+      Value<String?> ultimaRutaId,
+      Value<String?> vehicleId,
+      Value<double?> price,
+      Value<double?> segmentKm,
+      Value<double?> deliveryPrice,
+      Value<double?> deliveryDistanceKm,
+      Value<String?> branchId,
+      Value<String?> source,
+      Value<String?> externalId,
+      Value<DateTime?> orderDate,
+      Value<DateTime?> pedidoUpdatedAt,
+      Value<String?> estado,
+      Value<bool> archivado,
+      Value<DateTime?> fechaComprometida,
+      Value<bool?> requiereDomicilio,
+      Value<double?> pedidoCosto,
+      Value<String?> municipio,
+      Value<String?> vendedor,
+      Value<String?> sucursalCodigo,
+      Value<String?> facturaEstado,
+      Value<String?> facturaNumero,
+      Value<DateTime?> facturaAt,
+      Value<double?> facturaDomicilio,
+      Value<DateTime?> facturaCorregidoAt,
+      Value<String?> customerPhone,
+      Value<int?> stopOrder,
+      Value<DateTime?> deliveredAt,
+      Value<String?> resultado,
+      Value<DateTime?> resultadoAt,
+      Value<String?> resultadoNota,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$OrdersTableFilterComposer extends Composer<_$BaseLocal, $OrdersTable> {
   $$OrdersTableFilterComposer({
@@ -13285,30 +13266,32 @@ typedef $$OrdersTableProcessedTableManager =
       Pedido,
       PrefetchHooks Function()
     >;
-typedef $$OrderItemsTableCreateCompanionBuilder = OrderItemsCompanion Function({
-  required String id,
-  required String orderId,
-  required int linea,
-  required String description,
-  required double quantity,
-  Value<double?> packs,
-  Value<String?> productId,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$OrderItemsTableUpdateCompanionBuilder = OrderItemsCompanion Function({
-  Value<String> id,
-  Value<String> orderId,
-  Value<int> linea,
-  Value<String> description,
-  Value<double> quantity,
-  Value<double?> packs,
-  Value<String?> productId,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$OrderItemsTableCreateCompanionBuilder =
+    OrderItemsCompanion Function({
+      required String id,
+      required String orderId,
+      required int linea,
+      required String description,
+      required double quantity,
+      Value<double?> packs,
+      Value<String?> productId,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$OrderItemsTableUpdateCompanionBuilder =
+    OrderItemsCompanion Function({
+      Value<String> id,
+      Value<String> orderId,
+      Value<int> linea,
+      Value<String> description,
+      Value<double> quantity,
+      Value<double?> packs,
+      Value<String?> productId,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$OrderItemsTableFilterComposer
     extends Composer<_$BaseLocal, $OrderItemsTable> {
@@ -13561,50 +13544,52 @@ typedef $$OrderItemsTableProcessedTableManager =
       RenglonPedido,
       PrefetchHooks Function()
     >;
-typedef $$RoutesTableCreateCompanionBuilder = RoutesCompanion Function({
-  required String id,
-  Value<String?> name,
-  Value<String?> routeCode,
-  Value<String> status,
-  Value<String?> originAddress,
-  Value<double?> originLat,
-  Value<double?> originLng,
-  Value<double> totalDistance,
-  Value<double> totalWeight,
-  Value<double> totalPrice,
-  Value<DateTime?> deliveryDate,
-  Value<String?> vehicleId,
-  Value<String?> creadoPor,
-  Value<String?> branchId,
-  Value<DateTime?> startedAt,
-  Value<DateTime?> finishedAt,
-  Value<bool> optimized,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$RoutesTableUpdateCompanionBuilder = RoutesCompanion Function({
-  Value<String> id,
-  Value<String?> name,
-  Value<String?> routeCode,
-  Value<String> status,
-  Value<String?> originAddress,
-  Value<double?> originLat,
-  Value<double?> originLng,
-  Value<double> totalDistance,
-  Value<double> totalWeight,
-  Value<double> totalPrice,
-  Value<DateTime?> deliveryDate,
-  Value<String?> vehicleId,
-  Value<String?> creadoPor,
-  Value<String?> branchId,
-  Value<DateTime?> startedAt,
-  Value<DateTime?> finishedAt,
-  Value<bool> optimized,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$RoutesTableCreateCompanionBuilder =
+    RoutesCompanion Function({
+      required String id,
+      Value<String?> name,
+      Value<String?> routeCode,
+      Value<String> status,
+      Value<String?> originAddress,
+      Value<double?> originLat,
+      Value<double?> originLng,
+      Value<double> totalDistance,
+      Value<double> totalWeight,
+      Value<double> totalPrice,
+      Value<DateTime?> deliveryDate,
+      Value<String?> vehicleId,
+      Value<String?> creadoPor,
+      Value<String?> branchId,
+      Value<DateTime?> startedAt,
+      Value<DateTime?> finishedAt,
+      Value<bool> optimized,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$RoutesTableUpdateCompanionBuilder =
+    RoutesCompanion Function({
+      Value<String> id,
+      Value<String?> name,
+      Value<String?> routeCode,
+      Value<String> status,
+      Value<String?> originAddress,
+      Value<double?> originLat,
+      Value<double?> originLng,
+      Value<double> totalDistance,
+      Value<double> totalWeight,
+      Value<double> totalPrice,
+      Value<DateTime?> deliveryDate,
+      Value<String?> vehicleId,
+      Value<String?> creadoPor,
+      Value<String?> branchId,
+      Value<DateTime?> startedAt,
+      Value<DateTime?> finishedAt,
+      Value<bool> optimized,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$RoutesTableFilterComposer extends Composer<_$BaseLocal, $RoutesTable> {
   $$RoutesTableFilterComposer({
@@ -14030,32 +14015,34 @@ typedef $$RoutesTableProcessedTableManager =
       Ruta,
       PrefetchHooks Function()
     >;
-typedef $$WarehousesTableCreateCompanionBuilder = WarehousesCompanion Function({
-  required String id,
-  required String sucursalCodigo,
-  required String nombre,
-  Value<String?> direccion,
-  Value<double?> lat,
-  Value<double?> lng,
-  Value<bool> principal,
-  Value<bool> activo,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$WarehousesTableUpdateCompanionBuilder = WarehousesCompanion Function({
-  Value<String> id,
-  Value<String> sucursalCodigo,
-  Value<String> nombre,
-  Value<String?> direccion,
-  Value<double?> lat,
-  Value<double?> lng,
-  Value<bool> principal,
-  Value<bool> activo,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$WarehousesTableCreateCompanionBuilder =
+    WarehousesCompanion Function({
+      required String id,
+      required String sucursalCodigo,
+      required String nombre,
+      Value<String?> direccion,
+      Value<double?> lat,
+      Value<double?> lng,
+      Value<bool> principal,
+      Value<bool> activo,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$WarehousesTableUpdateCompanionBuilder =
+    WarehousesCompanion Function({
+      Value<String> id,
+      Value<String> sucursalCodigo,
+      Value<String> nombre,
+      Value<String?> direccion,
+      Value<double?> lat,
+      Value<double?> lng,
+      Value<bool> principal,
+      Value<bool> activo,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$WarehousesTableFilterComposer
     extends Composer<_$BaseLocal, $WarehousesTable> {
@@ -14319,26 +14306,28 @@ typedef $$WarehousesTableProcessedTableManager =
       Almacen,
       PrefetchHooks Function()
     >;
-typedef $$SettingsTableCreateCompanionBuilder = SettingsCompanion Function({
-  Value<int> id,
-  Value<int> syncBarridoDia,
-  Value<DateTime?> catalogoTraidoAt,
-  Value<String> currency,
-  Value<double> cupRate,
-  Value<DateTime?> cupRateUpdatedAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-});
-typedef $$SettingsTableUpdateCompanionBuilder = SettingsCompanion Function({
-  Value<int> id,
-  Value<int> syncBarridoDia,
-  Value<DateTime?> catalogoTraidoAt,
-  Value<String> currency,
-  Value<double> cupRate,
-  Value<DateTime?> cupRateUpdatedAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-});
+typedef $$SettingsTableCreateCompanionBuilder =
+    SettingsCompanion Function({
+      Value<int> id,
+      Value<int> syncBarridoDia,
+      Value<DateTime?> catalogoTraidoAt,
+      Value<String> currency,
+      Value<double> cupRate,
+      Value<DateTime?> cupRateUpdatedAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+    });
+typedef $$SettingsTableUpdateCompanionBuilder =
+    SettingsCompanion Function({
+      Value<int> id,
+      Value<int> syncBarridoDia,
+      Value<DateTime?> catalogoTraidoAt,
+      Value<String> currency,
+      Value<double> cupRate,
+      Value<DateTime?> cupRateUpdatedAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+    });
 
 class $$SettingsTableFilterComposer
     extends Composer<_$BaseLocal, $SettingsTable> {
@@ -14568,224 +14557,34 @@ typedef $$SettingsTableProcessedTableManager =
       Ajustes,
       PrefetchHooks Function()
     >;
-typedef $$CurrenciesTableCreateCompanionBuilder = CurrenciesCompanion Function({
-  required String code,
-  required double rate,
-  Value<bool> activa,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$CurrenciesTableUpdateCompanionBuilder = CurrenciesCompanion Function({
-  Value<String> code,
-  Value<double> rate,
-  Value<bool> activa,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-
-class $$CurrenciesTableFilterComposer
-    extends Composer<_$BaseLocal, $CurrenciesTable> {
-  $$CurrenciesTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<String> get code => $composableBuilder(
-    column: $table.code,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<double> get rate => $composableBuilder(
-    column: $table.rate,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<bool> get activa => $composableBuilder(
-    column: $table.activa,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<DateTime> get createdAt => $composableBuilder(
-    column: $table.createdAt,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
-    column: $table.updatedAt,
-    builder: (column) => ColumnFilters(column),
-  );
-}
-
-class $$CurrenciesTableOrderingComposer
-    extends Composer<_$BaseLocal, $CurrenciesTable> {
-  $$CurrenciesTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<String> get code => $composableBuilder(
-    column: $table.code,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<double> get rate => $composableBuilder(
-    column: $table.rate,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<bool> get activa => $composableBuilder(
-    column: $table.activa,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
-    column: $table.createdAt,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
-    column: $table.updatedAt,
-    builder: (column) => ColumnOrderings(column),
-  );
-}
-
-class $$CurrenciesTableAnnotationComposer
-    extends Composer<_$BaseLocal, $CurrenciesTable> {
-  $$CurrenciesTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<String> get code =>
-      $composableBuilder(column: $table.code, builder: (column) => column);
-
-  GeneratedColumn<double> get rate =>
-      $composableBuilder(column: $table.rate, builder: (column) => column);
-
-  GeneratedColumn<bool> get activa =>
-      $composableBuilder(column: $table.activa, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get createdAt =>
-      $composableBuilder(column: $table.createdAt, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get updatedAt =>
-      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
-}
-
-class $$CurrenciesTableTableManager
-    extends
-        RootTableManager<
-          _$BaseLocal,
-          $CurrenciesTable,
-          Moneda,
-          $$CurrenciesTableFilterComposer,
-          $$CurrenciesTableOrderingComposer,
-          $$CurrenciesTableAnnotationComposer,
-          $$CurrenciesTableCreateCompanionBuilder,
-          $$CurrenciesTableUpdateCompanionBuilder,
-          (Moneda, BaseReferences<_$BaseLocal, $CurrenciesTable, Moneda>),
-          Moneda,
-          PrefetchHooks Function()
-        > {
-  $$CurrenciesTableTableManager(_$BaseLocal db, $CurrenciesTable table)
-    : super(
-        TableManagerState(
-          db: db,
-          table: table,
-          createFilteringComposer: () =>
-              $$CurrenciesTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$CurrenciesTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$CurrenciesTableAnnotationComposer($db: db, $table: table),
-          updateCompanionCallback:
-              ({
-                Value<String> code = const Value.absent(),
-                Value<double> rate = const Value.absent(),
-                Value<bool> activa = const Value.absent(),
-                Value<DateTime?> createdAt = const Value.absent(),
-                Value<DateTime?> updatedAt = const Value.absent(),
-                Value<int> rowid = const Value.absent(),
-              }) => CurrenciesCompanion(
-                code: code,
-                rate: rate,
-                activa: activa,
-                createdAt: createdAt,
-                updatedAt: updatedAt,
-                rowid: rowid,
-              ),
-          createCompanionCallback:
-              ({
-                required String code,
-                required double rate,
-                Value<bool> activa = const Value.absent(),
-                Value<DateTime?> createdAt = const Value.absent(),
-                Value<DateTime?> updatedAt = const Value.absent(),
-                Value<int> rowid = const Value.absent(),
-              }) => CurrenciesCompanion.insert(
-                code: code,
-                rate: rate,
-                activa: activa,
-                createdAt: createdAt,
-                updatedAt: updatedAt,
-                rowid: rowid,
-              ),
-          withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
-              .toList(),
-          prefetchHooksCallback: null,
-        ),
-      );
-}
-
-typedef $$CurrenciesTableProcessedTableManager =
-    ProcessedTableManager<
-      _$BaseLocal,
-      $CurrenciesTable,
-      Moneda,
-      $$CurrenciesTableFilterComposer,
-      $$CurrenciesTableOrderingComposer,
-      $$CurrenciesTableAnnotationComposer,
-      $$CurrenciesTableCreateCompanionBuilder,
-      $$CurrenciesTableUpdateCompanionBuilder,
-      (Moneda, BaseReferences<_$BaseLocal, $CurrenciesTable, Moneda>),
-      Moneda,
-      PrefetchHooks Function()
-    >;
-typedef $$ApuntesTableCreateCompanionBuilder = ApuntesCompanion Function({
-  Value<int> orden,
-  required String clave,
-  required DateTime hechoAt,
-  required String metodo,
-  required String ruta,
-  required String cuerpo,
-  Value<String?> provisional,
-  Value<EstadoApunte> estado,
-  Value<String?> motivo,
-  Value<DateTime?> resueltoAt,
-  Value<int> intentos,
-});
-typedef $$ApuntesTableUpdateCompanionBuilder = ApuntesCompanion Function({
-  Value<int> orden,
-  Value<String> clave,
-  Value<DateTime> hechoAt,
-  Value<String> metodo,
-  Value<String> ruta,
-  Value<String> cuerpo,
-  Value<String?> provisional,
-  Value<EstadoApunte> estado,
-  Value<String?> motivo,
-  Value<DateTime?> resueltoAt,
-  Value<int> intentos,
-});
+typedef $$ApuntesTableCreateCompanionBuilder =
+    ApuntesCompanion Function({
+      Value<int> orden,
+      required String clave,
+      required DateTime hechoAt,
+      required String metodo,
+      required String ruta,
+      required String cuerpo,
+      Value<String?> provisional,
+      Value<EstadoApunte> estado,
+      Value<String?> motivo,
+      Value<DateTime?> resueltoAt,
+      Value<int> intentos,
+    });
+typedef $$ApuntesTableUpdateCompanionBuilder =
+    ApuntesCompanion Function({
+      Value<int> orden,
+      Value<String> clave,
+      Value<DateTime> hechoAt,
+      Value<String> metodo,
+      Value<String> ruta,
+      Value<String> cuerpo,
+      Value<String?> provisional,
+      Value<EstadoApunte> estado,
+      Value<String?> motivo,
+      Value<DateTime?> resueltoAt,
+      Value<int> intentos,
+    });
 
 class $$ApuntesTableFilterComposer
     extends Composer<_$BaseLocal, $ApuntesTable> {
@@ -15229,20 +15028,22 @@ typedef $$EquivalenciasTableProcessedTableManager =
       Equivalencia,
       PrefetchHooks Function()
     >;
-typedef $$FrescuraTableCreateCompanionBuilder = FrescuraCompanion Function({
-  required String coleccion,
-  Value<DateTime?> bajadaAt,
-  Value<String?> hasta,
-  Value<bool> completa,
-  Value<int> rowid,
-});
-typedef $$FrescuraTableUpdateCompanionBuilder = FrescuraCompanion Function({
-  Value<String> coleccion,
-  Value<DateTime?> bajadaAt,
-  Value<String?> hasta,
-  Value<bool> completa,
-  Value<int> rowid,
-});
+typedef $$FrescuraTableCreateCompanionBuilder =
+    FrescuraCompanion Function({
+      required String coleccion,
+      Value<DateTime?> bajadaAt,
+      Value<String?> hasta,
+      Value<bool> completa,
+      Value<int> rowid,
+    });
+typedef $$FrescuraTableUpdateCompanionBuilder =
+    FrescuraCompanion Function({
+      Value<String> coleccion,
+      Value<DateTime?> bajadaAt,
+      Value<String?> hasta,
+      Value<bool> completa,
+      Value<int> rowid,
+    });
 
 class $$FrescuraTableFilterComposer
     extends Composer<_$BaseLocal, $FrescuraTable> {
@@ -15503,11 +15304,16 @@ class $$PreferenciasTableTableManager
               $$PreferenciasTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
               $$PreferenciasTableAnnotationComposer($db: db, $table: table),
-          updateCompanionCallback: ({
-            Value<String> clave = const Value.absent(),
-            Value<String> valor = const Value.absent(),
-            Value<int> rowid = const Value.absent(),
-          }) => PreferenciasCompanion(clave: clave, valor: valor, rowid: rowid),
+          updateCompanionCallback:
+              ({
+                Value<String> clave = const Value.absent(),
+                Value<String> valor = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PreferenciasCompanion(
+                clave: clave,
+                valor: valor,
+                rowid: rowid,
+              ),
           createCompanionCallback:
               ({
                 required String clave,
@@ -15567,8 +15373,6 @@ class $BaseLocalManager {
       $$WarehousesTableTableManager(_db, _db.warehouses);
   $$SettingsTableTableManager get settings =>
       $$SettingsTableTableManager(_db, _db.settings);
-  $$CurrenciesTableTableManager get currencies =>
-      $$CurrenciesTableTableManager(_db, _db.currencies);
   $$ApuntesTableTableManager get apuntes =>
       $$ApuntesTableTableManager(_db, _db.apuntes);
   $$EquivalenciasTableTableManager get equivalencias =>

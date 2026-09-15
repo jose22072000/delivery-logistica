@@ -39,10 +39,14 @@ void main() {
             ),
           );
 
+  /// [tasaTraidaAt] es lo que demuestra que hay tasa: la FECHA que dio Accesos,
+  /// no el numero. La tasa vive en la sucursal, no en los ajustes globales.
   Future<void> sucursal({
     String id = 'b1',
     String codigo = 'STG',
     bool conPunto = true,
+    DateTime? tasaTraidaAt,
+    double? cupRate,
   }) => base
       .into(base.branches)
       .insertOnConflictUpdate(
@@ -53,6 +57,8 @@ void main() {
           lng: -75.82,
           externalId: Value(codigo),
           originConfigured: Value(conPunto),
+          cupRate: Value(cupRate ?? (tasaTraidaAt != null ? 700 : null)),
+          cupRateTraidoAt: Value(tasaTraidaAt),
         ),
       );
 
@@ -85,15 +91,19 @@ void main() {
         ),
       );
 
-  Future<void> tasa({DateTime? cuando, double cupRate = 320}) => base
-      .into(base.settings)
-      .insertOnConflictUpdate(
-        SettingsCompanion.insert(
-          id: const Value(1),
-          cupRate: Value(cupRate),
-          cupRateUpdatedAt: Value(cuando),
-        ),
-      );
+  /// La tasa de UNA sucursal. Antes esto escribia en `settings`, que es la
+  /// global y vieja — la que hacia que Granma enseñara la de La Habana.
+  Future<void> tasa({
+    DateTime? cuando,
+    double cupRate = 700,
+    String id = 'b1',
+    String codigo = 'STG',
+  }) => sucursal(
+    id: id,
+    codigo: codigo,
+    tasaTraidaAt: cuando,
+    cupRate: cuando != null ? cupRate : null,
+  );
 
   /// Todo bajado y todo puesto: el aparato de una sucursal que ya trabaja.
   Future<void> todoEnSuSitio() async {

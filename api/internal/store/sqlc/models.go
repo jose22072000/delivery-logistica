@@ -426,6 +426,10 @@ type Branch struct {
 	CreadoPor        *string            `json:"creado_por"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	CupRate          *float64           `json:"cup_rate"`
+	CupRateFuente    *string            `json:"cup_rate_fuente"`
+	CupRateTraidoAt  pgtype.Timestamptz `json:"cup_rate_traido_at"`
+	CupRateFresca    *bool              `json:"cup_rate_fresca"`
 }
 
 type Currency struct {

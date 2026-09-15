@@ -451,6 +451,23 @@ class Bajada {
                 externalId: Value(_texto(j['externalId'])),
                 originConfigured: Value(j['originConfigured'] == true),
                 updatedAt: Value(_fecha(j['updatedAt'])),
+                // LA TASA DE CAMBIO DE ESTA SUCURSAL. Es lo que hace que los
+                // importes se puedan ver en CUP sin conexion.
+                //
+                // Los cuatro se copian TAL CUAL, sin respaldo y sin inventar
+                // nada: un `null` que llega es «esta sucursal no tiene tasa», que
+                // es un estado normal —hoy le pasa a seis de las ocho— y la
+                // barra lo dice con el nombre de la sucursal delante. Poner aqui
+                // un `?? 320`, o la tasa de la sucursal de al lado, seria
+                // convertir con un numero creible y equivocado; eso no falla en
+                // pantalla, falla en la caja.
+                //
+                // `cupRateFresca` viene de ACCESOS y aqui no se recalcula: la
+                // regla de las 24 h es suya. El aparato solo la enseña.
+                cupRate: Value(_numero(j['cupRate'])),
+                cupRateFuente: Value(_texto(j['cupRateFuente'])),
+                cupRateTraidoAt: Value(_fecha(j['cupRateTraidoAt'])),
+                cupRateFresca: Value(j['cupRateFresca'] as bool?),
               ),
             );
       case Colecciones.ajustes:
