@@ -1,11 +1,11 @@
 {
-    "name": "reparto",
-    "short_name": "reparto",
+    "name": "Reparto — Procovar",
+    "short_name": "Reparto",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#054C74",
+    "theme_color": "#054C74",
+    "description": "Preparar y repartir los pedidos de la sucursal, con o sin conexión.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

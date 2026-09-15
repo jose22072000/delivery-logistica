@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- EL CAMION DEL REPARTO.
+       Mismo azul y mismo trazo plano que la marca de Procovar (public/favicon-claro.svg
+       de delivery, #054C74 con el dibujo en blanco): se reconoce como de la casa, pero
+       dice lo que es esta aplicacion y no la de al lado.
+       Todo son cuatro piezas grandes a proposito: a 16 px, que es donde vive un favicon,
+       un dibujo con detalle se convierte en una mancha. -->
+  <rect width="64" height="64" fill="#054C74"/>
+  <g fill="#FFFFFF">
+    <!-- La caja. -->
+    <rect x="6" y="14" width="30" height="24" rx="1.5"/>
+    <!-- La cabina, con el morro cortado. -->
+    <path d="M40 22 h9 l9 9 v7 H40 z"/>
+    <!-- Las ruedas: aro blanco con el centro del fondo, que a tamano pequeno
+         siguen leyendose como ruedas y no como dos puntos. -->
+    <circle cx="17" cy="44" r="6.5"/>
+    <circle cx="48" cy="44" r="6.5"/>
+  </g>
+  <g fill="#054C74">
+    <circle cx="17" cy="44" r="2.8"/>
+    <circle cx="48" cy="44" r="2.8"/>
+  </g>
+</svg>
