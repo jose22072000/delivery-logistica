@@ -114,15 +114,18 @@ class RelojDeDatos extends StatelessWidget {
 
   final VoidCallback? alPulsarPendientes;
 
-  /// El ambar del pliego.
-  static const ambar = Color(0xFFB45309);
+  /// El ambar del pliego. Es el mismo `Colores.ambar` de `diseno/`, repetido
+  /// aqui porque `nucleo/` no depende de `diseno/`: el reloj de datos tiene que
+  /// poder montarse en un test sin arrastrar el kit entero.
+  static const ambar = Color(0xFF96560A);
+
+  /// El `--ink-soft` de delivery, por lo mismo.
+  static const tintaSuave = Color(0xFF5C544A);
 
   @override
   Widget build(BuildContext context) {
     final tema = Theme.of(context);
-    final color = estado.enAmbar
-        ? ambar
-        : tema.colorScheme.onSurface.withValues(alpha: 0.6);
+    final color = estado.enAmbar ? ambar : tintaSuave;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -131,10 +134,16 @@ class RelojDeDatos extends StatelessWidget {
           const SizedBox(
             width: 12,
             height: 12,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: tintaSuave,
+            ),
           ),
           const SizedBox(width: 6),
-          Text('actualizando…', style: tema.textTheme.bodySmall),
+          Text(
+            'actualizando…',
+            style: tema.textTheme.bodySmall?.copyWith(color: tintaSuave),
+          ),
         ] else
           Text(
             estado.texto,
@@ -151,6 +160,9 @@ class RelojDeDatos extends StatelessWidget {
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               foregroundColor: ambar,
+              textStyle: tema.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
             child: Text('$sinSubir sin subir'),
           ),

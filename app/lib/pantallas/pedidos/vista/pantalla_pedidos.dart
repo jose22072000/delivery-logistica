@@ -11,6 +11,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../diseno/anchos.dart';
+import '../../../diseno/tabla_ancha.dart';
+import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/frescura/reloj_de_datos.dart';
 import '../../../nucleo/proveedores.dart';
@@ -43,9 +46,12 @@ class PantallaPedidos extends ConsumerWidget {
     // superior con el titulo «Pedidos» y franja de estado. Uno dentro de otro
     // apila dos superficies de Material y deja los avisos emergentes colgando
     // del de dentro, que es el que no se ve entero.
+    // `p-3 sm:p-6` de delivery.
+    final estrecho = MediaQuery.sizeOf(context).width < Anchos.idioma;
+
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(estrecho ? Aire.md : Aire.xl),
         children: [
           Row(
             children: [
@@ -53,7 +59,7 @@ class PantallaPedidos extends ConsumerWidget {
                 child: Text(
                   'Todos los pedidos acumulados de todas las rutas',
                   style: Theme.of(context).textTheme.bodySmall
-                      ?.copyWith(color: Colores.gris),
+                      ?.copyWith(color: Colores.tintaSuave),
                 ),
               ),
               // El reloj de datos de ESTA pantalla. La franja del armazon dice
@@ -67,20 +73,27 @@ class PantallaPedidos extends ConsumerWidget {
           ),
           if (filtros.arranqueAcotado) const _FranjaAzul(),
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: Aire.md),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
                     textoDelConteo(total.value ?? 0, filtros, fechaCorta),
-                    style: Theme.of(context).textTheme.bodySmall,
+                    style: Tipos.texto(
+                      tamano: 13,
+                      peso: FontWeight.w500,
+                      color: Colores.tintaSuave,
+                    ),
                   ),
                 ),
                 if (total.isLoading || pagina.isLoading)
                   const SizedBox(
                     width: 14,
                     height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colores.tintaSuave,
+                    ),
                   ),
               ],
             ),
@@ -88,22 +101,27 @@ class PantallaPedidos extends ConsumerWidget {
           const _BarraDeFiltros(),
           const _PreDespachoDeLoElegido(),
           const _PreDespachoDeLoFiltrado(),
-          const SizedBox(height: 8),
+          const SizedBox(height: Aire.lg),
           // Una lista vacia de una coleccion que nunca se bajo NO es «no hay
           // nada»: es un fallo que se lee como un dato (caso S7). Se dice con
           // otras palabras y antes de mirar el total.
-          if (descargados.value == false)
-            const EstadoVacio(SinDescargar.textoDeLaPantallaVacia)
-          else
-            _Cuerpo(filtros: filtros, pagina: pagina, total: total),
-          if ((total.value ?? 0) > 0)
-            Paginacion(
-              pagina: filtros.pagina,
-              porPagina: ConsultasPedidos.porPagina,
-              total: total.value ?? 0,
-              alIr: (n) =>
-                  ref.read(filtrosPedidosProvider.notifier).irAPagina(n),
-            ),
+          // La tabla y su paginacion van dentro de la MISMA caja blanca: en
+          // delivery la paginacion es el pie de la tabla (`border-t bg-white`),
+          // no una barra suelta debajo.
+          TarjetaDeTabla(
+            pie: (total.value ?? 0) > 0
+                ? Paginacion(
+                    pagina: filtros.pagina,
+                    porPagina: ConsultasPedidos.porPagina,
+                    total: total.value ?? 0,
+                    alIr: (n) =>
+                        ref.read(filtrosPedidosProvider.notifier).irAPagina(n),
+                  )
+                : null,
+            child: descargados.value == false
+                ? const EstadoVacio(SinDescargar.textoDeLaPantallaVacia)
+                : _Cuerpo(filtros: filtros, pagina: pagina, total: total),
+          ),
         ],
       ),
     );
@@ -115,17 +133,21 @@ class _FranjaAzul extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Container(
-    margin: const EdgeInsets.only(top: 8),
-    padding: const EdgeInsets.all(12),
+    margin: const EdgeInsets.only(top: Aire.sm),
+    padding: const EdgeInsets.all(Aire.lg),
     decoration: BoxDecoration(
-      color: Colores.azul.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(6),
+      color: Colores.azulFondo,
+      border: Border.all(color: Colores.primario.withValues(alpha: 0.2)),
+      borderRadius: BorderRadius.circular(Radios.lg),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(PantallaPedidos.franjaAzul),
-        const SizedBox(height: 8),
+        Text(
+          PantallaPedidos.franjaAzul,
+          style: Tipos.texto(tamano: 13, color: Colores.tinta, alto: 1.5),
+        ),
+        const SizedBox(height: Aire.md),
         OutlinedButton(
           onPressed: () => ref.read(filtrosPedidosProvider.notifier).verTodos(),
           child: const Text('Ver todos los pedidos'),
@@ -152,10 +174,12 @@ class _BarraDeFiltros extends ConsumerWidget {
         SizedBox(
           width: 220,
           child: TextField(
+            style: Tipos.texto(tamano: 14),
             decoration: const InputDecoration(
               hintText: 'Buscar',
               isDense: true,
-              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.search, size: 18),
+              prefixIconConstraints: BoxConstraints(minWidth: 36),
             ),
             onSubmitted: (t) => notas.cambiar((f) => f.copiarCon(q: t)),
           ),
@@ -280,10 +304,15 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
     if (seleccion.isEmpty) return const SizedBox.shrink();
     final totales = ref.watch(preDespachoElegidoProvider).value;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8),
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: Aire.md),
+      decoration: BoxDecoration(
+        color: Colores.primarioTenue,
+        border: Border.all(color: Colores.primario.withValues(alpha: 0.25)),
+        borderRadius: BorderRadius.circular(Radios.xl),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(Aire.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -295,7 +324,11 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
                     '${totales == null ? '' : ' · ${totales.productos} producto(s)'
                               ' · ${cantidad(totales.empaques)} empaques'
                               ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: Tipos.texto(
+                      tamano: 14,
+                      peso: FontWeight.w600,
+                      color: Colores.tinta,
+                    ),
                   ),
                 ),
                 TextButton(
@@ -335,20 +368,40 @@ class _PreDespachoDeLoFiltradoState
         ? ref.watch(preDespachoFiltradoProvider).value
         : null;
 
-    return ExpansionTile(
-      title: Text(
-        'Pre-despacho de lo filtrado'
-        '${totales == null ? '' : ' · ${totales.productos} producto(s)'
-                  ' · ${cantidad(totales.empaques)} empaques'
-                  ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
+    return Container(
+      margin: const EdgeInsets.only(bottom: Aire.sm),
+      decoration: BoxDecoration(
+        color: Colores.blanco,
+        border: Border.all(color: Colores.linea),
+        borderRadius: BorderRadius.circular(Radios.xl),
       ),
-      onExpansionChanged: (abierto) => setState(() => _abierto = abierto),
-      children: [
-        if (totales == null)
-          const Padding(padding: EdgeInsets.all(12), child: Text('Cargando...'))
-        else
-          _TablaPreDespacho(totales: totales),
-      ],
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        // Sin el tinte ni la linea gruesa que Material le pone al abrirse: aqui
+        // la caja ya tiene su borde fino y su radio.
+        shape: const Border(),
+        collapsedShape: const Border(),
+        backgroundColor: Colores.blanco,
+        collapsedBackgroundColor: Colores.blanco,
+        iconColor: Colores.tintaSuave,
+        collapsedIconColor: Colores.tintaSuave,
+        tilePadding: const EdgeInsets.symmetric(horizontal: Aire.lg),
+        title: Text(
+          'Pre-despacho de lo filtrado'
+          '${totales == null ? '' : ' · ${totales.productos} producto(s)'
+                    ' · ${cantidad(totales.empaques)} empaques'
+                    ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
+          style: Tipos.texto(tamano: 14, peso: FontWeight.w600),
+        ),
+        onExpansionChanged: (abierto) => setState(() => _abierto = abierto),
+        children: [
+          const Divider(height: 1, thickness: 1, color: Colores.linea),
+          if (totales == null)
+            const Cargando('Cargando...')
+          else
+            _TablaPreDespacho(totales: totales),
+        ],
+      ),
     );
   }
 }
@@ -361,41 +414,51 @@ class _TablaPreDespacho extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (totales.lineas.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(12),
-        child: Text('Sin productos'),
-      );
+      return const EstadoVacio('Sin productos');
     }
     // Su propio desplazamiento horizontal: sin el, esta tabla empuja la pagina
     // entera de lado en el telefono (§11 del pliego).
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: DataTable(
-        columns: const [
-          DataColumn(label: Text('Producto')),
-          DataColumn(label: Text('Empaques')),
-          DataColumn(label: Text('Unidades')),
-          DataColumn(label: Text('kg')),
-        ],
-        rows: [
-          for (final linea in totales.lineas)
-            DataRow(
-              cells: [
-                DataCell(Text(linea.producto)),
-                DataCell(Text(cantidad(linea.empaques))),
-                DataCell(Text(cantidad(linea.unidades))),
-                // Sin peso resuelto se pinta `—`, nunca un cero.
-                DataCell(
-                  Text(
-                    linea.pesoKg == null
-                        ? '—'
-                        : linea.pesoKg!.toStringAsFixed(1),
+      child: Theme(
+        data: Theme.of(
+          context,
+        ).copyWith(dataTableTheme: temaDeTabla(context)),
+        child: DataTable(
+          columns: [
+            DataColumn(label: cabecera('Producto')),
+            DataColumn(label: cabecera('Empaques'), numeric: true),
+            DataColumn(label: cabecera('Unidades'), numeric: true),
+            DataColumn(label: cabecera('kg'), numeric: true),
+          ],
+          rows: [
+            for (final linea in totales.lineas)
+              DataRow(
+                cells: [
+                  DataCell(Text(linea.producto)),
+                  DataCell(_cifra(cantidad(linea.empaques))),
+                  DataCell(_cifra(cantidad(linea.unidades))),
+                  // Sin peso resuelto se pinta `—`, nunca un cero.
+                  DataCell(
+                    _cifra(
+                      linea.pesoKg == null
+                          ? '—'
+                          : linea.pesoKg!.toStringAsFixed(1),
+                    ),
                   ),
-                ),
-              ],
-            ),
-        ],
+                ],
+              ),
+          ],
+        ),
       ),
     );
+  }
+
+  /// Las cifras de la tabla, en mono y de ancho fijo: se comparan de arriba
+  /// abajo y con la proporcional las unidades bailan de fila a fila.
+  static Widget _cifra(String texto) => Text(
+    texto,
+    style: Tipos.mono(tamano: 13, color: Colores.tinta),
+  );
   }
 }

@@ -274,7 +274,7 @@ class _Fila extends StatelessWidget {
                   color: switch (reparto) {
                     EstadoReparto.entregado => Colores.verde,
                     EstadoReparto.enRuta => Colores.azul,
-                    EstadoReparto.enDespacho => Colores.indigo,
+                    EstadoReparto.enDespacho => Colores.primario,
                     EstadoReparto.devuelto ||
                     EstadoReparto.cancelado => Colores.ambar,
                     EstadoReparto.sinEntregar => Colores.gris,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'anchos.dart';
 import 'colores.dart';
+import 'tema.dart';
 
 /// EL CAJON. **Siempre cajon, nunca `AlertDialog`** (pliego §9.2).
 ///
@@ -55,7 +56,7 @@ Future<T?> abrirPanel<T>(BuildContext contexto, WidgetBuilder panel) {
     // `ModalBarrier` de Flutter atiende el `DismissIntent` del teclado).
     barrierDismissible: true,
     barrierLabel: 'Cerrar',
-    barrierColor: Colors.black.withValues(alpha: 0.4),
+    barrierColor: Colores.tinta.withValues(alpha: 0.4),
     transitionDuration: const Duration(milliseconds: 180),
     pageBuilder: (contextoPanel, _, _) => panel(contextoPanel),
     transitionBuilder: (_, animacion, _, hijo) {
@@ -96,7 +97,6 @@ class Cajon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
     final anchoPantalla = MediaQuery.sizeOf(context).width;
     // En movil la pantalla entera, sin excepciones: un panel de 448 px sobre una
     // pantalla de 390 px es un panel de 390 px con los bordes cortados.
@@ -106,24 +106,54 @@ class Cajon extends StatelessWidget {
 
     return Align(
       alignment: Alignment.centerRight,
-      child: Material(
-        color: tema.colorScheme.surface,
-        child: SizedBox(
-          width: anchoUtil,
-          height: double.infinity,
-          child: SafeArea(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Cabecera(titulo: titulo, subtitulo: subtitulo),
-                const Divider(height: 1, color: Colores.borde),
-                // El cuerpo es lo unico que se desplaza.
-                Expanded(child: SingleChildScrollView(child: child)),
-                if (pie != null) ...[
-                  const Divider(height: 1, color: Colores.borde),
-                  Padding(padding: const EdgeInsets.all(16), child: pie),
+      child: DecoratedBox(
+        // `shadow-2xl` y el borde fino a la izquierda: sobre el velo al 40 % un
+        // panel blanco sin sombra se pega al borde de la pantalla y no se lee
+        // como algo que esta POR ENCIMA de la lista.
+        decoration: const BoxDecoration(
+          color: Colores.blanco,
+          border: Border(left: BorderSide(color: Colores.linea)),
+          boxShadow: Sombras.xl,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: SizedBox(
+            width: anchoUtil,
+            height: double.infinity,
+            child: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _Cabecera(titulo: titulo, subtitulo: subtitulo),
+                  const Divider(height: 1, thickness: 1, color: Colores.linea),
+                  // El cuerpo es lo unico que se desplaza.
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(
+                        Aire.xl,
+                        Aire.lg,
+                        Aire.xl,
+                        Aire.xl,
+                      ),
+                      child: child,
+                    ),
+                  ),
+                  if (pie != null) ...[
+                    const Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: Colores.linea,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Aire.xl,
+                        vertical: Aire.md,
+                      ),
+                      child: pie,
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -142,8 +172,9 @@ class _Cabecera extends StatelessWidget {
   Widget build(BuildContext context) {
     final tema = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+      padding: const EdgeInsets.fromLTRB(Aire.xl, Aire.lg, Aire.sm, Aire.lg),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: Column(
@@ -151,15 +182,17 @@ class _Cabecera extends StatelessWidget {
               children: [
                 Text(
                   titulo,
-                  style: tema.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tema.textTheme.titleMedium,
                 ),
                 if (subtitulo != null)
                   Text(
                     subtitulo!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: tema.textTheme.bodySmall?.copyWith(
-                      color: Colores.gris,
+                      color: Colores.tintaSuave,
                     ),
                   ),
               ],
@@ -169,7 +202,8 @@ class _Cabecera extends StatelessWidget {
           // el teclado del telefono tapa media pantalla.
           IconButton(
             tooltip: 'Cerrar',
-            icon: const Icon(Icons.close),
+            icon: const Icon(Icons.close, size: 20),
+            color: Colores.tintaSuave,
             onPressed: () => Navigator.of(context).maybePop(),
           ),
         ],

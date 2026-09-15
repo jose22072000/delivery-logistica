@@ -7,6 +7,7 @@ import '../../../diseno/colores.dart';
 import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/numeros.dart';
 import '../../../diseno/tarjeta.dart';
+import '../../../diseno/tema.dart';
 import '../datos/consultas_panel.dart';
 import '../estado/panel_estado.dart';
 
@@ -25,11 +26,16 @@ class PantallaPanel extends ConsumerWidget {
     // salte de vacia a llena cambiando de altura debajo del dedo.
     final c = cifras.value ?? CifrasDelPanel.cero;
 
+    // `p-3 sm:p-6` de delivery: 12 px en el telefono, 24 en pantalla grande.
+    final estrecho = MediaQuery.sizeOf(context).width < Anchos.idioma;
+
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(estrecho ? Aire.md : Aire.xl),
       children: [
         _Cifras(c),
-        const SizedBox(height: 16),
+        // `mb-8`: las cuatro cifras de arriba respiran mas que el resto, que es
+        // lo que las separa de «el detalle».
+        const SizedBox(height: Aire.xxl),
         LayoutBuilder(
           builder: (context, medidas) {
             // Por debajo de 768 px las dos tarjetas de abajo se apilan: una
@@ -38,7 +44,7 @@ class PantallaPanel extends ConsumerWidget {
               return Column(
                 children: [
                   _PendientePorSucursal(cifras: c),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: Aire.xl),
                   const _AccionesRapidas(),
                 ],
               );
@@ -47,7 +53,7 @@ class PantallaPanel extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(flex: 2, child: _PendientePorSucursal(cifras: c)),
-                const SizedBox(width: 16),
+                const SizedBox(width: Aire.xl),
                 const Expanded(child: _AccionesRapidas()),
               ],
             );
@@ -101,7 +107,7 @@ class _Cifras extends StatelessWidget {
             children: [
               for (final t in tarjetas)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.only(bottom: Aire.lg),
                   child: SizedBox(width: double.infinity, child: t),
                 ),
             ],
@@ -115,7 +121,7 @@ class _Cifras extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               for (var i = 0; i < tarjetas.length; i++) ...[
-                if (i > 0) const SizedBox(width: 12),
+                if (i > 0) const SizedBox(width: Aire.lg),
                 Expanded(child: tarjetas[i]),
               ],
             ],
@@ -141,6 +147,7 @@ class _PendientePorSucursal extends ConsumerWidget {
 
     return Tarjeta(
       titulo: 'Pendiente por sucursal',
+      icono: Icons.location_city_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -151,44 +158,76 @@ class _PendientePorSucursal extends ConsumerWidget {
             AsyncValue<List<PendienteDeSucursal>>(:final value?) => Column(
               children: [
                 for (final f in value)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      children: [
-                        Expanded(child: Text(f.sucursal)),
-                        SizedBox(
-                          width: 90,
-                          child: Text(
-                            Numeros.kgRedondeado(f.pesoKg),
-                            textAlign: TextAlign.right,
-                            style: tema.textTheme.bodySmall?.copyWith(
-                              color: Colores.gris,
+                  // Cada sucursal, separada de la siguiente por la linea fina
+                  // (`border-b last:border-0` de la de Next).
+                  DecoratedBox(
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Colores.linea),
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              f.sucursal,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        ),
-                        SizedBox(
-                          width: 56,
-                          child: Text(
-                            Numeros.entero(f.pedidos),
-                            textAlign: TextAlign.right,
+                          // Los kg y el conteo, EN COLUMNA: son dos numeros que
+                          // se comparan de arriba abajo, no dos palabras.
+                          SizedBox(
+                            width: 90,
+                            child: Text(
+                              Numeros.kgRedondeado(f.pesoKg),
+                              textAlign: TextAlign.right,
+                              style: Tipos.mono(
+                                tamano: 12,
+                                color: Colores.tintaSuave,
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                          SizedBox(
+                            width: 56,
+                            child: Text(
+                              Numeros.entero(f.pedidos),
+                              textAlign: TextAlign.right,
+                              style: Tipos.mono(
+                                tamano: 14,
+                                peso: FontWeight.w600,
+                                color: Colores.tinta,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
               ],
             ),
             _ => const SizedBox(height: 48),
           },
-          const Divider(height: 24, color: Colores.borde),
+          const Divider(height: Aire.xl, color: Colores.linea),
           Row(
             children: [
-              const Expanded(child: Text('Domicilios cobrados')),
+              Expanded(
+                child: Text(
+                  'Domicilios cobrados',
+                  style: tema.textTheme.bodyMedium?.copyWith(
+                    color: Colores.tintaSuave,
+                  ),
+                ),
+              ),
+              // El dinero cobrado va en el verde de marca y en mono: es la
+              // unica cifra de la tarjeta que se apunta.
               Text(
                 Numeros.importe(cifras.totalDomicilios),
-                style: tema.textTheme.bodyMedium?.copyWith(
-                  color: Colores.verde,
-                  fontWeight: FontWeight.bold,
+                style: Tipos.mono(
+                  tamano: 14,
+                  peso: FontWeight.w700,
+                  color: Colores.secundario,
                 ),
               ),
             ],
@@ -205,33 +244,88 @@ class _AccionesRapidas extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tarjeta(
     titulo: 'Acciones Rápidas',
+    icono: Icons.bolt_outlined,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: const [
-        _Accion('Planificar Rutas', '/routes', Icons.route_outlined),
-        _Accion('Ver Reportes', '/reports', Icons.assessment_outlined),
-        _Accion('Gestionar Flota', '/vehicles', Icons.local_shipping_outlined),
+        // Cada una con SU color, como los tres bloques tintados de la de Next
+        // (`bg-blue-50`, `bg-green-50`, `bg-yellow-50`): tres filas grises
+        // iguales no se distinguen y hay que leerlas cada vez.
+        _Accion(
+          'Planificar Rutas',
+          '/routes',
+          Icons.route_outlined,
+          Colores.azul,
+          Colores.azulFondo,
+        ),
+        SizedBox(height: Aire.md),
+        _Accion(
+          'Ver Reportes',
+          '/reports',
+          Icons.assessment_outlined,
+          Colores.verde,
+          Colores.verdeFondo,
+        ),
+        SizedBox(height: Aire.md),
+        _Accion(
+          'Gestionar Flota',
+          '/vehicles',
+          Icons.local_shipping_outlined,
+          Colores.ambar,
+          Colores.ambarFondo,
+        ),
       ],
     ),
   );
 }
 
 class _Accion extends StatelessWidget {
-  const _Accion(this.texto, this.ruta, this.icono);
+  const _Accion(this.texto, this.ruta, this.icono, this.color, this.fondo);
 
   final String texto;
   final String ruta;
   final IconData icono;
+  final Color color;
+  final Color fondo;
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    contentPadding: EdgeInsets.zero,
-    leading: Icon(icono, color: Theme.of(context).colorScheme.primary),
-    title: Text(texto),
-    trailing: const Icon(Icons.chevron_right, color: Colores.gris),
-    // `Ver Reportes` es una de las DOS puertas a `/reports`: la otra es escribir
-    // la URL. Reportes no esta en el menu (§8.1), asi que si este enlace se cae,
-    // la pantalla deja de existir para quien no sepa la direccion.
-    onTap: () => context.go(ruta),
+  Widget build(BuildContext context) => Material(
+    color: fondo,
+    borderRadius: BorderRadius.circular(Radios.lg),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(Radios.lg),
+      // `Ver Reportes` es una de las DOS puertas a `/reports`: la otra es
+      // escribir la URL. Reportes no esta en el menu (§8.1), asi que si este
+      // enlace se cae, la pantalla deja de existir para quien no sepa la
+      // direccion.
+      onTap: () => context.go(ruta),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Aire.md,
+          vertical: Aire.md,
+        ),
+        child: Row(
+          children: [
+            Icon(icono, size: 20, color: color),
+            const SizedBox(width: Aire.md),
+            Expanded(
+              child: Text(
+                texto,
+                style: Tipos.texto(
+                  tamano: 14,
+                  peso: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: color.withValues(alpha: 0.6),
+            ),
+          ],
+        ),
+      ),
+    ),
   );
 }

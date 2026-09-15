@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'colores.dart';
+import 'tema.dart';
 
 /// Que se ve en el pie de una lista. Es una funcion pura para poder probarla
 /// sin pintar: la aritmetica de paginas es donde salen los «Mostrando 51–50 de
@@ -71,31 +72,75 @@ class Paginacion extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (total <= 0) return const SizedBox.shrink();
-    final tema = Theme.of(context);
     final paginas = totalDePaginas(total: total, porPagina: porPagina);
     final rango = Rango.de(pagina: pagina, porPagina: porPagina, total: total);
 
+    // `px-4 py-3 border-t bg-white` de `Pagination.tsx`: la paginacion va DENTRO
+    // de la caja de la tabla, separada por la linea fina. Por eso el fondo es
+    // blanco y no papel.
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Aire.lg,
+        vertical: Aire.md,
+      ),
       child: Wrap(
         spacing: 12,
         runSpacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         alignment: WrapAlignment.spaceBetween,
         children: [
-          Text(
-            'Mostrando ${rango.desde}–${rango.hasta} de $total',
-            style: tema.textTheme.bodySmall?.copyWith(color: Colores.gris),
+          // «Mostrando 51–100 de 412», con las CIFRAS EN NEGRITA y en columna,
+          // que es lo que se lee de un vistazo.
+          Text.rich(
+            TextSpan(
+              style: Tipos.texto(tamano: 13, color: Colores.tintaSuave),
+              children: [
+                const TextSpan(text: 'Mostrando '),
+                TextSpan(
+                  text: '${rango.desde}–${rango.hasta}',
+                  style: Tipos.mono(
+                    tamano: 13,
+                    peso: FontWeight.w600,
+                    color: Colores.tinta,
+                  ),
+                ),
+                const TextSpan(text: ' de '),
+                TextSpan(
+                  text: '$total',
+                  style: Tipos.mono(
+                    tamano: 13,
+                    peso: FontWeight.w600,
+                    color: Colores.tinta,
+                  ),
+                ),
+              ],
+            ),
           ),
           if (tamanosPosibles != null && alCambiarTamano != null)
-            DropdownButton<int>(
-              value: porPagina,
-              underline: const SizedBox.shrink(),
-              items: [
-                for (final t in tamanosPosibles!)
-                  DropdownMenuItem<int>(value: t, child: Text('$t / pág.')),
-              ],
-              onChanged: (v) => v == null ? null : alCambiarTamano!(v),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colores.blanco,
+                border: Border.all(color: Colores.linea),
+                borderRadius: BorderRadius.circular(Radios.md),
+              ),
+              child: DropdownButton<int>(
+                value: porPagina,
+                underline: const SizedBox.shrink(),
+                isDense: true,
+                borderRadius: BorderRadius.circular(Radios.lg),
+                icon: const Icon(
+                  Icons.keyboard_arrow_down,
+                  size: 16,
+                  color: Colores.tintaSuave,
+                ),
+                style: Tipos.texto(tamano: 13, color: Colores.tinta),
+                items: [
+                  for (final t in tamanosPosibles!)
+                    DropdownMenuItem<int>(value: t, child: Text('$t / pág.')),
+                ],
+                onChanged: (v) => v == null ? null : alCambiarTamano!(v),
+              ),
             ),
           Wrap(
             spacing: 4,
@@ -122,6 +167,9 @@ class Paginacion extends StatelessWidget {
   }
 }
 
+/// Un numero de pagina. La actual va en primario LLENO y en blanco, como en
+/// `Pagination.tsx` (`bg-blue-600 text-white border-blue-600`); las demas son
+/// cajas blancas con el borde fino.
 class _Boton extends StatelessWidget {
   const _Boton(this.texto, this.alPulsar, {this.actual = false});
 
@@ -131,21 +179,41 @@ class _Boton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
+    final apagado = alPulsar == null && !actual;
     return SizedBox(
       // 36 px: el minimo con el que un dedo acierta sin ampliar. Mas pequeno y
       // en el patio del almacen se pulsa la pagina de al lado.
       width: 36,
       height: 36,
-      child: TextButton(
-        onPressed: alPulsar,
-        style: TextButton.styleFrom(
-          padding: EdgeInsets.zero,
-          minimumSize: Size.zero,
-          backgroundColor: actual ? tema.colorScheme.primaryContainer : null,
-          foregroundColor: actual ? tema.colorScheme.primary : Colores.gris,
+      child: Material(
+        color: actual ? Colores.primario : Colores.blanco,
+        borderRadius: BorderRadius.circular(Radios.md),
+        child: InkWell(
+          onTap: alPulsar,
+          borderRadius: BorderRadius.circular(Radios.md),
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Radios.md),
+              border: Border.all(
+                color: actual ? Colores.primario : Colores.linea,
+              ),
+            ),
+            child: Center(
+              child: Opacity(
+                // `disabled:opacity-40`.
+                opacity: apagado ? 0.4 : 1,
+                child: Text(
+                  texto,
+                  style: Tipos.texto(
+                    tamano: 13,
+                    peso: actual ? FontWeight.w600 : FontWeight.w500,
+                    color: actual ? Colors.white : Colores.tintaSuave,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
-        child: Text(texto),
       ),
     );
   }

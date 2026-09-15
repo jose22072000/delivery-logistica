@@ -240,6 +240,48 @@ Pero son decisiones de negocio, no técnicas, y alguien tiene que mirarlas:
 - [ ] `CatalogoDePesos` sin montar: `weightsSource` sale `"none"`, valor que el contrato
       ya prevé.
 
+## Lo que salió al DESPLEGARLO de verdad (15/09/2026)
+
+Ninguno de estos lo habrían encontrado las 398 pruebas: las piezas estaban bien probadas
+por dentro, lo que faltaba era enchufarlas.
+
+- [ ] **No hay pantalla de acceso.** Está toda la maquinaria de identidad —guardar la
+      sesión, el renovador con su candado— pero no hay dónde entrar, y el armazón no exige
+      sesión: entra directo al Panel. Sin sesión no se descarga nada, así que todas las
+      pantallas dicen «no se ha descargado todavía» y la aplicación parece rota.
+- [ ] **No hay lector de Ventra.** `POST /api/products/sync` contesta
+      `502 «este servicio todavía no tiene lector de Ventra configurado»`. Hay interfaz
+      (`LectorDeVentra`) y hay dónde enchufarlo (`PonerLectorDeVentra`), pero nadie escribió
+      la implementación. Sin catálogo no hay pesos y el pre-despacho sale incompleto.
+- [x] **La almohadilla en la URL.** Flutter web enruta con `#` por defecto. Quitado con
+      `usePathUrlStrategy()`; el nginx ya servía `index.html` en cualquier ruta, que es lo
+      que hace falta para que recargar no dé 404.
+- [ ] **Se ve como Material, no como delivery.** Jose lo dijo al abrirlo: «muy cambiado a
+      como está el de Next».
+
+### Y las trampas del propio despliegue, que costaron seis intentos
+
+Están explicadas en `montar-en-dokploy.md`. En una línea: **todo lo que se copie de
+`.secretos/delivery_env_local.txt` está mal**, porque es la configuración de desarrollo —
+su `localhost:8400` dentro de un contenedor es el contenedor mismo, y su clave de servicio
+no es la de producción. Los valores se leen del contenedor que ya funciona.
+
+Dos más, y la segunda es la que más tiempo escondió:
+
+- **El contexto de construcción tiene que ser `.`**, no vacío: los Dockerfile viven en
+  `deploy/` pero hacen `COPY api/`.
+- **Las sucursales hay que sembrarlas ANTES de que el espejo traiga nada.** Sin ellas
+  rechaza todos los pedidos con `sucursal-no-mapeada` — 491 en un lote — y la base se queda
+  vacía sin que nada parezca roto. Los clientes sí entran, y eso despista.
+
+### Un error mío que conviene no repetir
+
+Leí las variables de un contenedor **distroless** con `printenv`, que no existe ahí. El
+comando devolvió vacío, y guardé ese vacío encima de la configuración buena: la API se
+quedó con dos variables de doce. **Se lee del spec del servicio**
+(`docker service inspect … .Spec.TaskTemplate.ContainerSpec.Env`) o de Dokploy, nunca del
+contenedor.
+
 ## Error mío al repartir el trabajo — hay que corregirlo en TODAS las pantallas
 
 - [x] ~~**El cajón va también en escritorio.**~~ CORREGIDO el 14/09/2026: quitada la rama de

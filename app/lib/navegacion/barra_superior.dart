@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../diseno/anchos.dart';
 import '../diseno/colores.dart';
 import '../diseno/selector.dart';
+import '../diseno/tema.dart';
 import '../nucleo/base/base.dart';
 import '../nucleo/proveedores.dart';
 import 'estado_navegacion.dart';
@@ -30,29 +31,31 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
     final tema = Theme.of(context);
     final actualizando = ref.watch(actualizandoProvider);
 
+    // Sobre PAPEL, no sobre blanco: en delivery la barra es `bg-paper/80` y lo
+    // blanco son las tarjetas y la barra lateral. Una barra superior blanca
+    // sobre un fondo casi blanco hace que la pantalla no tenga arriba.
     return Container(
       height: Anchos.altoBarraSuperior,
       decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Colores.borde)),
+        color: Colores.papel,
+        border: Border(bottom: BorderSide(color: Colores.linea)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: Aire.md),
       child: Row(
         children: [
           if (alAbrirMenu != null)
             IconButton(
               tooltip: 'Menú',
-              icon: const Icon(Icons.menu),
+              icon: const Icon(Icons.menu, size: 22),
+              color: Colores.tintaSuave,
               onPressed: alAbrirMenu,
             ),
-          const SizedBox(width: 4),
+          const SizedBox(width: Aire.xs),
           Flexible(
             child: Text(
               titulo,
               overflow: TextOverflow.ellipsis,
-              style: tema.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: tema.textTheme.titleLarge,
             ),
           ),
           if (actualizando) ...[
@@ -60,12 +63,19 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
             const SizedBox(
               width: 12,
               height: 12,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colores.tintaSuave,
+              ),
             ),
             const SizedBox(width: 6),
             Text(
               'actualizando…',
-              style: tema.textTheme.bodySmall?.copyWith(color: Colores.gris),
+              style: Tipos.texto(
+                tamano: 11,
+                peso: FontWeight.w500,
+                color: Colores.tintaSuave.withValues(alpha: 0.7),
+              ),
             ),
           ],
           const Spacer(),
@@ -106,10 +116,35 @@ class _Sucursal extends ConsumerWidget {
     if (sucursales.length == 1) {
       final unica = sucursales.first;
       final codigo = unica.externalId;
-      return Text(
-        codigo == null ? unica.name : '${unica.name} ($codigo)',
-        style: Theme.of(context).textTheme.bodySmall
-            ?.copyWith(color: Colores.gris),
+      // Una sola sucursal: se dice cual es en una pastilla blanca con su borde
+      // fino — la misma caja que el selector, para que la barra no tenga una
+      // pieza sin forma al lado de otra que si la tiene.
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: Aire.md, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colores.blanco,
+          border: Border.all(color: Colores.linea),
+          borderRadius: BorderRadius.circular(Radios.lg),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.store_outlined,
+              size: 16,
+              color: Colores.tintaSuave,
+            ),
+            const SizedBox(width: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 180),
+              child: Text(
+                codigo == null ? unica.name : '${unica.name} ($codigo)',
+                overflow: TextOverflow.ellipsis,
+                style: Tipos.texto(tamano: 14, color: Colores.tinta),
+              ),
+            ),
+          ],
+        ),
       );
     }
 
@@ -168,12 +203,32 @@ class _Moneda extends ConsumerWidget {
             'Esta sucursal no tiene tasa de cambio todavía: '
             'los importes sólo se pueden ver en USD.',
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: Aire.md, vertical: 8),
           decoration: BoxDecoration(
-            border: Border.all(color: Colores.ambar),
-            borderRadius: BorderRadius.circular(8),
+            color: Colores.blanco,
+            border: Border.all(color: Colores.ambar.withValues(alpha: 0.45)),
+            borderRadius: BorderRadius.circular(Radios.lg),
           ),
-          child: const Text('USD', style: TextStyle(color: Colores.ambar)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.money_off_csred_outlined,
+                size: 16,
+                color: Colores.ambar,
+              ),
+              const SizedBox(width: 6),
+              // En mono: es una cifra, aunque sea el codigo de la moneda.
+              Text(
+                'USD',
+                style: Tipos.mono(
+                  tamano: 12,
+                  peso: FontWeight.w600,
+                  color: Colores.ambar,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -212,9 +267,9 @@ class _Avatar extends ConsumerWidget {
     return PopupMenuButton<void>(
       tooltip: 'Cuenta',
       icon: const CircleAvatar(
-        radius: 14,
-        backgroundColor: Colores.indigo,
-        child: Icon(Icons.person, size: 16, color: Colors.white),
+        radius: 16,
+        backgroundColor: Colores.primario,
+        child: Icon(Icons.person_outline, size: 18, color: Colors.white),
       ),
       itemBuilder: (contexto) => <PopupMenuEntry<void>>[
         PopupMenuItem<void>(

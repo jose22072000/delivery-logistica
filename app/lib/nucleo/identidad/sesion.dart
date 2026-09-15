@@ -16,7 +16,11 @@ class Sesion {
 
   factory Sesion.deJson(Map<String, Object?> json) {
     final token = json['token'] as String?;
-    final refresh = json['refresh'] as String?;
+    // Auth contesta `refresh_token` en las tres puertas (`/api/auth/token`,
+    // `/refresh` y `/logout`). `refresh` se sigue admitiendo porque es como se
+    // guarda el par en el aparato, y lo guardado tiene que poder volver a
+    // leerse.
+    final refresh = (json['refresh_token'] ?? json['refresh']) as String?;
     if (token == null || refresh == null) {
       throw const FormatException('la respuesta no trae el par de tokens');
     }
@@ -25,7 +29,16 @@ class Sesion {
       token: token,
       refresh: refresh,
       sub: (json['sub'] ?? carga['sub'] ?? '') as String,
-      sucursalId: (json['sucursalId'] ?? carga['sucursalId']) as String?,
+      // El token trae el CODIGO de la sucursal (CAM, HAB, STG...) con dos
+      // nombres, `sucursal` y `branch_id`, que es lo que firma auth
+      // (`apk-tokens.ts`) y lo que lee la API del reparto. Vacio significa
+      // «ninguna», que en un Super Admin son las ocho.
+      sucursalId: _sucursal(
+        json['sucursalId'] ??
+            carga['sucursalId'] ??
+            carga['sucursal'] ??
+            carga['branch_id'],
+      ),
       roles: _roles(json['roles'] ?? carga['roles']),
     );
   }
@@ -75,6 +88,14 @@ class Sesion {
       // y el servidor dira lo que tenga que decir en la primera peticion.
       return const <String, Object?>{};
     }
+  }
+
+  /// La sucursal, o `null` si viene vacia. La cadena vacia que firma auth
+  /// cuando alguien no tiene ninguna NO puede quedarse como sucursal: seria una
+  /// cabecera `x-sucursal-id: ` en cada peticion.
+  static String? _sucursal(Object? crudo) {
+    final texto = crudo is String ? crudo.trim() : null;
+    return (texto == null || texto.isEmpty) ? null : texto;
   }
 
   static List<String> _roles(Object? crudo) => switch (crudo) {

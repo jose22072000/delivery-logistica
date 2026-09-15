@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'diseno/colores.dart';
+import 'diseno/tema.dart';
 import 'navegacion/rutas.dart';
 import 'textos/textos.dart';
 
@@ -30,6 +30,12 @@ class _RepartoAppState extends State<RepartoApp> {
     title: 'Reparto',
     debugShowCheckedModeBanner: false,
     theme: temaDeReparto(),
+    // El papel con su rejilla, DEBAJO de todas las pantallas y por encima de
+    // nada. Va aqui, en el `builder`, y no en cada `Scaffold`: asi lo tienen
+    // tambien los cajones y los menus, que se pintan fuera del arbol de la
+    // pantalla.
+    builder: (contexto, pantalla) =>
+        FondoDePapel(child: pantalla ?? const SizedBox.shrink()),
     // Sin estas dos lineas `Textos.of(context)` revienta en cada pantalla, y
     // las de Material dejarian un selector de fecha en ingles dentro de una
     // pantalla en espanol.

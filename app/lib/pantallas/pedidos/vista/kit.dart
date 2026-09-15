@@ -1,49 +1,40 @@
-// El kit compartido por Pedidos y Rutas: cajon, insignias, paginacion, selector
-// con buscador, estados vacios y la barra con el reloj de datos.
+// El kit que usan Pedidos y Rutas: cajon, insignias, paginacion, selector con
+// buscador, estados vacios y la barra con el reloj de datos.
 //
-// **Por que vive aqui y no en `lib/diseno/`:** el kit de PLAN.md §1 todavia no
-// existe y esta tarea sólo escribe dentro de `lib/pantallas/`. Cuando se cree
-// `lib/diseno/`, este fichero se mueve entero y lo unico que cambia son los
-// `import`. Se deja en Pedidos porque es la pantalla que, segun el plan, «levanta
-// de una vez todo lo que las demas reutilizan».
+// **Ya NO tiene colores ni anchos propios.** Los tenia: una copia de la paleta y
+// otra del enum de anchos, escritas cuando `lib/diseno/` todavia no existia. Con
+// las dos copias vivas, «ámbar» era un ámbar aqui y otro en el Panel, y el azul
+// de una insignia de Pedidos no era el azul de una de Rutas. Ahora los dos
+// salen de `lib/diseno/` y se reexportan desde aqui para que las ocho pantallas
+// que importan este fichero no tengan que cambiar sus `import`.
+//
+// Lo que si sigue viviendo aqui son las piezas con la forma que usan estas dos
+// pantallas (el `Cajon` de `cuerpo:`, el `Selector` de `MenuAnchor`); lo que
+// cambio es **como se ven**, que ahora es lo mismo que en `lib/diseno/`.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../diseno/anchos.dart';
+import '../../../diseno/colores.dart';
+import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/frescura/reloj_de_datos.dart';
 import '../../../nucleo/proveedores.dart';
 
-/// Los colores del pliego. En un solo sitio para que «ámbar» sea el mismo ámbar
-/// en las dos pantallas.
-abstract final class Colores {
-  static const ambar = Color(0xFFB45309);
-  static const verde = Color(0xFF15803D);
-  static const azul = Color(0xFF1D4ED8);
-  static const indigo = Color(0xFF4338CA);
-  static const gris = Color(0xFF6B7280);
-  static const rojo = Color(0xFFB91C1C);
-}
+/// La paleta y los anchos de cajon son los de `lib/diseno/`, punto. Se
+/// reexportan para no tocar los `import` de las ocho pantallas que los leen
+/// desde aqui.
+export '../../../diseno/anchos.dart' show AnchoCajon;
+export '../../../diseno/colores.dart' show Colores;
 
 /// Por debajo de esto es «movil»: el cajon ocupa la pantalla entera y las
 /// columnas prescindibles de la tabla se esconden.
-const anchoEscritorio = 1024.0;
+const anchoEscritorio = Anchos.escritorio;
 
 // -----------------------------------------------------------------------------
 // El cajon
 // -----------------------------------------------------------------------------
-
-/// Los anchos del pliego (§9.2). En movil siempre es la pantalla entera.
-enum AnchoCajon {
-  md(448),
-  lg(672),
-  xl(896),
-  completo(double.infinity);
-
-  const AnchoCajon(this.px);
-
-  final double px;
-}
 
 /// El patron cajon: entra deslizandose por la derecha, a alto completo, sobre un
 /// velo negro al 40 %.
@@ -84,10 +75,18 @@ class Cajon extends StatelessWidget {
 
     return Align(
       alignment: Alignment.centerRight,
-      child: Material(
-        color: tema.colorScheme.surface,
-        elevation: 8,
-        child: SizedBox(
+      child: DecoratedBox(
+        // `shadow-2xl` y borde fino a la izquierda, como el `Drawer.tsx` de
+        // delivery: sobre el velo al 40 %, un panel sin sombra se pega al borde
+        // y no se lee como algo que esta por encima de la lista.
+        decoration: const BoxDecoration(
+          color: Colores.blanco,
+          border: Border(left: BorderSide(color: Colores.linea)),
+          boxShadow: Sombras.xl,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: SizedBox(
           width: anchoFinal,
           height: double.infinity,
           child: Column(
@@ -96,7 +95,12 @@ class Cajon extends StatelessWidget {
               SafeArea(
                 bottom: false,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                  padding: const EdgeInsets.fromLTRB(
+                    Aire.xl,
+                    Aire.lg,
+                    Aire.sm,
+                    Aire.lg,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -106,15 +110,17 @@ class Cajon extends StatelessWidget {
                           children: [
                             Text(
                               titulo,
-                              style: tema.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: tema.textTheme.titleMedium,
                             ),
                             if (subtitulo != null)
                               Text(
                                 subtitulo!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: tema.textTheme.bodySmall?.copyWith(
-                                  color: Colores.gris,
+                                  color: Colores.tintaSuave,
                                 ),
                               ),
                           ],
@@ -124,23 +130,41 @@ class Cajon extends StatelessWidget {
                       // ir de la vista por mucho que se baje.
                       IconButton(
                         tooltip: 'Cerrar',
-                        icon: const Icon(Icons.close),
+                        icon: const Icon(Icons.close, size: 20),
+                        color: Colores.tintaSuave,
                         onPressed: () => Navigator.of(context).maybePop(),
                       ),
                     ],
                   ),
                 ),
               ),
-              const Divider(height: 1),
-              Expanded(child: SingleChildScrollView(child: cuerpo)),
+              const Divider(height: 1, thickness: 1, color: Colores.linea),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(
+                    Aire.xl,
+                    Aire.lg,
+                    Aire.xl,
+                    Aire.xl,
+                  ),
+                  child: cuerpo,
+                ),
+              ),
               if (pie != null) ...[
-                const Divider(height: 1),
+                const Divider(height: 1, thickness: 1, color: Colores.linea),
                 SafeArea(
                   top: false,
-                  child: Padding(padding: const EdgeInsets.all(12), child: pie),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Aire.xl,
+                      vertical: Aire.md,
+                    ),
+                    child: pie,
+                  ),
                 ),
               ],
             ],
+          ),
           ),
         ),
       ),
@@ -155,7 +179,7 @@ Future<T?> abrirCajon<T>(BuildContext context, WidgetBuilder construir) {
     context: context,
     barrierDismissible: true,
     barrierLabel: 'Cerrar',
-    barrierColor: Colors.black.withValues(alpha: 0.4),
+    barrierColor: Colores.tinta.withValues(alpha: 0.4),
     transitionDuration: const Duration(milliseconds: 180),
     pageBuilder: (contexto, _, _) => construir(contexto),
     transitionBuilder: (contexto, animacion, _, hijo) {
@@ -186,17 +210,18 @@ class Insignia extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pinta = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(4),
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(Radios.pastilla),
       ),
       child: Text(
         texto,
-        style: TextStyle(
+        style: Tipos.texto(
+          tamano: 11,
+          peso: FontWeight.w600,
           color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
+          interletra: 0.1,
         ),
       ),
     );
@@ -214,7 +239,7 @@ class EstadoVacio extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(32),
+    padding: const EdgeInsets.symmetric(vertical: 48, horizontal: Aire.xl),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -222,9 +247,9 @@ class EstadoVacio extends StatelessWidget {
           texto,
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium
-              ?.copyWith(color: Colores.gris),
+              ?.copyWith(color: Colores.tintaSuave),
         ),
-        if (accion != null) ...[const SizedBox(height: 12), accion!],
+        if (accion != null) ...[const SizedBox(height: Aire.lg), accion!],
       ],
     ),
   );
@@ -259,17 +284,42 @@ class Paginacion extends StatelessWidget {
     final inicio = (ultimo - 4).clamp(1, paginas);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      padding: const EdgeInsets.symmetric(
+        vertical: Aire.md,
+        horizontal: Aire.lg,
+      ),
       child: Wrap(
         crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 4,
-        runSpacing: 4,
+        spacing: Aire.xs,
+        runSpacing: Aire.xs,
         children: [
-          Text(
-            'Mostrando $desde–$hasta de $total',
-            style: Theme.of(context).textTheme.bodySmall,
+          // Las cifras en mono y en negrita, que es lo que se lee de un vistazo.
+          Text.rich(
+            TextSpan(
+              style: Tipos.texto(tamano: 13, color: Colores.tintaSuave),
+              children: [
+                const TextSpan(text: 'Mostrando '),
+                TextSpan(
+                  text: '$desde–$hasta',
+                  style: Tipos.mono(
+                    tamano: 13,
+                    peso: FontWeight.w600,
+                    color: Colores.tinta,
+                  ),
+                ),
+                const TextSpan(text: ' de '),
+                TextSpan(
+                  text: '$total',
+                  style: Tipos.mono(
+                    tamano: 13,
+                    peso: FontWeight.w600,
+                    color: Colores.tinta,
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: Aire.sm),
           _boton(context, '«', pagina > 1 ? () => alIr(1) : null),
           _boton(context, '‹', pagina > 1 ? () => alIr(pagina - 1) : null),
           for (var n = inicio; n <= ultimo; n++)
@@ -290,30 +340,46 @@ class Paginacion extends StatelessWidget {
     );
   }
 
+  /// La actual va en primario LLENO y en blanco (`bg-blue-600 text-white`); las
+  /// demas son cajas blancas con el borde fino, y las que no llevan a ninguna
+  /// parte al 40 % (`disabled:opacity-40`).
   Widget _boton(
     BuildContext context,
     String texto,
     VoidCallback? alPulsar, {
     bool actual = false,
   }) => SizedBox(
-    height: 32,
-    child: actual
-        ? FilledButton(
-            onPressed: null,
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              minimumSize: Size.zero,
+    width: 34,
+    height: 34,
+    child: Material(
+      color: actual ? Colores.primario : Colores.blanco,
+      borderRadius: BorderRadius.circular(Radios.md),
+      child: InkWell(
+        onTap: alPulsar,
+        borderRadius: BorderRadius.circular(Radios.md),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(Radios.md),
+            border: Border.all(
+              color: actual ? Colores.primario : Colores.linea,
             ),
-            child: Text(texto),
-          )
-        : OutlinedButton(
-            onPressed: alPulsar,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              minimumSize: Size.zero,
-            ),
-            child: Text(texto),
           ),
+          child: Center(
+            child: Opacity(
+              opacity: alPulsar == null && !actual ? 0.4 : 1,
+              child: Text(
+                texto,
+                style: Tipos.texto(
+                  tamano: 13,
+                  peso: actual ? FontWeight.w600 : FontWeight.w500,
+                  color: actual ? Colors.white : Colores.tintaSuave,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 }
 
@@ -350,14 +416,64 @@ class Selector<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final elegida = opciones.where((o) => o.valor == valor).firstOrNull;
+    // Igual que el de `lib/diseno/selector.dart`: con algo elegido el borde se
+    // tine de primario y la letra se pone en semibold, para que se vea que el
+    // filtro ESTA PUESTO sin leer la etiqueta.
+    final filtrando = elegida != null;
+
     return MenuAnchor(
+      style: MenuStyle(
+        backgroundColor: const WidgetStatePropertyAll(Colores.blanco),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radios.lg),
+            side: const BorderSide(color: Colores.linea),
+          ),
+        ),
+      ),
       builder: (contexto, controlador, _) => Tooltip(
         message: titulo,
-        child: OutlinedButton.icon(
+        child: OutlinedButton(
           onPressed: () =>
               controlador.isOpen ? controlador.close() : controlador.open(),
-          icon: const Icon(Icons.expand_more, size: 18),
-          label: Text(elegida?.etiqueta ?? titulo),
+          style: OutlinedButton.styleFrom(
+            backgroundColor: Colores.blanco,
+            foregroundColor: filtrando ? Colores.tinta : Colores.tintaSuave,
+            side: BorderSide(
+              color: filtrando
+                  ? Colores.primario.withValues(alpha: 0.5)
+                  : Colores.linea,
+            ),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Aire.md,
+              vertical: 9,
+            ),
+            textStyle: Tipos.texto(
+              tamano: 14,
+              peso: filtrando ? FontWeight.w600 : FontWeight.w400,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radios.lg),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  elegida?.etiqueta ?? titulo,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: Aire.xs),
+              const Icon(
+                Icons.keyboard_arrow_down,
+                size: 16,
+                color: Colores.tintaSuave,
+              ),
+            ],
+          ),
         ),
       ),
       menuChildren: [
@@ -403,19 +519,23 @@ class _MenuConBuscadorState<T> extends State<_MenuConBuscador<T>> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (widget.conBuscador)
+          if (widget.conBuscador) ...[
             Padding(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(Aire.sm),
               child: TextField(
                 autofocus: true,
+                style: Tipos.texto(tamano: 14),
                 decoration: const InputDecoration(
                   isDense: true,
-                  border: OutlineInputBorder(),
-                  hintText: 'Buscar',
+                  prefixIcon: Icon(Icons.search, size: 18),
+                  prefixIconConstraints: BoxConstraints(minWidth: 34),
+                  hintText: 'Buscar…',
                 ),
                 onChanged: (t) => setState(() => _texto = t),
               ),
             ),
+            const Divider(height: 1, thickness: 1, color: Colores.linea),
+          ],
           Flexible(
             child: SingleChildScrollView(
               child: Column(
@@ -428,12 +548,15 @@ class _MenuConBuscadorState<T> extends State<_MenuConBuscador<T>> {
                           ? null
                           : Text(
                               opcion.nota!,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colores.gris,
+                              style: Tipos.texto(
+                                tamano: 11,
+                                color: Colores.tintaSuave,
                               ),
                             ),
-                      child: Text(opcion.etiqueta),
+                      child: Text(
+                        opcion.etiqueta,
+                        style: Tipos.texto(tamano: 14, color: Colores.tinta),
+                      ),
                     ),
                 ],
               ),

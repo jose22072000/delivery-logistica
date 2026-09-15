@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 
 import 'colores.dart';
+import 'tema.dart';
 
-/// Una etiqueta pequena de estado. Texto corto, fondo tenue, letra del color.
+/// Una etiqueta pequena de estado: pastilla de fondo tenue y la palabra del
+/// color, en 11 px semibold. La misma de `RouteSummaryCard.tsx`
+/// (`px-2 py-1 rounded-full text-xs font-medium`).
+///
+/// Nada de emojis: color y palabra.
 class Insignia extends StatelessWidget {
   const Insignia(
     this.texto, {
-    this.color = Colores.gris,
+    this.color = Colores.tintaSuave,
     this.fondo,
+    this.tooltip,
     super.key,
   });
 
@@ -38,18 +44,28 @@ class Insignia extends StatelessWidget {
   final String texto;
   final Color color;
   final Color? fondo;
+  final String? tooltip;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-    decoration: BoxDecoration(
-      color: fondo ?? Colores.grisFondo,
-      borderRadius: BorderRadius.circular(999),
-    ),
-    child: Text(
-      texto,
-      style: Theme.of(context).textTheme.labelSmall
-          ?.copyWith(color: color, fontWeight: FontWeight.w600),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final pinta = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      decoration: BoxDecoration(
+        // Sin `fondo` explicito se tinta el propio color al 10 %: asi una
+        // insignia con un color nuevo no sale con el gris de otra.
+        color: fondo ?? color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(Radios.pastilla),
+      ),
+      child: Text(
+        texto,
+        style: Tipos.texto(
+          tamano: 11,
+          peso: FontWeight.w600,
+          color: color,
+          interletra: 0.1,
+        ),
+      ),
+    );
+    return tooltip == null ? pinta : Tooltip(message: tooltip!, child: pinta);
+  }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../nucleo/frescura/reloj_de_datos.dart';
 import 'colores.dart';
+import 'tema.dart';
 
 /// «Aqui no hay nada». Es un DATO: se consulto y salio vacio.
 class EstadoVacio extends StatelessWidget {
@@ -12,19 +13,29 @@ class EstadoVacio extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+    padding: const EdgeInsets.symmetric(vertical: 48, horizontal: Aire.lg),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (icono != null) ...[
-          Icon(icono, size: 32, color: Colores.gris),
-          const SizedBox(height: 8),
+          // El icono en su circulo de papel, como los estados vacios de
+          // delivery: un icono suelto sobre blanco se lee como un fallo.
+          Container(
+            width: 52,
+            height: 52,
+            decoration: const BoxDecoration(
+              color: Colores.grisFondo,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icono, size: 24, color: Colores.tintaSuave),
+          ),
+          const SizedBox(height: Aire.md),
         ],
         Text(
           texto,
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium
-              ?.copyWith(color: Colores.gris),
+              ?.copyWith(color: Colores.tintaSuave),
         ),
       ],
     ),
@@ -40,16 +51,24 @@ class PantallaSinDescargar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+    padding: const EdgeInsets.symmetric(vertical: 48, horizontal: Aire.lg),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(
-          Icons.cloud_download_outlined,
-          size: 32,
-          color: Colores.ambar,
+        Container(
+          width: 52,
+          height: 52,
+          decoration: const BoxDecoration(
+            color: Colores.ambarFondo,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.cloud_download_outlined,
+            size: 24,
+            color: Colores.ambar,
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Aire.md),
         Text(
           SinDescargar.textoDeLaPantallaVacia,
           textAlign: TextAlign.center,
@@ -76,11 +95,11 @@ class AvisoAmbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    padding: const EdgeInsets.symmetric(horizontal: Aire.md, vertical: 10),
     decoration: BoxDecoration(
       color: Colores.ambarFondo,
-      border: Border.all(color: Colores.ambar.withValues(alpha: 0.35)),
-      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colores.ambar.withValues(alpha: 0.3)),
+      borderRadius: BorderRadius.circular(Radios.lg),
     ),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,

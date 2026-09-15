@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../diseno/anchos.dart';
 import '../diseno/colores.dart';
+import '../diseno/tema.dart';
 import 'pantalla_registrada.dart';
 
 /// La barra lateral: 256 px, alto completo, fija a la izquierda en escritorio.
@@ -26,28 +27,39 @@ class BarraLateral extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
     final enElMenu = pantallas.where((p) => p.enElMenu).toList();
 
     return Container(
       width: Anchos.barraLateral,
       height: double.infinity,
       decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(right: BorderSide(color: Colores.borde)),
+        color: Colores.blanco,
+        border: Border(right: BorderSide(color: Colores.linea)),
       ),
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+              padding: const EdgeInsets.fromLTRB(Aire.xl, Aire.xl, Aire.lg, 20),
               child: Row(
                 children: [
-                  const Icon(
-                    Icons.local_shipping,
-                    color: Colores.indigo,
-                    size: 28,
+                  // El isotipo de delivery: cuadrado primario de 36 px con el
+                  // camion en blanco (`w-9 h-9 rounded-xl bg-primary`). Un icono
+                  // suelto no es una marca; el cuadrado si.
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colores.primario,
+                      borderRadius: BorderRadius.circular(Radios.lg),
+                      boxShadow: Sombras.md,
+                    ),
+                    child: const Icon(
+                      Icons.local_shipping,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   // `Expanded`: «Plataforma de Delivery» no cabe en los 256 px
@@ -60,15 +72,23 @@ class BarraLateral extends StatelessWidget {
                       children: [
                         Text(
                           'ProCovar',
-                          style: tema.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
+                          style: Tipos.display(
+                            tamano: 21.6,
+                            peso: FontWeight.w800,
+                            color: Colores.tinta,
                           ),
                         ),
+                        const SizedBox(height: 3),
+                        // `text-[11px] uppercase tracking-[0.18em]`: el rotulo
+                        // pequeno bajo la marca.
                         Text(
-                          'Plataforma de Delivery',
+                          'PLATAFORMA DE DELIVERY',
                           overflow: TextOverflow.ellipsis,
-                          style: tema.textTheme.bodySmall?.copyWith(
-                            color: Colores.gris,
+                          style: Tipos.texto(
+                            tamano: 9.5,
+                            peso: FontWeight.w600,
+                            color: Colores.tintaSuave.withValues(alpha: 0.7),
+                            interletra: 9.5 * 0.18,
                           ),
                         ),
                       ],
@@ -79,7 +99,10 @@ class BarraLateral extends StatelessWidget {
             ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.symmetric(vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Aire.md,
+                  vertical: Aire.xs,
+                ),
                 children: [
                   for (final p in enElMenu)
                     _Entrada(
@@ -112,34 +135,44 @@ class _Entrada extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
-    final color = activa ? tema.colorScheme.primary : Colores.gris;
+    final color = activa ? Colores.primario : Colores.tintaSuave;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 1),
       child: Material(
-        color: activa
-            ? tema.colorScheme.primary.withValues(alpha: 0.08)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
+        // `bg-primary/[0.08]` la activa; las demas, transparentes.
+        color: activa ? Colores.primarioTenue : Colors.transparent,
+        borderRadius: BorderRadius.circular(Radios.lg),
         child: InkWell(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(Radios.lg),
+          hoverColor: Colores.tinta.withValues(alpha: 0.035),
           onTap: () {
             if (dentroDeCajon) Navigator.of(context).pop();
             context.go(pantalla.ruta);
           },
           child: Stack(
             children: [
-              // La barra vertical a la izquierda de la activa (§8.1).
+              // La barra vertical a la izquierda de la activa (§8.1). Redonda
+              // y de 20 px de alto, como la de `Sidebar.tsx`
+              // (`h-5 w-1 rounded-full bg-primary`).
               if (activa)
                 Positioned(
                   left: 0,
-                  top: 8,
-                  bottom: 8,
-                  child: Container(width: 3, color: tema.colorScheme.primary),
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: Container(
+                      width: 4,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colores.primario,
+                        borderRadius: BorderRadius.circular(Radios.pastilla),
+                      ),
+                    ),
+                  ),
                 ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+                padding: const EdgeInsets.fromLTRB(Aire.lg, 10, Aire.md, 10),
                 child: Row(
                   children: [
                     Icon(
@@ -147,15 +180,15 @@ class _Entrada extends StatelessWidget {
                       size: 20,
                       color: color,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: Aire.md),
                     Expanded(
                       child: Text(
                         pantalla.titulo,
-                        style: tema.textTheme.bodyMedium?.copyWith(
+                        overflow: TextOverflow.ellipsis,
+                        style: Tipos.texto(
+                          tamano: 14,
+                          peso: activa ? FontWeight.w600 : FontWeight.w500,
                           color: color,
-                          fontWeight: activa
-                              ? FontWeight.w600
-                              : FontWeight.normal,
                         ),
                       ),
                     ),

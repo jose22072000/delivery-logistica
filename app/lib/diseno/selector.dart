@@ -2,6 +2,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 
 import 'colores.dart';
+import 'tema.dart';
 
 /// Una opcion del selector: etiqueta a la izquierda y **nota** pequena a la
 /// derecha (un conteo, un codigo de sucursal, una tasa).
@@ -60,30 +61,61 @@ class Selector<T> extends StatefulWidget {
 class _SelectorState<T> extends State<Selector<T>> {
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
     final elegida = widget.opciones
         .where((o) => o.valor == widget.valor)
         .firstOrNull;
 
-    final boton = OutlinedButton.icon(
+    // Cuando hay algo elegido el borde se tine de primario y la letra se pone
+    // en semibold: es como se ve en `Selector.tsx` que un filtro ESTA PUESTO
+    // sin tener que leer la etiqueta entera.
+    final filtrando = elegida != null;
+
+    final boton = OutlinedButton(
       onPressed: widget.opciones.isEmpty ? null : _abrir,
-      icon: widget.icono == null ? null : Icon(widget.icono, size: 18),
-      label: Row(
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colores.blanco,
+        foregroundColor: filtrando ? Colores.tinta : Colores.tintaSuave,
+        side: BorderSide(
+          color: filtrando
+              ? Colores.primario.withValues(alpha: 0.5)
+              : Colores.linea,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        textStyle: Tipos.texto(
+          tamano: 14,
+          peso: filtrando ? FontWeight.w600 : FontWeight.w400,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radios.lg),
+        ),
+      ),
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (widget.icono != null) ...[
+            Icon(widget.icono, size: 16, color: Colores.tintaSuave),
+            const SizedBox(width: Aire.sm),
+          ],
           Flexible(
             child: Text(
               elegida?.etiqueta ?? widget.etiquetaVacia,
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          const Icon(Icons.arrow_drop_down, size: 20),
+          if (elegida?.nota != null) ...[
+            const SizedBox(width: 6),
+            Text(
+              elegida!.nota!,
+              style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
+            ),
+          ],
+          const SizedBox(width: Aire.xs),
+          const Icon(
+            Icons.keyboard_arrow_down,
+            size: 16,
+            color: Colores.tintaSuave,
+          ),
         ],
-      ),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: tema.colorScheme.onSurface,
-        side: const BorderSide(color: Colores.borde),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
       ),
     );
 
@@ -175,42 +207,38 @@ class _MenuState<T> extends State<_Menu<T>> {
         children: [
           if (widget.conBuscador)
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              padding: const EdgeInsets.all(Aire.sm),
               child: TextField(
                 autofocus: true,
+                style: tema.textTheme.bodyMedium,
                 decoration: const InputDecoration(
                   isDense: true,
                   prefixIcon: Icon(Icons.search, size: 18),
-                  hintText: 'Buscar',
-                  border: OutlineInputBorder(),
+                  prefixIconConstraints: BoxConstraints(minWidth: 34),
+                  hintText: 'Buscar…',
                 ),
                 onChanged: (v) => setState(() => _busca = v),
               ),
             ),
+          if (widget.conBuscador)
+            const Divider(height: 1, thickness: 1, color: Colores.linea),
           Flexible(
             child: ListView(
               shrinkWrap: true,
               children: [
                 if (visibles.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('Sin resultados.'),
+                  Padding(
+                    padding: const EdgeInsets.all(Aire.lg),
+                    child: Text(
+                      'Nada que cuadre con «$_busca»',
+                      textAlign: TextAlign.center,
+                      style: tema.textTheme.bodySmall?.copyWith(
+                        color: Colores.tintaSuave,
+                      ),
+                    ),
                   ),
                 for (final o in visibles)
-                  ListTile(
-                    dense: true,
-                    selected: o.valor == widget.valor,
-                    title: Text(o.etiqueta),
-                    trailing: o.nota == null
-                        ? null
-                        : Text(
-                            o.nota!,
-                            style: tema.textTheme.bodySmall?.copyWith(
-                              color: Colores.gris,
-                            ),
-                          ),
-                    onTap: () => Navigator.of(context).pop(o.valor),
-                  ),
+                  _Opcion<T>(opcion: o, elegida: o.valor == widget.valor),
               ],
             ),
           ),
@@ -218,4 +246,47 @@ class _MenuState<T> extends State<_Menu<T>> {
       ),
     );
   }
+}
+
+/// Una fila del menu. La elegida va en primario y con la marca a la derecha,
+/// como en `Selector.tsx`; el resto en tinta.
+class _Opcion<T> extends StatelessWidget {
+  const _Opcion({required this.opcion, required this.elegida});
+
+  final OpcionSelector<T> opcion;
+  final bool elegida;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: () => Navigator.of(context).pop(opcion.valor),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              opcion.etiqueta,
+              overflow: TextOverflow.ellipsis,
+              style: Tipos.texto(
+                tamano: 14,
+                peso: elegida ? FontWeight.w600 : FontWeight.w400,
+                color: elegida ? Colores.primario : Colores.tinta,
+              ),
+            ),
+          ),
+          if (opcion.nota != null) ...[
+            const SizedBox(width: Aire.sm),
+            Text(
+              opcion.nota!,
+              style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
+            ),
+          ],
+          if (elegida) ...[
+            const SizedBox(width: Aire.sm),
+            const Icon(Icons.check, size: 16, color: Colores.primario),
+          ],
+        ],
+      ),
+    ),
+  );
 }

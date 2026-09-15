@@ -13,6 +13,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
 
   # Los textos: gen_l10n necesita este paquete del SDK para las delegaciones.
   flutter_localizations:
@@ -57,6 +59,12 @@ dependencies:
   device_info_plus: 13.2.0   # el nombre del aparato para POST /sync/aparato
   package_info_plus: 10.2.1
 
+  # Las tres tipografias de delivery (Bricolage Grotesque, Hanken Grotesk y
+  # JetBrains Mono). Los .ttf van EMBEBIDOS en `assets/google_fonts/`: el
+  # paquete mira ahi primero y no sale a la red, que es lo unico que sirve en el
+  # patio de un almacen. La version, exacta como todas.
+  google_fonts: 8.2.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -80,3 +88,7 @@ flutter:
     # Roboto EMBEBIDA para el PDF: `PdfGoogleFonts` la baja por red y esto se
     # imprime en el patio de un almacen, sin senal (PLAN.md §4.1).
     - assets/fuentes/
+    # Las tres familias de delivery, con el nombre que `google_fonts` busca en
+    # el manifiesto (`Familia-Peso.ttf`). Con esto `allowRuntimeFetching = false`
+    # y la aplicacion nunca pide una tipografia por red.
+    - assets/google_fonts/

@@ -36,10 +36,15 @@ final almacenSesionProvider = Provider<AlmacenDeSesion>(
 
 /// El Dio **crudo** de auth: sin `InterceptorSesion`, porque renovar no se
 /// renueva a si mismo.
+///
+/// La base lleva `/api/auth` puesto, que es donde viven las tres puertas de
+/// verdad: `POST /api/auth/token`, `/api/auth/refresh` y `/api/auth/logout`
+/// (repo `procovar-auth`). `Entorno.authUrl` es el dominio a secas porque auth
+/// es de toda Procovar y puede mudarse sin las otras dos.
 final dioAuthProvider = Provider<Dio>(
   (ref) => Dio(
     BaseOptions(
-      baseUrl: Entorno.authUrl,
+      baseUrl: '${Entorno.authUrl}/api/auth',
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 30),
       contentType: Headers.jsonContentType,

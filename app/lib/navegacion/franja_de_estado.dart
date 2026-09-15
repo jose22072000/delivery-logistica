@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../diseno/colores.dart';
+import '../diseno/tema.dart';
 import '../nucleo/frescura/reloj_de_datos.dart';
 import '../nucleo/proveedores.dart';
 import 'estado_navegacion.dart';
@@ -40,17 +41,26 @@ class FranjaDeEstado extends ConsumerWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: Aire.lg, vertical: 6),
       decoration: BoxDecoration(
+        // En calma es el propio papel, un punto mas oscuro: la franja tiene que
+        // estar SIEMPRE, pero cuando no hay nada que decir no debe pedir la
+        // vista. En ambar si, porque entonces si la pide.
         color: enAmbar ? Colores.ambarFondo : Colores.grisFondo,
-        border: const Border(bottom: BorderSide(color: Colores.borde)),
+        border: Border(
+          bottom: BorderSide(
+            color: enAmbar
+                ? Colores.ambar.withValues(alpha: 0.25)
+                : Colores.linea,
+          ),
+        ),
       ),
       child: Row(
         children: [
           Icon(
             enAmbar ? Icons.schedule : Icons.schedule_outlined,
             size: 14,
-            color: enAmbar ? Colores.ambar : Colores.gris,
+            color: enAmbar ? Colores.ambar : Colores.tintaSuave,
           ),
           const SizedBox(width: 6),
           Expanded(
