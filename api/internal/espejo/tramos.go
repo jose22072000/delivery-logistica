@@ -36,6 +36,26 @@ type Tramo struct {
 // FormatoDeFecha es el que espera `/integration/orders` en `desde` y `hasta`.
 const FormatoDeFecha = "2006-01-02"
 
+// TopeDePagina es lo que se le pide a PEDIDO en CADA peticion de pedidos, y el numero no
+// es un numero cualquiera: es EL SUYO.
+//
+// `/integration/orders` recorta la respuesta por su cuenta y no lo anuncia — contesta 200
+// con los primeros y ni una palabra de que falten—. Pidiendole de mas, una pagina recortada
+// es indistinguible de una pagina corta: de un `limit=5000` vuelven 2.000 clavados, que
+// leidos desde aqui parecen «ya no habia mas». Ese es exactamente el fallo que dejaba
+// tramos enteros a medias sin un solo aviso, y el mismo que se llevo 6.000 clientes.
+//
+// Pidiendole SU tope, «vinieron tantos como pedi» significa «hay mas», que es lo unico que
+// hace falta saber para seguir pidiendo. Si algun dia PEDIDO sirve mas, pedir de menos no
+// rompe nada: se encadena una vuelta de mas y ya.
+const TopeDePagina = 2000
+
+// TopeDeVueltas es cuantas peticiones encadenadas se permiten en un mismo paso, tanto en el
+// incremental como en un tramo. Un bucle sin tope es un proceso que se queda toda la noche
+// en el mismo sitio y no llega nunca al resto del ciclo; lo que no entre en estas vueltas
+// entra en la pasada siguiente, que para eso el historico se repasa en bucle.
+const TopeDeVueltas = 200
+
 // Tramos parte un intervalo de «días hacia atrás» en trozos de `tramoDias`.
 //
 // DE LO NUEVO A LO VIEJO, y eso importa: si el proceso se para a mitad del recorrido, lo
@@ -92,6 +112,41 @@ func AvanzarBarrido(hasta, historicoDias int) int {
 		return 0
 	}
 	return hasta
+}
+
+// DiaMasViejo devuelve el dia (aaaa-mm-dd) del pedido mas antiguo de una tanda, y si se
+// pudo leer alguno.
+//
+// Con esto se encadenan los TRAMOS, igual que `MasNuevo` encadena el incremental. La
+// diferencia es de donde sale el avance: el incremental lo saca de `updatedAt` porque
+// filtra por `since`; un tramo filtra por `desde`/`hasta`, que van por la FECHA DEL PEDIDO,
+// asi que su borde es esa fecha y no la marca de agua. `/integration/orders` ordena por
+// fecha descendente y recorta por arriba, o sea que el mas viejo de lo que llego es justo
+// el punto por el que hay que seguir pidiendo.
+//
+// EL DIA SE SACA EN UTC, que es como PEDIDO serializa la fecha; su filtro `hasta` corta por
+// el final de ese dia en la hora de SU servidor. Mientras ese servidor no este al este de
+// UTC —y no lo esta: Cuba es UTC-4/-5 y los contenedores van en UTC— el corte cae igual o
+// mas tarde que el pedido mas viejo que llego, que es lo que garantiza que por el medio no
+// se quede ninguno.
+//
+// Un pedido sin fecha legible no cuenta: no mueve el borde y no estorba a los que si.
+func DiaMasViejo(pedidos []PedidoDeFuera) (string, bool) {
+	var suelo time.Time
+	hay := false
+	for _, p := range pedidos {
+		t, err := time.Parse(time.RFC3339, p.Fecha)
+		if err != nil {
+			continue
+		}
+		if !hay || t.Before(suelo) {
+			suelo, hay = t, true
+		}
+	}
+	if !hay {
+		return "", false
+	}
+	return suelo.UTC().Format(FormatoDeFecha), true
 }
 
 // MasNuevo devuelve el `updatedAt` más nuevo de una tanda, y si alguno se pudo leer.

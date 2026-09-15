@@ -140,3 +140,31 @@ func TestTrozosParteLaTandaSinPerderNiRepetir(t *testing.T) {
 		t.Error("ni un tamaño de cero ni una tanda vacía pueden devolver trozos")
 	}
 }
+
+func TestDiaMasViejoEsElBordePorElQueSeSiguePidiendo(t *testing.T) {
+	// `/integration/orders` ordena por fecha descendente y recorta por arriba, asi que lo
+	// que queda por traer empieza en el mas VIEJO de lo que llego. Con el mas nuevo, o con
+	// el primero de la lista, la siguiente peticion volveria a traer lo mismo.
+	pedidos := []PedidoDeFuera{
+		{ID: "a", Fecha: "2026-08-28T14:00:00.000Z"},
+		{ID: "b", Fecha: "2026-08-26T09:30:00.000Z"},
+		{ID: "c", Fecha: "2026-08-27T23:59:00.000Z"},
+	}
+	dia, hay := DiaMasViejo(pedidos)
+	if !hay || dia != "2026-08-26" {
+		t.Fatalf("el borde tenia que ser 2026-08-26; salio %q (hay=%v)", dia, hay)
+	}
+}
+
+func TestSinFechaLegibleNoHayPorDondeSeguirYSeDice(t *testing.T) {
+	// Devolver un dia inventado seria peor que no devolver ninguno: quien encadena se lo
+	// creeria y saltaria el resto del tramo sin avisar. Aqui se dice que no hay, y el que
+	// llama avisa de que el tramo se queda a medias.
+	if dia, hay := DiaMasViejo([]PedidoDeFuera{{ID: "a"}, {ID: "b", Fecha: "ayer"}}); hay {
+		t.Fatalf("no habia ni una fecha legible y devolvio %q", dia)
+	}
+	// Una sola legible entre ilegibles SI vale: las que no se entienden no estorban.
+	if dia, hay := DiaMasViejo([]PedidoDeFuera{{ID: "a"}, {ID: "b", Fecha: "2026-08-26T09:30:00Z"}}); !hay || dia != "2026-08-26" {
+		t.Fatalf("una fecha legible basta; salio %q (hay=%v)", dia, hay)
+	}
+}

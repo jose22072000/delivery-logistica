@@ -1,11 +1,13 @@
 package espejo
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +25,12 @@ type pedidoFalso struct {
 	clientes  []ClienteDeFuera
 	falloDeCl error
 
+	// porTramoSegun manda sobre `porTramo` cuando esta puesta, y existe para poder contestar
+	// distinto SEGUN EL `hasta` QUE SE PIDIO: es la unica forma de probar que un tramo que
+	// vino lleno se sigue pidiendo, porque lo que se comprueba es justo que la segunda
+	// peticion no es igual que la primera.
+	porTramoSegun func(q url.Values) []PedidoDeFuera
+
 	pedidas []url.Values
 }
 
@@ -36,6 +44,9 @@ func (p *pedidoFalso) Pedidos(_ context.Context, q url.Values) ([]PedidoDeFuera,
 		devuelve := p.porSince
 		p.porSince = nil
 		return devuelve, nil
+	}
+	if p.porTramoSegun != nil {
+		return p.porTramoSegun(q), nil
 	}
 	return p.porTramo, nil
 }
@@ -369,5 +380,126 @@ func TestSinLlaveDeServicioElEspejoNoArranca(t *testing.T) {
 	_, err := Cargar(func(string) string { return "" })
 	if err == nil || !strings.Contains(err.Error(), "SERVICE_API_KEY") {
 		t.Fatalf("tenía que quejarse de la llave; se quejó de %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// El barrido por tramos: que no se quede a medias, y que se diga cuando se queda
+// ---------------------------------------------------------------------------
+
+// montarConRegistro es `montar` pero guardando lo que se escribe en el registro. Los avisos
+// de tramo truncado SON el arreglo —lo que fallaba no era cortarse, era cortarse
+// callandoselo—, asi que hay que poder leerlos en una prueba.
+func montarConRegistro(p *pedidoFalso, d *repartoFalso, b *baseFalsa) (*Espejo, *bytes.Buffer) {
+	var buf bytes.Buffer
+	e := montar(p, d, b)
+	e.Reg = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return e, &buf
+}
+
+// paginaLlena arma una tanda del tamano EXACTO del tope de PEDIDO, con el mas viejo en
+// `diaViejo`: es lo que llega cuando la respuesta viene recortada.
+func paginaLlena(diaNuevo, diaViejo string) []PedidoDeFuera {
+	p := make([]PedidoDeFuera, TopeDePagina)
+	for i := range p {
+		p[i] = PedidoDeFuera{ID: strconv.Itoa(i), Fecha: diaNuevo}
+	}
+	p[TopeDePagina-1].Fecha = diaViejo
+	return p
+}
+
+func TestUnTramoQueVinoLlenoSeSiguePidiendo(t *testing.T) {
+	// EL FALLO QUE ESTO CIERRA: se pedia un tope, llegaba la pagina recortada y nadie
+	// miraba cuantos habian venido. `/integration/orders` contesta 200 sin decir que falte
+	// nada, asi que el tramo se daba por traido entero y el resto no lo volvia a pedir
+	// nadie.
+	p := &pedidoFalso{}
+	p.porTramoSegun = func(q url.Values) []PedidoDeFuera {
+		if q.Get("hasta") == "2026-09-14" {
+			return paginaLlena("2026-09-14T10:00:00Z", "2026-09-13T08:00:00Z")
+		}
+		return []PedidoDeFuera{{ID: "elResto", Fecha: "2026-09-12T08:00:00Z"}}
+	}
+	e, reg := montarConRegistro(p, &repartoFalso{}, &baseFalsa{})
+
+	e.porTramos(context.Background(), 2, 0, "prueba")
+
+	// DOS peticiones exactas: la que vino llena y la que la continua. Ni una menos —seria
+	// el fallo de antes— ni una mas: pedir sin mirar si la pagina venia llena es no tener
+	// guarda ninguna.
+	if len(p.pedidas) != 2 {
+		t.Fatalf("tenian que ser dos peticiones (la llena y la que sigue); fueron %d: %+v", len(p.pedidas), p.pedidas)
+	}
+	if p.pedidas[0].Get("hasta") != "2026-09-14" || p.pedidas[0].Get("desde") != "2026-09-12" {
+		t.Errorf("la primera peticion tenia que ser el tramo entero; fue %v", p.pedidas[0])
+	}
+	// Se estrecha por el dia del MAS VIEJO que llego, que es lo unico con lo que se puede
+	// avanzar: ese endpoint no tiene cursor.
+	if p.pedidas[1].Get("hasta") != "2026-09-13" || p.pedidas[1].Get("desde") != "2026-09-12" {
+		t.Errorf("la segunda tenia que arrancar del dia del mas viejo; fue %v", p.pedidas[1])
+	}
+	// Y no se le pide a PEDIDO mas de lo que sirve: pidiendo de mas, una pagina recortada
+	// no se distingue de una pagina corta.
+	if p.pedidas[0].Get("limit") != strconv.Itoa(TopeDePagina) {
+		t.Errorf("se pidio limit=%q y tenia que ser el tope de PEDIDO (%d)", p.pedidas[0].Get("limit"), TopeDePagina)
+	}
+	// Un tramo que SI se acaba de traer no deja aviso: si avisara siempre, el aviso no
+	// significaria nada.
+	if strings.Contains(reg.String(), "truncado") {
+		t.Errorf("el tramo se trajo entero y aun asi aviso de truncado: %s", reg.String())
+	}
+}
+
+func TestUnTramoQueSeCortaDeVerdadDejaUnAvisoConElTramoDentro(t *testing.T) {
+	// Un solo dia con mas pedidos de los que PEDIDO sirve: el borde ya no se puede
+	// estrechar. Aqui no hay nada que arreglar desde este lado, pero callarselo deja al
+	// logistico viendo menos de lo que hay sin ninguna senal. Y el aviso tiene que NOMBRAR
+	// el tramo: uno que no lo nombra no sirve para ir a buscar lo que falta.
+	p := &pedidoFalso{}
+	p.porTramoSegun = func(url.Values) []PedidoDeFuera {
+		return paginaLlena("2026-09-14T10:00:00Z", "2026-09-14T01:00:00Z")
+	}
+	e, reg := montarConRegistro(p, &repartoFalso{}, &baseFalsa{})
+
+	e.porTramos(context.Background(), 2, 0, "prueba")
+
+	// Una sola peticion: sin poder estrechar, volver a pedir traeria exactamente lo mismo.
+	if len(p.pedidas) != 1 {
+		t.Fatalf("sin poder estrechar tenia que pararse en la primera; dio %d vueltas", len(p.pedidas))
+	}
+	salida := reg.String()
+	if !strings.Contains(salida, "level=WARN") || !strings.Contains(salida, "truncado") {
+		t.Fatalf("tenia que quedar un WARN de truncado; el registro dice: %s", salida)
+	}
+	if !strings.Contains(salida, "2026-09-12..2026-09-14") {
+		t.Errorf("el aviso tiene que nombrar el tramo; dice: %s", salida)
+	}
+}
+
+func TestUnTramoQueSiempreVineLlenoNoGiraParaSiempre(t *testing.T) {
+	// PEDIDO puede contestar cualquier cosa —una pagina llena con fechas que no dejan de
+	// bajar—, y eso no puede dejar al ciclo aqui toda la noche sin llegar al barrido. Se
+	// para en el tope de vueltas y se dice.
+	pagina := paginaLlena("2026-09-14T10:00:00Z", "2026-09-14T01:00:00Z")
+	p := &pedidoFalso{}
+	p.porTramoSegun = func(q url.Values) []PedidoDeFuera {
+		// Cada vuelta baja un dia, asi que el borde SIEMPRE avanza y nunca hay motivo para
+		// pararse: lo unico que corta es el tope.
+		dia, err := time.Parse(FormatoDeFecha, q.Get("hasta"))
+		if err != nil {
+			t.Fatalf("el tramo pidio un hasta ilegible: %q", q.Get("hasta"))
+		}
+		pagina[TopeDePagina-1].Fecha = dia.AddDate(0, 0, -1).Format(time.RFC3339)
+		return pagina
+	}
+	e, reg := montarConRegistro(p, &repartoFalso{}, &baseFalsa{})
+
+	e.porTramos(context.Background(), 2, 0, "prueba")
+
+	if len(p.pedidas) != TopeDeVueltas {
+		t.Fatalf("tenia que cortarse en el tope de %d vueltas; dio %d", TopeDeVueltas, len(p.pedidas))
+	}
+	if !strings.Contains(reg.String(), "todas las vueltas") {
+		t.Errorf("cortarse por el tope tambien se dice; el registro dice: %s", reg.String())
 	}
 }

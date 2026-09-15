@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -226,10 +227,10 @@ func (e *Espejo) porCambios(ctx context.Context, desde time.Time) (int, error) {
 	total := 0
 	// Tope de vueltas: si hay más cambios que esto, se sigue en el próximo ciclo. Un bucle
 	// sin tope es un proceso que se queda toda la noche en el mismo paso.
-	for vuelta := 0; vuelta < 200; vuelta++ {
+	for vuelta := 0; vuelta < TopeDeVueltas; vuelta++ {
 		q := e.parametrosBase()
 		q.Set("since", marca.UTC().Format(time.RFC3339))
-		q.Set("limit", "2000")
+		q.Set("limit", strconv.Itoa(TopeDePagina))
 
 		pedidos, err := e.Pedido.Pedidos(ctx, q)
 		if err != nil {
@@ -251,7 +252,8 @@ func (e *Espejo) porCambios(ctx context.Context, desde time.Time) (int, error) {
 			return total, err
 		}
 	}
-	e.Reg.Warn("el incremental dio 200 vueltas y sigue habiendo cambios: se sigue en el próximo ciclo")
+	e.Reg.Warn("el incremental dio todas las vueltas y sigue habiendo cambios: se sigue en el proximo ciclo",
+		"vueltas", TopeDeVueltas)
 	return total, nil
 }
 
@@ -284,25 +286,83 @@ func (e *Espejo) porTramos(ctx context.Context, desdeDias, hastaDias int, de str
 		if ctx.Err() != nil {
 			return total
 		}
+		total += e.unTramo(ctx, t, de)
+		if err := e.dormir(ctx); err != nil {
+			return total
+		}
+	}
+	return total
+}
+
+// unTramo trae UN trozo de días ENTERO, y no su primera página y a otra cosa.
+//
+// Aqui estaba el agujero: se pedia `limit=5000`, se guardaba lo que llegara y nadie miraba
+// cuantos habian venido. `/integration/orders` recorta por su cuenta y NO lo anuncia —200 y
+// sin una palabra de que falte nada—, asi que cualquier tramo con mas pedidos de los que
+// sirve de una vez perdia el resto EN SILENCIO. El logistico veia menos de lo que hay y no
+// habia nada en ningun sitio que se lo dijera.
+//
+// SE ENCADENA IGUAL QUE EL INCREMENTAL, con el dato que llega en vez de con un cursor.
+// Comprobado en el codigo de PEDIDO: `/integration/orders` no tiene paginacion ninguna —ni
+// cursor, ni `offset`, ni `nextCursor`: es un `take` sobre un `ORDER BY fecha DESC` y nada
+// mas—. Lo unico con lo que se puede avanzar es la propia fecha de lo que acaba de llegar,
+// asi que si la pagina vino llena se estrecha el borde nuevo del tramo hasta el dia del
+// pedido MAS VIEJO que llego y se vuelve a pedir. Partir el tramo por dias es lo que hay;
+// las otras formas de partirlo no existen en ese endpoint.
+//
+// El dia del corte se vuelve a pedir ENTERO, asi que sus pedidos llegan dos veces. Es a
+// proposito: el upsert es idempotente y un dia repetido cuesta una peticion, mientras que
+// cortar por el pedido exacto se comeria a los que comparten fecha con el.
+//
+// Y CUANDO YA NO SE PUEDE ESTRECHAR MAS —un solo dia con mas pedidos de los que PEDIDO
+// sirve— se dice con nivel WARN y con el tramo dentro. Un tramo truncado en silencio es
+// justo el fallo que esto viene a cerrar, y callarselo lo deja igual de invisible que
+// antes: un aviso que no nombra el tramo no sirve para ir a buscar lo que falta.
+func (e *Espejo) unTramo(ctx context.Context, t Tramo, de string) int {
+	total := 0
+	tramo := t.Desde + ".." + t.Hasta
+	hasta := t.Hasta
+	// Tope de vueltas, como en el incremental: un tramo no puede tener mas cortes que dias,
+	// pero un PEDIDO que conteste cualquier cosa no puede dejar al ciclo girando aqui toda
+	// la noche sin llegar nunca al barrido.
+	for vuelta := 0; vuelta < TopeDeVueltas; vuelta++ {
 		q := e.parametrosBase()
 		q.Set("desde", t.Desde)
-		q.Set("hasta", t.Hasta)
-		q.Set("limit", "5000")
+		q.Set("hasta", hasta)
+		q.Set("limit", strconv.Itoa(TopeDePagina))
 
 		pedidos, err := e.Pedido.Pedidos(ctx, q)
 		if err != nil {
 			// UN TRAMO QUE FALLA NO TUMBA EL RESTO: se recogerá en la próxima pasada, que
 			// para eso el histórico se repasa en bucle.
-			e.Reg.Warn("un tramo falló", "de", de, "desde", t.Desde, "hasta", t.Hasta, "err", err)
-			continue
+			e.Reg.Warn("un tramo falló", "de", de, "desde", t.Desde, "hasta", hasta, "err", err)
+			return total
 		}
 		if len(pedidos) > 0 {
-			total += e.guardar(ctx, pedidos, de+" "+t.Desde+".."+t.Hasta)
+			total += e.guardar(ctx, pedidos, de+" "+t.Desde+".."+hasta)
 		}
+		// LA GUARDA. La pagina no vino llena, luego no habia mas: el tramo esta entero.
+		// Quitar esta linea es volver al fallo de antes, con la diferencia de que ahora se
+		// pediria de mas en vez de de menos.
+		if len(pedidos) < TopeDePagina {
+			return total
+		}
+
+		dia, hay := DiaMasViejo(pedidos)
+		if !hay || dia >= hasta {
+			// O PEDIDO no manda fecha legible, o la pagina entera cae en el mismo dia. En
+			// los dos casos el borde no se puede mover: seguir pidiendo traeria lo mismo.
+			e.Reg.Warn("tramo truncado: hay mas pedidos de los que PEDIDO sirve de una vez y el dia ya no se puede partir",
+				"de", de, "tramo", tramo, "corteEn", hasta, "traidos", len(pedidos))
+			return total
+		}
+		hasta = dia
 		if err := e.dormir(ctx); err != nil {
 			return total
 		}
 	}
+	e.Reg.Warn("tramo truncado: se dieron todas las vueltas y la pagina seguia viniendo llena",
+		"de", de, "tramo", tramo, "corteEn", hasta, "vueltas", TopeDeVueltas)
 	return total
 }
 

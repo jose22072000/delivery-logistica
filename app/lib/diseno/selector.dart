@@ -222,24 +222,45 @@ class _MenuState<T> extends State<_Menu<T>> {
             ),
           if (widget.conBuscador)
             const Divider(height: 1, thickness: 1, color: Colores.linea),
+          // NO ES UN `ListView`, Y NO PUEDE SERLO.
+          //
+          // `PopupMenuItem` envuelve a su hijo en un `IntrinsicWidth` para que
+          // el menu se ajuste a lo que hay dentro. Un `ListView` es un
+          // `RenderShrinkWrappingViewport`, y una lista perezosa **no sabe decir
+          // cuanto mide sin construir todos sus hijos**, que es precisamente lo
+          // que la pereza evita. Preguntarselo lanza:
+          //
+          //     RenderShrinkWrappingViewport does not support returning
+          //     intrinsic dimensions.
+          //
+          // Y eso pasaba al abrir CUALQUIER desplegable de la aplicacion: el de
+          // sucursal, el de moneda, los filtros de las siete pantallas y los
+          // cuatro pasos del asistente. Jose lo vio en el Tablero — el menu se
+          // pintaba y elegir no hacia nada.
+          //
+          // `SingleChildScrollView` sobre una `Column` si sabe medirse, porque
+          // su hijo es una caja normal. Y la pereza aqui no compra nada: la
+          // lista mas larga es la de vendedores, ciento y pico filas de texto.
           Flexible(
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                if (visibles.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(Aire.lg),
-                    child: Text(
-                      'Nada que cuadre con «$_busca»',
-                      textAlign: TextAlign.center,
-                      style: tema.textTheme.bodySmall?.copyWith(
-                        color: Colores.tintaSuave,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (visibles.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(Aire.lg),
+                      child: Text(
+                        'Nada que cuadre con «$_busca»',
+                        textAlign: TextAlign.center,
+                        style: tema.textTheme.bodySmall?.copyWith(
+                          color: Colores.tintaSuave,
+                        ),
                       ),
                     ),
-                  ),
-                for (final o in visibles)
-                  _Opcion<T>(opcion: o, elegida: o.valor == widget.valor),
-              ],
+                  for (final o in visibles)
+                    _Opcion<T>(opcion: o, elegida: o.valor == widget.valor),
+                ],
+              ),
             ),
           ),
         ],
