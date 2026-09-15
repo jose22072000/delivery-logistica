@@ -21,6 +21,33 @@ Future<T?> abrirCajon<T>(
   WidgetBuilder? pie,
   AnchoCajon ancho = AnchoCajon.lg,
 }) {
+  return abrirPanel<T>(
+    contexto,
+    (contextoCajon) => Cajon(
+      titulo: titulo,
+      subtitulo: subtitulo,
+      ancho: ancho,
+      pie: pie?.call(contextoCajon),
+      child: cuerpo(contextoCajon),
+    ),
+  );
+}
+
+/// La misma puerta que [abrirCajon] —el mismo velo, la misma entrada— pero es
+/// **quien llama el que construye el [Cajon]**.
+///
+/// Hace falta cuando la cabecera, el cuerpo y el pie comparten estado. En
+/// [abrirCajon] el titulo es un `String` y el cuerpo y el pie son dos
+/// constructores distintos que se llaman por separado, asi que el `Guardar` del
+/// pie no puede mirar lo que hay escrito en un campo del cuerpo: para saber si
+/// se habilita tendria que leer un estado que no ve. Con esto el
+/// `StatefulWidget` devuelve el [Cajon] entero y un solo `setState` repinta los
+/// tres a la vez. Asi entran la ficha de vehiculo, los tipos de vehiculo y el
+/// editor de almacen.
+///
+/// No es una segunda forma de cajon: lo que se devuelve sigue siendo un
+/// [Cajon], con su cabecera del pliego §9.2 y su ✕ que no desaparece.
+Future<T?> abrirPanel<T>(BuildContext contexto, WidgetBuilder panel) {
   return showGeneralDialog<T>(
     context: contexto,
     // El velo negro al 40 % del pliego. `barrierDismissible` da las dos cosas
@@ -30,13 +57,7 @@ Future<T?> abrirCajon<T>(
     barrierLabel: 'Cerrar',
     barrierColor: Colors.black.withValues(alpha: 0.4),
     transitionDuration: const Duration(milliseconds: 180),
-    pageBuilder: (contextoCajon, _, _) => Cajon(
-      titulo: titulo,
-      subtitulo: subtitulo,
-      ancho: ancho,
-      pie: pie?.call(contextoCajon),
-      child: cuerpo(contextoCajon),
-    ),
+    pageBuilder: (contextoPanel, _, _) => panel(contextoPanel),
     transitionBuilder: (_, animacion, _, hijo) {
       // Entra desde 24 px a la derecha, 180 ms. Los mismos numeros del pliego:
       // lo bastante para que se lea «viene de fuera» y no tanto como para

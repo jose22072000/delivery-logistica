@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
+import '../../../diseno/cajon.dart';
 import '../datos/vehiculo_api.dart';
 import '../estado/estado_vehiculos.dart';
-import 'cajon.dart';
 import 'ficha_vehiculo.dart';
 import 'tarjeta_vehiculo.dart';
 import 'tipos_vehiculo.dart';
@@ -42,9 +42,9 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
 
   Future<void> _abrirFicha([VehiculoDeLaApi? vehiculo]) async {
     final ajustes = _ajustes;
-    await abrirCajon<void>(
-      context: context,
-      constructor: (contexto) => StatefulBuilder(
+    await abrirPanel<void>(
+      context,
+      (contexto) => StatefulBuilder(
         builder: (contexto, repintar) => FichaVehiculo(
           vehiculo: vehiculo,
           tipos: ajustes.tipos,
@@ -71,10 +71,9 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
 
   Future<void> _abrirTipos() async {
     final ajustes = _ajustes;
-    await abrirCajon<void>(
-      context: context,
-      ancho: AnchoCajon.md,
-      constructor: (contexto) => StatefulBuilder(
+    await abrirPanel<void>(
+      context,
+      (contexto) => StatefulBuilder(
         builder: (contexto, repintar) => TiposDeVehiculo(
           tipos: ajustes.tipos,
           guardando: _guardando,

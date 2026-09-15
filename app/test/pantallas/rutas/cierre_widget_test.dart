@@ -26,9 +26,17 @@ Future<void> asentar(WidgetTester tester) async {
 /// Al desmontarse, los `watch()` de Drift programan un temporizador de cero para
 /// cerrarse. Si el test acaba antes de que corra, el marco lo cuenta como
 /// pendiente y falla.
+///
+/// **Hacen falta DOS pasadas, no una.** El temporizador lo crea el propio desmontaje, al
+/// final del primer fotograma, así que con un solo `pump` todavía no ha nacido y no llega
+/// a dispararse. Con uno solo esto no fallaba: **colgaba la suite entera diez minutos**,
+/// que es peor, porque el que la corre piensa que se le trabó el equipo.
+///
+/// Es el mismo `desmontar()` de `test/pantallas/tablero/pantalla_test.dart`.
 Future<void> desmontar(WidgetTester tester) async {
   await tester.pumpWidget(const SizedBox.shrink());
-  await tester.pump(Duration.zero);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 1));
 }
 
 void main() {

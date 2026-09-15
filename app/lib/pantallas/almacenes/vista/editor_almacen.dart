@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../diseno/cajon.dart';
 import '../datos/almacen_api.dart';
 import '../datos/coordenadas.dart';
-import 'cajon.dart';
 
 /// El editor de un almacen (cajon/modal `lg`). Pliego: `pantallas.md` §6.
 ///
@@ -97,97 +97,11 @@ class _EditorAlmacenState extends State<EditorAlmacen> {
     final tema = Theme.of(context);
     final punto = _coordenadas;
 
-    return MarcoCajon(
+    return Cajon(
       titulo: widget.almacen == null ? 'Nuevo almacén' : widget.almacen!.titulo,
       subtitulo: widget.sucursal,
-      cuerpo: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            controller: _nombre,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: 'Nombre del almacén',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          if (_leFaltaElNombre)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                'Le falta el nombre.',
-                style: tema.textTheme.bodySmall?.copyWith(
-                  color: tema.colorScheme.error,
-                ),
-              ),
-            ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              Tooltip(
-                message: 'Desde éste se mide cuando nadie dice cuál',
-                child: FilterChip(
-                  selected: _principal,
-                  label: const Text('Principal'),
-                  avatar: Icon(
-                    _principal ? Icons.star : Icons.star_border,
-                    size: 18,
-                  ),
-                  onSelected: (v) => setState(() => _principal = v),
-                ),
-              ),
-              FilterChip(
-                selected: _activo,
-                label: Text(_activo ? 'Activo' : 'Inactivo'),
-                onSelected: (v) => setState(() => _activo = v),
-              ),
-              if (widget.alQuitar != null)
-                IconButton(
-                  tooltip: 'Quitar',
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: widget.guardando ? null : _confirmarQuitar,
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text('Dónde está', style: tema.textTheme.titleSmall),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _direccion,
-            decoration: const InputDecoration(
-              labelText: 'Dirección',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _punto,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: 'Coordenadas',
-              hintText: '19.83, -75.82',
-              border: const OutlineInputBorder(),
-              errorText: _puntoMalEscrito
-                  ? 'No se entiende. Escríbelo como «19.83, -75.82».'
-                  : null,
-            ),
-          ),
-          if (punto == null && !_puntoMalEscrito) ...[
-            const SizedBox(height: 8),
-            // El aviso del pliego. Un almacen sin punto entra igual —a veces no
-            // se sabe todavia— pero desde el no se cotiza, y eso tiene que
-            // estar dicho antes de guardar, no descubrirse al cotizar.
-            Text(
-              'Sin coordenadas: desde éste no se puede medir el domicilio.',
-              style: tema.textTheme.bodySmall,
-            ),
-          ],
-        ],
-      ),
       pie: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.end,
         children: [
           TextButton(
             onPressed: widget.guardando
@@ -215,6 +129,95 @@ class _EditorAlmacenState extends State<EditorAlmacen> {
             child: Text(widget.guardando ? 'Guardando…' : 'Guardar'),
           ),
         ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _nombre,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                hintText: 'Nombre del almacén',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            if (_leFaltaElNombre)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Le falta el nombre.',
+                  style: tema.textTheme.bodySmall?.copyWith(
+                    color: tema.colorScheme.error,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Tooltip(
+                  message: 'Desde éste se mide cuando nadie dice cuál',
+                  child: FilterChip(
+                    selected: _principal,
+                    label: const Text('Principal'),
+                    avatar: Icon(
+                      _principal ? Icons.star : Icons.star_border,
+                      size: 18,
+                    ),
+                    onSelected: (v) => setState(() => _principal = v),
+                  ),
+                ),
+                FilterChip(
+                  selected: _activo,
+                  label: Text(_activo ? 'Activo' : 'Inactivo'),
+                  onSelected: (v) => setState(() => _activo = v),
+                ),
+                if (widget.alQuitar != null)
+                  IconButton(
+                    tooltip: 'Quitar',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: widget.guardando ? null : _confirmarQuitar,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text('Dónde está', style: tema.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _direccion,
+              decoration: const InputDecoration(
+                labelText: 'Dirección',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _punto,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Coordenadas',
+                hintText: '19.83, -75.82',
+                border: const OutlineInputBorder(),
+                errorText: _puntoMalEscrito
+                    ? 'No se entiende. Escríbelo como «19.83, -75.82».'
+                    : null,
+              ),
+            ),
+            if (punto == null && !_puntoMalEscrito) ...[
+              const SizedBox(height: 8),
+              // El aviso del pliego. Un almacen sin punto entra igual —a veces no
+              // se sabe todavia— pero desde el no se cotiza, y eso tiene que
+              // estar dicho antes de guardar, no descubrirse al cotizar.
+              Text(
+                'Sin coordenadas: desde éste no se puede medir el domicilio.',
+                style: tema.textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

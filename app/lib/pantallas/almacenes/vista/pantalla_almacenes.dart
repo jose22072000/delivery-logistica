@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
+import '../../../diseno/cajon.dart';
 import '../datos/almacen_api.dart';
 import '../estado/estado_almacenes.dart';
-import 'cajon.dart';
 import 'editor_almacen.dart';
 
 /// Almacenes — `/warehouses`. Pliego: `pantallas.md` §6.
@@ -47,9 +47,9 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
 
   Future<void> _abrirEditor(SucursalDeAccesos sucursal, {int? indice}) async {
     final almacen = indice == null ? null : sucursal.almacenes[indice];
-    await abrirCajon<void>(
-      context: context,
-      constructor: (contexto) => StatefulBuilder(
+    await abrirPanel<void>(
+      context,
+      (contexto) => StatefulBuilder(
         builder: (contexto, repintar) => EditorAlmacen(
           almacen: almacen,
           sucursal: sucursal.nombre,

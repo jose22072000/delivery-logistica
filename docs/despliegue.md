@@ -514,11 +514,11 @@ tiempo de espera corto para esa ruta.
 Cosas comprobadas en el repositorio que **hoy impiden que un clone limpio construya**, y
 que no se arreglan desde los ficheros de despliegue:
 
-1. **Media aplicación de Flutter no está en git.** `app/lib/pantallas/`,
-   `app/lib/diseno/`, `app/lib/textos/`, `app/assets/` y `app/l10n.yaml` figuran como no
-   seguidos (`git status`). Dokploy hace `git clone` limpio: sin eso, `flutter build web`
-   falla por ficheros que no existen. Hay que commitearlos. Es exactamente el error de la
-   Parte 0 de `DOKPLOY-NUEVO-PROYECTO.md`, con otro nombre.
+1. ~~**Media aplicación de Flutter no está en git.**~~ — **ya no (comprobado el
+   15/09/2026).** Están todos seguidos: `app/lib/pantallas/` (73 ficheros),
+   `app/lib/diseno/` (11), `app/lib/textos/` (6), `app/assets/` (2) y `app/l10n.yaml` (1),
+   según `git ls-files`. Queda escrito porque era el punto de la Parte 0 de
+   `DOKPLOY-NUEVO-PROYECTO.md` y lo que hay que saber es que ese ya no frena el clone.
 2. **El repositorio no tiene remoto** (`git remote -v` está vacío) y la rama es `master`,
    no `dev`. Dokploy tira de un remoto y de una rama.
 3. **`app/android/build/` está seguido en git** y no debería: son artefactos. `.gitignore`
@@ -534,22 +534,55 @@ que no se arreglan desde los ficheros de despliegue:
 
 ## 8. Lo que no se ha podido comprobar aquí
 
-Los cinco Dockerfile **no se han construido**: en este equipo el demonio de Docker está
-parado (`systemctl is-active docker` → `inactive`), el usuario no está en el grupo
-`docker` y `sudo` pide contraseña, así que no hay forma de lanzar `docker build` desde
-aquí. Lo que sí se comprobó, y con qué:
+*Revisado el 15/09/2026. Lo de antes decía que Flutter no estaba instalado en este equipo:
+ya no es verdad, y por eso media tabla es nueva.*
+
+**Las cinco imágenes SIGUEN SIN CONSTRUIRSE.** El demonio de Docker sí está ahora en
+marcha —`systemctl start docker` lo levanta **sin contraseña**, por polkit, porque el
+usuario está en `wheel`—, pero eso no basta: el socket `/var/run/docker.sock` es
+`root:docker` y **el grupo `docker` no tiene ni un miembro** (`getent group docker` →
+`docker:x:967:`). El cliente contesta `permission denied while trying to connect to the
+Docker API`. Entrar en el grupo es `usermod -aG docker`, que pide root, y `sudo` pide
+contraseña. Tampoco hay Docker rootless (no están `rootlesskit` ni
+`dockerd-rootless-setuptool.sh`) ni `podman`. **Así que `docker build` no se ha ejecutado
+todavía y esto sigue diciendo «no comprobado».**
+
+> Meter a un usuario en el grupo `docker` es darle root sin contraseña por la puerta de al
+> lado. Es una decisión de Jose, no algo que se hace de paso para poder construir.
+
+Lo que sí se comprobó, y con qué:
 
 | Comprobado | Cómo |
 |---|---|
-| Los tres binarios de Go compilan estáticos, con las mismas órdenes del Dockerfile | `CGO_ENABLED=0 go build -trimpath -ldflags="-s -w"` sobre `./cmd/api`, `./cmd/espejo` y `./cmd/sync`; `file` dice `statically linked` |
-| Las dos series de migraciones las entiende goose | `goose -dir api/db/migrations validate` y `goose -dir sync/db/migrations validate`, con el goose v3.28.0 de `~/go/bin` |
+| Los tres binarios de Go compilan estáticos, con las mismas órdenes del Dockerfile | `CGO_ENABLED=0 go build -trimpath -ldflags="-s -w"` sobre `./cmd/api`, `./cmd/espejo` y `./cmd/sync`; `file` dice `statically linked` en los tres |
+| La versión de Go que pincha el Dockerfile es la del código | `GO_VERSION=1.27`, y `api/go.mod` y `sync/go.mod` piden `go 1.27.0` |
+| La línea de goose de `Dockerfile.migraciones` | `go install github.com/pressly/goose/v3/cmd/goose@v3.28.0` → `goose version: v3.28.0` |
+| Las dos series de migraciones las entiende goose | `goose -dir api/db/migrations validate` y `goose -dir sync/db/migrations validate` |
 | `docker-compose.yml` es válido y las variables resuelven | `docker compose config` (no necesita el demonio) |
 | `deploy/migrar.sh` no tiene errores de sintaxis | `sh -n` |
+| Todas las rutas que copian los Dockerfile existen | `api/cmd/api`, `api/cmd/espejo`, `sync/cmd/sync`, `api/db/migrations`, `sync/db/migrations`, `deploy/migrar.sh` y los dos `go.sum` |
+| **`flutter build web` TERMINA** | las mismas banderas del `Dockerfile.app` (`--release --no-web-resources-cdn --base-href / --dart-define=…`); 90 s y `✓ Built build/web` |
+| **Las dos comprobaciones que el `Dockerfile.app` hace fallar el build pasan** | `build/web/sqlite3.wasm` y `build/web/drift_worker.js` están los dos |
+| CanvasKit queda DENTRO y no se baja de gstatic | `--no-web-resources-cdn` deja `build/web/canvaskit/` |
+| La capa de dependencias del `Dockerfile.app` se sostiene | `flutter pub get` en una carpeta vacía con SÓLO `pubspec.yaml` y `pubspec.lock` → `Got dependencies!`. Era la duda razonable: con `generate: true` podía pedir el `l10n.yaml` y los `.arb`, que en esa capa aún no están. No los pide |
+| El puerto de nginx cuadra con el `EXPOSE` | `deploy/nginx.conf` → `listen 8080` |
 
-**No comprobado:** que las imágenes construyan, que las migraciones se apliquen contra un
-Postgres de verdad (no hay ninguno levantado en este equipo) y que `flutter build web`
-termine (Flutter no está instalado aquí). Lo primero que hay que hacer en una máquina con
-Docker es esto, y en este orden:
+**Sigue sin comprobarse, y hace falta `docker build` para ello:**
+
+1. **Que las etiquetas de las imágenes base existan y se puedan bajar**: `golang:1.27-alpine`,
+   `gcr.io/distroless/static-debian12:nonroot`, `alpine:3.20`, `nginx:1.27-alpine` y sobre
+   todo **`ghcr.io/cirruslabs/flutter:3.44.0`**, que ya estaba en duda en §7.5.
+2. **Que el `.dockerignore` no deje fuera nada que el build necesite.**
+3. **Que el binario arranque dentro de `distroless:nonroot`** — que compile estático no
+   dice que `/app/api` corra como `nonroot`.
+4. **Que las migraciones se apliquen contra un Postgres de verdad**: aquí no hay ninguno
+   levantado.
+
+Un matiz del de Flutter: el build de aquí salió con **Flutter 3.47.4**, que es el de este
+portátil, y el `Dockerfile.app` pincha **3.44.0**. Prueba que el código compila para web;
+**no** prueba que esa etiqueta concreta compile.
+
+Lo primero que hay que hacer en una máquina con Docker es esto, y en este orden:
 
 ```bash
 docker compose build          # las cinco imágenes

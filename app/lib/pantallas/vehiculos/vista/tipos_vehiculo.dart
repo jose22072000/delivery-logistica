@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../diseno/anchos.dart';
+import '../../../diseno/cajon.dart';
 import '../datos/vehiculo_api.dart';
-import 'cajon.dart';
 
 /// El cajon `md` de «Tipos de vehículo». Pliego: `pantallas.md` §5.
 ///
@@ -51,84 +52,14 @@ class _TiposDeVehiculoState extends State<TiposDeVehiculo> {
   }
 
   @override
-  Widget build(BuildContext context) => MarcoCajon(
+  Widget build(BuildContext context) => Cajon(
     titulo: 'Tipos de vehículo',
-    cuerpo: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          'Define cada tipo con su costo por km por defecto. Al crear un '
-          'vehículo de ese tipo se hereda el costo/km (editable por vehículo).',
-        ),
-        const SizedBox(height: 12),
-        if (_filas.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Text('Sin tipos. Agrega el primero.'),
-          )
-        else
-          for (final (indice, fila) in _filas.indexed)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: TextField(
-                      controller: fila.nombre,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre',
-                        isDense: true,
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      controller: fila.costo,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Costo/km (USD)',
-                        isDense: true,
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Quitar',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => setState(() {
-                      final quitada = _filas.removeAt(indice);
-                      quitada.nombre.dispose();
-                      quitada.costo.dispose();
-                    }),
-                  ),
-                ],
-              ),
-            ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () => setState(
-              () => _filas.add(
-                _Fila(
-                  nombre: TextEditingController(),
-                  costo: TextEditingController(),
-                ),
-              ),
-            ),
-            icon: const Icon(Icons.add),
-            label: const Text('Agregar tipo'),
-          ),
-        ),
-      ],
-    ),
+    // El `md` del pliego. En la copia que habia aqui el ancho se recibia y no
+    // se usaba —`showModalBottomSheet` lo ocupaba todo—, asi que este cajon
+    // sale ahora mas estrecho que antes, que es lo que pedia §9.2.
+    ancho: AnchoCajon.md,
     pie: Row(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.end,
       children: [
         TextButton(
           onPressed: widget.guardando
@@ -153,6 +84,83 @@ class _TiposDeVehiculoState extends State<TiposDeVehiculo> {
           child: const Text('Guardar'),
         ),
       ],
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Define cada tipo con su costo por km por defecto. Al crear un '
+            'vehículo de ese tipo se hereda el costo/km (editable por vehículo).',
+          ),
+          const SizedBox(height: 12),
+          if (_filas.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Text('Sin tipos. Agrega el primero.'),
+            )
+          else
+            for (final (indice, fila) in _filas.indexed)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        controller: fila.nombre,
+                        decoration: const InputDecoration(
+                          labelText: 'Nombre',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        controller: fila.costo,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Costo/km (USD)',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Quitar',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => setState(() {
+                        final quitada = _filas.removeAt(indice);
+                        quitada.nombre.dispose();
+                        quitada.costo.dispose();
+                      }),
+                    ),
+                  ],
+                ),
+              ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => setState(
+                () => _filas.add(
+                  _Fila(
+                    nombre: TextEditingController(),
+                    costo: TextEditingController(),
+                  ),
+                ),
+              ),
+              icon: const Icon(Icons.add),
+              label: const Text('Agregar tipo'),
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }

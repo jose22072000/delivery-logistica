@@ -87,6 +87,13 @@ porque tocaba fichero de otro. **Ninguna de estas es opcional.**
 - [ ] **Unificar los métodos con prefijo** `Tablero…`/`Espejo…` de
       `internal/alcance/tablero.go` con los de `consultas.go`. Se les puso prefijo para no
       chocar mientras se escribía en paralelo.
+- [ ] **Queda un CUARTO cajón**: `lib/pantallas/pedidos/vista/kit.dart` tiene su propio
+      `Cajon` + `abrirCajon` + `AnchoCajon` + `anchoEscritorio`, y de ahí tiran pedidos y
+      **todo** `pantallas/rutas/`. No se tocó el 15/09/2026 porque esas dos carpetas las
+      estaba escribiendo otro a la vez. Es equivalente al de `lib/diseno/` salvo en tres
+      detalles: lleva `elevation: 8`, el pie va con padding 12 (el del kit, 16) y el
+      parámetro del cuerpo se llama `cuerpo` y no `child`. Al unificarlo, `Cajon` y
+      `abrirPanel` de `lib/diseno/cajon.dart` ya cubren lo que necesita.
 
 ## Variables de paquete que deberían ser campos del Servidor
 
@@ -214,9 +221,29 @@ Pero son decisiones de negocio, no técnicas, y alguien tiene que mirarlas:
 ## Error mío al repartir el trabajo — hay que corregirlo en TODAS las pantallas
 
 - [x] ~~**El cajón va también en escritorio.**~~ CORREGIDO el 14/09/2026: quitada la rama de
-      escritorio en las dos copias. Queda sólo unificarlas con `lib/diseno/cajon.dart`,
-      que hace falta darles título — hoy va dentro del cuerpo. El kit del armazón se
+      escritorio en las dos copias. **UNIFICADO el 15/09/2026**: las dos copias
+      (`pantallas/vehiculos/vista/cajon.dart` y `pantallas/almacenes/vista/cajon.dart`)
+      están borradas y las dos pantallas usan `lib/diseno/cajon.dart`. El kit del armazón se
       escribió BIEN desde el principio: su cabecera cita el pliego §9.2.
+
+      Cómo se resolvió lo del título, que era el escollo. El kit pide `titulo` como
+      `String` y construye el `Cajon` por dentro, llamando a `cuerpo` y a `pie` por
+      separado; estas tres fichas lo pintaban dentro del cuerpo con su propio `MarcoCajon`
+      y **su pie mira el estado del cuerpo** (el `Guardar` se habilita según lo escrito en
+      un campo). Sacar sólo el título habría dejado el pie sin poder ver ese estado. Así
+      que el kit tiene ahora `abrirPanel(contexto, constructor)` —la misma puerta, el mismo
+      velo y la misma entrada que `abrirCajon`, pero es quien llama el que devuelve el
+      `Cajon`—, y cada ficha devuelve su `Cajon` entero: un solo `setState` repinta
+      cabecera, cuerpo y pie a la vez. Es el mismo patrón que ya usaba
+      `pantallas/pedidos/vista/kit.dart`.
+
+      Dos cambios de comportamiento que van con esto, los dos a mejor:
+      - **«Tipos de vehículo» sale ahora más estrecho.** Pide `AnchoCajon.md` desde
+        siempre, pero en la copia el ancho se recibía y **no se usaba** —el
+        `showModalBottomSheet` lo ocupaba todo—. Con el kit el `md` es de verdad, que es
+        lo que pedía §9.2.
+      - Los botones del pie se alinean a la derecha con `MainAxisAlignment.end` en vez del
+        `Align` + `mainAxisSize: min` que ponía `MarcoCajon`. Se ven igual.
 
       Lo que pasó: Les dije a los agentes «cajón en móvil, modal
       en escritorio», que es la regla general de la casa. Pero `pantallas.md:25` dice que

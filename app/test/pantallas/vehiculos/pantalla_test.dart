@@ -17,7 +17,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [clienteApiProvider.overrideWithValue(cliente)],
-        child: const MaterialApp(home: PantallaVehiculos()),
+        // El `Scaffold` lo pone el armazon, no la pantalla (el contrato esta
+        // en `lib/navegacion/pantalla_registrada.dart`). Montada a pelo no hay
+        // ningun `Material` debajo y el buscador revienta al construirse.
+        child: const MaterialApp(home: Scaffold(body: PantallaVehiculos())),
       ),
     );
     await tester.pumpAndSettle();

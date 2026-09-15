@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../diseno/cajon.dart';
 import '../datos/costo_km.dart';
 import '../datos/vehiculo_api.dart';
-import 'cajon.dart';
 
 /// La ficha de vehiculo (cajon/modal `lg`). Pliego: `pantallas.md` §5.
 ///
@@ -128,136 +128,10 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
   @override
   Widget build(BuildContext context) {
     final tema = Theme.of(context);
-    return MarcoCajon(
+    return Cajon(
       titulo: _esNuevo ? 'Nuevo Vehículo' : 'Editar Vehículo',
-      cuerpo: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            controller: _nombre,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              labelText: 'Nombre del Vehículo *',
-              hintText: 'Ej: Camión #1, Furgoneta Azul',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: widget.tipos.any((t) => t.nombre == _tipo)
-                ? _tipo
-                : null,
-            decoration: const InputDecoration(
-              labelText: 'Tipo',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              for (final t in widget.tipos)
-                DropdownMenuItem(
-                  value: t.nombre,
-                  child: Text(
-                    t.costoKmUsd == null
-                        ? t.nombre
-                        : '${t.nombre} · \$${t.costoKmUsd}/km',
-                  ),
-                ),
-              const DropdownMenuItem(
-                value: _crearTipo,
-                child: Text('+ Crear tipo nuevo…'),
-              ),
-            ],
-            onChanged: (valor) {
-              if (valor == _crearTipo) {
-                setState(() => _creandoTipo = true);
-                return;
-              }
-              _elegirTipo(valor);
-            },
-          ),
-          if (_creandoTipo) _crearTipoEnLinea(),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _placa,
-            textCapitalization: TextCapitalization.characters,
-            inputFormatters: [_AMayusculas()],
-            decoration: const InputDecoration(
-              labelText: 'Placa (opcional)',
-              hintText: 'ABC-1234',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _capacidad,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Capacidad Máx. (kg)',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _estado,
-            decoration: const InputDecoration(
-              labelText: 'Estado del vehículo',
-              border: OutlineInputBorder(),
-            ),
-            items: const [
-              DropdownMenuItem(value: 'available', child: Text('Disponible')),
-              DropdownMenuItem(value: 'in_route', child: Text('En ruta')),
-              DropdownMenuItem(
-                value: 'maintenance',
-                child: Text('En mantenimiento'),
-              ),
-            ],
-            onChanged: (v) => setState(() => _estado = v ?? 'available'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _costo,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Costo por km (USD)',
-              hintText: '1.65',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          _ayudante(tema),
-          const SizedBox(height: 8),
-          CheckboxListTile(
-            value: _domicilio,
-            onChanged: (v) => setState(() => _domicilio = v ?? false),
-            controlAffinity: ListTileControlAffinity.leading,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Usar este vehículo para calcular el domicilio'),
-            subtitle: const Text('Solo un vehículo por TIPO.'),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _notas,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Notas (opcional)',
-              hintText: 'Información relevante del vehículo...',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1D4ED8).withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Text(
-              'Las tarifas de precios se configuran globalmente en '
-              'Configuración.',
-            ),
-          ),
-        ],
-      ),
       pie: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.end,
         children: [
           TextButton(
             onPressed: widget.guardando
@@ -276,6 +150,139 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
             child: Text(_esNuevo ? 'Agregar Vehículo' : 'Actualizar'),
           ),
         ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _nombre,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Nombre del Vehículo *',
+                hintText: 'Ej: Camión #1, Furgoneta Azul',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: widget.tipos.any((t) => t.nombre == _tipo)
+                  ? _tipo
+                  : null,
+              decoration: const InputDecoration(
+                labelText: 'Tipo',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                for (final t in widget.tipos)
+                  DropdownMenuItem(
+                    value: t.nombre,
+                    child: Text(
+                      t.costoKmUsd == null
+                          ? t.nombre
+                          : '${t.nombre} · \$${t.costoKmUsd}/km',
+                    ),
+                  ),
+                const DropdownMenuItem(
+                  value: _crearTipo,
+                  child: Text('+ Crear tipo nuevo…'),
+                ),
+              ],
+              onChanged: (valor) {
+                if (valor == _crearTipo) {
+                  setState(() => _creandoTipo = true);
+                  return;
+                }
+                _elegirTipo(valor);
+              },
+            ),
+            if (_creandoTipo) _crearTipoEnLinea(),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _placa,
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: [_AMayusculas()],
+              decoration: const InputDecoration(
+                labelText: 'Placa (opcional)',
+                hintText: 'ABC-1234',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _capacidad,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Capacidad Máx. (kg)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _estado,
+              decoration: const InputDecoration(
+                labelText: 'Estado del vehículo',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'available', child: Text('Disponible')),
+                DropdownMenuItem(value: 'in_route', child: Text('En ruta')),
+                DropdownMenuItem(
+                  value: 'maintenance',
+                  child: Text('En mantenimiento'),
+                ),
+              ],
+              onChanged: (v) => setState(() => _estado = v ?? 'available'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _costo,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Costo por km (USD)',
+                hintText: '1.65',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            _ayudante(tema),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              value: _domicilio,
+              onChanged: (v) => setState(() => _domicilio = v ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                'Usar este vehículo para calcular el domicilio',
+              ),
+              subtitle: const Text('Solo un vehículo por TIPO.'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _notas,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Notas (opcional)',
+                hintText: 'Información relevante del vehículo...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1D4ED8).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'Las tarifas de precios se configuran globalmente en '
+                'Configuración.',
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
