@@ -65,6 +65,16 @@ en 5 de los 11 modelos y sin el cual no hay bajada por diferencias posible.
 
 Cada una está explicada en el README de la pieza a la que le toca.
 
+## Antes de subir
+
+```
+./comprobar.sh
+```
+
+gofmt, vet, test, build y `sqlc diff` de los dos módulos de Go, más `analyze` y `test` de
+Flutter. No hay GitHub Actions a propósito: despliega Dokploy, que clona y construye él, y
+el token de Jose no tiene permiso `workflow`.
+
 ## Pruebas
 
 El criterio de terminado es **dar los mismos números que la de Next**, y por eso Next se
