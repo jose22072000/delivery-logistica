@@ -174,6 +174,16 @@ WHERE o.id = ANY(sqlc.arg('pedido_ids')::uuid[])
   AND o.route_id IS NULL
   AND o.end_lat IS NOT NULL
   AND o.end_lng IS NOT NULL
+    -- ARCHIVADO EN PEDIDO = NO SE REPARTE.
+    --
+    -- Faltaba, y con los datos reales del 15/09/2026 eso metia 1.348 pedidos archivados
+    -- en la lista del armador: casi la mitad de los 2.771 que se ofrecian. PEDIDO los dio
+    -- de baja y aqui salian como disponibles, sin un solo error — la lista se veia
+    -- perfectamente normal y el camion salia con mercancia que nadie esperaba.
+    --
+    -- `archivado` es el borrado blando de PEDIDO y son la INMENSA MAYORIA del historico
+    -- (50.810 de 55.622), asi que olvidarlo no es un detalle: es ofrecer el archivo entero.
+    AND NOT o.archivado
   AND (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid)
 ORDER BY o.created_at ASC;
 

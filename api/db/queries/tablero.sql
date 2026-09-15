@@ -269,6 +269,16 @@ WHERE
     AND o.factura_estado IN ('igual', 'cambiado')
     -- Sin colocar = no está en ninguna columna. Del tablero de NADIE: un pedido es de una
     -- sucursal y sólo puede estar en el suyo, así que si aparece puesto, puesto está.
+    -- ARCHIVADO EN PEDIDO = NO SE REPARTE.
+    --
+    -- Faltaba, y con los datos reales del 15/09/2026 eso metia 1.348 pedidos archivados
+    -- en la lista del armador: casi la mitad de los 2.771 que se ofrecian. PEDIDO los dio
+    -- de baja y aqui salian como disponibles, sin un solo error — la lista se veia
+    -- perfectamente normal y el camion salia con mercancia que nadie esperaba.
+    --
+    -- `archivado` es el borrado blando de PEDIDO y son la INMENSA MAYORIA del historico
+    -- (50.810 de 55.622), asi que olvidarlo no es un detalle: es ofrecer el archivo entero.
+    AND NOT o.archivado
     AND NOT EXISTS (SELECT 1 FROM board_placements p WHERE p.order_id = o.id)
     -- El `::uuid` no es adorno: `orders.branch_id` admite NULL, y sin el molde sqlc daría
     -- el parámetro como anulable en Go. Uno vacío dejaría la comparación en NULL y la lista

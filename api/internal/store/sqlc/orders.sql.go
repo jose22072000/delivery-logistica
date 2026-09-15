@@ -320,6 +320,10 @@ WHERE
     AND o.end_lat IS NOT NULL
     AND o.end_lng IS NOT NULL
     AND o.factura_estado IN ('igual', 'cambiado')
+    -- ARCHIVADO EN PEDIDO = NO SE REPARTE. Ver el porqué en ListarPedidosDisponibles.
+    -- Aquí importa el doble: este recuento es el ` + "`" + `total` + "`" + ` que la pantalla enseña encima de
+    -- la lista, así que sin esto diría «2.771 disponibles» sobre una lista de 1.423.
+    AND NOT o.archivado
     AND ($1::uuid  IS NULL OR o.branch_id = $1::uuid)
     AND ($2::uuid IS NULL OR o.branch_id = $2::uuid)
     AND (
@@ -1268,6 +1272,16 @@ WHERE
     AND o.end_lat IS NOT NULL
     AND o.end_lng IS NOT NULL
     AND o.factura_estado IN ('igual', 'cambiado')
+    -- ARCHIVADO EN PEDIDO = NO SE REPARTE.
+    --
+    -- Faltaba, y con los datos reales del 15/09/2026 eso metia 1.348 pedidos archivados
+    -- en la lista del armador: casi la mitad de los 2.771 que se ofrecian. PEDIDO los dio
+    -- de baja y aqui salian como disponibles, sin un solo error — la lista se veia
+    -- perfectamente normal y el camion salia con mercancia que nadie esperaba.
+    --
+    -- ` + "`" + `archivado` + "`" + ` es el borrado blando de PEDIDO y son la INMENSA MAYORIA del historico
+    -- (50.810 de 55.622), asi que olvidarlo no es un detalle: es ofrecer el archivo entero.
+    AND NOT o.archivado
     -- alcance por sucursal
     AND ($1::uuid IS NULL OR o.branch_id = $1::uuid)
     -- ` + "`" + `branch_id` + "`" + ` de la query: estrecha, nunca amplía. Va en AND con el alcance, así que
