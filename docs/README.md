@@ -12,6 +12,7 @@ Next**. Sacado del código de `delivery`, que se queda en pie hasta el final com
 | `tablero.md` | El **tablero de preparación**: la pantalla nueva que no existe en delivery | diseño nuevo, encargo del 14/09/2026 |
 | `sincronizacion.md` | El protocolo entre la aplicación y el sincronizador | diseño nuevo |
 | `identidad.md` | Entrar, renovar y trabajar sin conexión | diseño nuevo, patrón de `call-center-board` |
+| `montar-en-dokploy.md` | Lo que queda para encenderlo: servicios, variables y avisos | paso a paso |
 | `pruebas.md` | El guion de QA del dominio | diseño nuevo, método de `qa-como-usuario` |
 
 Aparte del pliego, y porque no describe el reparto sino cómo se pone en pie:
