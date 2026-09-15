@@ -19,12 +19,40 @@
 # después no cambia nada, hay que volver a construir. Es lo mismo que les pasa a las
 # `VITE_*` del front de notify, y está avisado en docs/DOKPLOY-NUEVO-PROYECTO.md.
 
-# La versión del SDK va PINCHADA. app/pubspec.lock pide flutter >=3.44.0 y dart >=3.13.3:
-# una imagen más vieja no resuelve las dependencias, y «la última» compila distinto cada
-# mes, que es lo que app/pubspec.yaml evita a propósito fijando las versiones sin `^`.
-ARG FLUTTER_VERSION=3.44.0
+# El SDK se trae del repositorio OFICIAL de Flutter, pinchado por etiqueta.
+#
+# # Por qué no una imagen ya hecha
+#
+# Antes esto usaba `ghcr.io/cirruslabs/flutter:3.44.0`. Falló al construir, después de
+# media hora bajando sus 794 MB:
+#
+#     Because reparto requires SDK version ^3.13.3, version solving failed.
+#
+# El proyecto pide Dart ^3.13.3 y esa imagen trae uno más viejo. Y comprobado el
+# 15/09/2026, de esa familia **sólo existen `3.44.0` y `stable`**: no hay 3.45, ni 3.46,
+# ni la 3.47.4 que usa el proyecto. Van por detrás de Flutter.
+#
+# `stable` resolvería hoy y es lo que NO se puede hacer: es una etiqueta móvil, así que la
+# imagen cambia bajo los pies y reconstruir esto dentro de seis meses daría algo distinto
+# sin que nadie tocara una línea. Es justo lo que `app/pubspec.yaml` evita fijando las
+# versiones sin `^`.
+#
+# Clonando el repositorio oficial por etiqueta, la versión la decidimos nosotros y es
+# exactamente la que se usa para desarrollar. `--depth 1` de una sola etiqueta trae lo
+# justo.
+ARG FLUTTER_VERSION=3.47.4
 
-FROM ghcr.io/cirruslabs/flutter:${FLUTTER_VERSION} AS build
+FROM debian:bookworm-slim AS build
+# Lo que pide el SDK para compilar para web, y nada más.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git curl unzip xz-utils ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+ARG FLUTTER_VERSION
+RUN git clone --depth 1 --branch "${FLUTTER_VERSION}" https://github.com/flutter/flutter.git /sdk
+ENV PATH="/sdk/bin:/sdk/bin/cache/dart-sdk/bin:${PATH}"
+# `git config` porque el SDK se queja de ser un repositorio de otro dueño dentro de la
+# imagen, y se para antes de hacer nada.
+RUN git config --global --add safe.directory /sdk && flutter --version
 WORKDIR /app
 
 # Dependencias primero: la capa se cachea y no se rehace en cada cambio de pantalla.

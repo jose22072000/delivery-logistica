@@ -5,6 +5,7 @@ import '../pantallas/informes/registro.dart';
 import '../pantallas/panel/registro.dart';
 import '../pantallas/pedidos/registro.dart';
 import '../pantallas/rutas/registro.dart';
+import '../pantallas/sincronizacion/registro.dart';
 import '../pantallas/tablero/registro.dart';
 import 'pantalla_registrada.dart';
 
@@ -31,6 +32,13 @@ List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
   registrarClientes(),
   registrarVehiculos(),
   registrarAlmacenes(),
+
+  // Sincronizacion es otra pantalla NUEVA (`docs/sincronizacion.md` §3): el
+  // panel de `GET /sync/estado`, que hasta ahora no consumia nadie. Va en el
+  // menu porque sin entrada no se llega a ella, y lo que ensena ya viene
+  // acotado por sucursal desde el servidor. El motivo largo esta en su
+  // `registro.dart`.
+  registrarSincronizacion(),
 
   // Reportes NO va en el menu (pliego §8.1): se llega por URL y desde las
   // acciones rapidas del Panel.

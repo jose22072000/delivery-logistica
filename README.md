@@ -7,7 +7,18 @@ api/    Go       — las 35 rutas, los 11 modelos y la lógica de negocio
 sync/   Go       — bajada por diferencias, subida por lotes, registro de aparatos
 app/    Flutter  — la interfaz, única: se compila a web y a APK
 docs/   el pliego, sacado del código de delivery
+deploy/ los cinco Dockerfile y el nginx de la web
+.github/workflows/  go.yml: comprueba que api/ y sync/ compilan y pasan las pruebas
 ```
+
+**Los servicios los despliega Dokploy**, que clona y construye él con los Dockerfile de
+`deploy/`. Aquí no se construye ninguna imagen: `go.yml` sólo comprueba, para que el Deploy
+no se caiga después.
+
+La aplicación se compila a mano: web y APK desde el portátil Linux, el `.exe` desde el
+portátil Windows de Jose —Flutter no cruza de una plataforma a otra—. Las órdenes exactas
+están en `docs/compilar.md`, y cómo le llega después una versión nueva a los diez aparatos
+(con **la clave de firma del APK**, que hoy está mal) en `docs/actualizaciones.md`.
 
 ## Para qué
 

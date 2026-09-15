@@ -85,6 +85,18 @@ func correr() error {
 		reg.Warn("PROCOVAR_AUTH_SIGNING_KEY vacía: no se podrá preguntar a Accesos por los almacenes " +
 			"ni por las tasas, así que no se podrán cotizar domicilios")
 	}
+	// Tampoco impide arrancar: mientras no haya un APK colgado, no anunciar nada es lo
+	// correcto. Pero tiene que verse, porque desde fuera «los aparatos no avisan de la
+	// versión nueva» y «no se anunció ninguna» se parecen mucho.
+	if !cfg.Publicada.HayAlguna() {
+		reg.Warn("APP_ULTIMA_VERSION vacía: /api/version no anuncia ninguna versión de la aplicación, " +
+			"así que ningún aparato avisará de que hay una nueva (docs/actualizaciones.md)")
+	} else {
+		reg.Info("versión de la aplicación publicada",
+			"version", cfg.Publicada.Version,
+			"compilacion", cfg.Publicada.Compilacion,
+		)
+	}
 
 	servidor := &http.Server{
 		Addr: cfg.Direccion(),

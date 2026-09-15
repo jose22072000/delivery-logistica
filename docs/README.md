@@ -19,6 +19,8 @@ Aparte del pliego, y porque no describe el reparto sino cómo se pone en pie:
 | Documento | Qué hay dentro |
 |---|---|
 | `despliegue.md` | Los cinco contenedores, las variables de cada servicio, el orden de arranque y cómo se comprueba que están vivos |
+| `compilar.md` | Cómo se saca cada salida de la aplicación —web, APK, Windows, Linux— y desde qué máquina. Con las variables del espejo de Tencent, sin las que el APK no compila desde Cuba |
+| `actualizaciones.md` | Cómo le llega una versión nueva a los diez logísticos: el anuncio de `/api/version`, la comprobación en el aparato y las tres reglas. Incluye **con qué clave se firma el APK**, que hoy es la de depuración y no se puede repartir así |
 
 Los cuatro primeros describen **lo que ya existe** y no hay que volver a decidir: se leen y
 se copian. Los tres últimos son **lo que hay que decidir bien**, porque no existe todavía.

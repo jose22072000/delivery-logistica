@@ -154,6 +154,28 @@ alcance «todas»— y mete los pedidos por `POST /api/quote/batch`, que es la �
       y no como patrón propio: con los dos registrados, el proceso se cae al arrancar. La
       URL del contrato queda intacta.
 
+## Actualizar los aparatos (15/09/2026)
+
+Todo lo de `docs/actualizaciones.md` está montado y probado **menos lo que toca pantalla**,
+que no se tocó a propósito.
+
+- [ ] **Nadie mira `actualizacionProvider`.** Está en `app/lib/nucleo/proveedores.dart`, con
+      sus pruebas, y no lo lee ninguna pantalla: hace falta una que haga
+      `ref.watch(actualizacionProvider)` y pinte los cinco casos de `EstadoDeActualizacion`
+      —cajón en móvil, modal en escritorio, como todo lo demás—. Mientras no exista, la
+      comprobación no se ejecuta nunca y el aviso no llega a nadie.
+- [ ] **Al terminar una subida, `ref.invalidate(actualizacionProvider)`.** Sin eso, un
+      `PrimeroSube` se queda puesto hasta el siguiente arranque aunque la cola ya esté
+      vacía, y la persona hizo justo lo que se le pidió.
+- [ ] **LA CLAVE DE FIRMA DEL APK.** Hoy sale firmado con la de DEPURACIÓN. Android rechaza
+      como actualización un APK firmado con otra clave: obliga a desinstalar, y desinstalar
+      **borra la base local** — el trabajo del día sin subir. `build.gradle.kts` ya usa la
+      buena si existe y grita si no; falta crearla (`docs/actualizaciones.md` §4). **Cuanto
+      más tarde se haga, más aparatos habrá que desinstalar el día que se haga.**
+- [ ] **Dónde se cuelgan los ficheros.** Se compilan a mano (`docs/compilar.md`); falta
+      decidir a qué URL estable van. Hasta entonces `APP_ULTIMA_VERSION` se queda vacía, que
+      es el estado seguro: no se anuncia nada.
+
 ## La regla de Jose, 14/09/2026 — y lo que se cerró con ella
 
 > «Delivery no se encarga de calcular nada. Él sólo pone en ruta los pedidos —o pedidos

@@ -505,15 +505,22 @@ type Order struct {
 }
 
 type OrderItem struct {
-	ID          uuid.UUID          `json:"id"`
-	OrderID     uuid.UUID          `json:"order_id"`
-	Linea       int32              `json:"linea"`
-	Description string             `json:"description"`
-	Quantity    float64            `json:"quantity"`
-	Packs       *float64           `json:"packs"`
-	ProductID   pgtype.UUID        `json:"product_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID             uuid.UUID          `json:"id"`
+	OrderID        uuid.UUID          `json:"order_id"`
+	Linea          int32              `json:"linea"`
+	Description    string             `json:"description"`
+	Quantity       float64            `json:"quantity"`
+	Packs          *float64           `json:"packs"`
+	ProductID      pgtype.UUID        `json:"product_id"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	Nombre         *string            `json:"nombre"`
+	Codigo         *string            `json:"codigo"`
+	AlmacenNombre  *string            `json:"almacen_nombre"`
+	Caso           *bool              `json:"caso"`
+	PesoUnitarioKg *float64           `json:"peso_unitario_kg"`
+	PesoLineaKg    *float64           `json:"peso_linea_kg"`
+	OrigenPeso     *string            `json:"origen_peso"`
 }
 
 type OrderVehicle struct {

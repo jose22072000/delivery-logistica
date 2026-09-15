@@ -1,0 +1,133 @@
+name: Go
+
+# Guarda del despliegue de Dokploy. Dokploy construye él mismo desde el repositorio
+# (`procovar/docs/DOKPLOY-NUEVO-PROYECTO.md`): clona, corre los Dockerfile de `deploy/` y
+# levanta. Aquí NO se construye ninguna imagen y no se despliega nada — eso sería duplicar
+# lo que ya hace Dokploy. Lo que se hace es comprobar que lo que se subió compila, pasa
+# `vet`, pasa las pruebas y tiene el código de sqlc al día, para que el Deploy no se caiga
+# después, que es donde cuesta caro.
+#
+# La aplicación (`app/`) no está aquí: web y APK se compilan en el portátil de Linux y el
+# `.exe` en el de Windows. Las órdenes exactas, en `docs/compilar.md`.
+
+on:
+  push:
+    paths:
+      - 'api/**'
+      - 'sync/**'
+      - '.github/workflows/go.yml'
+  pull_request:
+    paths:
+      - 'api/**'
+      - 'sync/**'
+      - '.github/workflows/go.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: api — vet, test, build y sqlc
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      # `go-version-file` y no un número escrito aquí: la versión sale de `api/go.mod`
+      # (hoy `go 1.27.0`), así que subirla es tocar un solo sitio y esto no se queda atrás.
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache: true
+          cache-dependency-path: api/go.sum
+
+      - name: gofmt
+        run: |
+          sin_formato="$(gofmt -l .)"
+          if [ -n "$sin_formato" ]; then
+            echo "::error::sin pasar por gofmt:"
+            echo "$sin_formato"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Tests
+        run: go test ./...
+
+      # Los dos binarios: la api y el espejo. `./...` no basta para saber que el enlazado
+      # sale bien de los dos `main`.
+      - name: Build
+        run: |
+          go build ./...
+          go build -o /tmp/api    ./cmd/api
+          go build -o /tmp/espejo ./cmd/espejo
+
+      # `sqlc diff` no genera nada: compara lo que HAY en `internal/store/sqlc` con lo que
+      # saldría hoy de `db/migrations` y `db/queries`. Falla cuando alguien tocó una
+      # consulta o una migración y se olvidó de `sqlc generate`.
+      #
+      # Por qué hace falta: el código generado de ayer SIGUE COMPILANDO, así que el build
+      # pasa y las pruebas pasan. Lo que se descubre en producción es una columna que la
+      # consulta lee y el struct no tiene. Pasó ya: `OrderItem` se quedó siete columnas
+      # atrás de `00003_bajada_pedidos.sql` y nadie se enteró hasta que se puso esto.
+      #
+      # Se instala con `go install`, como el golangci-lint de notify: la versión queda
+      # pinchada —dos versiones de sqlc generan código distinto del MISMO sql, así que con
+      # otra este `diff` no significaría nada— y no hay una acción de terceros más de la
+      # que fiarse.
+      - name: sqlc diff
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          if ! sqlc diff; then
+            echo "::error::el código de sqlc no está al día. Corre 'sqlc generate' en api/ y sube lo que cambie."
+            exit 1
+          fi
+
+  sync:
+    name: sync — vet, test, build y sqlc
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sync
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sync/go.mod
+          cache: true
+          cache-dependency-path: sync/go.sum
+
+      - name: gofmt
+        run: |
+          sin_formato="$(gofmt -l .)"
+          if [ -n "$sin_formato" ]; then
+            echo "::error::sin pasar por gofmt:"
+            echo "$sin_formato"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Tests
+        run: go test ./...
+
+      - name: Build
+        run: |
+          go build ./...
+          go build -o /tmp/sync ./cmd/sync
+
+      - name: sqlc diff
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          if ! sqlc diff; then
+            echo "::error::el código de sqlc no está al día. Corre 'sqlc generate' en sync/ y sube lo que cambie."
+            exit 1
+          fi

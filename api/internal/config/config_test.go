@@ -168,3 +168,89 @@ func TestALasUrlsSeLesQuitaLaBarraFinal(t *testing.T) {
 		t.Fatalf("CATALOGO_CADA_MS viene en milisegundos: %s", c.CatalogoCada)
 	}
 }
+
+// --------------------------------------------------------------- versión publicada
+
+// Lo normal: nadie ha colgado nada todavía. No es un error y no hay anuncio.
+func TestSinNadaPublicadoArrancaYNoAnuncia(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+
+	c, err := config.Cargar("dev")
+	if err != nil {
+		t.Fatalf("tenía que arrancar: %v", err)
+	}
+	if c.Publicada.HayAlguna() {
+		t.Fatalf("no se colgó nada y aun así hay anuncio: %+v", c.Publicada)
+	}
+}
+
+// Media configuración es la peor: el enlace puesto y la versión no. No se avisaría nunca,
+// sin un solo error a la vista. Tiene que parar el arranque, que es cuando lo ve quien
+// despliega.
+func TestDescargaSinVersionNoArranca(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("APP_DESCARGA_ANDROID", "https://descargas.procovar.cloud/reparto.apk")
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "APP_ULTIMA_VERSION") {
+		t.Fatalf("el mensaje tiene que nombrar la variable que falta: %v", err)
+	}
+}
+
+// Y al revés: versión anunciada sin ningún sitio de donde bajarla son diez personas
+// enteradas de que tienen que actualizar y ningún enlace.
+func TestVersionSinDescargaNoArranca(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("APP_ULTIMA_VERSION", "1.5.0")
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "APP_DESCARGA") {
+		t.Fatalf("tenía que exigir de dónde se baja: %v", err)
+	}
+}
+
+func TestDescargaSinEsquemaNoArranca(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("APP_ULTIMA_VERSION", "1.5.0")
+	t.Setenv("APP_DESCARGA_ANDROID", "descargas.procovar.cloud/reparto.apk")
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "http://") {
+		t.Fatalf("una URL sin esquema no se puede abrir: %v", err)
+	}
+}
+
+// La compilación es el `versionCode`. Una errata ahí —«12a», «v12»— haría que el aparato
+// comparase contra cero y no avisara nunca.
+func TestCompilacionQueNoEsNumeroNoArranca(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("APP_ULTIMA_VERSION", "1.5.0")
+	t.Setenv("APP_ULTIMA_COMPILACION", "v12")
+	t.Setenv("APP_DESCARGA_ANDROID", "https://descargas.procovar.cloud/reparto.apk")
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "APP_ULTIMA_COMPILACION") {
+		t.Fatalf("tenía que quejarse del número: %v", err)
+	}
+}
+
+func TestLaFechaSeNormaliza(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("APP_ULTIMA_VERSION", "1.5.0")
+	t.Setenv("APP_ULTIMA_PUBLICADA", "2026-09-15")
+	t.Setenv("APP_DESCARGA_LINUX", "https://descargas.procovar.cloud/reparto-linux.tar.gz")
+
+	c, err := config.Cargar("dev")
+	if err != nil {
+		t.Fatalf("tenía que arrancar: %v", err)
+	}
+	if c.Publicada.PublicadaAt != "2026-09-15T00:00:00Z" {
+		t.Fatalf("fecha %q", c.Publicada.PublicadaAt)
+	}
+}

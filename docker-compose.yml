@@ -92,6 +92,18 @@ services:
       PROCOVAR_AUTH_URL: ${PROCOVAR_AUTH_URL:-https://auth.procovar.cloud}
       PROCOVAR_AUTH_CLIENT_ID: ${PROCOVAR_AUTH_CLIENT_ID:-delivery}
       PROCOVAR_AUTH_SIGNING_KEY: ${PROCOVAR_AUTH_SIGNING_KEY:-}
+      # El anuncio de versión de la APLICACIÓN, que es lo que leen los aparatos para saber
+      # si tienen que actualizarse. Vacías = no se anuncia ninguna y nadie avisa, que es lo
+      # correcto mientras no haya un fichero colgado de verdad. A MEDIAS NO ARRANCA: una
+      # URL sin `APP_ULTIMA_VERSION` no se anunciaría nunca, y al revés se avisaría sin
+      # decir de dónde bajarla. Ver docs/actualizaciones.md.
+      APP_ULTIMA_VERSION: ${APP_ULTIMA_VERSION:-}
+      APP_ULTIMA_COMPILACION: ${APP_ULTIMA_COMPILACION:-}
+      APP_ULTIMA_NOTAS: ${APP_ULTIMA_NOTAS:-}
+      APP_ULTIMA_PUBLICADA: ${APP_ULTIMA_PUBLICADA:-}
+      APP_DESCARGA_ANDROID: ${APP_DESCARGA_ANDROID:-}
+      APP_DESCARGA_WINDOWS: ${APP_DESCARGA_WINDOWS:-}
+      APP_DESCARGA_LINUX: ${APP_DESCARGA_LINUX:-}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:

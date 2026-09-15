@@ -168,7 +168,7 @@ Con valor por defecto:
 |---|---|---|
 | `ENTORNO` | `desarrollo` | `desarrollo` \| `produccion`. Cualquier otra cosa y no arranca. En producción el registro sale en JSON. |
 | `PUERTO` | `8080` | Tiene que cuadrar con el Container Port del dominio. |
-| `VERSION_APP` | la del compilador | Normalmente se incrusta con `-ldflags`; el entorno la pisa. La lee la APK en `/version` para decidir si se actualiza. |
+| `VERSION_APP` | la del compilador | La de **este servicio**. Normalmente se incrusta con `-ldflags`; el entorno la pisa. Sale en `/version` como latido del despliegue. **No es la de la aplicación**: eso es `APP_ULTIMA_VERSION`, aquí abajo. |
 | `SERVICE_API_KEY` | vacía | La puerta de las rutas de servicio (`x-api-key`). **Vacía las deja CERRADAS**, nunca abiertas. Sin ella el espejo no puede entrar y desde fuera parece que PEDIDO no manda nada. |
 | `ORIGENES_PERMITIDOS` | vacía | Lista cerrada separada por comas. Vacía = el navegador no puede llamar desde otro dominio. No se pone `*`: con `*` no viajan las cookies y la sesión de la web es una cookie. |
 | `POOL_MAX_CONNS` | `10` | |
@@ -183,6 +183,24 @@ Con valor por defecto:
 | `ALMACENES_CACHE_MS` | `300000` (5 min) | **En milisegundos**. Sin recuerdo, cotizar 200 pedidos son 200 llamadas a Accesos. |
 | `PROCOVAR_AUTH_URL` | `https://auth.procovar.cloud` | |
 | `PROCOVAR_AUTH_CLIENT_ID` | `delivery` | |
+
+Y las del **anuncio de versión de la aplicación**, que es lo que leen los aparatos para
+saber si tienen que actualizarse. Todas opcionales, pero **a medias no arranca**: con una
+URL puesta y sin `APP_ULTIMA_VERSION` no se anunciaría nada nunca, y con la versión puesta
+y sin ninguna URL se avisaría sin decir de dónde bajarla. El documento entero es
+`docs/actualizaciones.md`.
+
+| Variable | Por defecto | Qué es |
+|---|---|---|
+| `APP_ULTIMA_VERSION` | vacía | La versión de la **aplicación** que hay colgada (`1.5.0`). Vacía = no se anuncia nada y ningún aparato avisa. Es el estado seguro mientras no haya un fichero de verdad colgado. |
+| `APP_ULTIMA_COMPILACION` | vacía | El `versionCode` (el número de después del `+` en `pubspec.yaml`). Es lo único que Android compara de verdad. Si no es un número, no arranca. |
+| `APP_DESCARGA_ANDROID` | vacía | URL del `.apk`. |
+| `APP_DESCARGA_WINDOWS` | vacía | URL del escritorio de Windows. |
+| `APP_DESCARGA_LINUX` | vacía | URL del escritorio de Linux. |
+| `APP_ULTIMA_NOTAS` | vacía | Una línea de qué trae. |
+| `APP_ULTIMA_PUBLICADA` | vacía | `2026-09-15` o RFC3339. Se guarda normalizada. |
+
+**No hay `APP_DESCARGA_WEB` y no la va a haber**: la web se actualiza sola al recargar.
 | `PROCOVAR_AUTH_SIGNING_KEY` | vacía | La llave con la que se firma hacia Accesos (HMAC). Sin ella no se pueden pedir los almacenes ni las tasas, así que **no se puede cotizar ningún domicilio**. Arranca, pero lo avisa. |
 
 Las tres URL se comprueban al arrancar aunque sean opcionales: una `PEDIDO_API_URL` sin
@@ -262,6 +280,10 @@ Con valor por defecto:
 > línea `sincronizador escuchando`.
 
 ### 3.4 app (`app/`)
+
+> Esto es la **web**, que construye Dokploy con `deploy/Dockerfile.app`. El APK y los dos
+> escritorios **no se construyen aquí**: se compilan a mano, y las órdenes exactas —con las
+> variables sin las que el APK no compila desde Cuba— están en `docs/compilar.md`.
 
 **No tiene variables de entorno. Tiene argumentos de construcción**, y esto no es un
 detalle: `String.fromEnvironment` (`app/lib/nucleo/red/entorno.dart`) se resuelve **al
@@ -362,7 +384,7 @@ proceso vivo es la base, no la api.
 > curl -s https://reparto.procovar.cloud/api/version
 > ```
 
-Y en el registro del arranque, los cuatro avisos que **no** impiden arrancar pero que hay
+Y en el registro del arranque, los cinco avisos que **no** impiden arrancar pero que hay
 que leer al desplegar, porque cada uno es una cosa que no va a funcionar:
 
 ```
@@ -370,6 +392,7 @@ SERVICE_API_KEY vacía: las rutas de servicio quedan cerradas …
 ORIGENES_PERMITIDOS vacío: el navegador no podrá llamar …
 PEDIDO_API_URL vacía: no se le podrá contar a PEDIDO …
 PROCOVAR_AUTH_SIGNING_KEY vacía: … no se podrán cotizar domicilios
+APP_ULTIMA_VERSION vacía: /api/version no anuncia ninguna versión de la aplicación …
 ```
 
 Si sale alguno y no era intencionado, falta una variable.

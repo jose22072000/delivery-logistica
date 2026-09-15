@@ -1048,6 +1048,10 @@ data: {}
   `Cache-Control: no-store, must-revalidate`.
 - `VERSION_APP` se sustituye en tiempo de compilación (literal incrustado), no se lee en
   ejecución.
+- **AMPLIADA (15/09/2026)**, sin romper lo de arriba: la respuesta lleva además `ultima`,
+  con la versión de la **aplicación** que hay colgada y de dónde se baja, o `null` si no se
+  anunció ninguna. `version` (la del servicio) sigue igual y **no es el mismo número**. La
+  forma entera y las tres reglas del aviso están en `docs/actualizaciones.md`.
 
 ## `GET /api/apps`
 

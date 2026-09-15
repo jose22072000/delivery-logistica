@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'actualizacion/comprobador.dart';
 import 'base/base.dart';
 import 'cola/cola_salida.dart';
 import 'cola/provisionales.dart';
@@ -106,4 +107,36 @@ final frescuraProvider = Provider<RegistroDeFrescura>(
 /// Cuantos apuntes quedan sin subir. Lo pinta el `RelojDeDatos`.
 final sinSubirProvider = StreamProvider<int>(
   (ref) => ref.watch(colaProvider).pendientes().map((lista) => lista.length),
+);
+
+/// El cliente con el que se mira la versión, aparte del de las pantallas.
+///
+/// Es OTRO `ClienteApi` y no el de siempre por una sola razón: `sinEsperas`. El
+/// de las pantallas reintenta 1 s, 4 s, 15 s y 60 s, que es lo correcto para el
+/// trabajo de alguien y lo peor posible para una comprobación de versión al
+/// arrancar — ochenta segundos de espera para averiguar algo que puede esperar a
+/// mañana.
+final clienteVersionProvider = Provider<ClienteApi>(
+  (ref) => ClienteApi.montar(
+    baseUrl: Entorno.apiUrl,
+    almacen: ref.watch(almacenSesionProvider),
+    renovador: ref.watch(renovadorProvider),
+    esperas: ComprobadorDeActualizacion.sinEsperas,
+  ),
+);
+
+final comprobadorProvider = Provider<ComprobadorDeActualizacion>(
+  (ref) => ComprobadorDeActualizacion(
+    cliente: ref.watch(clienteVersionProvider),
+    base: ref.watch(baseProvider),
+  ),
+);
+
+/// El aviso de versión nueva, para que lo mire la pantalla.
+///
+/// `FutureProvider` y no algo que se dispare solo: se comprueba cuando alguien
+/// lo mira, UNA vez por arranque. Para volver a mirar —después de subir la cola,
+/// por ejemplo— se invalida este provider. Ver `docs/actualizaciones.md`.
+final actualizacionProvider = FutureProvider<EstadoDeActualizacion>(
+  (ref) => ref.watch(comprobadorProvider).comprobar(),
 );

@@ -23,18 +23,6 @@ func (s *Servidor) salud_(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, r, http.StatusOK, map[string]any{"ok": true, "base": "ok"})
 }
 
-// GET /version  (y /api/version, que es la ruta del contrato)
-//
-// SIN SESIÓN: la APK la consulta antes de entrar, para saber si tiene que actualizarse.
-// Con token no serviría para eso.
-//
-// Sale de la configuración, que a su vez la recibe incrustada al compilar (-ldflags). No
-// se lee un fichero ni se pregunta a nadie: esto lo llama cada aparato al arrancar.
-func (s *Servidor) version(w http.ResponseWriter, r *http.Request) {
-	var v *string
-	if s.cfg.Version != "" {
-		val := s.cfg.Version
-		v = &val
-	}
-	httpx.JSON(w, r, http.StatusOK, map[string]any{"version": v})
-}
+// El manejador de `/version` y `/api/version` vive en `version.go`: dejó de ser una línea
+// cuando tuvo que decir además cuál es la última versión publicada de la aplicación y de
+// dónde se baja.

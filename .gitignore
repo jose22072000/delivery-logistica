@@ -16,6 +16,14 @@
 /app/.metadata
 
 # entornos y secretos
+#
+# La clave con la que se firma el APK y el fichero que lleva su contrasena. NUNCA entran
+# en el repositorio: quien tenga esa clave puede publicar un APK que los diez aparatos
+# aceptan como actualizacion del bueno. Viven en el equipo de quien compila y la copia de
+# seguridad va en procovar/.secretos/. Ver docs/actualizaciones.md §4.
+/app/android/key.properties
+*.jks
+*.keystore
 .env
 .env.*
 !.env.example

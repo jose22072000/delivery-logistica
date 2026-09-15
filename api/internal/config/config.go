@@ -81,7 +81,48 @@ type Config struct {
 	AuthURL        string
 	AuthClientID   string
 	AuthSigningKey string
+
+	// --- La versión de la APLICACIÓN que hay colgada ------------------------
+	//
+	// Ojo con no confundirla con `Version`, que es la de ESTE servicio y la incrusta el
+	// compilador. `Publicada` es la del APK y de los escritorios: la que el logístico
+	// tendría que tener instalada. Son dos cosas distintas y por eso son dos campos.
+	//
+	// Nil significa «no hay ninguna publicada», y entonces `/api/version` devuelve
+	// `"ultima": null` y ningún aparato avisa de nada. Eso es lo correcto mientras no
+	// haya una descarga de verdad colgada: inventarse una versión haría que diez
+	// aparatos mandaran a diez personas a un enlace que no existe.
+	Publicada *Publicada
 }
+
+// Publicada es la última versión de la aplicación que está colgada para descargar.
+//
+// Sale del entorno y no de la base a propósito. Publicar es un acto del despliegue —se
+// sube el APK a algún sitio y se anuncia—, no un dato del reparto: no tiene alcance por
+// sucursal, no lo edita nadie desde una pantalla y no hace falta una migración para
+// cambiarlo. Además así `/api/version` sigue siendo un manejador síncrono que no toca
+// Postgres, que es lo que permite que lo llamen los diez aparatos a la vez al arrancar.
+type Publicada struct {
+	// Version es la de `pubspec.yaml` sin el `+`: "1.5.0".
+	Version string
+	// Compilacion es el número de después del `+` (el `versionCode` de Android). Cero
+	// significa «no se dijo»; entonces el aparato compara por el número de versión.
+	Compilacion int
+	// Notas, una línea de qué trae. Opcional: si está vacía el aviso no la enseña.
+	Notas string
+	// PublicadaAt en RFC3339. Opcional.
+	PublicadaAt string
+
+	// De dónde se baja, una por plataforma. La web NO tiene: se actualiza sola al
+	// recargar y no descarga nada.
+	Android string
+	Windows string
+	Linux   string
+}
+
+// HayAlguna dice si se anunció algo. Un `Publicada` sin versión no se construye nunca,
+// pero el manejador no tiene por qué saberlo.
+func (p *Publicada) HayAlguna() bool { return p != nil && p.Version != "" }
 
 // Obligatorias: sin una de éstas el servicio no puede hacer su trabajo, así que no
 // arranca. Ojo con relajar esta lista — una variable "opcional" con valor por defecto
@@ -199,6 +240,10 @@ func Cargar(version string) (*Config, error) {
 		errs = append(errs, err)
 	}
 
+	pub, errsPub := leerPublicada()
+	c.Publicada = pub
+	errs = append(errs, errsPub...)
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("configuración no válida:\n  - %s", unirErrores(errs))
 	}
@@ -290,4 +335,111 @@ func unirErrores(errs []error) string {
 		textos = append(textos, e.Error())
 	}
 	return strings.Join(textos, "\n  - ")
+}
+
+// leerPublicada arma el anuncio de la última versión de la aplicación, o devuelve nil si
+// no se anunció ninguna.
+//
+// LA MITAD DE UNA CONFIGURACIÓN ES UN ERROR, NO UN VALOR POR DEFECTO. Poner la URL del
+// APK y olvidarse de `APP_ULTIMA_VERSION` deja un anuncio que no se manda nunca: nadie se
+// entera de que hay versión nueva, no aparece un solo error, y desde fuera se ve como
+// «los aparatos no avisan». Al revés —versión sin ninguna descarga— es peor todavía: diez
+// personas enteradas de que tienen que actualizar y ningún sitio de donde bajarlo. Las
+// dos cosas paran el arranque, que es cuando lo ve quien despliega.
+func leerPublicada() (*Publicada, []error) {
+	p := &Publicada{
+		Version:     valor("APP_ULTIMA_VERSION", ""),
+		Notas:       valor("APP_ULTIMA_NOTAS", ""),
+		PublicadaAt: valor("APP_ULTIMA_PUBLICADA", ""),
+		Android:     strings.TrimSpace(os.Getenv("APP_DESCARGA_ANDROID")),
+		Windows:     strings.TrimSpace(os.Getenv("APP_DESCARGA_WINDOWS")),
+		Linux:       strings.TrimSpace(os.Getenv("APP_DESCARGA_LINUX")),
+	}
+	descargas := []struct{ nombre, valor string }{
+		{"APP_DESCARGA_ANDROID", p.Android},
+		{"APP_DESCARGA_WINDOWS", p.Windows},
+		{"APP_DESCARGA_LINUX", p.Linux},
+	}
+	compilacion := strings.TrimSpace(os.Getenv("APP_ULTIMA_COMPILACION"))
+
+	if p.Version == "" {
+		var sueltas []string
+		for _, d := range descargas {
+			if d.valor != "" {
+				sueltas = append(sueltas, d.nombre)
+			}
+		}
+		if compilacion != "" {
+			sueltas = append(sueltas, "APP_ULTIMA_COMPILACION")
+		}
+		if len(sueltas) > 0 {
+			return nil, []error{fmt.Errorf(
+				"%s está puesta pero APP_ULTIMA_VERSION no: sin número de versión no se anuncia "+
+					"nada y los aparatos no se enteran de que hay una nueva",
+				strings.Join(sueltas, ", "))}
+		}
+		// Nada anunciado, que es lo normal hasta que haya una descarga de verdad colgada.
+		return nil, nil
+	}
+
+	var errs []error
+
+	// Al menos un sitio de donde bajarla. La web no cuenta: se actualiza sola.
+	hayDonde := false
+	for _, d := range descargas {
+		if d.valor == "" {
+			continue
+		}
+		hayDonde = true
+		if !strings.HasPrefix(d.valor, "http://") && !strings.HasPrefix(d.valor, "https://") {
+			errs = append(errs, fmt.Errorf(
+				"%s vale %q: tiene que empezar por http:// o https://", d.nombre, d.valor))
+		}
+	}
+	if !hayDonde {
+		errs = append(errs, errors.New(
+			"APP_ULTIMA_VERSION está puesta pero no hay ninguna APP_DESCARGA_*: se avisaría de una "+
+				"versión nueva sin decir de dónde bajarla"))
+	}
+
+	if compilacion != "" {
+		n, err := strconv.Atoi(compilacion)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Errorf(
+				"APP_ULTIMA_COMPILACION vale %q y no es un número (es el de después del `+` en "+
+					"pubspec.yaml, el mismo `versionCode` que compara Android)", compilacion))
+		case n <= 0:
+			errs = append(errs, fmt.Errorf("APP_ULTIMA_COMPILACION vale %d: tiene que ser mayor que cero", n))
+		default:
+			p.Compilacion = n
+		}
+	}
+
+	// La fecha se admite en los dos formatos que una persona escribe a mano y se guarda
+	// normalizada: un `publicadaAt` que el aparato no sepa leer sale como «sin fecha» y
+	// eso no se distingue de no haberla puesto.
+	if p.PublicadaAt != "" {
+		normal, err := fecha(p.PublicadaAt)
+		if err != nil {
+			errs = append(errs, err)
+		} else {
+			p.PublicadaAt = normal
+		}
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	return p, nil
+}
+
+func fecha(crudo string) (string, error) {
+	for _, formato := range []string{time.RFC3339, "2006-01-02"} {
+		if t, err := time.Parse(formato, crudo); err == nil {
+			return t.UTC().Format(time.RFC3339), nil
+		}
+	}
+	return "", fmt.Errorf(
+		"APP_ULTIMA_PUBLICADA vale %q: se espera 2026-09-15 o 2026-09-15T10:00:00Z", crudo)
 }

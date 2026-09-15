@@ -1,3 +1,23 @@
+import java.util.Properties
+
+// LA CLAVE CON LA QUE SE FIRMA EL APK.
+//
+// Sale de `android/key.properties`, que NO está en el repositorio y no puede estarlo:
+// lleva la contraseña del almacén de claves. Es un fichero del equipo de quien compila, y
+// la copia de seguridad del `.jks` vive en `procovar/.secretos/`
+// (`docs/actualizaciones.md` §4 dice cómo se crea; aquí no se genera ninguna clave).
+//
+// Si no está, el APK de release se firma con la clave de DEPURACIÓN, que Android genera
+// sola en cada máquina. Eso sirve para `flutter run --release` y NO sirve para publicar:
+// un APK firmado con otra clave Android NO lo acepta como actualización — obliga a
+// desinstalar, y desinstalar borra la base local, o sea el trabajo del día sin subir.
+// Por eso el caso se avisa a gritos en la salida del build en vez de pasar callando.
+val clavesDeFirma = Properties().apply {
+    val fichero = rootProject.file("key.properties")
+    if (fichero.exists()) fichero.inputStream().use { load(it) }
+}
+val hayClaveDeVerdad = clavesDeFirma.getProperty("storeFile")?.isNotBlank() == true
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -33,11 +53,35 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // Sólo existe si hay clave de verdad. Declararla siempre y dejarla a medias daría
+        // un error de Gradle en cualquiera que se baje el repositorio.
+        if (hayClaveDeVerdad) {
+            create("release") {
+                storeFile = file(clavesDeFirma.getProperty("storeFile") as String)
+                storePassword = clavesDeFirma.getProperty("storePassword") as String
+                keyAlias = clavesDeFirma.getProperty("keyAlias") as String
+                keyPassword = clavesDeFirma.getProperty("keyPassword") as String
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hayClaveDeVerdad) {
+                signingConfigs.getByName("release")
+            } else {
+                // Se puede compilar sin clave —hace falta para `flutter run --release` y
+                // para que cualquiera pueda clonar esto y compilar— pero lo que sale NO se
+                // reparte a nadie.
+                logger.warn(
+                    "\n  AVISO: no hay android/key.properties, así que este APK va firmado con la\n" +
+                    "  clave de DEPURACIÓN. Android NO lo acepta como actualización de uno firmado\n" +
+                    "  con otra clave: obliga a desinstalar, y desinstalar BORRA LA BASE LOCAL (el\n" +
+                    "  trabajo del día sin subir). No se reparte. Ver docs/actualizaciones.md.\n"
+                )
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
