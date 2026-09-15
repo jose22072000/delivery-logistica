@@ -39,18 +39,31 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
 
   Future<void> _entrar() async {
     if (!(_formulario.currentState?.validate() ?? false)) return;
-    final sesion = await ref
+    final acceso = await ref
         .read(formularioProvider.notifier)
         .entrar(usuario: _usuario.text, contrasena: _contrasena.text);
-    if (sesion == null) return;
+    if (acceso == null) return;
+    if (!acceso.seGuardo) {
+      // ENTRÓ, pero la sesión no se quedó guardada. Se dice AHORA, que es el
+      // único momento en el que todavía hay conexión y hay a quién preguntar:
+      // descubrirlo mañana es descubrirlo en el patio de un almacén.
+      ref.invalidate(saludDelAlmacenProvider);
+      return;
+    }
     // Quien mueve la aplicación de sitio es el portero, no esta pantalla.
-    ref.read(porteroProvider).entro(sesion);
+    await ref.read(porteroProvider).entro(acceso.sesion);
   }
 
   @override
   Widget build(BuildContext context) {
     final estado = ref.watch(formularioProvider);
     final entrando = estado is Entrando;
+    // LA PROMESA, comprobada. Ver `nucleo/identidad/almacen_sesion.dart`.
+    final salud = ref.watch(saludDelAlmacenProvider).asData?.value;
+    final guarda = salud?.guarda ?? true;
+    // ¿Había datos en el aparato y aun así no hay sesión? Entonces esto no es
+    // «entra»: es que la sesión se perdió, y hay que decirlo.
+    final sesionPerdida = ref.read(porteroProvider).sesionPerdida;
 
     return Center(
       child: SingleChildScrollView(
@@ -107,6 +120,14 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
                     textAlign: TextAlign.center,
                     style: Tipos.texto(tamano: 13, color: Colores.tintaSuave),
                   ),
+                  if (sesionPerdida) ...[
+                    const SizedBox(height: Aire.lg),
+                    const _SesionPerdida(),
+                  ],
+                  if (!guarda) ...[
+                    const SizedBox(height: Aire.lg),
+                    _NoGuarda(motivo: salud!.motivo!),
+                  ],
                   const SizedBox(height: Aire.xl),
                   TextFormField(
                     controller: _usuario,
@@ -171,8 +192,16 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
                   Text(
                     // La regla de la casa, dicha antes de que haga falta: quien
                     // se queda sin señal en la calle no tiene a quién preguntar.
-                    'Para entrar hace falta conexión. Una vez dentro, no: '
-                    'puedes seguir trabajando el día entero sin señal.',
+                    //
+                    // **O se cumple, o no se promete.** Si este aparato no
+                    // puede guardar la sesión, la frase de siempre es mentira y
+                    // no se escribe: lo que se escribe es lo que de verdad va a
+                    // pasar. El aviso de arriba dice el resto.
+                    guarda
+                        ? 'Para entrar hace falta conexión. Una vez dentro, no: '
+                              'puedes seguir trabajando el día entero sin señal.'
+                        : 'Para entrar hace falta conexión, y en este aparato '
+                              'hará falta cada vez que abras la aplicación.',
                     textAlign: TextAlign.center,
                     style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
                   ),
@@ -184,6 +213,94 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
       ),
     );
   }
+}
+
+/// LA SESIÓN SE PERDIÓ, y el aparato tiene datos dentro.
+///
+/// El caso del 15/09/2026: se entró, se bajó el día, se cerró la aplicación y al
+/// abrirla pedía la contraseña otra vez con los datos ahí mismo, en el disco. Un
+/// formulario mudo deja a esa persona probando su contraseña buena una y otra
+/// vez en el patio de un almacén, convencida de que se le olvidó.
+class _SesionPerdida extends StatelessWidget {
+  const _SesionPerdida();
+
+  @override
+  Widget build(BuildContext context) => const _Recuadro(
+    icono: Icons.history_toggle_off,
+    titulo: 'Tu sesión se perdió.',
+    detalle:
+        'Los datos que bajaste siguen en el aparato. Para volver a entrar hace '
+        'falta señal; no es tu contraseña.',
+  );
+}
+
+/// ESTE APARATO NO GUARDA LA SESIÓN. Dicho ANTES de escribir la contraseña.
+class _NoGuarda extends StatelessWidget {
+  const _NoGuarda({required this.motivo});
+
+  final String motivo;
+
+  @override
+  Widget build(BuildContext context) => _Recuadro(
+    icono: Icons.lock_open_outlined,
+    titulo: motivo,
+    detalle:
+        'Vas a poder trabajar todo el día sin señal, pero al cerrar la '
+        'aplicación tendrás que entrar otra vez, y para eso hace falta '
+        'conexión. Avisa a la oficina antes de irte al almacén.',
+  );
+}
+
+/// El recuadro ámbar de los dos avisos de arriba. Ámbar y no rojo a propósito:
+/// no es un fallo de quien escribe, y volver a probar la contraseña no lo
+/// arregla.
+class _Recuadro extends StatelessWidget {
+  const _Recuadro({
+    required this.icono,
+    required this.titulo,
+    required this.detalle,
+  });
+
+  final IconData icono;
+  final String titulo;
+  final String detalle;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(Aire.md),
+    decoration: BoxDecoration(
+      color: Colores.ambarFondo,
+      border: Border.all(color: Colores.ambar.withValues(alpha: 0.35)),
+      borderRadius: BorderRadius.circular(Radios.md),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icono, size: 18, color: Colores.ambar),
+        const SizedBox(width: Aire.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                titulo,
+                style: Tipos.texto(
+                  tamano: 13,
+                  peso: FontWeight.w600,
+                  color: Colores.ambar,
+                ),
+              ),
+              const SizedBox(height: Aire.xs),
+              Text(
+                detalle,
+                style: Tipos.texto(tamano: 12, color: Colores.tintaSuave),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 /// El fallo, en cristiano y con lo que hay que hacer.

@@ -90,24 +90,30 @@ class DatosViejos extends EstadoFrescura {
   bool get enAmbar => true;
 }
 
-/// El reloj de datos de la barra superior. **Siempre visible, en las 7
-/// pantallas** (caso S8).
+/// El reloj de datos. **Siempre visible, en las 7 pantallas** (caso S8).
+///
+/// Dice dos cosas y sólo dos: **de que hora son los datos** y **cuantos apuntes
+/// quedan sin subir**.
+///
+/// Lo que NO dice es `actualizando…`. Lo decia, y el resultado era dos ruedas
+/// girando a la vez en la misma pantalla: una junto al titulo de la barra
+/// superior y otra dentro de la franja de debajo, diciendo lo mismo una encima
+/// de la otra. El sitio de «hay algo en vuelo» es la barra superior —es lo que
+/// hace la de Next (`Navbar.tsx`, `useIsFetching() > 0` al lado del titulo)—, y
+/// **es el unico**. Aqui se quito el parametro entero en vez de dejarlo apagado
+/// con un `if`: un parametro que nadie pone vuelve solo a los seis meses.
 ///
 /// Recibe todo por parametro y no lee providers: asi se prueba con el reloj
 /// donde haga falta y no arrastra media aplicacion a un test de widget.
 class RelojDeDatos extends StatelessWidget {
   const RelojDeDatos({
     required this.estado,
-    this.actualizando = false,
     this.sinSubir = 0,
     this.alPulsarPendientes,
     super.key,
   });
 
   final EstadoFrescura estado;
-
-  /// Subiendo o bajando: el giro y `actualizando…`.
-  final bool actualizando;
 
   /// Cuantos apuntes quedan en la cola. Pulsable: lleva a la bandeja.
   final int sinSubir;
@@ -130,25 +136,10 @@ class RelojDeDatos extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (actualizando) ...[
-          const SizedBox(
-            width: 12,
-            height: 12,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: tintaSuave,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            'actualizando…',
-            style: tema.textTheme.bodySmall?.copyWith(color: tintaSuave),
-          ),
-        ] else
-          Text(
-            estado.texto,
-            style: tema.textTheme.bodySmall?.copyWith(color: color),
-          ),
+        Text(
+          estado.texto,
+          style: tema.textTheme.bodySmall?.copyWith(color: color),
+        ),
         if (sinSubir > 0) ...[
           const SizedBox(width: 8),
           // Nada se descarta en silencio: lo que queda sin subir se ve y se

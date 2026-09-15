@@ -87,84 +87,84 @@ class Cajon extends StatelessWidget {
         child: Material(
           color: Colors.transparent,
           child: SizedBox(
-          width: anchoFinal,
-          height: double.infinity,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    Aire.xl,
-                    Aire.lg,
-                    Aire.sm,
-                    Aire.lg,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              titulo,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: tema.textTheme.titleMedium,
-                            ),
-                            if (subtitulo != null)
+            width: anchoFinal,
+            height: double.infinity,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      Aire.xl,
+                      Aire.lg,
+                      Aire.sm,
+                      Aire.lg,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
                               Text(
-                                subtitulo!,
+                                titulo,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: tema.textTheme.bodySmall?.copyWith(
-                                  color: Colores.tintaSuave,
-                                ),
+                                style: tema.textTheme.titleMedium,
                               ),
-                          ],
+                              if (subtitulo != null)
+                                Text(
+                                  subtitulo!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: tema.textTheme.bodySmall?.copyWith(
+                                    color: Colores.tintaSuave,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
-                      // La ✕: fuera del cuerpo desplazable, para que no se pueda
-                      // ir de la vista por mucho que se baje.
-                      IconButton(
-                        tooltip: 'Cerrar',
-                        icon: const Icon(Icons.close, size: 20),
-                        color: Colores.tintaSuave,
-                        onPressed: () => Navigator.of(context).maybePop(),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const Divider(height: 1, thickness: 1, color: Colores.linea),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(
-                    Aire.xl,
-                    Aire.lg,
-                    Aire.xl,
-                    Aire.xl,
-                  ),
-                  child: cuerpo,
-                ),
-              ),
-              if (pie != null) ...[
-                const Divider(height: 1, thickness: 1, color: Colores.linea),
-                SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: Aire.xl,
-                      vertical: Aire.md,
+                        // La ✕: fuera del cuerpo desplazable, para que no se pueda
+                        // ir de la vista por mucho que se baje.
+                        IconButton(
+                          tooltip: 'Cerrar',
+                          icon: const Icon(Icons.close, size: 20),
+                          color: Colores.tintaSuave,
+                          onPressed: () => Navigator.of(context).maybePop(),
+                        ),
+                      ],
                     ),
-                    child: pie,
                   ),
                 ),
+                const Divider(height: 1, thickness: 1, color: Colores.linea),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(
+                      Aire.xl,
+                      Aire.lg,
+                      Aire.xl,
+                      Aire.xl,
+                    ),
+                    child: cuerpo,
+                  ),
+                ),
+                if (pie != null) ...[
+                  const Divider(height: 1, thickness: 1, color: Colores.linea),
+                  SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Aire.xl,
+                        vertical: Aire.md,
+                      ),
+                      child: pie,
+                    ),
+                  ),
+                ],
               ],
-            ],
-          ),
+            ),
           ),
         ),
       ),
@@ -591,13 +591,11 @@ final frescuraDePantallaProvider =
 class BarraDeDatos extends ConsumerWidget {
   const BarraDeDatos({
     required this.colecciones,
-    this.actualizando = false,
     this.alPulsarPendientes,
     super.key,
   });
 
   final List<String> colecciones;
-  final bool actualizando;
   final VoidCallback? alPulsarPendientes;
 
   @override
@@ -609,7 +607,6 @@ class BarraDeDatos extends ConsumerWidget {
       // Mientras carga la propia consulta de frescura no se puede afirmar que
       // los datos esten al dia: se dice lo mismo que si no se hubieran bajado.
       estado: frescura.value ?? const SinDescargar(),
-      actualizando: actualizando,
       sinSubir: sinSubir.value ?? 0,
       alPulsarPendientes: alPulsarPendientes,
     );

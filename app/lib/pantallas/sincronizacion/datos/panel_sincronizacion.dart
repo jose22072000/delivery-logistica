@@ -226,19 +226,17 @@ class EstadoDelSincronizador {
   /// `subida_at ASC NULLS FIRST`: el que nunca subio sale el primero, que es
   /// justo el que mas importa. Reordenar aqui —por sucursal, por nombre— lo
   /// enterraria entre nueve filas verdes.
-  factory EstadoDelSincronizador.deJson(Map<String, Object?> j) =>
-      EstadoDelSincronizador(
-        aparatos: [
-          for (final f in _lista(j['aparatos'])) AparatoDelPanel.deJson(f),
-        ],
-        bandeja: [
-          for (final f in _lista(j['bandeja'])) RechazoDelPanel.deJson(f),
-        ],
-        sinAtender: [
-          for (final f in _lista(j['sin_atender']))
-            SinAtenderDeSucursal.deJson(f),
-        ],
-      );
+  factory EstadoDelSincronizador.deJson(
+    Map<String, Object?> j,
+  ) => EstadoDelSincronizador(
+    aparatos: [
+      for (final f in _lista(j['aparatos'])) AparatoDelPanel.deJson(f),
+    ],
+    bandeja: [for (final f in _lista(j['bandeja'])) RechazoDelPanel.deJson(f)],
+    sinAtender: [
+      for (final f in _lista(j['sin_atender'])) SinAtenderDeSucursal.deJson(f),
+    ],
+  );
 
   static List<Map<String, Object?>> _lista(Object? valor) => [
     if (valor is List<Object?>)

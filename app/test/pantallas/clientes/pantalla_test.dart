@@ -57,9 +57,7 @@ void main() {
         // La pantalla ya NO trae `Scaffold` propio —lo pone el armazon—, asi que
         // aqui se monta con el suyo: sin el, un `TextField` no encuentra ningun
         // `Material` encima y la pantalla ni se pinta.
-        child: const MaterialApp(
-          home: Scaffold(body: PantallaClientes()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: PantallaClientes())),
       ),
     );
     await asentar(tester);
@@ -159,9 +157,7 @@ void main() {
         // La pantalla ya NO trae `Scaffold` propio —lo pone el armazon—, asi que
         // aqui se monta con el suyo: sin el, un `TextField` no encuentra ningun
         // `Material` encima y la pantalla ni se pinta.
-        child: const MaterialApp(
-          home: Scaffold(body: PantallaClientes()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: PantallaClientes())),
       ),
     );
     await asentar(tester);

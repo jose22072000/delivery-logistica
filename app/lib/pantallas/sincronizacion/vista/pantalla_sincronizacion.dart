@@ -11,8 +11,10 @@ import '../../../diseno/insignia.dart';
 import '../../../diseno/numeros.dart';
 import '../../../diseno/tabla_ancha.dart';
 import '../../../diseno/tarjeta.dart';
+import '../../../diseno/tema.dart';
 import '../../../navegacion/estado_navegacion.dart';
 import '../datos/panel_sincronizacion.dart';
+import 'fila_de_rechazo.dart';
 import '../estado/proveedores_sincronizacion.dart';
 
 /// SINCRONIZACION — `/sync`. El panel de `GET /sync/estado`.
@@ -47,7 +49,7 @@ class PantallaSincronizacion extends ConsumerWidget {
 
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(Aire.xl),
         children: [
           _Cabecera(
             alRecargar: () => ref.invalidate(estadoDelSincronizadorProvider),
@@ -59,7 +61,8 @@ class PantallaSincronizacion extends ConsumerWidget {
           if (lectura.error case final fallo?)
             _Fallo(
               fallo: fallo,
-              alReintentar: () => ref.invalidate(estadoDelSincronizadorProvider),
+              alReintentar: () =>
+                  ref.invalidate(estadoDelSincronizadorProvider),
             )
           else if (lectura.value case final datos?)
             _Panel(lectura: datos)
@@ -156,9 +159,8 @@ class _Panel extends StatelessWidget {
           TextosDeSincronizacion.leidoALas(
             DateFormat('H:mm', 'es').format(lectura.leidoA),
           ),
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: Colores.gris),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: Colores.gris),
         ),
         const SizedBox(height: 12),
         _Cifras(estado: estado),
@@ -471,7 +473,6 @@ class _FilaRechazo extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tema = Theme.of(context);
     final sucursales = ref.watch(sucursalesProvider).value;
     final sucursal =
         sucursales
@@ -498,52 +499,13 @@ class _FilaRechazo extends ConsumerWidget {
         'rechazado ${formato.format(rechazo.rechazadoEl!)}',
     ].join(' · ');
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colores.rojoFondo,
-        border: Border.all(color: Colores.rojo.withValues(alpha: 0.35)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.block_outlined, size: 18, color: Colores.rojo),
-              const SizedBox(width: 8),
-              // El motivo LITERAL del servidor. Se pinta tal cual: es lo unico
-              // que le dice a alguien que hacer.
-              Expanded(
-                child: Text(
-                  rechazo.motivo,
-                  style: tema.textTheme.bodyMedium?.copyWith(
-                    color: Colores.rojo,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            quien,
-            style: tema.textTheme.bodySmall?.copyWith(color: Colores.gris),
-          ),
-          if (horas.isNotEmpty)
-            Text(
-              horas,
-              style: tema.textTheme.bodySmall?.copyWith(color: Colores.gris),
-            ),
-          Text(
-            '${rechazo.metodo} ${rechazo.ruta}',
-            style: tema.textTheme.bodySmall?.copyWith(color: Colores.gris),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
+    // La pinta es la de `FilaDeRechazo`, compartida con el cajon de entregar el
+    // dia: los dos sitios que ensenan un rechazo tienen que verse igual.
+    return FilaDeRechazo(
+      motivo: rechazo.motivo,
+      quien: quien,
+      horas: horas,
+      peticion: '${rechazo.metodo} ${rechazo.ruta}',
     );
   }
 }

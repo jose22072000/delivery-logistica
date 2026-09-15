@@ -52,7 +52,9 @@ class ComprobadorDeActualizacion {
   Future<EstadoDeActualizacion> comprobar() async {
     // Regla 3, y antes que nada: en web no hay nada que comprobar.
     if (_plataforma == Plataforma.ninguna) {
-      return const NoAplica('esta plataforma se actualiza sola o no se publica');
+      return const NoAplica(
+        'esta plataforma se actualiza sola o no se publica',
+      );
     }
 
     final Map<String, Object?> cuerpo;

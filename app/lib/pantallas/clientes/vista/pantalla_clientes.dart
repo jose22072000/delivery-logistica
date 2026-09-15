@@ -82,7 +82,6 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
             // Mientras no hay dato todavia no se sabe de cuando es: se dice
             // «sin descargar» y no una hora inventada.
             estado: frescura.value ?? const SinDescargar(),
-            cargando: pagina.isLoading,
             sinSubir: sinSubir,
             pagina: pagina.value,
             alIr: (n) => ref.read(filtrosClientesProvider.notifier).aPagina(n),
@@ -123,14 +122,12 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
 class _Cabecera extends StatelessWidget {
   const _Cabecera({
     required this.estado,
-    required this.cargando,
     required this.sinSubir,
     required this.pagina,
     required this.alIr,
   });
 
   final EstadoFrescura estado;
-  final bool cargando;
   final int sinSubir;
   final PaginaClientes? pagina;
   final ValueChanged<int> alIr;
@@ -158,11 +155,7 @@ class _Cabecera extends StatelessWidget {
             ),
             // Siempre visible, en las 7 pantallas (caso S8): sin esto, unos
             // datos de anteayer son indistinguibles de unos al dia.
-            RelojDeDatos(
-              estado: estado,
-              actualizando: cargando,
-              sinSubir: sinSubir,
-            ),
+            RelojDeDatos(estado: estado, sinSubir: sinSubir),
           ],
         ),
         const SizedBox(height: 4),
@@ -410,9 +403,8 @@ class _Aviso extends StatelessWidget {
     child: Text(
       texto,
       textAlign: TextAlign.center,
-      style: Theme.of(
-        context,
-      ).textTheme.bodyMedium?.copyWith(color: Colores.tintaSuave),
+      style: Theme.of(context).textTheme.bodyMedium
+          ?.copyWith(color: Colores.tintaSuave),
     ),
   );
 }

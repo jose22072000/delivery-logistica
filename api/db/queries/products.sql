@@ -44,7 +44,10 @@ WHERE
     AND lower(coalesce(p.name, '')) NOT LIKE '%entrega a domicilio%'
     AND lower(coalesce(p.name, '')) NOT LIKE '%servicio de entrega%'
 ORDER BY p.name ASC
-LIMIT sqlc.arg('limite');
+-- El OFFSET es para la bajada del aparato: el catálogo se sirve por tandas y la
+-- siguiente tiene que empezar donde acabó la anterior. Sin él, `truncado` sería una
+-- promesa que no se puede cumplir — el aparato vuelve a pedir y recibe lo mismo.
+LIMIT sqlc.arg('limite') OFFSET sqlc.arg('desplazamiento');
 
 -- Cuánto se ha pedido de cada producto últimamente, para ordenar el buscador por lo que la
 -- gente usa de verdad y no por orden alfabético.

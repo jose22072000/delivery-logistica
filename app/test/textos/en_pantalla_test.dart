@@ -18,11 +18,11 @@ class _Pantalla extends StatelessWidget {
 }
 
 Widget _app({Locale? idioma}) => MaterialApp(
-      locale: idioma,
-      localizationsDelegates: delegacionesDeIdioma,
-      supportedLocales: idiomas,
-      home: const _Pantalla(),
-    );
+  locale: idioma,
+  localizationsDelegates: delegacionesDeIdioma,
+  supportedLocales: idiomas,
+  home: const _Pantalla(),
+);
 
 void main() {
   testWidgets('en español sale el texto en español', (WidgetTester t) async {

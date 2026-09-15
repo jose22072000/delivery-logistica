@@ -4,7 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:reparto/app.dart';
 import 'package:reparto/navegacion/barra_lateral.dart';
+import 'package:reparto/navegacion/barra_superior.dart';
+import 'package:reparto/navegacion/estado_navegacion.dart';
 import 'package:reparto/navegacion/franja_de_estado.dart';
+import 'package:reparto/navegacion/menu_de_cuenta.dart';
 import 'package:reparto/navegacion/pantalla_registrada.dart';
 import 'package:reparto/navegacion/rutas.dart';
 import 'package:reparto/nucleo/base/base.dart';
@@ -43,7 +46,11 @@ void main() {
   setUp(() => base = baseDePrueba());
   tearDown(() => base.close());
 
-  Future<void> montar(WidgetTester tester, Size tamano) async {
+  Future<void> montar(
+    WidgetTester tester,
+    Size tamano, {
+    bool actualizando = false,
+  }) async {
     tester.view.physicalSize = tamano;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -53,13 +60,22 @@ void main() {
         overrides: [
           baseProvider.overrideWithValue(base),
           relojProvider.overrideWithValue(() => DateTime(2026, 9, 14, 8, 30)),
+          if (actualizando) actualizandoProvider.overrideWith((ref) => true),
         ],
         child: RepartoApp(
           enrutador: crearEnrutador(pantallas: _dePrueba(), inicial: '/uno'),
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    // Con algo en vuelo hay una rueda girando, que es una animacion sin fin:
+    // `pumpAndSettle` la esperaria para siempre. Dos pasadas bastan para que la
+    // pantalla este montada.
+    if (actualizando) {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+    } else {
+      await tester.pumpAndSettle();
+    }
   }
 
   /// Desmontar antes de que acabe el cuerpo del test no es ceremonia: las
@@ -130,6 +146,65 @@ void main() {
     await montar(tester, const Size(390, 800));
     expect(find.byType(FranjaDeEstado), findsOneWidget);
     expect(find.text('Sin descargar todavía'), findsOneWidget);
+    await desmontar(tester);
+  });
+
+  testWidgets('el grupo de la derecha de la barra llega al borde', (
+    tester,
+  ) async {
+    // Esto se vio a simple vista en un monitor ancho y no lo cazo ninguna
+    // prueba: la sucursal, la moneda y el avatar salian flotando en MITAD de la
+    // barra. La causa era un `Flexible` con el titulo y un `Spacer` detras, los
+    // dos con el mismo peso, asi que el sobrante se repartia a medias y el
+    // empujon solo llegaba hasta el centro. En un telefono no se nota porque
+    // alli no sobra hueco: por eso se prueba ANCHO.
+    await montar(tester, const Size(1440, 900));
+
+    final barra = tester.getRect(find.byType(BarraSuperior));
+    final avatar = tester.getRect(find.byType(MenuDeCuenta));
+
+    // El avatar es lo ultimo de la fila: su borde derecho tiene que quedar
+    // pegado al de la barra, salvo el relleno de 12 px y el del propio boton.
+    expect(
+      barra.right - avatar.right,
+      lessThan(24),
+      reason:
+          'el grupo de la derecha se quedo a ${barra.right - avatar.right} px '
+          'del borde: vuelve a estar flotando en vez de en su esquina',
+    );
+
+    await desmontar(tester);
+  });
+
+  testWidgets('«actualizando…» lo dice la barra superior, y SÓLO ella', (
+    tester,
+  ) async {
+    // Este caso vivia en `test/nucleo/frescura/reloj_test.dart`, cuando el
+    // reloj de datos tambien lo decia. El resultado en pantalla eran DOS ruedas
+    // girando a la vez —una junto al titulo y otra en la franja de debajo—
+    // diciendo lo mismo. El sitio es la barra superior, como en la de Next
+    // (`Navbar.tsx`), y es el unico. Lo que se comprueba aqui son las dos
+    // mitades: que la barra lo dice y que la franja no.
+    await montar(tester, const Size(1440, 900), actualizando: true);
+
+    expect(find.text('actualizando…'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(BarraSuperior),
+        matching: find.text('actualizando…'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(FranjaDeEstado),
+        matching: find.text('actualizando…'),
+      ),
+      findsNothing,
+    );
+    // Y la franja sigue diciendo lo suyo: de que hora son los datos.
+    expect(find.text('Sin descargar todavía'), findsOneWidget);
+
     await desmontar(tester);
   });
 

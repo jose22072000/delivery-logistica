@@ -137,9 +137,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         ref.watch(sucursalesProvider).value ?? const <Sucursal>[];
     _autocompletarSucursal(sucursales);
 
-    final sucursal = sucursales
-        .where((s) => s.id == _sucursalId)
-        .firstOrNull;
+    final sucursal = sucursales.where((s) => s.id == _sucursalId).firstOrNull;
     final codigo = sucursal?.externalId;
     final almacenes = codigo == null
         ? const <Almacen>[]
@@ -726,10 +724,12 @@ class _FilaDisponible extends StatelessWidget {
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${pedido.endAddress ?? pedido.address} · ${kg(pedido.weight)} · '
-              // `usd` ya dice `sin cotizar` cuando no hay precio: un `$0.00`
-              // seria «este domicilio es gratis», que es otra cosa.
-              '${usd(pedido.pedidoCosto)}'),
+          Text(
+            '${pedido.endAddress ?? pedido.address} · ${kg(pedido.weight)} · '
+            // `usd` ya dice `sin cotizar` cuando no hay precio: un `$0.00`
+            // seria «este domicilio es gratis», que es otra cosa.
+            '${usd(pedido.pedidoCosto)}',
+          ),
           if (_articulos.isNotEmpty)
             Text(
               _articulos,
@@ -864,14 +864,14 @@ class _PreDespachoLateral extends ConsumerWidget {
       context,
       (_) => Cajon(
         titulo: 'Pre-despacho',
-        subtitulo: '${elegidos.length} pedido(s) · '
+        subtitulo:
+            '${elegidos.length} pedido(s) · '
             '${pesoKg.toStringAsFixed(1)} kg',
         ancho: AnchoCajon.xl,
         cuerpo: SizedBox(
           height: 640,
           child: VistaPreviaPdf(
-            armar: (formato) =>
-                pdfPreDespacho(hoja, impresoEn: DateTime.now()),
+            armar: (formato) => pdfPreDespacho(hoja, impresoEn: DateTime.now()),
             nombreDeFichero: 'pre-despacho.pdf',
           ),
         ),

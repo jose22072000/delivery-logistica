@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
 import '../../../diseno/cajon.dart';
+import '../../../diseno/tema.dart';
 import '../datos/vehiculo_api.dart';
 import '../estado/estado_vehiculos.dart';
 import 'ficha_vehiculo.dart';
@@ -125,7 +126,7 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
     // Ver el contrato en `lib/navegacion/pantalla_registrada.dart`.
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(Aire.xl),
         children: [
           Text('Vehículos', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 4),

@@ -269,7 +269,8 @@ class ConsultasRutas {
       donde = donde & o.requiereDomicilio.equals(true);
     } else if (domicilio == '0') {
       donde =
-          donde & (o.requiereDomicilio.isNull() | o.requiereDomicilio.equals(false));
+          donde &
+          (o.requiereDomicilio.isNull() | o.requiereDomicilio.equals(false));
     }
 
     // Cotizado mira `pedidoCosto`, y **un nulo no es un cero**: cero es un precio
@@ -286,18 +287,22 @@ class ConsultasRutas {
       final noCompletada =
           o.estado.isNull() | o.estado.equals(EstadoEnPedido.completada).not();
       final cuando = ahora ?? DateTime.now();
-      donde = donde & switch (estado) {
-        EstadoEnPedido.completada => o.estado.equals(EstadoEnPedido.completada),
-        EstadoEnPedido.enProceso =>
-          noCompletada &
-              (o.fechaComprometida.isNull() |
-                  o.fechaComprometida.isBiggerOrEqualValue(cuando)),
-        EstadoDelPedido.expiradaParam =>
-          noCompletada & o.fechaComprometida.isSmallerThanValue(cuando),
-        // Un valor que no conocemos no filtra nada: mas vale ensenar de mas que
-        // esconder pedidos por una cadena que alguien escribio mal.
-        _ => const Constant(true),
-      };
+      donde =
+          donde &
+          switch (estado) {
+            EstadoEnPedido.completada => o.estado.equals(
+              EstadoEnPedido.completada,
+            ),
+            EstadoEnPedido.enProceso =>
+              noCompletada &
+                  (o.fechaComprometida.isNull() |
+                      o.fechaComprometida.isBiggerOrEqualValue(cuando)),
+            EstadoDelPedido.expiradaParam =>
+              noCompletada & o.fechaComprometida.isSmallerThanValue(cuando),
+            // Un valor que no conocemos no filtra nada: mas vale ensenar de mas que
+            // esconder pedidos por una cadena que alguien escribio mal.
+            _ => const Constant(true),
+          };
     }
 
     final busca = q.trim().toLowerCase();

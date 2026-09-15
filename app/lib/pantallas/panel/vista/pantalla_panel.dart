@@ -8,6 +8,7 @@ import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/numeros.dart';
 import '../../../diseno/tarjeta.dart';
 import '../../../diseno/tema.dart';
+import 'estado_del_dia.dart';
 import '../datos/consultas_panel.dart';
 import '../estado/panel_estado.dart';
 
@@ -32,6 +33,13 @@ class PantallaPanel extends ConsumerWidget {
     return ListView(
       padding: EdgeInsets.all(estrecho ? Aire.md : Aire.xl),
       children: [
+        // EL ESTADO DEL DIA, lo primero de la pantalla y por encima de las
+        // cifras. **Una sola pieza y no dos botones**: la pantalla ya sabe si
+        // toca traer, enviar o solo decir que se esta trabajando sin conexion,
+        // y eso es trabajo que no tiene por que hacer el logistico. El porque
+        // de que este aqui y no en `/sync` esta en el propio widget.
+        const EstadoDelDia(),
+        const SizedBox(height: Aire.xl),
         _Cifras(c),
         // `mb-8`: las cuatro cifras de arriba respiran mas que el resto, que es
         // lo que las separa de «el detalle».
@@ -87,15 +95,20 @@ class _Cifras extends StatelessWidget {
         valor: Numeros.entero(c.rutasActivas),
         icono: Icons.route_outlined,
       ),
+      // Cada tarjeta con SU color de marca, como en la de Next: entregados en
+      // el verde del `--secondary`, flota en el naranja del `--accent`. Cuatro
+      // franjas azules iguales obligan a leer la etiqueta cada vez.
       TarjetaDeCifra(
         etiqueta: 'Entregados hoy',
         valor: Numeros.entero(c.entregadosHoy),
+        color: Colores.secundario,
         icono: Icons.check_circle_outline,
       ),
       TarjetaDeCifra(
         etiqueta: 'Vehículos',
         valor: '${c.vehiculosEnRuta} / ${c.totalVehiculos}',
         subtexto: 'en ruta / total',
+        color: Colores.acento,
         icono: Icons.local_shipping_outlined,
       ),
     ];
@@ -162,9 +175,7 @@ class _PendientePorSucursal extends ConsumerWidget {
                   // (`border-b last:border-0` de la de Next).
                   DecoratedBox(
                     decoration: const BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: Colores.linea),
-                      ),
+                      border: Border(bottom: BorderSide(color: Colores.linea)),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 9),

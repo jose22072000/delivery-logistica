@@ -1,7 +1,41 @@
+import '../base/base.dart';
 import '../cola/apunte.dart';
 import '../cola/cola_salida.dart';
 import '../red/cliente_api.dart';
+import '../red/fallos.dart';
 import '../registro/registro.dart';
+import 'identidad_del_aparato.dart';
+
+/// LA COLA DE OTRO. Se intento subir la cola de una persona con el token de la
+/// que esta delante.
+///
+/// Nunca deberia lanzarse, y por eso existe: cada persona tiene su fichero de
+/// base (`nucleo/base/conexion/nombre.dart`), asi que con B delante la cola de A
+/// ni siquiera esta abierta. Esta es la segunda cerradura, la que sigue valiendo
+/// el dia que alguien cambie como se abren las bases.
+///
+/// Lo que pasa cuando salta: **no se manda nada y la cola no se toca**. Los
+/// apuntes de A siguen enteros y suben el dia que entre A, con SU token. Subir
+/// con el token de quien esta delante seria el trabajo de una sucursal
+/// apareciendo en otra, y eso no se ve en ningun sitio hasta que no cuadra el
+/// inventario.
+class ColaDeOtraPersona implements Exception {
+  const ColaDeOtraPersona({
+    required this.duenoDeLaCola,
+    required this.quienEsta,
+  });
+
+  /// El `sub` de quien hizo los apuntes.
+  final String duenoDeLaCola;
+
+  /// El `sub` de quien tiene la sesion abierta ahora mismo.
+  final String? quienEsta;
+
+  @override
+  String toString() =>
+      'ColaDeOtraPersona(la cola es de $duenoDeLaCola y quien esta es '
+      '${quienEsta ?? "nadie"}; no se sube nada)';
+}
 
 /// `POST /sync/subida` — la cola del aparato, en el orden en que se hizo.
 ///
@@ -13,17 +47,36 @@ class Subida {
   Subida({
     required ClienteApi cliente,
     required ColaDeSalida cola,
-    required String aparato,
+    required IdentidadDelAparato aparato,
+    required BaseLocal base,
+    required Future<String?> Function() quienEsta,
   }) : _cliente = cliente,
        _cola = cola,
-       _aparato = aparato;
+       _aparato = aparato,
+       _base = base,
+       _quienEsta = quienEsta;
 
   final ClienteApi _cliente;
   final ColaDeSalida _cola;
-  final String _aparato;
 
-  /// Sube un lote y aplica los resultados. Devuelve cuantos apuntes se
-  /// resolvieron.
+  /// La base de donde sale la cola. Se le pregunta de quien es.
+  final BaseLocal _base;
+
+  /// El `sub` de quien tiene la sesion abierta. Es lo que se compara con el
+  /// dueno de la cola antes de mandar un solo apunte.
+  final Future<String?> Function() _quienEsta;
+
+  /// Quien sabe el identificador de esta instalacion y sabe darla de alta.
+  final IdentidadDelAparato _aparato;
+
+  /// Sube un lote y aplica los resultados. Devuelve cuantos apuntes **aceptó el
+  /// servidor**.
+  ///
+  /// Aceptados, no resueltos: un rechazado tambien se resuelve —queda en la
+  /// bandeja con su motivo— pero **no subio**, y contarlo aqui hace que la
+  /// pantalla diga «Subieron 1 apunte» justo encima de «1 rechazado esperando a
+  /// que alguien decida». Visto en el navegador el 15/09/2026, y es la clase de
+  /// contradiccion que le quita el valor a todo lo demas que diga la pantalla.
   ///
   /// Lo que lance sale tal cual: si es `FalloDeRed`, la cola se queda entera y
   /// se reintenta luego; si es `SesionMuerta`, quien llama manda a la pantalla
@@ -32,14 +85,17 @@ class Subida {
     final lote = await _cola.lote(maximo: maximo);
     if (lote.isEmpty) return 0;
 
-    final respuesta = await _cliente.mandar<Map<String, Object?>>(
-      'POST',
-      '/subida',
-      <String, Object?>{
-        'aparato': _aparato,
-        'apuntes': [for (final a in lote) a.aJson(ColaDeSalida.cuerpoDe(a))],
-      },
-    );
+    // LA GUARDA: esta cola tiene que ser de quien esta delante.
+    //
+    // Va ANTES del alta del aparato y antes de tocar la red, porque lo que no
+    // puede pasar de ninguna manera es que un apunte de A salga firmado con el
+    // token de B. Ver [ColaDeOtraPersona].
+    await _laColaEsDeQuienEsta();
+
+    // EL ALTA, ANTES DEL PRIMER ENVIO. Si falla, lo que lance sale de aqui tal
+    // cual y la cola no se toca: sin aparato registrado el servidor contesta 404
+    // y no se sube nada, asi que dar el lote por bueno seria tirar el dia.
+    final respuesta = await _mandarLote(await _aparato.asegurar(), lote);
 
     final crudos = respuesta['resultados'];
     if (crudos is! List) {
@@ -51,6 +107,7 @@ class Subida {
     // reordene marcaria el apunte equivocado como rechazado, y eso no da ningun
     // error: sólo trabajo perdido en el sitio que no es.
     var resueltos = 0;
+    var aceptados = 0;
     for (final crudo in crudos) {
       if (crudo is! Map<String, Object?>) continue;
       final clave = crudo['clave'] as String?;
@@ -58,8 +115,10 @@ class Subida {
         Registro.fallo('resultado de subida sin clave: $crudo');
         continue;
       }
-      await _cola.resolver(clave, ResultadoApunte.deJson(crudo));
+      final resultado = ResultadoApunte.deJson(crudo);
+      await _cola.resolver(clave, resultado);
       resueltos++;
+      if (resultado.estado != EstadoResultado.rechazado) aceptados++;
     }
 
     // Los que no vinieron en la respuesta se quedan pendientes y se reintentan.
@@ -67,6 +126,66 @@ class Subida {
     if (sinRespuesta > 0) {
       Registro.aviso('$sinRespuesta apuntes subieron sin respuesta; se quedan');
     }
-    return resueltos;
+    return aceptados;
+  }
+
+  /// Comprueba que la cola que se va a subir es de quien tiene la sesion.
+  ///
+  /// Una base **sin dueno anotado** pasa: es la de las pruebas y la de un
+  /// aparato que viene de antes de que esto existiera, y ahi no hay nada que
+  /// comparar. Lo que no pasa es un dueno anotado que no sea el de la sesion.
+  Future<void> _laColaEsDeQuienEsta() async {
+    final deQuienEs = await _base.duenoGuardado();
+    if (deQuienEs == null) return;
+    final quienEsta = await _quienEsta();
+    if (quienEsta == deQuienEs) return;
+    final fallo = ColaDeOtraPersona(
+      duenoDeLaCola: deQuienEs,
+      quienEsta: quienEsta,
+    );
+    Registro.fallo('$fallo');
+    throw fallo;
+  }
+
+  /// Manda el lote, y si el servidor dice que este aparato **no esta
+  /// registrado**, se da de alta otra vez y lo manda UNA sola vez mas.
+  ///
+  /// Ese 404 es un caso real y no una rareza: al aparato lo borraron del
+  /// registro, o se restauro una copia de la base local con un alta que ya no
+  /// existe. El servidor lo contesta con 404 y no con 401 justamente para que el
+  /// aparato pueda distinguirlo de una sesion caducada y arreglarlo solo
+  /// (`sync/internal/sincro/bajada.go`).
+  ///
+  /// **UNA sola vez**, y no en bucle: si el alta nueva tampoco sirve, lo que
+  /// toca es que el fallo suba y se vea, no gastarle la bateria y los datos al
+  /// logistico reintentando contra algo que no va a cambiar.
+  Future<Map<String, Object?>> _mandarLote(
+    String aparato,
+    List<Apunte> lote, {
+    bool reintentar = true,
+  }) async {
+    try {
+      return await _cliente.mandar<Map<String, Object?>>(
+        'POST',
+        '/subida',
+        <String, Object?>{
+          'aparato': aparato,
+          // Cuantos quedan DESPUES de este envio. Lo dice el aparato porque la
+          // cola vive en el telefono: lo que no ha subido no existe en el
+          // servidor, y sin este numero el panel ensenaria a Palma en verde
+          // justo el dia que se le corto la subida a la mitad (`subida.go`).
+          'pendientes': await _cola.cuantosQuedanTras(lote.length),
+          'apuntes': [for (final a in lote) a.aJson(ColaDeSalida.cuerpoDe(a))],
+        },
+      );
+    } on Rechazo catch (e) {
+      if (!reintentar || e.codigo != 404) rethrow;
+      Registro.aviso(
+        'el aparato ya no esta registrado: se da de alta otra vez',
+      );
+      await _aparato.olvidar();
+      final nuevo = await _aparato.asegurar();
+      return _mandarLote(nuevo, lote, reintentar: false);
+    }
   }
 }

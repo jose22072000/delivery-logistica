@@ -51,6 +51,23 @@ class FalloDeAcceso implements Exception {
   String toString() => 'FalloDeAcceso($motivo, $mensaje, $detalle)';
 }
 
+/// Quien entró, y **si la sesión se quedó guardada de verdad**.
+///
+/// Las dos cosas juntas porque se deciden juntas y se cuentan juntas: entrar
+/// bien con una sesión que no persiste es exactamente el caso que dejó a Jose
+/// escribiendo la contraseña otra vez al reabrir la aplicación el 15/09/2026.
+/// Quien entra tiene derecho a enterarse EN ESE MOMENTO, que es el único en el
+/// que todavía hay conexión y hay alguien a quien preguntar.
+class Acceso {
+  const Acceso(this.sesion, {required this.seGuardo});
+
+  final Sesion sesion;
+
+  /// `false` cuando el aparato aceptó guardar el par y después no lo encuentra.
+  /// La sesión sirve para HOY; lo que no va a sobrevivir es cerrar y abrir.
+  final bool seGuardo;
+}
+
 /// LA PUERTA. Usuario y contraseña contra `POST /api/auth/token`.
 ///
 /// Va con el Dio **crudo** de auth (`dioAuthProvider`), sin `InterceptorSesion`:
@@ -68,8 +85,8 @@ class ServicioDeAcceso {
   final Dio _auth;
   final AlmacenDeSesion _almacen;
 
-  /// Entra y **guarda el par**. Lo que devuelve ya está guardado.
-  Future<Sesion> entrar({
+  /// Entra y **guarda el par**. Lo que devuelve dice además si quedó guardado.
+  Future<Acceso> entrar({
     required String usuario,
     required String contrasena,
     String? sucursal,
@@ -87,9 +104,15 @@ class ServicioDeAcceso {
         },
       );
       final sesion = Sesion.deJson(respuesta.data ?? const <String, Object?>{});
-      await _almacen.guardar(sesion);
+      final seGuardo = await _almacen.guardar(sesion);
       Registro.info('dentro: ${sesion.sub} (${sesion.sucursalId ?? "todas"})');
-      return sesion;
+      if (!seGuardo) {
+        Registro.fallo(
+          'se entró pero el par no quedó guardado: este aparato no puede '
+          'trabajar sin señal después de cerrar la aplicación',
+        );
+      }
+      return Acceso(sesion, seGuardo: seGuardo);
     } on DioException catch (e) {
       throw _traducir(e);
     } on FormatException catch (e) {
@@ -149,10 +172,22 @@ class ServicioDeAcceso {
                 'sucursal pedida no es suya.',
         detalle: error,
       ),
-      403 => FalloDeAcceso(
+      // `revoked` es la baja de la persona (`apk-tokens.ts`). Cualquier OTRO
+      // 403 no es de auth: lo puso algo por delante —Cloudflare contesta
+      // «error code: 1010» con 403— y decirle a alguien que su cuenta está dada
+      // de baja cuando lo que pasa es que un filtro no dejó pasar la petición es
+      // mandarlo a la oficina a preguntar por algo que no existe. Visto en el
+      // navegador el 15/09/2026.
+      403 when error == 'revoked' => FalloDeAcceso(
         MotivoDeAcceso.cuentaDeBaja,
         mensaje ?? 'La cuenta está dada de baja.',
         detalle: error,
+      ),
+      403 => FalloDeAcceso(
+        MotivoDeAcceso.servidor,
+        'El servidor no dejó pasar la petición (403). No es tu contraseña: '
+        'avisa a la oficina.',
+        detalle: mensaje ?? error,
       ),
       429 => const FalloDeAcceso(
         MotivoDeAcceso.demasiadosIntentos,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../diseno/colores.dart';
+import '../pantallas/configuracion_inicial/vista/pantalla_configurando.dart';
 import 'armazon.dart';
 import 'pantalla_registrada.dart';
 import 'pantallas.dart';
@@ -33,8 +34,14 @@ GoRouter crearEnrutador({
   // Las que van dentro del armazon y las que no. La pantalla de acceso es la
   // unica de las segundas: no puede llevar barra lateral porque no hay a donde
   // ir, ni selector de sucursal porque sale de la sesion que aun no existe.
-  final conArmazon = [for (final p in lista) if (p.conArmazon) p];
-  final sueltas = [for (final p in lista) if (!p.conArmazon) p];
+  final conArmazon = [
+    for (final p in lista)
+      if (p.conArmazon) p,
+  ];
+  final sueltas = [
+    for (final p in lista)
+      if (!p.conArmazon) p,
+  ];
 
   return GoRouter(
     initialLocation: portero == null ? inicial : rutaDeArranque,
@@ -57,6 +64,16 @@ GoRouter crearEnrutador({
       GoRoute(
         path: rutaDeArranque,
         builder: (contexto, estado) => const _Esperando(),
+      ),
+
+      // «Configurando Reparto»: la primera vez, y solo la primera. Tampoco es
+      // una pantalla del registro —no se llega a ella desde el menu, no lleva
+      // armazon y no tiene sitio en la barra lateral—: es lo que se ve mientras
+      // el aparato se configura. Con datos ya bajados no se ve nunca.
+      GoRoute(
+        path: rutaDeConfiguracion,
+        builder: (contexto, estado) =>
+            const Scaffold(body: PantallaConfigurando()),
       ),
 
       // Las sueltas, FUERA del armazon pero con su `Scaffold`: la regla de «tu

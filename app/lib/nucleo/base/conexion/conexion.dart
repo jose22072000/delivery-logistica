@@ -7,3 +7,4 @@ library;
 export 'conexion_stub.dart'
     if (dart.library.io) 'conexion_nativa.dart'
     if (dart.library.js_interop) 'conexion_web.dart';
+export 'nombre.dart';

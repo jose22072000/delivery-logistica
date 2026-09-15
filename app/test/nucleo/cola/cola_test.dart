@@ -41,11 +41,12 @@ void main() {
       await cola.encolar(metodo: 'POST', ruta: '/d', cuerpo: {'n': 4});
 
       final lote = await cola.lote();
-      expect(
-        lote.map((a) => a.ruta).toList(),
-        ['/a', '/b', '/c', '/d'],
-        reason: 'FIFO lo da `orden`, no `hechoAt`',
-      );
+      expect(lote.map((a) => a.ruta).toList(), [
+        '/a',
+        '/b',
+        '/c',
+        '/d',
+      ], reason: 'FIFO lo da `orden`, no `hechoAt`');
       // Y las horas SI van desordenadas: el desorden era real.
       expect(lote[1].hechoAt.isBefore(lote[0].hechoAt), isTrue);
     });
@@ -230,10 +231,7 @@ void main() {
       );
       await cola.resolver(
         rechazado,
-        const ResultadoApunte(
-          estado: EstadoResultado.rechazado,
-          motivo: 'no',
-        ),
+        const ResultadoApunte(estado: EstadoResultado.rechazado, motivo: 'no'),
       );
       await cola.resolver(
         aplicado,

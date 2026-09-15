@@ -127,7 +127,18 @@ func (t *tasasDeAccesos) TasaDeSucursal(ctx context.Context, codigo string) (*co
 	}
 	// Dos formas de decir «no hay»: `tasa: null`, o un `cupPorUsd` que no es un número.
 	// Sin tasa no se convierte nada, y NO se echa mano de la de otra sucursal.
-	if esNuloJSON(b.Tasa) || b.CupPorUsd == nil {
+	//
+	// AUSENTE NO ES `null`, y aquí estuvo el fallo. Cuando Accesos SÍ tiene la tasa
+	// contesta los campos sueltos —`cupPorUsd`, `fresca`, `traidoAt`— y **no manda ningún
+	// campo `tasa`**; ese campo sólo aparece, valiendo `null`, cuando no la tiene. Con la
+	// comprobación de antes (`esNuloJSON(b.Tasa)`, que daba true también para el campo
+	// ausente) una tasa buena se leía como «no hay», así que este servicio NUNCA pudo
+	// leer una tasa, de ninguna sucursal.
+	//
+	// Y no se vio porque degrada a un estado legítimo: la pantalla decía «esta sucursal
+	// no tiene tasa de cambio todavía», que es una frase que puede ser verdad, así que
+	// nadie la iba a cuestionar. Por eso la comprobación ahora distingue las dos cosas.
+	if (len(b.Tasa) > 0 && esNuloJSON(b.Tasa)) || b.CupPorUsd == nil {
 		return nil, nil
 	}
 	cod := strings.ToUpper(codigo)

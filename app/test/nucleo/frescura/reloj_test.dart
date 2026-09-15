@@ -109,24 +109,27 @@ void main() {
       expect(await frescura.seDescargo(Colecciones.rutas), isTrue);
     });
 
-    test('la mas vieja manda, y una que falte deja todo sin descargar', () async {
-      const dos = [Colecciones.pedidos, Colecciones.rutas];
+    test(
+      'la mas vieja manda, y una que falte deja todo sin descargar',
+      () async {
+        const dos = [Colecciones.pedidos, Colecciones.rutas];
 
-      await frescura.marcar(Colecciones.pedidos, hasta: 'a');
-      expect(
-        await frescura.laMasVieja(dos).first,
-        isNull,
-        reason: 'falta `routes`: la pantalla no esta al dia',
-      );
+        await frescura.marcar(Colecciones.pedidos, hasta: 'a');
+        expect(
+          await frescura.laMasVieja(dos).first,
+          isNull,
+          reason: 'falta `routes`: la pantalla no esta al dia',
+        );
 
-      reloj.ahora = DateTime(2026, 9, 14, 11);
-      await frescura.marcar(Colecciones.rutas, hasta: 'b');
-      expect(
-        await frescura.laMasVieja(dos).first,
-        DateTime(2026, 9, 14, 7, 42),
-        reason: 'manda la bajada mas vieja de las dos',
-      );
-    });
+        reloj.ahora = DateTime(2026, 9, 14, 11);
+        await frescura.marcar(Colecciones.rutas, hasta: 'b');
+        expect(
+          await frescura.laMasVieja(dos).first,
+          DateTime(2026, 9, 14, 7, 42),
+          reason: 'manda la bajada mas vieja de las dos',
+        );
+      },
+    );
   });
 
   group('el widget', () {
@@ -135,10 +138,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: RelojDeDatos(
-              estado: EstadoFrescura.de(
-                null,
-                ahora: DateTime(2026, 9, 14, 12),
-              ),
+              estado: EstadoFrescura.de(null, ahora: DateTime(2026, 9, 14, 12)),
               sinSubir: 3,
             ),
           ),
@@ -149,21 +149,11 @@ void main() {
       expect(find.text('3 sin subir'), findsOneWidget);
     });
 
-    testWidgets('mientras actualiza, lo dice', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: RelojDeDatos(
-              estado: const SinDescargar(),
-              actualizando: true,
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('actualizando…'), findsOneWidget);
-      expect(find.text('Sin descargar todavía'), findsNothing);
-    });
+    // El caso de «mientras actualiza, lo dice» NO se borro: se mudo a
+    // `test/navegacion/armazon_test.dart`, que es donde ahora vive esa frase.
+    // El reloj de datos ya no la dice —lo decia a la vez que la barra superior,
+    // dos ruedas girando una encima de la otra— y alli se comprueba las dos
+    // mitades: que la barra lo dice y que la franja NO.
 
     testWidgets('sin nada pendiente no hay boton', (tester) async {
       await tester.pumpWidget(

@@ -119,7 +119,8 @@ class VersionPublicada {
   }
 
   @override
-  String toString() => 'VersionPublicada($version, ${descargas.keys.join(",")})';
+  String toString() =>
+      'VersionPublicada($version, ${descargas.keys.join(",")})';
 }
 
 /// ¿Lo publicado es MÁS NUEVO que lo instalado?

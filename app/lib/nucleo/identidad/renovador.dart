@@ -76,7 +76,17 @@ class Renovador {
       );
       final nueva = Sesion.deJson(respuesta.data ?? const <String, Object?>{});
       // El refresh se sustituye ENTERO. El viejo no se guarda nunca.
-      await _almacen.guardar(nueva);
+      //
+      // Que no quede guardado NO para la renovacion: el par nuevo ya esta en la
+      // mano y el dia se puede seguir trabajando. Lo que se pierde es el proximo
+      // arranque, y eso se dice en el registro en vez de descubrirse mañana
+      // delante de un formulario mudo (ver `almacen_sesion.dart`).
+      if (!await _almacen.guardar(nueva)) {
+        Registro.fallo(
+          'la renovacion salio bien pero el par nuevo no quedo guardado: '
+          'al cerrar la aplicacion habra que entrar otra vez',
+        );
+      }
       return nueva;
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {

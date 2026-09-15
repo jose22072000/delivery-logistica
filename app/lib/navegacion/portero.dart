@@ -7,19 +7,44 @@ import '../nucleo/identidad/sesion.dart';
 import '../nucleo/proveedores.dart';
 import '../nucleo/registro/registro.dart';
 import '../pantallas/acceso/estado/estado_acceso.dart';
-import 'estado_navegacion.dart';
 
-/// Las tres situaciones en las que puede estar alguien delante de la aplicación.
+/// Las situaciones en las que puede estar alguien delante de la aplicación.
 enum EstadoDeAcceso {
   /// Todavía no se sabe: se está mirando lo guardado. Dura lo que tarde una
   /// renovación, o lo que tarde la red en rendirse.
   comprobando,
+
+  /// Hay sesión pero el aparato está VACÍO: se está configurando.
+  ///
+  /// Entrar la primera vez **es** configurarse el aparato, y eso se ve. No el
+  /// Panel en ceros mientras las cosas aparecen por detrás, que es lo que hacía
+  /// antes: una pantalla con todo a cero es indistinguible de una sucursal sin
+  /// nada que repartir, y el logístico se va al almacén con ella en la mano.
+  configurando,
 
   /// Hay sesión. Al Panel.
   dentro,
 
   /// No hay sesión, o murió. A la pantalla de acceso.
   fuera,
+}
+
+/// POR DÓNDE VA la configuración inicial, o por qué no se pudo.
+class ConfiguracionInicial {
+  const ConfiguracionInicial.enMarcha() : fallo = null, faltoAlgo = false;
+
+  const ConfiguracionInicial.fallo(Object this.fallo) : faltoAlgo = true;
+
+  /// El aparato quedó a medias: bajó algo, pero no todo.
+  const ConfiguracionInicial.aMedias() : fallo = null, faltoAlgo = true;
+
+  /// Lo que lanzó el ciclo, si lanzó algo. `null` cuando va bien, y también
+  /// cuando la bajada terminó sin excepción pero dejándose cosas.
+  final Object? fallo;
+
+  /// `true` cuando hay que decir que faltó y ofrecer reintentar. **No se entra
+  /// fingiendo que está.**
+  final bool faltoAlgo;
 }
 
 /// EL PORTERO. Sin sesión, a la pantalla de acceso; con sesión, al Panel.
@@ -55,85 +80,205 @@ class Portero extends ChangeNotifier {
   bool get sinComprobar => _sinComprobar;
   bool _sinComprobar = false;
 
-  /// Lo que hace la aplicación al abrirse: abre la base, lee la sesión e intenta
-  /// RENOVAR. No se comprueba el token de acceso por su cuenta — dura quince
-  /// minutos, así que casi siempre estará caducado al abrir, y eso no significa
-  /// que la sesión haya muerto.
+  /// **El aparato tiene datos y aun así no hay sesión.** Lo pinta la pantalla de
+  /// acceso: no es «entra», es «tu sesión se perdió y hace falta señal».
+  bool get sesionPerdida => _sesionPerdida;
+  bool _sesionPerdida = false;
+
+  /// Por dónde va la configuración inicial. `null` cuando no hay ninguna.
+  ConfiguracionInicial? get configuracion => _configuracion;
+  ConfiguracionInicial? _configuracion;
+
+  /// Lo que hace la aplicación al abrirse: lee la sesión, abre la base de quien
+  /// entró e intenta RENOVAR. No se comprueba el token de acceso por su
+  /// cuenta — dura quince minutos, así que casi siempre estará caducado al
+  /// abrir, y eso no significa que la sesión haya muerto.
   Future<void> comprobar() async {
+    final ResultadoDelArranque resultado;
     try {
-      final resultado = await arrancar(_ref);
-      _sesion = await _ref.read(almacenSesionProvider).leer();
-      _poner(
-        switch (resultado) {
-          Arranque.fuera => EstadoDeAcceso.fuera,
-          Arranque.dentro => EstadoDeAcceso.dentro,
-          Arranque.dentroSinComprobar => EstadoDeAcceso.dentro,
-        },
-        sinComprobar: resultado == Arranque.dentroSinComprobar,
-      );
+      resultado = await arrancar(_ref);
     } on Object catch (e, pila) {
       // Un arranque que revienta NO puede dejar la aplicación en la pantalla de
       // esperar para siempre. Se va al acceso, que es la única pantalla que
       // funciona sin nada montado.
       Registro.fallo('el arranque falló: $e', e, pila);
+      _sesionPerdida = false;
       _poner(EstadoDeAcceso.fuera);
       return;
     }
-    if (_estado == EstadoDeAcceso.dentro) _descargarElDia();
+
+    _sesion = resultado.sesion;
+    _sesionPerdida = resultado.sesionPerdida;
+    switch (resultado.como) {
+      case Arranque.fuera:
+        _poner(EstadoDeAcceso.fuera);
+      case Arranque.dentro:
+        await _entrar(sinComprobar: false);
+      case Arranque.dentroSinComprobar:
+        // SIN RED Y CON DATOS: se entra y ya. Sin red no hay configuración que
+        // hacer, y quedarse en la pantalla de «Configurando Reparto» esperando
+        // a una señal que no hay es dejar a alguien mirando una barra que no se
+        // mueve con su día dentro del aparato.
+        await _entrar(sinComprobar: true);
+    }
   }
 
   /// Acaba de entrar con usuario y contraseña. El par ya está guardado.
-  void entro(Sesion sesion) {
+  Future<void> entro(Sesion sesion) async {
     _sesion = sesion;
-    _poner(EstadoDeAcceso.dentro);
-    _descargarElDia();
+    _sesionPerdida = false;
+    // LA BASE DE ESTA PERSONA, antes de mirar si tiene datos. Si no, lo que se
+    // miraría es la base neutra —la de antes de que entrara nadie— y siempre
+    // saldría vacía.
+    _ref.read(duenoDeLaBaseProvider.notifier).es(sesion.sub);
+    await _entrar(sinComprobar: false);
   }
 
   /// La sesión murió (un 401 que sigue siendo 401 después de renovar). Es lo
   /// único que echa a nadie fuera.
   void murio() {
     _sesion = null;
+    _configuracion = null;
+    // Lo de esa persona se queda en SU fichero, entero. Cuando vuelva a entrar
+    // lo encuentra.
+    _ref.read(duenoDeLaBaseProvider.notifier).es(null);
     _poner(EstadoDeAcceso.fuera);
   }
 
-  /// Salir a mano. Revoca en auth si hay red, borra el par y **borra lo local**:
-  /// en el aparato quedan los clientes con sus direcciones y los pedidos del
-  /// día, y si el teléfono cambia de manos eso no puede seguir ahí (regla 8).
+  /// Salir a mano. Revoca en auth si hay red, borra el par y **cambia de copia**.
+  ///
+  /// ## Ya NO se borra lo local, y es a propósito
+  ///
+  /// Antes salir llamaba a `borrarTodoLoDelDominio()`, que borraba el dominio y
+  /// **dejaba la cola**. Con una sola base por aparato eso significaba que los
+  /// apuntes sin subir de quien se iba esperaban a que entrara otro para salir
+  /// con SU token: el trabajo de una sucursal subiendo como si fuera de otra.
+  ///
+  /// Ahora cada persona tiene su base y su cola (`conexion/nombre.dart`). Salir
+  /// cambia de copia: lo de quien se va se queda entero en su fichero y quien
+  /// vuelve lo encuentra, sin rebajarse sus ocho mil clientes otra vez por la
+  /// conexión de allá. Borrar los datos de alguien pasa a ser un gesto aparte y
+  /// explícito —olvidar a esa persona—, que avisa si tiene trabajo sin subir.
   Future<void> salir() async {
     final quien = _sesion;
     _sesion = null;
+    _configuracion = null;
+    _sesionPerdida = false;
     _poner(EstadoDeAcceso.fuera);
     try {
       await _ref.read(servicioAccesoProvider).salir(quien);
-      await _ref.read(baseProvider).borrarTodoLoDelDominio();
     } on Object catch (e) {
       Registro.aviso('salida con incidencias: $e');
     }
+    _ref.read(duenoDeLaBaseProvider.notifier).es(null);
   }
 
-  /// La bajada del día, en cuanto se entra. **En segundo plano**: la pantalla no
-  /// espera a que acabe, porque con la conexión de allá eso es un minuto mirando
-  /// un giro, y lo que hay que ver es el Panel.
-  void _descargarElDia() {
-    final enVuelo = _ref.read(enVueloProvider.notifier)..empieza();
-    Future<void>(() async {
-      try {
-        final resumen = await _ref.read(bajadaProvider).ciclo();
-        Registro.info('bajada del día: $resumen');
-        await _ref.read(bajadaProvider).almacenes();
-      } on Object catch (e) {
-        // Que falle no echa a nadie fuera ni borra nada: lo que ya estaba
-        // bajado sigue en la base y la franja de estado dirá de cuándo es. Un
-        // 401 lo trata el interceptor, que es quien sabe renovar.
-        Registro.aviso('no se pudo bajar el día: $e');
-      } finally {
-        enVuelo.termina();
-      }
-    });
+  /// Entrar de verdad: o al Panel, o a configurar el aparato primero.
+  ///
+  /// **Si el aparato ya tiene los datos, arranca directo**, sin pantalla de
+  /// espera y sin esperar a la red: el ciclo sale por detrás como siempre. Si
+  /// está vacío, la pantalla de configuración manda hasta que termine.
+  Future<void> _entrar({required bool sinComprobar}) async {
+    // EL NOMBRE, anotado en SU copia. Es lo único que deja que el gesto de
+    // olvidar a alguien diga «Yasmani» en vez del `sub` del token, que a quien
+    // lo lee no le dice nada (`nucleo/base/personas.dart`).
+    await _anotarQuienEs();
+    if (sinComprobar || !await _elAparatoEstaVacio()) {
+      _configuracion = null;
+      _poner(EstadoDeAcceso.dentro, sinComprobar: sinComprobar);
+      _sincronizar('al entrar');
+      return;
+    }
+
+    _configuracion = const ConfiguracionInicial.enMarcha();
+    _poner(EstadoDeAcceso.configurando);
+    await configurar();
   }
 
-  void _poner(EstadoDeAcceso nuevo, {bool sinComprobar = false}) {
-    if (_estado == nuevo && _sinComprobar == sinComprobar) return;
+  /// LA CONFIGURACIÓN INICIAL: el ciclo entero, esperado, con la pantalla
+  /// delante. También es lo que llama el botón de reintentar.
+  Future<void> configurar() async {
+    _configuracion = const ConfiguracionInicial.enMarcha();
+    _poner(EstadoDeAcceso.configurando);
+
+    final resumen = await _ref
+        .read(cicloProvider)
+        .ahora(motivo: 'configuración inicial', yaSeRenovo: true);
+
+    if (resumen.fallo != null) {
+      _configuracion = ConfiguracionInicial.fallo(resumen.fallo!);
+      _poner(EstadoDeAcceso.configurando, forzar: true);
+      return;
+    }
+
+    // Sin excepción NO es lo mismo que completo. La bajada puede volver sin
+    // fallo y con la mitad de los clientes —una tanda truncada que dejó de
+    // encadenarse—, y entrar ahí fingiendo que está es exactamente el patrón
+    // que más daño hace en este proyecto (`nucleo/sincro/bajada.dart`).
+    if (!resumen.bajada.entera || await _elAparatoEstaVacio()) {
+      _configuracion = const ConfiguracionInicial.aMedias();
+      _poner(EstadoDeAcceso.configurando, forzar: true);
+      return;
+    }
+
+    _configuracion = null;
+    _poner(EstadoDeAcceso.dentro);
+  }
+
+  Future<void> _anotarQuienEs() async {
+    final quien = _sesion;
+    if (quien == null || quien.nombre.isEmpty) return;
+    try {
+      await _ref.read(baseProvider).anotarNombreDelDueno(quien.nombre);
+    } on Object catch (e) {
+      // Un nombre que no se pudo anotar no puede impedir entrar: lo peor que
+      // pasa es que su copia salga como «Una cuenta anterior».
+      Registro.aviso('no se pudo anotar el nombre del dueño: $e');
+    }
+  }
+
+  /// ¿Está el aparato sin configurar? La respuesta sale de LA BASE, no de lo que
+  /// contestó el servidor (`nucleo/sincro/recuento.dart`).
+  Future<bool> _elAparatoEstaVacio() async {
+    try {
+      return (await _ref.read(recontadorProvider).ahora()).vaATraerTodo;
+    } on Object catch (e) {
+      // Si no se puede ni contar, se entra: dejar a alguien fuera del Panel
+      // porque una consulta falló es peor que enseñarle el Panel.
+      Registro.aviso('no se pudo contar lo que hay en el aparato: $e');
+      return false;
+    }
+  }
+
+  /// EL CICLO DEL DÍA, en cuanto se entra: renovar → subir → bajar.
+  ///
+  /// **Y no sólo la bajada**, que es lo que había antes. Quien abre la
+  /// aplicación por la mañana puede traer la cola de ayer sin subir —cerró el
+  /// día en el patio del almacén y se fue a su casa—, y esa cola tiene que salir
+  /// antes de que la bajada le ponga encima la foto del servidor.
+  ///
+  /// **En segundo plano**: la pantalla no espera a que acabe, porque con la
+  /// conexión de allá eso es un minuto mirando un giro, y lo que hay que ver es
+  /// el Panel. Que falle no echa a nadie fuera ni borra nada: lo que ya estaba
+  /// bajado sigue en la base, la cola sigue entera y la franja de estado dirá de
+  /// cuándo son los datos.
+  ///
+  /// La primera vez es al revés y por eso no pasa por aquí: ahí no hay Panel que
+  /// enseñar, sólo ceros, y lo que se ve es [EstadoDeAcceso.configurando].
+  ///
+  /// `yaSeRenovo` porque los dos caminos que llegan aquí traen el par recién
+  /// hecho: el arranque acaba de renovar y la pantalla de acceso acaba de
+  /// recibirlo de `POST /token`. Renovar otra vez dos dedos después es una ida y
+  /// vuelta regalada por la conexión de allá.
+  void _sincronizar(String motivo) =>
+      _ref.read(cicloProvider).ahora(motivo: motivo, yaSeRenovo: true).ignore();
+
+  void _poner(
+    EstadoDeAcceso nuevo, {
+    bool sinComprobar = false,
+    bool forzar = false,
+  }) {
+    if (!forzar && _estado == nuevo && _sinComprobar == sinComprobar) return;
     _estado = nuevo;
     _sinComprobar = sinComprobar;
     notifyListeners();
@@ -157,18 +302,83 @@ const rutaDeAcceso = '/acceso';
 /// de contraseña, y ese parpadeo enseña a escribir la contraseña por reflejo.
 const rutaDeArranque = '/arranque';
 
-/// EL REDIRECTOR. Una sola función, sin estado, para poder probarla suelta.
-String? redirigir(String rutaActual, EstadoDeAcceso estado, String inicio) =>
-    switch (estado) {
-      EstadoDeAcceso.comprobando =>
-        rutaActual == rutaDeArranque ? null : rutaDeArranque,
-      EstadoDeAcceso.fuera => rutaActual == rutaDeAcceso ? null : rutaDeAcceso,
-      EstadoDeAcceso.dentro =>
-        (rutaActual == rutaDeAcceso || rutaActual == rutaDeArranque)
-            ? inicio
-            : null,
-    };
+/// «Configurando Reparto». La primera vez, y sólo la primera.
+const rutaDeConfiguracion = '/configurando';
+
+/// EL REDIRECTOR. Una sola funcion, sin estado, para poder probarla suelta.
+///
+/// **Se acuerda de a donde iba.** Quien recarga `/orders?municipio=Centro` pasa
+/// por la espera del arranque y tiene que acabar ahi, no en el Panel: los
+/// filtros viajan en la URL justamente para poder mandar la lista filtrada por
+/// enlace, y un portero que aterriza siempre en el Panel se come el enlace.
+/// Visto en el navegador el 15/09/2026.
+String? redirigir({
+  required String rutaActual,
+  required EstadoDeAcceso estado,
+  required String inicio,
+  String uriEntera = '',
+  String? volverA,
+}) {
+  final enLaPuerta =
+      rutaActual == rutaDeAcceso ||
+      rutaActual == rutaDeArranque ||
+      rutaActual == rutaDeConfiguracion;
+
+  switch (estado) {
+    case EstadoDeAcceso.comprobando:
+      if (rutaActual == rutaDeArranque) return null;
+      return '$rutaDeArranque${_conDestino(uriEntera)}';
+
+    case EstadoDeAcceso.configurando:
+      // Mientras se configura no se entra a ninguna pantalla, ni siquiera
+      // escribiendo la dirección: todas dirían «no se ha descargado todavía» y
+      // el Panel saldría en ceros, que es justo lo que esto viene a quitar. El
+      // destino se sigue arrastrando para aterrizar ahí al terminar.
+      if (rutaActual == rutaDeConfiguracion) return null;
+      return '$rutaDeConfiguracion${_conDestino(uriEntera)}';
+
+    case EstadoDeAcceso.fuera:
+      // Lo que se guarda es a donde iba, no la puerta por la que pasa: si no,
+      // al entrar volveria a la pantalla de acceso.
+      final destino = enLaPuerta ? volverA : uriEntera;
+      if (rutaActual == rutaDeAcceso) return null;
+      return '$rutaDeAcceso${_conDestino(destino ?? '')}';
+
+    case EstadoDeAcceso.dentro:
+      if (!enLaPuerta) return null;
+      final destino = volverA;
+      if (destino == null || destino.isEmpty) return inicio;
+      // Un destino que sea la propia puerta seria un bucle.
+      final soloRuta = Uri.tryParse(destino)?.path ?? destino;
+      if (soloRuta == rutaDeAcceso ||
+          soloRuta == rutaDeArranque ||
+          soloRuta == rutaDeConfiguracion) {
+        return inicio;
+      }
+      return destino;
+  }
+}
+
+String _conDestino(String uri) {
+  if (uri.isEmpty || uri == '/') return '';
+  final soloRuta = Uri.tryParse(uri)?.path ?? uri;
+  if (soloRuta == rutaDeAcceso ||
+      soloRuta == rutaDeArranque ||
+      soloRuta == rutaDeConfiguracion) {
+    return '';
+  }
+  return '?$claveDelDestino=${Uri.encodeQueryComponent(uri)}';
+}
+
+/// El nombre del parametro donde viaja «a donde iba».
+const claveDelDestino = 'volverA';
 
 /// Lo que consume `rutas.dart`.
 String? porteroDeRutas(GoRouterState estado, Portero portero, String inicio) =>
-    redirigir(estado.matchedLocation, portero.estado, inicio);
+    redirigir(
+      rutaActual: estado.matchedLocation,
+      estado: portero.estado,
+      inicio: inicio,
+      uriEntera: estado.uri.toString(),
+      volverA: estado.uri.queryParameters[claveDelDestino],
+    );

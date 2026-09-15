@@ -154,10 +154,65 @@ Ver la tabla `aparatos` en `sincronizacion.md`.
 
 ---
 
-## Al cerrar sesión se borra lo local
+## Guardar la sesión no es lo mismo que haberla guardado — 15/09/2026
 
-En el aparato quedan los clientes con sus direcciones y los pedidos del día. Si el teléfono
-cambia de manos, eso no puede seguir ahí.
+Se probó la aplicación de escritorio compilada: se entró con una cuenta de verdad, se cerró
+y se volvió a abrir, y **pidió la contraseña otra vez**. El par estaba escrito en el llavero
+del sistema —se leyó el fichero—, así que guardar guardó; lo que falló fue **leerlo al
+arrancar**.
 
-Lo que **no** se borra es la cola pendiente sin avisar: si hay trabajo sin subir, se dice
-antes y se pregunta.
+La causa, comprobada a mano contra el llavero de este equipo con el propio código de
+`flutter_secure_storage_linux` 3.0.3: el plugin escribe el secreto, y el `lookup` de vuelta
+—con la misma etiqueta y la misma cuenta— no encuentra nada. Su `SecretSchema.name` apunta
+al buffer interno de un `std::string` que se reasigna después (`setLabel`), así que el
+atributo `xdg:schema` que queda escrito es basura. **En Linux ese almacén es de sólo
+escritura.** En Android (Keystore) no pasa, pero la regla que sale de aquí vale para los
+tres destinos:
+
+1. **El almacén no lanza nunca.** `leer()` que falla devuelve `null` y lo deja en el
+   registro. Una excepción ahí sube hasta el portero, que la traduce a «no hay sesión» y
+   deja a la persona delante de un formulario mudo. Y un `leer()` que falla **no borra**:
+   un almacén que hoy no contesta puede contestar mañana, y borrar el par por un fallo del
+   sistema es la regla 3 aplicada al disco.
+2. **`guardar()` lee de vuelta y dice si quedó.** «La escritura no dio error» y «la sesión
+   está guardada» son dos cosas distintas, y la que importa es la segunda.
+3. **Si el aparato no guarda, se dice AL ENTRAR.** La pantalla de acceso le pregunta al
+   almacén si sirve —una ida y vuelta de verdad, con su propia clave— antes de pedir la
+   contraseña, y si no sirve **no escribe la promesa**: en su lugar dice que en este
+   aparato hará falta entrar cada vez. O se cumple, o no se promete.
+4. **Sin sesión pero con datos en el aparato no es «entra»**: es «tu sesión se perdió y
+   hace falta señal». Un formulario mudo deja a esa persona probando su contraseña buena en
+   el patio de un almacén, convencida de que se le olvidó.
+
+---
+
+## Al cerrar sesión se CAMBIA DE COPIA, no se borra — 15/09/2026
+
+En el aparato quedan los clientes con sus direcciones y los pedidos del día, y si el
+teléfono cambia de manos eso no puede seguir ahí. Hasta el 15/09/2026 la respuesta a eso
+era borrar el dominio al salir y **dejar la cola**, a propósito. Con una sola base por
+aparato eso daba lo siguiente:
+
+1. A entra, baja lo suyo, trabaja sin señal y le quedan 23 apuntes sin subir.
+2. A cierra sesión: sus datos se borran, **sus 23 apuntes se quedan**.
+3. Entra B y baja lo suyo.
+4. Al haber señal, **los 23 apuntes de A suben con el token de B**.
+
+Trabajo de una sucursal subiendo como si fuera de otra. Y además A se rebajaba sus ocho mil
+clientes cada vez que alternaban, por la conexión de allá.
+
+Ahora **cada persona tiene su copia**: su base y su cola, en un fichero por `sub`
+(`app/lib/nucleo/base/conexion/nombre.dart`). Salir cambia de copia y quien vuelve
+encuentra lo suyo. La cola de cada quien sube con el token de quien la hizo, y la subida lo
+comprueba otra vez contra el dueño anotado dentro de la propia base.
+
+**Lo que esto no cierra**: los datos de quien salió siguen en el disco. El borrado de antes
+tampoco protegía gran cosa —dejaba la cola entera, con los resultados de entrega y las
+notas dentro, y sólo borraba del que se iba, nunca del que no había vuelto— pero el cambio
+es real y hay que decirlo. La mitigación es **olvidar a una persona**, un gesto aparte y
+explícito que borra su copia entera y avisa antes si tiene trabajo sin subir; no pasa sola
+al cerrar sesión, porque cerrar sesión es lo que hacen diez veces al día dos personas que
+comparten la tablet, y borrar ahí es tirar el día de alguien sin decírselo. Lo que lo
+cerraría de verdad es cifrar cada copia con una clave derivada de la contraseña, y eso
+choca con la regla de que sin conexión no se comprueba ninguna contraseña. Queda escrito
+para el día que se decida.

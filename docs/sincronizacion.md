@@ -42,7 +42,8 @@ Devuelve lo que cambió desde `desde`. Sin `desde`, la primera carga completa.
     "warehouses":{ "puestos": [ … ], "quitados": [] },
     "settings":  { "puestos": [ … ], "quitados": [] }
   },
-  "truncado": false                       // hay más: repetir con el `hasta` devuelto
+  "truncado": false,                      // hay más: repetir con el `hasta` devuelto
+  "continuar": "eyJjIjoyMDAwfQ"           // …y con esto, cuando venga (ver abajo)
 }
 ```
 
@@ -55,6 +56,35 @@ quedan en el aparato para siempre: la lista local sólo crece y nunca se limpia.
 
 **`truncado`** existe porque la primera bajada de una sucursal grande no cabe de una vez en
 la conexión de allá. Se pide por tandas hasta que venga `false`.
+
+### `continuar`: por dónde seguir en lo que no tiene marca — 15/09/2026
+
+**`truncado` sin esto era mentira, y costó un cuarto de los clientes.** Se probó la
+aplicación de escritorio contra producción y la base del aparato quedó con
+`clientes = 2000` redondos; con esa cuenta (Super Admin) son **8.034**. Dos mil es el tope
+de una tanda (`TopeDeBajada`), y la bajada se dio por buena.
+
+El motivo: `customers` y `products` **no se pueden trocear por marca de tiempo**. Se
+ordenan por nombre, y las marcas que tienen (`synced_at`, `updated_at`) las comparten a
+miles las filas que PEDIDO trae de una vez, porque entran en una sola transacción y
+Postgres les pone la misma hora. Así que el servidor decía «queda más» y devolvía sólo
+`hasta` — y el aparato volvía a pedir **exactamente lo mismo**, tanda tras tanda.
+
+Ahora, cuando `truncado` es `true`, la respuesta trae `continuar`: una cadena **opaca** que
+el aparato devuelve tal cual en la petición siguiente (`?continuar=…`) y **no mira por
+dentro**. Lleva los desplazamientos de esas dos colecciones y, además, el `desde` de la
+PRIMERA tanda de la cadena — sin eso, la segunda tanda filtraría el padrón contra una marca
+que ya avanzó y no emitiría una sola fila.
+
+Los pedidos siguen continuándose por `hasta`, que para ellos sí funciona: tienen
+`cambiado_at` y el corte se hace por la marca de la última fila servida.
+
+**Quien encadena tiene que parar cuando nada se mueve.** Si llega `truncado` y no avanzan
+ni `hasta` ni `continuar`, la tanda siguiente traería lo mismo: se para **y se dice**. Una
+bajada que se queda a medias no puede devolver un resumen indistinguible del de una
+completa — ése fue el fallo de verdad, no que se cortara, sino que se cortara callándoselo.
+En el aparato eso es `ResumenDeBajada.entera` (`app/lib/nucleo/sincro/bajada.dart`), y la
+pantalla de «Configurando Reparto» se planta en «faltó» en vez de entrar.
 
 ### Requisito que hay que cerrar antes
 

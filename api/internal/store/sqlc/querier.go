@@ -626,6 +626,9 @@ type Querier interface {
 	//
 	// Se compara la frase entera: con «entrega» a secas, cualquier producto que la mencionara
 	// desaparecería del catálogo y nadie sabría por qué.
+	// El OFFSET es para la bajada del aparato: el catálogo se sirve por tandas y la
+	// siguiente tiene que empezar donde acabó la anterior. Sin él, `truncado` sería una
+	// promesa que no se puede cumplir — el aparato vuelve a pedir y recibe lo mismo.
 	ListarProductos(ctx context.Context, arg ListarProductosParams) ([]Product, error)
 	// Los renglones de UN pedido, en el orden del papel del vendedor. `linea` no es decorativa:
 	// la hoja del despacho tiene que salir igual que lo que el vendedor escribió.

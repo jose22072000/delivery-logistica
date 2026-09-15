@@ -9,6 +9,9 @@
 // motivo. Nunca se descartan.
 
 import 'package:flutter/material.dart';
+
+import '../../../diseno/tema.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
@@ -39,7 +42,7 @@ class PantallaRutas extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(Aire.lg),
             child: Wrap(
               spacing: 8,
               runSpacing: 8,

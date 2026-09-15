@@ -40,7 +40,8 @@ void main() {
             // Un refresh ya gastado. Es exactamente lo que el servidor de verdad
             // lee como robo.
             return RespuestaFalsa(401, {
-              'mensaje': 'El refresh ya se usó. Todas las sesiones quedan revocadas.',
+              'mensaje':
+                  'El refresh ya se usó. Todas las sesiones quedan revocadas.',
             });
           }
           emitidos++;
@@ -183,7 +184,8 @@ void main() {
     test('el mensaje literal del servidor llega a la pantalla', () async {
       final servidor = ServidorFalso(
         (p) async => RespuestaFalsa(401, {
-          'mensaje': 'El refresh ya se usó. Todas las sesiones quedan revocadas.',
+          'mensaje':
+              'El refresh ya se usó. Todas las sesiones quedan revocadas.',
         }),
       );
       final dio = Dio(BaseOptions(baseUrl: 'https://auth.test'))
@@ -203,50 +205,47 @@ void main() {
   });
 
   group('el candado, desde la cola entera (caso I1)', () {
-    test(
-      '20 peticiones que reciben 401 a la vez: UNA renovacion y todas pasan',
-      () async {
-        var renovado = false;
-        final servidor = ServidorFalso((p) async {
-          if (p.ruta == '/refresh') {
-            await Future<void>.delayed(const Duration(milliseconds: 20));
-            renovado = true;
-            return RespuestaFalsa(200, {'token': 'nuevo', 'refresh': 'r1'});
-          }
-          // El token de acceso caduco en las ocho horas sin conexion. Hasta que
-          // no se renueve, todo es 401.
-          if (!renovado) return RespuestaFalsa(401, {'mensaje': 'caducado'});
-          if (p.cabeceras['Authorization'] != 'Bearer nuevo') {
-            return RespuestaFalsa(401, {'mensaje': 'token viejo'});
-          }
-          return RespuestaFalsa(200, {'ok': true});
-        });
+    test('20 peticiones que reciben 401 a la vez: UNA renovacion y todas pasan', () async {
+      var renovado = false;
+      final servidor = ServidorFalso((p) async {
+        if (p.ruta == '/refresh') {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          renovado = true;
+          return RespuestaFalsa(200, {'token': 'nuevo', 'refresh': 'r1'});
+        }
+        // El token de acceso caduco en las ocho horas sin conexion. Hasta que
+        // no se renueve, todo es 401.
+        if (!renovado) return RespuestaFalsa(401, {'mensaje': 'caducado'});
+        if (p.cabeceras['Authorization'] != 'Bearer nuevo') {
+          return RespuestaFalsa(401, {'mensaje': 'token viejo'});
+        }
+        return RespuestaFalsa(200, {'ok': true});
+      });
 
-        final almacen = AlmacenEnMemoria(sesionCon('r0'));
-        final auth = Dio(BaseOptions(baseUrl: 'https://auth.test'))
-          ..httpClientAdapter = servidor;
-        final renovador = Renovador(auth, almacen);
-        final cliente = ClienteApi.montar(
-          baseUrl: 'https://api.test',
-          almacen: almacen,
-          renovador: renovador,
-        );
-        cliente.dio.httpClientAdapter = servidor;
+      final almacen = AlmacenEnMemoria(sesionCon('r0'));
+      final auth = Dio(BaseOptions(baseUrl: 'https://auth.test'))
+        ..httpClientAdapter = servidor;
+      final renovador = Renovador(auth, almacen);
+      final cliente = ClienteApi.montar(
+        baseUrl: 'https://api.test',
+        almacen: almacen,
+        renovador: renovador,
+      );
+      cliente.dio.httpClientAdapter = servidor;
 
-        final respuestas = await Future.wait([
-          for (var i = 0; i < 20; i++)
-            cliente.pedir<Map<String, Object?>>('/api/orders/$i'),
-        ]);
+      final respuestas = await Future.wait([
+        for (var i = 0; i < 20; i++)
+          cliente.pedir<Map<String, Object?>>('/api/orders/$i'),
+      ]);
 
-        expect(
-          servidor.cuantas('POST', '/refresh'),
-          1,
-          reason:
-              'el telefono pilla senal y dispara la cola entera: UNA renovacion',
-        );
-        expect(respuestas, hasLength(20));
-        expect(respuestas.every((r) => r['ok'] == true), isTrue);
-      },
-    );
+      expect(
+        servidor.cuantas('POST', '/refresh'),
+        1,
+        reason:
+            'el telefono pilla senal y dispara la cola entera: UNA renovacion',
+      );
+      expect(respuestas, hasLength(20));
+      expect(respuestas.every((r) => r['ok'] == true), isTrue);
+    });
   });
 }

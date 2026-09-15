@@ -162,7 +162,9 @@ void main() {
     // El motivo LITERAL del servidor: es lo único que le dice a alguien qué
     // hacer. No se descarta en silencio.
     expect(
-      find.text('3 de los 8 pedidos ya están en otra ruta. Vuelve a elegirlos.'),
+      find.text(
+        '3 de los 8 pedidos ya están en otra ruta. Vuelve a elegirlos.',
+      ),
       findsOneWidget,
     );
     // Las dos horas: la del aparato (`hecho`) y la del servidor (`rechazado`).

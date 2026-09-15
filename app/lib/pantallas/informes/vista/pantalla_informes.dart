@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../diseno/anchos.dart';
 import '../../../diseno/cargando.dart';
 import '../../../diseno/colores.dart';
+import '../../../diseno/tema.dart';
 import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/insignia.dart';
 import '../../../diseno/numeros.dart';
@@ -54,13 +55,16 @@ class PantallaInformes extends ConsumerWidget {
     final viejo =
         cuando != null && ahora.difference(cuando) > const Duration(hours: 24);
 
+    // `p-3 sm:p-6` de delivery.
+    final estrecho = MediaQuery.sizeOf(context).width < Anchos.idioma;
+
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(estrecho ? Aire.md : Aire.xl),
       children: [
         const _Filtros(),
-        const SizedBox(height: 12),
+        const SizedBox(height: Aire.lg),
         _Advertencia(sinDescargar: sinDescargar, viejo: viejo, cuando: cuando),
-        const SizedBox(height: 12),
+        const SizedBox(height: Aire.lg),
         if (sinDescargar)
           const PantallaSinDescargar()
         else
@@ -231,9 +235,20 @@ class _Pestanas extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Las pestanas, con el subrayado en primario y sin el tinte morado que
+        // Material les pone por defecto.
         TabBar(
           isScrollable: true,
           tabAlignment: TabAlignment.start,
+          indicatorColor: Colores.primario,
+          indicatorWeight: 2.5,
+          indicatorSize: TabBarIndicatorSize.label,
+          dividerColor: Colores.linea,
+          labelColor: Colores.primario,
+          unselectedLabelColor: Colores.tintaSuave,
+          labelStyle: Tipos.texto(tamano: 14, peso: FontWeight.w600),
+          unselectedLabelStyle: Tipos.texto(tamano: 14, peso: FontWeight.w500),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
           tabs: [
             const Tab(text: 'Resumen'),
             const Tab(text: 'Por Vehículo'),
@@ -494,17 +509,30 @@ class _Tabla extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _Fila(celdas: cabeceras, estilo: tema.textTheme.labelMedium),
-        const Divider(height: 1, color: Colores.borde),
+        // La cabecera en versalitas sobre papel, como todas las de delivery.
+        _Fila(
+          celdas: cabeceras,
+          estilo: Tipos.texto(
+            tamano: 11,
+            peso: FontWeight.w600,
+            color: Colores.tintaSuave,
+            interletra: 0.4,
+          ),
+          fondo: Colores.papel,
+        ),
+        const Divider(height: 1, thickness: 1, color: Colores.linea),
         for (final f in filas)
-          _Fila(celdas: f, estilo: tema.textTheme.bodySmall),
+          _Fila(celdas: f, estilo: tema.textTheme.bodySmall, conLinea: true),
         if (pie != null) ...[
-          const Divider(height: 1, color: Colores.borde),
+          const Divider(height: 1, thickness: 1, color: Colores.linea),
           _Fila(
             celdas: pie!,
-            estilo: tema.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.bold,
+            estilo: Tipos.texto(
+              tamano: 13,
+              peso: FontWeight.w700,
+              color: Colores.tinta,
             ),
+            fondo: Colores.papel,
           ),
         ],
       ],
@@ -513,14 +541,29 @@ class _Tabla extends StatelessWidget {
 }
 
 class _Fila extends StatelessWidget {
-  const _Fila({required this.celdas, this.estilo});
+  const _Fila({
+    required this.celdas,
+    this.estilo,
+    this.fondo,
+    this.conLinea = false,
+  });
 
   final List<String> celdas;
   final TextStyle? estilo;
+  final Color? fondo;
+
+  /// La linea fina de abajo, la que separa una fila de la siguiente.
+  final bool conLinea;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: fondo,
+      border: conLinea
+          ? const Border(bottom: BorderSide(color: Colores.linea))
+          : null,
+    ),
+    padding: const EdgeInsets.symmetric(vertical: 9, horizontal: Aire.sm),
     child: Row(
       children: [
         for (final c in celdas)

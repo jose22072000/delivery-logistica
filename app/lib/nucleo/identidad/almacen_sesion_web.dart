@@ -29,9 +29,16 @@ class AlmacenDelNavegador implements AlmacenDeSesion {
 
   static const clave = 'reparto.sesion';
 
+  /// **No lanza nunca** — ver la regla en `almacen_sesion.dart`.
   @override
   Future<Sesion?> leer() async {
-    final crudo = _caja?.getItem(clave);
+    final String? crudo;
+    try {
+      crudo = _caja?.getItem(clave);
+    } on Object catch (e) {
+      Registro.fallo('el navegador no dejo leer la sesion: $e');
+      return null;
+    }
     if (crudo == null) return null;
     try {
       return Sesion.deJson(jsonDecode(crudo) as Map<String, Object?>);
@@ -43,12 +50,55 @@ class AlmacenDelNavegador implements AlmacenDeSesion {
     }
   }
 
+  /// Guarda el par **y comprueba que se puede volver a leer**, igual que la
+  /// APK. En el navegador el modo de fallo es otro —ventana privada, sitio sin
+  /// permiso para guardar, cuota llena— pero el resultado es el mismo: una
+  /// promesa de trabajar sin senal que no se cumple. Ver `almacen_sesion.dart`.
   @override
-  Future<void> guardar(Sesion sesion) async =>
-      _caja?.setItem(clave, jsonEncode(sesion.aJson()));
+  Future<bool> guardar(Sesion sesion) async {
+    final texto = jsonEncode(sesion.aJson());
+    final caja = _caja;
+    if (caja == null) return false;
+    try {
+      caja.setItem(clave, texto);
+      return caja.getItem(clave) == texto;
+    } on Object catch (e) {
+      Registro.fallo('el navegador no dejo guardar la sesion: $e');
+      return false;
+    }
+  }
 
   @override
-  Future<void> borrar() async => _caja?.removeItem(clave);
+  Future<void> borrar() async {
+    try {
+      _caja?.removeItem(clave);
+    } on Object catch (e) {
+      Registro.aviso('el navegador no dejo borrar la sesion: $e');
+    }
+  }
+
+  @override
+  Future<SaludDelAlmacen> comprobar() async {
+    final caja = _caja;
+    if (caja == null) {
+      return const SaludDelAlmacen.rota(
+        'Este navegador no deja guardar la sesión.',
+      );
+    }
+    const claveDePrueba = 'reparto.comprobacion';
+    final testigo = DateTime.now().microsecondsSinceEpoch.toString();
+    try {
+      caja.setItem(claveDePrueba, testigo);
+      final vuelta = caja.getItem(claveDePrueba);
+      caja.removeItem(claveDePrueba);
+      if (vuelta == testigo) return const SaludDelAlmacen.bien();
+    } on Object catch (e) {
+      Registro.aviso('el navegador no sirve para guardar la sesion: $e');
+    }
+    return const SaludDelAlmacen.rota(
+      'Este navegador no deja guardar la sesión.',
+    );
+  }
 
   /// `localStorage` puede no estar: en modo privado de algunos navegadores el
   /// acceso lanza. Sin el, la aplicacion se comporta como si no hubiera sesion
@@ -75,9 +125,13 @@ class AlmacenPorCookie implements AlmacenDeSesion {
   Future<Sesion?> leer() async => null;
 
   @override
-  Future<void> guardar(Sesion sesion) async {}
+  Future<bool> guardar(Sesion sesion) async => true;
 
   /// Cerrar sesion en web lo hace `POST /logout` de auth, que retira su cookie.
   @override
   Future<void> borrar() async {}
+
+  /// La lleva el navegador en su cookie, asi que no hay nada que comprobar.
+  @override
+  Future<SaludDelAlmacen> comprobar() async => const SaludDelAlmacen.bien();
 }

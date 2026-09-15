@@ -64,7 +64,9 @@ void main() {
     }
     // Sin esto la lista local sólo crece: un pedido archivado se queda en el
     // aparato para siempre.
-    await (base.delete(base.orders)..where((o) => o.id.isIn(['p1', 'p3']))).go();
+    await (base.delete(
+      base.orders,
+    )..where((o) => o.id.isIn(['p1', 'p3']))).go();
 
     final quedan = await base.select(base.orders).get();
     expect(quedan.map((o) => o.id), ['p2']);

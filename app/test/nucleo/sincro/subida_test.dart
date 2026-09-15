@@ -7,6 +7,7 @@ import 'package:reparto/nucleo/identidad/renovador.dart';
 import 'package:reparto/nucleo/identidad/sesion.dart';
 import 'package:reparto/nucleo/red/cliente_api.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
+import 'package:reparto/nucleo/sincro/identidad_del_aparato.dart';
 import 'package:reparto/nucleo/sincro/subida.dart';
 
 import '../../apoyo/base_de_prueba.dart';
@@ -23,6 +24,10 @@ void main() {
     reloj = RelojFalso(DateTime(2026, 9, 14, 16));
     cola = ColaDeSalida(base, reloj: reloj.leer);
   });
+
+  // El alta del aparato tiene su propio fichero. Aqui se da por hecha para que
+  // estas pruebas miren la subida y no otra cosa.
+  setUp(() => aparatoYaDeAlta(base));
 
   tearDown(() => base.close());
 
@@ -42,7 +47,13 @@ void main() {
     );
     cliente.dio.httpClientAdapter = servidor;
     return (
-      subida: Subida(cliente: cliente, cola: cola, aparato: 'apk-palma-01'),
+      subida: Subida(
+        cliente: cliente,
+        cola: cola,
+        aparato: IdentidadDelAparato(base),
+        base: base,
+        quienEsta: () async => (await almacen.leer())?.sub,
+      ),
       servidor: servidor,
     );
   }
@@ -55,7 +66,10 @@ void main() {
       return RespuestaFalsa(200, {
         'resultados': [
           for (final a in apuntes)
-            {'clave': (a! as Map<String, Object?>)['clave'], 'estado': 'aplicado'},
+            {
+              'clave': (a! as Map<String, Object?>)['clave'],
+              'estado': 'aplicado',
+            },
         ],
       });
     });
@@ -70,13 +84,14 @@ void main() {
       hasLength(1),
       reason: 'veinte apuntes NO son veinte peticiones (caso I1)',
     );
-    expect(mandado['aparato'], 'apk-palma-01');
+    // El identificador es el que dio el SERVIDOR en el alta, no uno inventado
+    // aqui: uno inventado por el telefono podria repetirse entre dos
+    // instalaciones y entonces dos aparatos compartirian cola y claves de
+    // idempotencia (`sync/internal/sincro/aparato.go`).
+    expect(mandado['aparato'], '9f3a0d2e-0000-4000-8000-000000000001');
     final apuntes = mandado['apuntes']! as List<Object?>;
     expect(
-      apuntes
-          .map((a) => (a! as Map<String, Object?>)['ruta'])
-          .take(3)
-          .toList(),
+      apuntes.map((a) => (a! as Map<String, Object?>)['ruta']).take(3).toList(),
       ['/api/x/1', '/api/x/2', '/api/x/3'],
     );
     expect(await cola.lote(), isEmpty);
@@ -168,10 +183,7 @@ void main() {
       await m.subida.ciclo(maximo: 1);
       await m.subida.ciclo();
 
-      expect(rutasVistas, [
-        '/api/routes',
-        '/api/routes/cm2xreal000/results',
-      ]);
+      expect(rutasVistas, ['/api/routes', '/api/routes/cm2xreal000/results']);
     },
   );
 }

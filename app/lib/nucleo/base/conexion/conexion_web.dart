@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/wasm.dart';
 
 import '../../registro/registro.dart';
+import 'nombre.dart';
 
 bool _fragil = false;
 
@@ -18,9 +19,11 @@ bool get almacenamientoFragil => _fragil;
 ///
 /// `sqlite3.wasm` y `drift_worker.js` son FICHEROS DEL DESPLIEGUE: si falta uno,
 /// la aplicacion arranca y la base no. Va en la lista de comprobacion.
-QueryExecutor abrirConexion() => LazyDatabase(() async {
+/// [dueno] es el `sub` del token. **Una base por persona**, igual que en la APK:
+/// el porque, entero, en `nombre.dart`.
+QueryExecutor abrirConexion({String? dueno}) => LazyDatabase(() async {
   final resultado = await WasmDatabase.open(
-    databaseName: 'reparto',
+    databaseName: nombreDeLaBase(dueno),
     sqlite3Uri: Uri.parse('sqlite3.wasm'),
     driftWorkerUri: Uri.parse('drift_worker.js'),
   );
@@ -38,3 +41,24 @@ QueryExecutor abrirConexion() => LazyDatabase(() async {
 
   return resultado.resolvedExecutor;
 });
+
+/// En web NO se borra el fichero, porque no hay fichero: la base vive en OPFS o
+/// en IndexedDB y drift no expone un borrado por nombre en esta version. Quien
+/// olvida a alguien (`BaseLocal.olvidar`) ya ha vaciado sus tablas una por una
+/// antes de llegar aqui, que es lo que de verdad quita los datos; lo que queda
+/// es una base vacia con su nombre, y eso no dice nada de nadie.
+Future<void> borrarLaCopia(String dueno) async {}
+
+/// En web no se abren copias ajenas: no hay carpeta que listar, asi que esto no
+/// llega a llamarse nunca. Existe para que la interfaz sea la misma en los tres
+/// destinos.
+QueryExecutor abrirConexionDeFichero(String nombre) =>
+    throw UnsupportedError('En web no se abren las copias de otras personas.');
+
+/// En web no hay carpeta que listar: cada navegador guarda lo suyo y drift no
+/// expone un listado por nombre. Quien olvida a alguien en web lo hace estando
+/// dentro de su propia sesion.
+Future<List<String>> copiasEnElAparato() async => const <String>[];
+
+/// En web no hubo nunca un fichero suelto que mirar.
+Future<bool> hayBaseDeAntes() async => false;

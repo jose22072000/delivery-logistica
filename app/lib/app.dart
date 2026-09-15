@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'diseno/tema.dart';
 import 'navegacion/portero.dart';
 import 'navegacion/rutas.dart';
+import 'nucleo/proveedores.dart';
+import 'nucleo/sincro/vigia.dart';
 import 'textos/textos.dart';
 
 /// La aplicacion.
@@ -28,6 +30,13 @@ class _RepartoAppState extends ConsumerState<RepartoApp> {
   late final GoRouter _enrutador =
       widget.enrutador ?? crearEnrutador(portero: ref.read(porteroProvider));
 
+  /// El aviso de red y el reloj del ciclo. Se montan aqui y no en el portero
+  /// porque quien sabe si la aplicacion esta delante es el widget, y porque asi
+  /// una prueba que inyecta su enrutador no levanta ni un temporizador.
+  Portero? _portero;
+  VigiaDeSincronizacion? _vigia;
+  AppLifecycleListener? _ciclosDeVida;
+
   @override
   void initState() {
     super.initState();
@@ -38,7 +47,33 @@ class _RepartoAppState extends ConsumerState<RepartoApp> {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => ref.read(porteroProvider).comprobar(),
       );
+
+      _vigia = ref.read(vigiaProvider);
+      final portero = ref.read(porteroProvider)..addListener(_segunElAcceso);
+      _portero = portero;
+      _ciclosDeVida = AppLifecycleListener(
+        onStateChange: (estado) =>
+            _vigia?.enPrimerPlano(estado == AppLifecycleState.resumed),
+      );
     }
+  }
+
+  /// Con sesion se vigila; sin ella, **no queda nada vivo**. Un temporizador que
+  /// sobrevive a la salida es trabajo corriendo sobre una sesion muerta.
+  void _segunElAcceso() {
+    if (_portero?.estado == EstadoDeAcceso.dentro) {
+      _vigia?.arrancar();
+    } else {
+      _vigia?.parar();
+    }
+  }
+
+  @override
+  void dispose() {
+    _portero?.removeListener(_segunElAcceso);
+    _ciclosDeVida?.dispose();
+    _vigia?.parar();
+    super.dispose();
   }
 
   @override

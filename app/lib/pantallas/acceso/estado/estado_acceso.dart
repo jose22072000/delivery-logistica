@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../nucleo/identidad/sesion.dart';
+import '../../../nucleo/identidad/almacen_sesion.dart';
 import '../../../nucleo/proveedores.dart';
 import '../datos/servicio_acceso.dart';
 
@@ -9,6 +9,19 @@ final servicioAccesoProvider = Provider<ServicioDeAcceso>(
     auth: ref.watch(dioAuthProvider),
     almacen: ref.watch(almacenSesionProvider),
   ),
+);
+
+/// ¿Este aparato puede guardar la sesión y volver a leerla?
+///
+/// Lo mira la pantalla de acceso **antes** de pedir la contraseña, porque la
+/// promesa que hay escrita debajo del botón —«una vez dentro puedes seguir
+/// trabajando el día entero sin señal»— sólo es verdad si la respuesta es que
+/// sí. O se cumple, o no se promete (`nucleo/identidad/almacen_sesion.dart`).
+///
+/// `FutureProvider` y no algo que se dispare solo: es una ida y vuelta al
+/// almacén del sistema y se hace cuando alguien la mira, una vez por arranque.
+final saludDelAlmacenProvider = FutureProvider<SaludDelAlmacen>(
+  (ref) => ref.watch(almacenSesionProvider).comprobar(),
 );
 
 /// Cómo va el intento de entrar. Lo mira sólo la pantalla de acceso.
@@ -40,20 +53,20 @@ class Formulario extends Notifier<EstadoDelFormulario> {
   @override
   EstadoDelFormulario build() => const EnReposo();
 
-  /// Devuelve la sesión si se entró, o `null` si no. El fallo queda en el
+  /// Devuelve el acceso si se entró, o `null` si no. El fallo queda en el
   /// estado, para pintarlo.
-  Future<Sesion?> entrar({
+  Future<Acceso?> entrar({
     required String usuario,
     required String contrasena,
   }) async {
     if (state is Entrando) return null; // doble pulsación: una sola petición
     state = const Entrando();
     try {
-      final sesion = await ref
+      final acceso = await ref
           .read(servicioAccesoProvider)
           .entrar(usuario: usuario.trim(), contrasena: contrasena);
       state = const EnReposo();
-      return sesion;
+      return acceso;
     } on FalloDeAcceso catch (fallo) {
       state = NoEntro(fallo);
       return null;

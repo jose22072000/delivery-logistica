@@ -122,7 +122,7 @@ class _Cabecera extends StatelessWidget {
       tamano: 11,
       peso: FontWeight.w600,
       color: Colores.tintaSuave,
-      interletra: 0.9,
+      interletra: 0.4,
     );
     return Container(
       color: Colores.papel,
@@ -136,26 +136,26 @@ class _Cabecera extends StatelessWidget {
               onChanged: (v) => alMarcarPagina(v ?? false),
             ),
           ),
-          _celda(flex: 2, hijo: Text('Fecha'.toUpperCase(), style: estilo)),
+          _celda(flex: 2, hijo: Text('Fecha', style: estilo)),
           if (columnas.sucursal)
-            _celda(flex: 2, hijo: Text('Sucursal'.toUpperCase(), style: estilo)),
-          _celda(flex: 2, hijo: Text('Pedido'.toUpperCase(), style: estilo)),
-          _celda(flex: 3, hijo: Text('Cliente'.toUpperCase(), style: estilo)),
-          if (columnas.ruta) _celda(flex: 2, hijo: Text('Ruta'.toUpperCase(), style: estilo)),
+            _celda(flex: 2, hijo: Text('Sucursal', style: estilo)),
+          _celda(flex: 2, hijo: Text('Pedido', style: estilo)),
+          _celda(flex: 3, hijo: Text('Cliente', style: estilo)),
+          if (columnas.ruta) _celda(flex: 2, hijo: Text('Ruta', style: estilo)),
           if (columnas.vehiculo)
-            _celda(flex: 2, hijo: Text('Vehículo'.toUpperCase(), style: estilo)),
+            _celda(flex: 2, hijo: Text('Vehículo', style: estilo)),
           if (columnas.articulos)
-            _celda(flex: 2, hijo: Text('Artículos'.toUpperCase(), style: estilo)),
-          _celda(flex: 4, hijo: Text('Dirección'.toUpperCase(), style: estilo)),
+            _celda(flex: 2, hijo: Text('Artículos', style: estilo)),
+          _celda(flex: 4, hijo: Text('Dirección', style: estilo)),
           _celda(
             flex: 2,
             hijo: Text('Peso', style: estilo, textAlign: TextAlign.right),
           ),
-          _celda(flex: 2, hijo: Text('Precio'.toUpperCase(), style: estilo)),
+          _celda(flex: 2, hijo: Text('Precio', style: estilo)),
           if (columnas.factura)
-            _celda(flex: 2, hijo: Text('Factura'.toUpperCase(), style: estilo)),
+            _celda(flex: 2, hijo: Text('Factura', style: estilo)),
           if (columnas.entrega)
-            _celda(flex: 2, hijo: Text('Entrega'.toUpperCase(), style: estilo)),
+            _celda(flex: 2, hijo: Text('Entrega', style: estilo)),
           const SizedBox(width: 32),
         ],
       ),
@@ -239,10 +239,7 @@ class _Fila extends StatelessWidget {
                   // dentro de una tabla escrita en Hanken.
                   Text(
                     pedido.operationNumber ?? '',
-                    style: Tipos.mono(
-                      tamano: 11.5,
-                      color: Colores.tintaSuave,
-                    ),
+                    style: Tipos.mono(tamano: 11.5, color: Colores.tintaSuave),
                   ),
                 ],
               ),

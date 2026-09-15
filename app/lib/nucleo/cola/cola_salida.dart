@@ -172,6 +172,17 @@ class ColaDeSalida {
     );
   }
 
+  /// Cuantos apuntes quedarian pendientes DESPUES de subir un lote de [enElLote].
+  ///
+  /// Va en el cuerpo de `POST /sync/subida` porque la cola vive en el telefono:
+  /// lo que no ha subido no existe en el servidor, y sin este numero el panel de
+  /// control ensenaria a Palma en verde justo el dia que se le corto la subida a
+  /// la mitad (`sync/internal/sincro/subida.go`).
+  Future<int> cuantosQuedanTras(int enElLote) async {
+    final quedan = await _base.cuantosPendientes() - enElLote;
+    return quedan > 0 ? quedan : 0;
+  }
+
   /// Poda los aplicados viejos. Los rechazados NO se podan nunca: son la unica
   /// constancia de algo que no llego a pasar.
   Future<int> podar() {

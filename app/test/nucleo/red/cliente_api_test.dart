@@ -36,10 +36,9 @@ void main() {
 
   test('200: dentro', () async {
     final m = montar((p) async => RespuestaFalsa(200, {'total': 12}));
-    expect(
-      await m.cliente.pedir<Map<String, Object?>>('/api/orders'),
-      {'total': 12},
-    );
+    expect(await m.cliente.pedir<Map<String, Object?>>('/api/orders'), {
+      'total': 12,
+    });
   });
 
   test('la sesion va en la cabecera', () async {
@@ -51,9 +50,7 @@ void main() {
   test('4xx que no es 401: Rechazo con el mensaje LITERAL', () async {
     const literal =
         '3 de los 8 pedidos ya están en otra ruta. Vuelve a elegirlos.';
-    final m = montar(
-      (p) async => RespuestaFalsa(409, {'mensaje': literal}),
-    );
+    final m = montar((p) async => RespuestaFalsa(409, {'mensaje': literal}));
 
     try {
       await m.cliente.mandar<Map<String, Object?>>(
@@ -114,10 +111,9 @@ void main() {
       if (vueltas < 3) return RespuestaFalsa(503);
       return RespuestaFalsa(200, {'ok': true});
     });
-    expect(
-      await m.cliente.pedir<Map<String, Object?>>('/api/orders'),
-      {'ok': true},
-    );
+    expect(await m.cliente.pedir<Map<String, Object?>>('/api/orders'), {
+      'ok': true,
+    });
   });
 
   test('401: renueva UNA vez y reintenta UNA vez', () async {
@@ -131,10 +127,9 @@ void main() {
       return RespuestaFalsa(200, {'ok': true});
     });
 
-    expect(
-      await m.cliente.pedir<Map<String, Object?>>('/api/orders'),
-      {'ok': true},
-    );
+    expect(await m.cliente.pedir<Map<String, Object?>>('/api/orders'), {
+      'ok': true,
+    });
     expect(m.servidor.cuantas('POST', '/refresh'), 1);
     expect(
       m.servidor.cuantas('GET', '/api/orders'),
@@ -181,9 +176,7 @@ void main() {
   });
 
   test('la sucursal mirada viaja en su cabecera', () async {
-    final servidor = ServidorFalso(
-      (p) async => RespuestaFalsa(200, const {}),
-    );
+    final servidor = ServidorFalso((p) async => RespuestaFalsa(200, const {}));
     final almacen = AlmacenEnMemoria(sesion);
     final auth = Dio()..httpClientAdapter = servidor;
     final cliente = ClienteApi.montar(

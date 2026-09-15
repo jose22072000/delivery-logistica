@@ -125,10 +125,7 @@ void main() {
       expect(pedidos.every((p) => p.ultimaRutaId == 'cm2xreal000'), isTrue);
 
       // Y queda el rastro.
-      expect(
-        await Provisionales(base).real(provisional),
-        'cm2xreal000',
-      );
+      expect(await Provisionales(base).real(provisional), 'cm2xreal000');
     },
   );
 

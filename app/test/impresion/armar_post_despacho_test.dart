@@ -73,17 +73,20 @@ void main() {
       expect(hoja.regreso, '14/9/2026, 15:05:00');
     });
 
-    test('queda es TODO lo que no se entrego: devuelto, cancelado y sin marcar', () {
-      final arroz = hoja.lineas.firstWhere((l) => l.producto == 'Arroz');
-      expect(arroz.salio, 18); // 10 + 6 + 2
-      expect(arroz.entregado, 10); // solo la parada entregada
-      expect(arroz.queda, 8); // 6 devueltos + 2 sin marcar
+    test(
+      'queda es TODO lo que no se entrego: devuelto, cancelado y sin marcar',
+      () {
+        final arroz = hoja.lineas.firstWhere((l) => l.producto == 'Arroz');
+        expect(arroz.salio, 18); // 10 + 6 + 2
+        expect(arroz.entregado, 10); // solo la parada entregada
+        expect(arroz.queda, 8); // 6 devueltos + 2 sin marcar
 
-      final azucar = hoja.lineas.firstWhere((l) => l.producto == 'Azúcar');
-      expect(azucar.salio, 12);
-      expect(azucar.entregado, 0);
-      expect(azucar.queda, 12); // 3 cancelados + 9 sin marcar
-    });
+        final azucar = hoja.lineas.firstWhere((l) => l.producto == 'Azúcar');
+        expect(azucar.salio, 12);
+        expect(azucar.entregado, 0);
+        expect(azucar.queda, 12); // 3 cancelados + 9 sin marcar
+      },
+    );
 
     test('se cumple la invariante salio == entregado + queda', () {
       for (final l in hoja.lineas) {
@@ -100,8 +103,14 @@ void main() {
       // usa) pero no en la tabla, que si no alarga la hoja y esconde las tres
       // lineas que importan.
       expect(hoja.lineas.map((l) => l.producto), contains('Aceite'));
-      expect(hoja.lineasConResto.map((l) => l.producto), isNot(contains('Aceite')));
-      expect(hoja.lineasConResto.map((l) => l.producto), <String>['Azúcar', 'Arroz']);
+      expect(
+        hoja.lineasConResto.map((l) => l.producto),
+        isNot(contains('Aceite')),
+      );
+      expect(hoja.lineasConResto.map((l) => l.producto), <String>[
+        'Azúcar',
+        'Arroz',
+      ]);
     });
 
     test('el pie suma LAS FILAS MOSTRADAS, no todas las lineas', () {
@@ -118,10 +127,11 @@ void main() {
     test('las pendientes traen cliente, resultado, nota y productos', () {
       expect(hoja.pendientes.length, 3);
       // En el orden en que llegaron los pedidos, no reordenadas.
-      expect(
-        hoja.pendientes.map((p) => p.cliente),
-        <String>['Cafetería El Puente', 'Kiosco Norte', 'Mercado Sur'],
-      );
+      expect(hoja.pendientes.map((p) => p.cliente), <String>[
+        'Cafetería El Puente',
+        'Kiosco Norte',
+        'Mercado Sur',
+      ]);
 
       final puente = hoja.pendientes.first;
       expect(puente.resultado, 'devuelto');
@@ -159,10 +169,13 @@ void main() {
 
       // Primero el que mas queda; el resto empatado a 5 y ordenado como lo
       // ordena el idioma: la tilde no manda, y la enye va detras de la n.
-      expect(
-        hoja.lineas.map((l) => l.producto),
-        <String>['Pan', 'Ácido cítrico', 'Arroz', 'Ñame', 'Zumo'],
-      );
+      expect(hoja.lineas.map((l) => l.producto), <String>[
+        'Pan',
+        'Ácido cítrico',
+        'Arroz',
+        'Ñame',
+        'Zumo',
+      ]);
     });
 
     test('comparaProductos ordena como el idioma y no como Unicode', () {
@@ -222,10 +235,10 @@ void main() {
           ],
         ),
       ]);
-      expect(
-        hoja.lineas.map((l) => l.producto).toSet(),
-        <String>{'Leche en polvo', 'Café'},
-      );
+      expect(hoja.lineas.map((l) => l.producto).toSet(), <String>{
+        'Leche en polvo',
+        'Café',
+      });
     });
 
     test('las lineas sin nombre de producto se tiran', () {
@@ -293,7 +306,10 @@ void main() {
       final hoja = armarPostDespacho(_ruta, <PedidoDeRuta>[]);
       expect(hoja.lineas, isEmpty);
       expect(hoja.pendientes, isEmpty);
-      expect(hoja.entregadas + hoja.devueltas + hoja.canceladas + hoja.sinMarcar, 0);
+      expect(
+        hoja.entregadas + hoja.devueltas + hoja.canceladas + hoja.sinMarcar,
+        0,
+      );
     });
 
     test('un resto de coma flotante no ensucia el papel', () {

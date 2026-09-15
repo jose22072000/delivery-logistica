@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
 import '../../../diseno/cajon.dart';
+import '../../../diseno/colores.dart';
+import '../../../diseno/tema.dart';
 import '../datos/almacen_api.dart';
 import '../estado/estado_almacenes.dart';
 import 'editor_almacen.dart';
@@ -109,7 +111,7 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
     // Ver el contrato en `lib/navegacion/pantalla_registrada.dart`.
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(Aire.xl),
         children: [
           Text('Almacenes', style: tema.textTheme.headlineSmall),
           const SizedBox(height: 4),

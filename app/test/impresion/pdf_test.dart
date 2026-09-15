@@ -35,40 +35,56 @@ HojaPreDespacho _pre({List<LineaPreDespacho>? lineas, String? dia}) =>
       dia: dia,
       pedidos: 7,
       pesoKg: 412.5,
-      lineas: lineas ??
+      lineas:
+          lineas ??
           const <LineaPreDespacho>[
-            LineaPreDespacho(producto: 'Arroz', formatos: 18, unidades: 360, pesoKg: 180),
-            LineaPreDespacho(producto: 'Azúcar', formatos: 12, unidades: 240, pesoKg: 120),
-            LineaPreDespacho(producto: 'Etiquetas', formatos: 2, unidades: 200, pesoKg: 0),
+            LineaPreDespacho(
+              producto: 'Arroz',
+              formatos: 18,
+              unidades: 360,
+              pesoKg: 180,
+            ),
+            LineaPreDespacho(
+              producto: 'Azúcar',
+              formatos: 12,
+              unidades: 240,
+              pesoKg: 120,
+            ),
+            LineaPreDespacho(
+              producto: 'Etiquetas',
+              formatos: 2,
+              unidades: 200,
+              pesoKg: 0,
+            ),
           ],
     );
 
 HojaPostDespacho _post() => armarPostDespacho(
-      const DatosDeRuta(
-        ruta: 'R-014',
-        sucursal: 'Camagüey',
-        vehiculo: 'Camión #1',
-        salida: '14/9/2026, 7:30:00',
-        regreso: '14/9/2026, 15:05:00',
-      ),
-      const <PedidoDeRuta>[
-        PedidoDeRuta(
-          customerName: 'Bodega La Plaza',
-          resultado: 'entregado',
-          items: <ItemDePedido>[ItemDePedido(name: 'Arroz', packs: 10)],
-        ),
-        PedidoDeRuta(
-          customerName: 'Cafetería El Puente',
-          resultado: 'devuelto',
-          resultadoNota: 'Cerrado, nadie recibió',
-          items: <ItemDePedido>[ItemDePedido(name: 'Arroz', packs: 6)],
-        ),
-        PedidoDeRuta(
-          customerName: 'Mercado Sur',
-          items: <ItemDePedido>[ItemDePedido(name: 'Azúcar', packs: 9)],
-        ),
-      ],
-    );
+  const DatosDeRuta(
+    ruta: 'R-014',
+    sucursal: 'Camagüey',
+    vehiculo: 'Camión #1',
+    salida: '14/9/2026, 7:30:00',
+    regreso: '14/9/2026, 15:05:00',
+  ),
+  const <PedidoDeRuta>[
+    PedidoDeRuta(
+      customerName: 'Bodega La Plaza',
+      resultado: 'entregado',
+      items: <ItemDePedido>[ItemDePedido(name: 'Arroz', packs: 10)],
+    ),
+    PedidoDeRuta(
+      customerName: 'Cafetería El Puente',
+      resultado: 'devuelto',
+      resultadoNota: 'Cerrado, nadie recibió',
+      items: <ItemDePedido>[ItemDePedido(name: 'Arroz', packs: 6)],
+    ),
+    PedidoDeRuta(
+      customerName: 'Mercado Sur',
+      items: <ItemDePedido>[ItemDePedido(name: 'Azúcar', packs: 9)],
+    ),
+  ],
+);
 
 /// El PDF comprime los flujos de dibujo, pero los diccionarios de objetos van en
 /// claro: por ahi se puede comprobar el papel y la fuente sin rasterizar nada.
@@ -134,8 +150,14 @@ void main() {
 
     test('las dos fuentes salen del propio paquete, no de la red', () async {
       // El origen es el `rootBundle`: ficheros que viajan dentro del APK.
-      expect((await rootBundle.load(rutaRegular)).lengthInBytes, greaterThan(1000));
-      expect((await rootBundle.load(rutaNegrita)).lengthInBytes, greaterThan(1000));
+      expect(
+        (await rootBundle.load(rutaRegular)).lengthInBytes,
+        greaterThan(1000),
+      );
+      expect(
+        (await rootBundle.load(rutaNegrita)).lengthInBytes,
+        greaterThan(1000),
+      );
     });
 
     test('nadie dejó una URL de Google Fonts dentro del PDF', () {
@@ -152,7 +174,9 @@ void main() {
       expect(hojaA4.width, PdfPageFormat.a4.width);
       expect(hojaA4.height, PdfPageFormat.a4.height);
 
-      final claro = _enClaro(await pdfPreDespacho(_pre(), impresoEn: _impresoEn));
+      final claro = _enClaro(
+        await pdfPreDespacho(_pre(), impresoEn: _impresoEn),
+      );
       expect(claro, contains('/MediaBox'));
     });
 
@@ -215,7 +239,10 @@ void main() {
     test('el post-despacho suma solo las filas que se imprimen', () {
       final h = _post();
       final t = TotalesPostDespacho.de(h);
-      expect(h.lineasConResto.map((l) => l.producto), <String>['Azúcar', 'Arroz']);
+      expect(h.lineasConResto.map((l) => l.producto), <String>[
+        'Azúcar',
+        'Arroz',
+      ]);
       expect(t.salio, 25); // 16 de arroz + 9 de azúcar
       expect(t.entregado, 10);
       expect(t.queda, 15); // 6 devueltos + 9 sin marcar
@@ -227,16 +254,25 @@ void main() {
     setUpAll(prepararFechas);
 
     test('sale como toLocaleString("es")', () {
-      expect(fechaDeImpresion(DateTime(2026, 9, 14, 17, 20, 30)), '14/9/2026, 17:20:30');
+      expect(
+        fechaDeImpresion(DateTime(2026, 9, 14, 17, 20, 30)),
+        '14/9/2026, 17:20:30',
+      );
     });
 
     test('la hora no se rellena con cero y los minutos sí', () {
       // `toLocaleString('es')` da `14/9/2026, 9:05:03`.
-      expect(fechaDeImpresion(DateTime(2026, 9, 14, 9, 5, 3)), '14/9/2026, 9:05:03');
+      expect(
+        fechaDeImpresion(DateTime(2026, 9, 14, 9, 5, 3)),
+        '14/9/2026, 9:05:03',
+      );
     });
 
     test('la medianoche es 0, no 24 ni 12', () {
-      expect(fechaDeImpresion(DateTime(2026, 1, 2, 0, 0, 0)), '2/1/2026, 0:00:00');
+      expect(
+        fechaDeImpresion(DateTime(2026, 1, 2, 0, 0, 0)),
+        '2/1/2026, 0:00:00',
+      );
     });
   });
 
@@ -265,11 +301,18 @@ void main() {
         impresoEn: _impresoEn,
       );
       expect(bytes, isNotEmpty);
-      expect(TotalesPreDespacho.de(_pre(lineas: const <LineaPreDespacho>[])).formatos, 0);
+      expect(
+        TotalesPreDespacho.de(_pre(lineas: const <LineaPreDespacho>[]))
+            .formatos,
+        0,
+      );
     });
 
     test('con día filtrado y sin él, las dos salen', () async {
-      final con = await pdfPreDespacho(_pre(dia: '2026-09-14'), impresoEn: _impresoEn);
+      final con = await pdfPreDespacho(
+        _pre(dia: '2026-09-14'),
+        impresoEn: _impresoEn,
+      );
       final sin = await pdfPreDespacho(_pre(), impresoEn: _impresoEn);
       expect(con, isNotEmpty);
       expect(sin, isNotEmpty);

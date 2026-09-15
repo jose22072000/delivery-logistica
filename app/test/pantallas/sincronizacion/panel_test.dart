@@ -10,9 +10,7 @@ void main() {
   AparatoDelPanel leer(Map<String, Object?> j) => AparatoDelPanel.deJson(j);
 
   group('«nunca ha subido» NO es «lleva 0 horas»', () {
-    final nunca = leer(
-      aparatoJson(aparato: 'ap-palma', persona: 'María'),
-    );
+    final nunca = leer(aparatoJson(aparato: 'ap-palma', persona: 'María'));
     final recienSubido = leer(
       aparatoJson(
         aparato: 'ap-camaguey',
@@ -22,17 +20,23 @@ void main() {
       ),
     );
 
-    test('se distinguen por `subida`, que es lo que el servicio deja vacío', () {
-      expect(nunca.nuncaSubio, isTrue);
-      expect(nunca.horasSinSubir, isNull);
-      expect(recienSubido.nuncaSubio, isFalse);
-      expect(recienSubido.horasSinSubir, 0);
-    });
+    test(
+      'se distinguen por `subida`, que es lo que el servicio deja vacío',
+      () {
+        expect(nunca.nuncaSubio, isTrue);
+        expect(nunca.horasSinSubir, isNull);
+        expect(recienSubido.nuncaSubio, isFalse);
+        expect(recienSubido.horasSinSubir, 0);
+      },
+    );
 
-    test('no comparten gravedad: uno es el peor caso y el otro está al día', () {
-      expect(nunca.gravedad, GravedadSincro.nunca);
-      expect(recienSubido.gravedad, GravedadSincro.alDia);
-    });
+    test(
+      'no comparten gravedad: uno es el peor caso y el otro está al día',
+      () {
+        expect(nunca.gravedad, GravedadSincro.nunca);
+        expect(recienSubido.gravedad, GravedadSincro.alDia);
+      },
+    );
 
     test('no comparten texto', () {
       expect(TextosDeSincronizacion.sinSubir(nunca), 'Nunca ha subido');
@@ -50,11 +54,9 @@ void main() {
       // Si el servicio cambiara y mandara un 0 con la subida vacía —o el -1 de
       // `segundos_sin_subir` se colara por aquí—, lo que manda es `subida`.
       // «Nunca» no puede degradarse a «0 horas» por un número.
-      final raro = leer(aparatoJson(
-        aparato: 'ap-raro',
-        persona: 'X',
-        horasSinSubir: 0,
-      ));
+      final raro = leer(
+        aparatoJson(aparato: 'ap-raro', persona: 'X', horasSinSubir: 0),
+      );
       expect(raro.nuncaSubio, isTrue);
       expect(raro.gravedad, GravedadSincro.nunca);
       expect(TextosDeSincronizacion.sinSubir(raro), 'Nunca ha subido');
@@ -117,7 +119,8 @@ void main() {
       bandeja: [
         rechazoJson(
           rechazo: 'r1',
-          motivo: '3 de los 8 pedidos ya están en otra ruta. Vuelve a elegirlos.',
+          motivo:
+              '3 de los 8 pedidos ya están en otra ruta. Vuelve a elegirlos.',
         ),
       ],
       sinAtender: [

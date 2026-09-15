@@ -208,6 +208,27 @@ TextTheme _escala() => TextTheme(
 );
 
 /// El tema de la aplicacion.
+/// EL ANILLO DEL FOCO, para que se vea por donde va el tabulador.
+///
+/// Sin esto, quien recorre la pantalla con el teclado no sabe donde esta parado:
+/// pulsar Tab no ensena nada y hay que adivinar. Se descubrio mirandolo en el
+/// navegador el 15/09/2026, y es la clase de fallo que no aparece en ninguna
+/// prueba porque nadie prueba con el teclado.
+///
+/// Va en TINTA y no en el primario: el primario es el fondo del boton relleno, y
+/// un anillo azul sobre azul no es un anillo. Dos pixeles, que es lo que se ve
+/// de reojo sin pedir la vista cuando no hay foco.
+///
+/// [enCalma] es el borde que ya tenia el boton cuando NO esta enfocado — el
+/// contorno fino del `OutlinedButton`, por ejemplo. Sin el, enfocar y soltar le
+/// borraria su borde de siempre.
+WidgetStateProperty<BorderSide?> anilloDeFoco({BorderSide? enCalma}) =>
+    WidgetStateProperty.resolveWith<BorderSide?>(
+      (estados) => estados.contains(WidgetState.focused)
+          ? const BorderSide(color: Colores.tinta, width: 2)
+          : enCalma,
+    );
+
 ThemeData temaDeReparto() {
   // Nada de bajar tipografias por red: estan en `assets/google_fonts/`.
   GoogleFonts.config.allowRuntimeFetching = false;
@@ -355,6 +376,10 @@ ThemeData temaDeReparto() {
     ),
     // Los botones. Radio `xl` (13.6) y la tipografia de texto, no la de titular:
     // en delivery los botones son `text-sm font-medium`.
+    //
+    // **Todos llevan anillo de foco** ([anilloDeFoco]). Sin el, quien recorre la
+    // pantalla con el tabulador no sabe donde esta parado: se ve pasar nada.
+    // Visto en el navegador el 15/09/2026, pulsando Tab por el Panel entero.
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: Colores.primario,
@@ -365,7 +390,7 @@ ThemeData temaDeReparto() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Radios.lg),
         ),
-      ),
+      ).copyWith(side: anilloDeFoco()),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
@@ -377,19 +402,21 @@ ThemeData temaDeReparto() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Radios.lg),
         ),
-      ),
+      ).copyWith(side: anilloDeFoco()),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        backgroundColor: Colores.blanco,
-        foregroundColor: Colores.tinta,
-        side: const BorderSide(color: Colores.linea),
-        textStyle: Tipos.texto(tamano: 14, peso: FontWeight.w500),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Radios.lg),
-        ),
-      ),
+      style:
+          OutlinedButton.styleFrom(
+            backgroundColor: Colores.blanco,
+            foregroundColor: Colores.tinta,
+            textStyle: Tipos.texto(tamano: 14, peso: FontWeight.w500),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radios.lg),
+            ),
+          ).copyWith(
+            side: anilloDeFoco(enCalma: const BorderSide(color: Colores.linea)),
+          ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
@@ -398,7 +425,7 @@ ThemeData temaDeReparto() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Radios.md),
         ),
-      ),
+      ).copyWith(side: anilloDeFoco()),
     ),
     iconButtonTheme: IconButtonThemeData(
       style: IconButton.styleFrom(
@@ -406,7 +433,7 @@ ThemeData temaDeReparto() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Radios.lg),
         ),
-      ),
+      ).copyWith(side: anilloDeFoco()),
     ),
     iconTheme: const IconThemeData(color: Colores.tintaSuave, size: 20),
     // Los campos: fondo blanco, borde fino de `--line`, y el foco en primario
@@ -451,9 +478,7 @@ ThemeData temaDeReparto() {
     ),
     checkboxTheme: CheckboxThemeData(
       side: const BorderSide(color: Colores.lineaFuerte, width: 1.4),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(5),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
     ),
     switchTheme: SwitchThemeData(
       trackOutlineColor: const WidgetStatePropertyAll(Colores.linea),
@@ -553,7 +578,8 @@ class _Rejilla extends CustomPainter {
     lienzo.saveLayer(Offset.zero & medida, Paint());
 
     final trazo = Paint()
-      ..color = const Color(0x0617130E) // rgba(23,19,14,0.025)
+      ..color =
+          const Color(0x0617130E) // rgba(23,19,14,0.025)
       ..strokeWidth = 1;
     for (var x = 0.0; x <= medida.width; x += _paso) {
       lienzo.drawLine(Offset(x, 0), Offset(x, medida.height), trazo);

@@ -305,14 +305,15 @@ final opcionesDeDisponiblesProvider =
 /// Los renglones de los pedidos elegibles: de aqui salen los articulos de cada
 /// fila del paso 4.
 final renglonesDeDisponiblesProvider =
-    FutureProvider.family<Map<String, List<RenglonConPeso>>, FiltrosDisponibles>(
-      (ref, filtros) async {
-        final pedidos = await ref.watch(disponiblesProvider(filtros).future);
-        return ref.watch(consultasRutasProvider).renglonesDe([
-          for (final p in pedidos) p.id,
-        ]);
-      },
-    );
+    FutureProvider.family<
+      Map<String, List<RenglonConPeso>>,
+      FiltrosDisponibles
+    >((ref, filtros) async {
+      final pedidos = await ref.watch(disponiblesProvider(filtros).future);
+      return ref.watch(consultasRutasProvider).renglonesDe([
+        for (final p in pedidos) p.id,
+      ]);
+    });
 
 /// Lo que llena los dos desplegables del paso 4.
 @immutable

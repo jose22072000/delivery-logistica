@@ -216,10 +216,24 @@ func (a *Acotado) EspejoMarcarCatalogoTraido(ctx context.Context) error {
 	return a.q.MarcarCatalogoTraido(ctx)
 }
 
-func (a *Acotado) EspejoListarProductos(ctx context.Context, limite int32) ([]sqlc.Product, error) {
+// EspejoListarProductos y EspejoListarClientes: UNA TANDA del catálogo o del padrón.
+//
+// `desplazamiento` no es un adorno de paginación: es lo que hace que `truncado` sea una
+// promesa que se puede cumplir. Hasta el 15/09/2026 las dos servían siempre las primeras
+// `limite` filas ordenadas por nombre y se marcaba `truncado` al llegar al tope, pero la
+// tanda siguiente pedía EXACTAMENTE LO MISMO — no había por dónde seguir. Contra
+// producción eso dejó el aparato con `clientes = 2000` redondos de los 8.034 que hay, y
+// la bajada se dio por buena.
+//
+// Se pagina por desplazamiento y no por marca de tiempo porque estas dos no tienen una
+// marca útil para eso: el orden es por nombre, y `synced_at` lo comparten a miles las
+// filas que PEDIDO trae de una vez —una sola transacción, una sola hora—, así que un corte
+// por marca o no avanza o parte el grupo.
+func (a *Acotado) EspejoListarProductos(ctx context.Context, limite, desplazamiento int32) ([]sqlc.Product, error) {
 	return a.q.ListarProductos(ctx, sqlc.ListarProductosParams{
-		Sucursal: a.Codigo(), // el catálogo se acota por CÓDIGO, no por uuid
-		Limite:   limite,
+		Sucursal:       a.Codigo(), // el catálogo se acota por CÓDIGO, no por uuid
+		Limite:         limite,
+		Desplazamiento: desplazamiento,
 	})
 }
 
@@ -227,10 +241,11 @@ func (a *Acotado) EspejoListarRutas(ctx context.Context) ([]sqlc.ListarRutasRow,
 	return a.q.ListarRutas(ctx, sqlc.ListarRutasParams{Sucursal: a.sucursalPg()})
 }
 
-func (a *Acotado) EspejoListarClientes(ctx context.Context, limite int32) ([]sqlc.ListarClientesRow, error) {
+func (a *Acotado) EspejoListarClientes(ctx context.Context, limite, desplazamiento int32) ([]sqlc.ListarClientesRow, error) {
 	return a.q.ListarClientes(ctx, sqlc.ListarClientesParams{
 		SucursalDelAlcance: a.Codigo(), // clientes también van por código
 		Limite:             limite,
+		Desplazamiento:     desplazamiento,
 	})
 }
 

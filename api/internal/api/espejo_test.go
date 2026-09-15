@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -33,6 +34,11 @@ type espejoFalso struct {
 	// tablero necesita coordenadas y peso, y esto necesita marcas de tiempo y renglones.
 	sync    []pedidoSync
 	salidas []salidaSync
+
+	// El padrón de clientes de la bajada, entero. El doble lo sirve por tandas
+	// respetando `Limite` y `Desplazamiento`, como el SQL: lo que se comprueba es que el
+	// manejador sepa pedir la tanda siguiente.
+	padron []sqlc.ListarClientesRow
 }
 
 func nuevoEspejo() *espejoFalso {
@@ -228,8 +234,19 @@ func (q *espejoFalso) ListarRutas(context.Context, sqlc.ListarRutasParams) ([]sq
 func (q *espejoFalso) ListarProductos(context.Context, sqlc.ListarProductosParams) ([]sqlc.Product, error) {
 	return nil, nil
 }
-func (q *espejoFalso) ListarClientes(context.Context, sqlc.ListarClientesParams) ([]sqlc.ListarClientesRow, error) {
-	return nil, nil
+
+// ListarClientes REPITE EL `LIMIT … OFFSET …` del SQL. Es la parte que importa: con un
+// doble que devolviera siempre la lista entera, el fallo de los 2.000 clientes no se ve.
+func (q *espejoFalso) ListarClientes(_ context.Context, arg sqlc.ListarClientesParams) ([]sqlc.ListarClientesRow, error) {
+	desde := int(arg.Desplazamiento)
+	if desde >= len(q.padron) {
+		return nil, nil
+	}
+	hasta := desde + int(arg.Limite)
+	if hasta > len(q.padron) {
+		hasta = len(q.padron)
+	}
+	return q.padron[desde:hasta], nil
 }
 
 // --------------------------------------------------------------------------- Ventra de mentira
@@ -793,4 +810,132 @@ func mustHora(t *testing.T, s string) time.Time {
 		t.Fatalf("hora ilegible %q: %v", s, err)
 	}
 	return v
+}
+
+// EL PADRÓN ENTERO, TANDA A TANDA — el fallo de los 2.000 clientes.
+//
+// El 15/09/2026 se leyó la base del aparato después de la bajada contra producción:
+// `clientes = 2000` redondos, y con esa cuenta (Super Admin) son 8.034. El catálogo y el
+// padrón se servían siempre con `LIMIT tope OFFSET 0` ordenados por nombre, y se marcaba
+// `truncado` al llegar al tope — pero no había por dónde seguir: la tanda siguiente pedía
+// exactamente lo mismo. La bajada se dio por buena con un cuarto de los clientes y **nadie
+// se enteró**, que es el patrón que más daño hace en este proyecto.
+//
+// Esta prueba falla si el encadenado deja de avanzar: si `continuar` desaparece, si no se
+// lee, o si el desplazamiento vuelve a cero.
+func TestElPadronSeSirveEnteroEnTandas(t *testing.T) {
+	q := nuevoEspejo()
+	stg := "STG"
+	const total = 7
+	for i := 0; i < total; i++ {
+		q.padron = append(q.padron, sqlc.ListarClientesRow{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("Cliente %02d", i),
+			Lat:            20.0,
+			Lng:            -75.0,
+			SucursalCodigo: &stg,
+		})
+	}
+	h := montarTab(t, q)
+	jwt := tokenTab(t, sucStg.String())
+
+	vistos := map[string]bool{}
+	continuar := ""
+	tandas := 0
+	for {
+		tandas++
+		if tandas > 10 {
+			t.Fatal("la cadena de tandas no termina")
+		}
+		url := "/api/sync/cambios?tope=3"
+		if continuar != "" {
+			url += "&continuar=" + continuar
+		}
+		w := pedirTab(t, h, http.MethodGet, url, jwt, "")
+		m := leerTab(t, w)
+
+		puestos, _, _ := conjuntoDe(t, m, "customers")
+		for id := range puestos {
+			if vistos[id] {
+				t.Fatalf("tanda %d: repitió un cliente ya servido (%s)", tandas, id)
+			}
+			vistos[id] = true
+		}
+
+		truncado, _ := m["truncado"].(bool)
+		if !truncado {
+			break
+		}
+		siguiente, _ := m["continuar"].(string)
+		if siguiente == "" {
+			t.Fatalf("tanda %d dijo «truncado» y no dijo por dónde seguir: %s",
+				tandas, w.Body.String())
+		}
+		if siguiente == continuar {
+			t.Fatalf("tanda %d: el cursor no avanza, la siguiente traería lo mismo", tandas)
+		}
+		continuar = siguiente
+	}
+
+	if len(vistos) != total {
+		t.Fatalf("se sirvieron %d clientes de %d: %v", len(vistos), total, vistos)
+	}
+	if tandas != 3 {
+		t.Fatalf("7 clientes de 3 en 3 son 3 tandas, no %d", tandas)
+	}
+}
+
+// El cursor lleva el `desde` de la PRIMERA tanda, y sin eso la segunda no emite nada.
+//
+// El catálogo y el padrón se filtran en Go contra el `desde` de la petición, y en una
+// bajada por diferencias ese `desde` avanza entre tandas. Si el cursor no conservara el
+// original, la tanda dos pagina hasta el final del padrón sin mandar una sola fila: el
+// aparato se queda con la primera tanda y con la sensación de haber terminado.
+func TestElCursorConservaElDesdeDeLaCadena(t *testing.T) {
+	q := nuevoEspejo()
+	stg := "STG"
+	ayer := time.Now().UTC().Add(-24 * time.Hour)
+	for i := 0; i < 4; i++ {
+		q.padron = append(q.padron, sqlc.ListarClientesRow{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("Cliente %02d", i),
+			Lat:            20.0,
+			Lng:            -75.0,
+			SucursalCodigo: &stg,
+			// Tocados AYER: con el `desde` de la primera tanda entran; con uno posterior,
+			// no.
+			SyncedAt: pgtype.Timestamptz{Time: ayer, Valid: true},
+		})
+	}
+	h := montarTab(t, q)
+	jwt := tokenTab(t, sucStg.String())
+
+	desde := ayer.Add(-time.Hour).Format(time.RFC3339)
+	w := pedirTab(t, h, http.MethodGet, "/api/sync/cambios?tope=2&desde="+desde, jwt, "")
+	m := leerTab(t, w)
+	primera, _, _ := conjuntoDe(t, m, "customers")
+	if len(primera) != 2 {
+		t.Fatalf("la primera tanda tenía que traer 2: %s", w.Body.String())
+	}
+	continuar, _ := m["continuar"].(string)
+	if continuar == "" {
+		t.Fatalf("sin cursor no hay segunda tanda: %s", w.Body.String())
+	}
+
+	// La segunda tanda va con el `hasta` que devolvió la primera —que es lo que hace el
+	// aparato— MÁS el cursor. Los clientes son de ayer, así que contra ese `desde` no
+	// pasarían: el cursor es lo único que los salva.
+	hasta := m["hasta"].(string)
+	w = pedirTab(t, h, http.MethodGet,
+		"/api/sync/cambios?tope=2&desde="+hasta+"&continuar="+continuar, jwt, "")
+	m = leerTab(t, w)
+	segunda, _, _ := conjuntoDe(t, m, "customers")
+	if len(segunda) != 2 {
+		t.Fatalf("los otros dos clientes se perdieron para siempre: %s", w.Body.String())
+	}
+	for id := range segunda {
+		if primera[id] {
+			t.Fatalf("la segunda tanda repitió lo ya servido: %s", id)
+		}
+	}
 }

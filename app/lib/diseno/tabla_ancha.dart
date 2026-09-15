@@ -84,12 +84,16 @@ TextStyle estiloDeCabecera() => Tipos.texto(
   tamano: 11,
   peso: FontWeight.w600,
   color: Colores.tintaSuave,
-  interletra: 0.9,
+  interletra: 0.4,
 );
 
 /// La cabecera lista para poner en un `DataColumn`.
-Widget cabecera(String texto) =>
-    Text(texto.toUpperCase(), style: estiloDeCabecera());
+///
+/// **Se queda con su literal**: en la de Next las versalitas las pone el CSS y
+/// el texto sigue siendo «Cliente». Pasarlo a mayusculas aqui cambiaria el dato
+/// que comparan las pruebas contra el pliego. El trabajo de rotulo lo hace el
+/// estilo.
+Widget cabecera(String texto) => Text(texto, style: estiloDeCabecera());
 
 /// El `DataTableThemeData` que usa una tabla de delivery: cabecera sobre papel,
 /// filas altas y la linea fina entre ellas.

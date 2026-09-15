@@ -59,12 +59,12 @@ class SelectorFiltro<T> extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          titulo.toUpperCase(),
+          titulo,
           style: Tipos.texto(
             tamano: 10,
             peso: FontWeight.w600,
             color: Colores.tintaSuave.withValues(alpha: 0.75),
-            interletra: 1,
+            interletra: 0.4,
           ),
         ),
         const SizedBox(height: 5),

@@ -73,9 +73,7 @@ class TarjetaDePedido extends StatelessWidget {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(Radios.lg),
-        side: BorderSide(
-          color: arrastrando ? Colores.primario : Colores.linea,
-        ),
+        side: BorderSide(color: arrastrando ? Colores.primario : Colores.linea),
       ),
       child: InkWell(
         onTap: onTap,

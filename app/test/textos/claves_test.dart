@@ -68,7 +68,7 @@ void main() {
         final meta = es['@$k'] as Map<String, Object?>?;
         final declarados =
             (meta?['placeholders'] as Map<String, Object?>?)?.keys.toSet() ??
-                <String>{};
+            <String>{};
         expect(
           declarados,
           usados,
@@ -80,7 +80,10 @@ void main() {
     test('la traducción NO lleva metadatos: los lleva solo la plantilla', () {
       // gen_l10n solo mira los `@clave` del fichero plantilla. Duplicarlos en
       // `en` es garantía de que un día digan cosas distintas.
-      expect(en.keys.where((k) => k.startsWith('@') && k != '@@locale'), isEmpty);
+      expect(
+        en.keys.where((k) => k.startsWith('@') && k != '@@locale'),
+        isEmpty,
+      );
     });
 
     test('cada texto de la plantilla dice de dónde salió', () {
@@ -108,8 +111,15 @@ void main() {
 
     test('ninguna choca con un miembro que la clase ya tiene', () {
       const reservadas = <String>{
-        'localeName', 'toString', 'hashCode', 'runtimeType', 'noSuchMethod',
-        'delegate', 'localizationsDelegates', 'supportedLocales', 'of',
+        'localeName',
+        'toString',
+        'hashCode',
+        'runtimeType',
+        'noSuchMethod',
+        'delegate',
+        'localizationsDelegates',
+        'supportedLocales',
+        'of',
       };
       expect(_claves(es).intersection(reservadas), isEmpty);
     });
@@ -121,9 +131,10 @@ void main() {
     final crudo = File(_fuenteNext).readAsStringSync();
     final original = RegExp(r"^\s*'([a-zA-Z]+\.[a-zA-Z0-9_.]+)':\s*'")
         .allMatches(
-          RegExp(r'const es: Dict = \{\n(.*?)\n\}\n', dotAll: true)
-              .firstMatch(crudo)!
-              .group(1)!,
+          RegExp(
+            r'const es: Dict = \{\n(.*?)\n\}\n',
+            dotAll: true,
+          ).firstMatch(crudo)!.group(1)!,
         )
         .map((m) => m.group(1)!)
         .toSet();
@@ -133,18 +144,25 @@ void main() {
       final trasladadas = <String>{
         for (final k in _claves(es))
           ...RegExp(r'De `([^`]+)` en delivery')
-              .allMatches((es['@$k']! as Map<String, Object?>)['description']! as String)
+              .allMatches(
+                (es['@$k']! as Map<String, Object?>)['description']! as String,
+              )
               .map((m) => m.group(1)!),
       };
       final sinTrasladar = original.difference(trasladadas);
-      expect(sinTrasladar, isEmpty, reason: 'se quedaron sin pasar: $sinTrasladar');
+      expect(
+        sinTrasladar,
+        isEmpty,
+        reason: 'se quedaron sin pasar: $sinTrasladar',
+      );
     });
 
     test('lo que NO viene de Next lleva el prefijo `nuevo`', () {
       // Regla 5 de PLAN.md §4.3: así se sabe siempre qué se comparó con la de
       // Next y qué es invención de esta aplicación.
       for (final k in _claves(es)) {
-        final desc = (es['@$k']! as Map<String, Object?>)['description']! as String;
+        final desc =
+            (es['@$k']! as Map<String, Object?>)['description']! as String;
         if (desc.contains('en delivery/src/lib/i18n.ts')) continue;
         expect(
           k.startsWith('nuevo'),
@@ -161,7 +179,8 @@ void main() {
 
     test('ninguna clave `nuevo` se cuela como traslado', () {
       for (final k in _claves(es).where((k) => k.startsWith('nuevo'))) {
-        final desc = (es['@$k']! as Map<String, Object?>)['description']! as String;
+        final desc =
+            (es['@$k']! as Map<String, Object?>)['description']! as String;
         expect(desc, isNot(contains('en delivery/src/lib/i18n.ts')));
       }
     });

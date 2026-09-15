@@ -6,6 +6,40 @@ import '../red/cliente_api.dart';
 import '../registro/registro.dart';
 import '../reloj.dart';
 
+/// POR DONDE VA LA BAJADA, para quien la este mirando.
+///
+/// Existe porque una rueda girando cuarenta segundos no dice nada: la persona
+/// que acaba de darle al boton necesita ver que la cosa avanza y por donde. Se
+/// avisa **por coleccion y por tanda**, que son las dos unidades en las que esto
+/// de verdad progresa.
+class AvanceDeBajada {
+  const AvanceDeBajada({
+    required this.coleccion,
+    required this.tanda,
+    required this.filas,
+  });
+
+  /// La clave de [Colecciones] que se esta aplicando ahora mismo.
+  final String coleccion;
+
+  /// En que tanda va, desde 1. Con `truncado` se encadenan varias.
+  final int tanda;
+
+  /// Filas puestas hasta este momento en esta bajada. Es lo que hace que el
+  /// numero se mueva cuando el servidor manda en tandas.
+  final int filas;
+
+  @override
+  String toString() =>
+      'AvanceDeBajada($coleccion, tanda: $tanda, filas: $filas)';
+}
+
+/// Quien mira la bajada avanzar. Es un aviso para pintar, **no una promesa**:
+/// se avisa ANTES de aplicar cada coleccion, y la transaccion que viene detras
+/// todavia se puede deshacer. Lo que de verdad quedo se cuenta despues, en la
+/// base (`recuento.dart`).
+typedef AvisoDeBajada = void Function(AvanceDeBajada);
+
 /// `GET /api/sync/cambios` — LA BAJADA DEL DIA.
 ///
 /// Es lo que hace que las pantallas dejen de decir «no se ha descargado
@@ -39,10 +73,21 @@ class Bajada {
 
   /// Cuantas tandas se encadenan como mucho cuando el servidor dice `truncado`.
   ///
-  /// Un tope y no un `while (truncado)`: si un dia el servidor devolviera
-  /// `truncado` sin avanzar la marca, un bucle sin tope se comeria la bateria y
-  /// la conexion del logistico en el patio del almacen y no acabaria nunca.
-  static const maximoDeTandas = 8;
+  /// Un tope y no un `while (truncado)`: un bucle sin tope se comeria la bateria
+  /// y la conexion del logistico en el patio del almacen.
+  ///
+  /// **Eran 8, y 8 no llegaban.** El servidor sirve hasta 2.000 filas por
+  /// coleccion y por tanda (`api/internal/api/espejo.go`, `TopeDeBajada`), asi
+  /// que ocho tandas topan en 16.000 clientes — y Santiago con Super Admin son
+  /// 8.034 de los 8.034 que hay, pero cualquier sucursal grande que crezca se
+  /// come el margen sin avisar. Cincuenta deja sitio de sobra y sigue siendo un
+  /// tope.
+  ///
+  /// Lo que de verdad arreglo el caso de los 2.000 clientes no fue este numero:
+  /// fue [ResumenDeBajada.entera] —que ahora DICE que se quedo a medias— y la
+  /// guarda de la marca que no avanza, abajo. El 15/09/2026 la bajada se dio por
+  /// buena con un cuarto de los clientes y nadie se entero.
+  static const maximoDeTandas = 50;
 
   /// Las colecciones que sirve `GET /api/sync/cambios`.
   ///
@@ -50,6 +95,40 @@ class Bajada {
   /// pedido— pero se marca igual: la franja de estado mira las nueve de
   /// `Colecciones.todas` y una sin marcar deja la pantalla diciendo «sin
   /// descargar» con los datos ya puestos.
+  ///
+  /// ## Por que `boardColumns` y `boardPlacements` NO estan aqui
+  ///
+  /// Decidido el 15/09/2026, al montar el ciclo de sincronizacion. Se quedan
+  /// donde estan —`ServicioTablero`, `GET /api/board`— por tres razones, y
+  /// cualquiera de las tres basta:
+  ///
+  ///  1. **El servidor no las sirve.** `sync/internal/sincro/servicio.go` lista
+  ///     exactamente ocho conjuntos: `orders`, `routes`, `customers`,
+  ///     `products`, `vehicles`, `branches`, `warehouses` y `settings`.
+  ///     `docs/tablero.md` §9 las da como algo que la sincronizacion **ganara**,
+  ///     no como algo que tenga. Ponerlas aqui hoy seria codigo que parece hecho
+  ///     y nunca recibe una fila — el peor estado en el que dejar esto.
+  ///  2. **No hay diferencias que bajar.** `/api/board` devuelve la FOTO entera
+  ///     de una sucursal, no `puestos`/`quitados`, y encima necesita saber que
+  ///     sucursal se mira; esta bajada es por diferencias y la sucursal le es
+  ///     opcional. Meter un reemplazo completo dentro de la transaccion de las
+  ///     diferencias son dos protocolos en el mismo sitio.
+  ///  3. **El tablero tiene una guarda que esta bajada NO puede tener.**
+  ///     `ServicioTablero.descargar` se niega a bajar si queda algo en la cola,
+  ///     porque la foto del servidor —que no sabe nada de las cuarenta tarjetas
+  ///     que se movieron esta tarde— las borraria de golpe y en silencio. Dentro
+  ///     de `_aplicar` esa guarda o se pierde, o envenena la bajada del dia
+  ///     entera: unas tarjetas sin subir dejarian a los pedidos, las rutas y los
+  ///     clientes sin actualizar.
+  ///
+  /// Lo que SI arregla el ciclo es el momento: al correr `subir` antes de
+  /// `bajar`, cuando el tablero se refresca la cola ya esta vacia y su guarda
+  /// deja pasar la bajada, que es lo que antes casi nunca ocurria.
+  ///
+  /// **El dia que el servidor las sirva de verdad** entran aqui como dos
+  /// colecciones mas, con sus `puestos` y sus `quitados`, y tienen que entrar en
+  /// la MISMA transaccion que el resto —igual que la frescura— para que un corte
+  /// no deje la marca movida sin las tarjetas detras.
   static const colecciones = <String>[
     Colecciones.pedidos,
     Colecciones.rutas,
@@ -66,11 +145,25 @@ class Bajada {
   /// pantalla de acceso, `FalloDeRed` se reintenta luego y **no** toca nada de lo
   /// que ya estaba bajado. Una bajada que falla nunca deja la base peor que
   /// antes: lo que ya habia sigue ahi y la marca no se mueve.
-  Future<ResumenDeBajada> ciclo({String? sucursal}) async {
+  Future<ResumenDeBajada> ciclo({
+    String? sucursal,
+    AvisoDeBajada? avisar,
+  }) async {
     var puestos = 0;
     var quitados = 0;
     var completa = false;
     var tandas = 0;
+    String? quedoPor;
+    String? marcaAnterior;
+    // POR DONDE SEGUIR, tal cual lo mando el servidor. **No se mira por dentro**:
+    // es suyo y lo que lleva dentro es cosa suya (`api/internal/api/espejo.go`).
+    //
+    // Hace falta porque el catalogo y el padron de clientes NO se pueden trocear
+    // por marca de tiempo —se ordenan por nombre, y miles de filas comparten el
+    // mismo `synced_at` porque PEDIDO las trae de una vez—, asi que `hasta` no
+    // dice por donde iban. Sin esto, `truncado` era una promesa que el servidor
+    // no podia cumplir: se pedia la tanda siguiente y llegaba la misma.
+    String? continuar;
 
     for (var vuelta = 0; vuelta < maximoDeTandas; vuelta++) {
       final desde = await _frescura.desde(Colecciones.pedidos);
@@ -78,28 +171,76 @@ class Bajada {
       final datos = await _cliente.pedir<Map<String, Object?>>(
         '/sync/cambios',
         params: <String, Object?>{
-          if (desde != null) 'desde': desde,
-          if (sucursal != null) 'sucursal': sucursal,
+          'desde': ?desde,
+          'sucursal': ?sucursal,
+          'continuar': ?continuar,
         },
       );
 
       tandas++;
       final hasta = datos['hasta'] as String?;
+      final continuarNuevo = datos['continuar'] as String?;
       completa = completa || datos['completa'] == true;
       final cambios = (datos['cambios'] as Map<Object?, Object?>?) ?? const {};
 
-      final cuenta = await _aplicar(cambios, hasta: hasta, completa: completa);
+      final cuenta = await _aplicar(
+        cambios,
+        hasta: hasta,
+        completa: completa,
+        avisar: avisar,
+        tanda: tandas,
+        yaPuestas: puestos,
+      );
       puestos += cuenta.puestos;
       quitados += cuenta.quitados;
 
+      // CUPO TODO: se acabo, y la bajada esta entera.
       if (datos['truncado'] != true) break;
+
+      // A partir de aqui el servidor dijo que queda mas. Todo lo que corte el
+      // bucle de ahora en adelante deja la bajada A MEDIAS, y eso tiene que
+      // SALIR en el resumen: ese es el fallo de verdad del 15/09/2026, no que se
+      // cortara, sino que se cortara callandoselo.
 
       // Sin marca nueva no hay por donde seguir: pedir otra vez desde el mismo
       // sitio devolveria lo mismo para siempre.
       if (hasta == null) {
+        quedoPor = 'el servidor dijo que quedaba mas y no mando la marca';
         Registro.aviso('la bajada vino truncada y sin `hasta`; se para aqui');
         break;
       }
+
+      // NADA SE MOVIO. Es el caso que se comio los clientes: el servidor
+      // contesta `truncado` pero no avanza ni la marca ni el cursor, asi que la
+      // tanda siguiente pide exactamente lo mismo y aplica exactamente las
+      // mismas filas. Sin esta guarda se dan `maximoDeTandas` vueltas
+      // escribiendo dos mil clientes una y otra vez, se sale del bucle con cara
+      // de haber terminado y el aparato se queda con un cuarto de los clientes
+      // —2.000 de 8.034— sin una sola linea en el registro.
+      //
+      // **Las dos cosas y no solo la marca**: los pedidos se continuan por la
+      // marca y el padron por el cursor, asi que una tanda que solo mueve el
+      // cursor SI avanza, y cortarla ahi seria volver a dejarse clientes atras.
+      if (hasta == marcaAnterior && continuarNuevo == continuar) {
+        quedoPor =
+            'el servidor dijo que quedaba mas y no avanzo ni la marca ($hasta) '
+            'ni el cursor: pedir otra vez traeria lo mismo';
+        Registro.fallo('la bajada no avanza: $quedoPor');
+        break;
+      }
+      marcaAnterior = hasta;
+      continuar = continuarNuevo;
+
+      // EL TOPE DE TANDAS. Se mira aqui, con `truncado` puesto, para poder
+      // decirlo: quedarse a medias por el tope es distinto de haber terminado.
+      if (vuelta == maximoDeTandas - 1) {
+        quedoPor =
+            'se llego al tope de $maximoDeTandas tandas y el servidor seguia '
+            'diciendo que queda mas';
+        Registro.fallo('la bajada se corto: $quedoPor');
+        break;
+      }
+
       Registro.info('la bajada venia truncada: otra tanda desde $hasta');
     }
 
@@ -108,6 +249,7 @@ class Bajada {
       quitados: quitados,
       completa: completa,
       tandas: tandas,
+      quedoPor: quedoPor,
     );
   }
 
@@ -118,7 +260,10 @@ class Bajada {
   /// que no hay diferencias posibles— y por eso aqui se reemplaza la copia
   /// entera en vez de mezclarla. Desde el almacen se mide lo que se le cobra al
   /// cliente por el domicilio: uno viejo cobra mal cada entrega del dia.
-  Future<int> almacenes() async {
+  Future<int> almacenes({AvisoDeBajada? avisar, int tanda = 1}) async {
+    avisar?.call(
+      AvanceDeBajada(coleccion: Colecciones.almacenes, tanda: tanda, filas: 0),
+    );
     final datos = await _cliente.pedir<Map<String, Object?>>('/almacenes');
     final sucursales = (datos['sucursales'] as List<Object?>?) ?? const [];
 
@@ -148,11 +293,7 @@ class Bajada {
           puestos++;
         }
       }
-      await _marcar(
-        const [Colecciones.almacenes],
-        hasta: null,
-        completa: true,
-      );
+      await _marcar(const [Colecciones.almacenes], hasta: null, completa: true);
     });
     return puestos;
   }
@@ -161,12 +302,27 @@ class Bajada {
     Map<Object?, Object?> cambios, {
     required String? hasta,
     required bool completa,
+    AvisoDeBajada? avisar,
+    int tanda = 1,
+    int yaPuestas = 0,
   }) async {
     var puestos = 0;
     var quitados = 0;
 
     await _base.transaction(() async {
       for (final coleccion in colecciones) {
+        // El aviso va ANTES de aplicar y **aunque la coleccion no venga en esta
+        // tanda**: lo que se pinta es «por donde va», y una coleccion que se
+        // salta sin decirlo deja la pantalla parada en la anterior como si se
+        // hubiera colgado.
+        avisar?.call(
+          AvanceDeBajada(
+            coleccion: coleccion,
+            tanda: tanda,
+            filas: yaPuestas + puestos,
+          ),
+        );
+
         final conjunto = cambios[coleccion];
         if (conjunto is! Map<Object?, Object?>) continue;
 
@@ -405,13 +561,9 @@ class Bajada {
         await (_base.delete(
           _base.orderItems,
         )..where((r) => r.orderId.equals(id))).go();
-        await (_base.delete(
-          _base.orders,
-        )..where((p) => p.id.equals(id))).go();
+        await (_base.delete(_base.orders)..where((p) => p.id.equals(id))).go();
       case Colecciones.rutas:
-        await (_base.delete(
-          _base.routes,
-        )..where((r) => r.id.equals(id))).go();
+        await (_base.delete(_base.routes)..where((r) => r.id.equals(id))).go();
       case Colecciones.clientes:
         await (_base.delete(
           _base.customers,
@@ -464,6 +616,7 @@ class ResumenDeBajada {
     required this.quitados,
     required this.completa,
     required this.tandas,
+    this.quedoPor,
   });
 
   static const nada = ResumenDeBajada(
@@ -475,13 +628,32 @@ class ResumenDeBajada {
 
   final int puestos;
   final int quitados;
+
+  /// `true` si alguna tanda fue una carga inicial completa, no por diferencias.
   final bool completa;
+
   final int tandas;
+
+  /// POR QUE SE QUEDO A MEDIAS, en cristiano. `null` cuando no se quedo.
+  ///
+  /// Esto es lo que faltaba el 15/09/2026. La bajada encadenaba tandas mientras
+  /// viniera `truncado`, se quedaba sin cuerda —marca que no avanza, tope de
+  /// tandas, `hasta` que no vino— y devolvia un resumen indistinguible del de
+  /// una bajada entera. El aparato se quedo con 2.000 clientes de 8.034 y todo
+  /// dijo que habia ido bien.
+  ///
+  /// Un fallo que no revienta y da un numero distinto es el que mas dano hace
+  /// aqui: nadie se entera hasta que no cuadra el inventario.
+  final String? quedoPor;
+
+  /// `true` cuando el servidor no dejo nada atras.
+  bool get entera => quedoPor == null;
 
   @override
   String toString() =>
       'ResumenDeBajada(puestos: $puestos, quitados: $quitados, '
-      'completa: $completa, tandas: $tandas)';
+      'completa: $completa, tandas: $tandas'
+      '${quedoPor == null ? "" : ", a medias: $quedoPor"})';
 }
 
 class _Cuenta {

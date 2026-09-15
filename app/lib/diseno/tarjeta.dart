@@ -156,23 +156,39 @@ class TarjetaDeCifra extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 // `text-[11px] font-semibold uppercase tracking-[0.14em]`.
+                //
+                // **En su literal, sin pasar a mayusculas.** En la de Next las
+                // versalitas las pone el CSS y el texto del documento sigue
+                // siendo «Pedidos sin ruta»; aqui `toUpperCase()` cambiaria el
+                // dato, y los literales de estas cuatro etiquetas se comparan
+                // uno a uno contra el pliego (§1). Lo que hace el trabajo de
+                // «rotulo» es el tamano, el peso y el interletraje.
                 Text(
-                  etiqueta.toUpperCase(),
+                  etiqueta,
                   style: Tipos.texto(
                     tamano: 11,
                     peso: FontWeight.w600,
                     color: Colores.tintaSuave,
-                    interletra: 11 * 0.14,
+                    interletra: 0.5,
                   ),
                 ),
                 const SizedBox(height: 10),
                 // `text-[2.1rem] font-extrabold font-display tabular-nums`.
+                // La cifra va en TINTA, como en la de Next... salvo en ambar.
+                //
+                // El ambar de esta aplicacion significa «mira esto» (§1: la
+                // tarjeta de pedidos sin ruta se pinta en ambar con > 0), y una
+                // cifra que avisa tiene que avisar ella, no sólo su franja. Los
+                // otros tres tintes —primario, verde, naranja— son de identidad,
+                // no de aviso, y se quedan en la franja y en el icono.
                 Text(
                   valor,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: tema.textTheme.displaySmall?.copyWith(
-                    color: Colores.tinta,
+                    color: tinte == Colores.ambar
+                        ? Colores.ambar
+                        : Colores.tinta,
                     fontFeatures: Tipos.cifrasEnColumna,
                   ),
                 ),

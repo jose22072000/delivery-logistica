@@ -25,7 +25,9 @@ void main() {
     final sospechosas = RegExp(r"""['"]/api/""");
 
     final fallos = <String>[];
-    for (final fichero in Directory('lib').listSync(recursive: true).whereType<File>()) {
+    for (final fichero in Directory(
+      'lib',
+    ).listSync(recursive: true).whereType<File>()) {
       if (!fichero.path.endsWith('.dart')) continue;
       // La puerta de auth es el UNICO sitio donde `/api/` es correcto dentro de una
       // cadena: alli la base es `${Entorno.authUrl}/api/auth` y esa la monta

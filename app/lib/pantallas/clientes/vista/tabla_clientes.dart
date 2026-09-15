@@ -38,9 +38,8 @@ class TablaClientes extends StatelessWidget {
               : medidas.maxWidth,
         ),
         child: Theme(
-          data: Theme.of(
-            context,
-          ).copyWith(dataTableTheme: temaDeTabla(context)),
+          data: Theme.of(context)
+              .copyWith(dataTableTheme: temaDeTabla(context)),
           child: DataTable(
             columns: [
               DataColumn(label: cabecera('Cliente')),

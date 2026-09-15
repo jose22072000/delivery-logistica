@@ -20,6 +20,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -499,6 +500,65 @@ type CambiosSalida struct {
 	// decirlo en la pantalla.
 	Faltan []string `json:"faltan,omitempty"`
 	Aviso  string   `json:"aviso,omitempty"`
+	// Continuar es POR DÓNDE SEGUIR en las colecciones que no se pueden trocear por
+	// marca de tiempo: el catálogo y el padrón de clientes. El aparato lo devuelve tal
+	// cual en la petición siguiente (`?continuar=…`) y no lo mira por dentro.
+	//
+	// EXISTE PORQUE `truncado` SIN ESTO ES MENTIRA. Estas dos colecciones se ordenan por
+	// nombre y no por una marca que avance, así que decir «queda más» y devolver sólo
+	// `hasta` deja al aparato pidiendo lo mismo una y otra vez. Contra producción, el
+	// 15/09/2026, eso dejó 2.000 clientes redondos de 8.034 en el aparato y la bajada se
+	// dio por buena — el modo de fallo que no revienta y que nadie ve hasta que no cuadra
+	// el inventario.
+	Continuar string `json:"continuar,omitempty"`
+}
+
+// porDondeSeguir es lo que viaja dentro de `continuar`.
+//
+// Lleva `Desde` además de los dos desplazamientos, y ésa es la parte que no se ve venir:
+// el catálogo y los clientes se filtran en Go contra el `desde` de la petición, y en la
+// segunda tanda ese `desde` ya es el `hasta` de la primera. Sin conservar el original, la
+// tanda dos pagina hasta el final del padrón sin emitir una sola fila.
+type porDondeSeguir struct {
+	// Desde es el de la PRIMERA tanda de la cadena. Vacío = carga inicial.
+	Desde string `json:"d,omitempty"`
+	// Clientes y Productos son cuántas filas ya se sirvieron de cada uno.
+	Clientes  int32 `json:"c,omitempty"`
+	Productos int32 `json:"p,omitempty"`
+}
+
+// leerPorDondeSeguir saca el cursor de la query. Uno ilegible se trata como «empieza de
+// cero» y no como un error: lo peor que pasa es que el aparato se baje otra vez una tanda
+// que ya tenía, y eso se resuelve solo con el `insertOnConflictUpdate` de allá. Cortarle
+// la bajada del día por un parámetro mal copiado sería mucho peor.
+func leerPorDondeSeguir(crudo string) porDondeSeguir {
+	var d porDondeSeguir
+	crudo = strings.TrimSpace(crudo)
+	if crudo == "" {
+		return d
+	}
+	bruto, err := base64.RawURLEncoding.DecodeString(crudo)
+	if err != nil {
+		return porDondeSeguir{}
+	}
+	if err := json.Unmarshal(bruto, &d); err != nil {
+		return porDondeSeguir{}
+	}
+	if d.Clientes < 0 {
+		d.Clientes = 0
+	}
+	if d.Productos < 0 {
+		d.Productos = 0
+	}
+	return d
+}
+
+func (d porDondeSeguir) escribir() string {
+	bruto, err := json.Marshal(d)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(bruto)
 }
 
 // TopeDeBajada acota cada colección. Si alguna lo toca, `truncado` va a true y el aparato
@@ -542,19 +602,37 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 		hasta = t.UTC()
 	}
 
+	// POR DÓNDE VA LA CADENA. En la primera tanda viene vacío.
+	seguir := leerPorDondeSeguir(q.Get("continuar"))
+
+	// El `desde` con el que se filtran el catálogo y los clientes es el de la PRIMERA
+	// tanda, no el de ésta: ver `porDondeSeguir`.
+	desdeDelPadron := desde
+	if seguir.Desde != "" {
+		if t, err := time.Parse(time.RFC3339Nano, seguir.Desde); err == nil {
+			desdeDelPadron = &t
+		}
+	} else if desde != nil {
+		seguir.Desde = desde.Format(time.RFC3339Nano)
+	}
+
 	salida := CambiosSalida{
 		Hasta:    hasta,
 		Completa: desde == nil,
 		Cambios:  map[string]Conjunto{},
 	}
 	truncado := false
+	// Lo que va a pedir la tanda siguiente. Se copia el cursor de entrada y se van
+	// moviendo los desplazamientos de lo que no cupo.
+	siguiente := seguir
 
 	// La sucursal de la bajada se resuelve ARRIBA porque los pedidos la necesitan igual
 	// que el tablero: el alcance va aparte y en AND, así que esto estrecha y nunca amplía.
 	sucursal := sucursalDeLaBajada(r, a)
 
+	tope := int32(topeDeLaBajada(q))
 	ventana := alcance.VentanaDeBajada{
-		Desde: desde, Hasta: hasta, Sucursal: sucursal, Tope: int32(topeDeLaBajada(q)),
+		Desde: desde, Hasta: hasta, Sucursal: sucursal, Tope: tope,
 	}
 
 	// --- Pedidos ------------------------------------------------------------
@@ -638,15 +716,21 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	salida.Cambios["routes"] = conjunto(puestos)
 
 	// --- Catálogo -----------------------------------------------------------
-	productos, err := a.EspejoListarProductos(r.Context(), TopeDeBajada)
+	productos, err := a.EspejoListarProductos(r.Context(), tope, seguir.Productos)
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
-	truncado = truncado || len(productos) >= TopeDeBajada
+	// LA TANDA SIGUIENTE EMPIEZA DONDE ACABÓ ÉSTA. Antes esto era
+	// `truncado = truncado || len(productos) >= TopeDeBajada` y nada más: se decía que
+	// quedaba más y no había por dónde seguir.
+	if int32(len(productos)) >= tope {
+		truncado = true
+		siguiente.Productos = seguir.Productos + int32(len(productos))
+	}
 	puestos = nil
 	for _, p := range productos {
-		if !cambioDesde(p.UpdatedAt, desde) {
+		if !cambioDesde(p.UpdatedAt, desdeDelPadron) {
 			continue
 		}
 		puestos = append(puestos, map[string]any{
@@ -662,15 +746,18 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	// OJO: los clientes se filtran por `synced_at` y no por `updated_at`, porque es lo
 	// único que trae la consulta. Significan cosas parecidas pero no iguales —`synced_at`
 	// es «cuándo lo trajo PEDIDO»—, y mientras sea eso lo que hay, es lo que se usa.
-	clientes, err := a.EspejoListarClientes(r.Context(), TopeDeBajada)
+	clientes, err := a.EspejoListarClientes(r.Context(), tope, seguir.Clientes)
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
-	truncado = truncado || len(clientes) >= TopeDeBajada
+	if int32(len(clientes)) >= tope {
+		truncado = true
+		siguiente.Clientes = seguir.Clientes + int32(len(clientes))
+	}
 	puestos = nil
 	for _, c := range clientes {
-		if !cambioDesde(c.SyncedAt, desde) {
+		if !cambioDesde(c.SyncedAt, desdeDelPadron) {
 			continue
 		}
 		puestos = append(puestos, map[string]any{
@@ -788,6 +875,14 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 		"borró: se pide allí"
 
 	salida.Truncado = truncado
+	if truncado {
+		// POR DÓNDE SEGUIR, siempre que se diga que queda más. Va incluso cuando lo que
+		// quedó corto fueron los pedidos —que se continúan por `hasta`— porque el cursor
+		// lleva además el `desde` original de la cadena, y sin él la tanda siguiente
+		// filtraría el padrón de clientes contra una marca que ya avanzó y no emitiría
+		// una sola fila.
+		salida.Continuar = siguiente.escribir()
+	}
 	httpx.JSON(w, r, http.StatusOK, salida)
 }
 

@@ -94,8 +94,10 @@ void main() {
       // El pliego usa `…` y `—`, no tres puntos ni un guion normal.
       expect(es.comunCargando, 'Cargando...');
       expect(es.ubicacionBuscando, 'Buscando ubicación…');
-      expect(es.ubicacionNoEncontrado,
-          'No se encontró. Sé más específico, pega coordenadas, o usa el mapa.');
+      expect(
+        es.ubicacionNoEncontrado,
+        'No se encontró. Sé más específico, pega coordenadas, o usa el mapa.',
+      );
     });
   });
 
@@ -113,8 +115,14 @@ void main() {
     test('los marcadores siguen colocando el número en su sitio', () {
       expect(es.rutasParadasKm('12', '84'), '12 paradas · 84 km');
       expect(en.rutasParadasKm('12', '84'), '12 stops · 84 km');
-      expect(es.usuariosActividad('9', '3', '2'), '9 órdenes, 3 rutas, 2 vehículos');
-      expect(en.usuariosActividad('9', '3', '2'), '9 orders, 3 routes, 2 vehicles');
+      expect(
+        es.usuariosActividad('9', '3', '2'),
+        '9 órdenes, 3 rutas, 2 vehículos',
+      );
+      expect(
+        en.usuariosActividad('9', '3', '2'),
+        '9 orders, 3 routes, 2 vehicles',
+      );
     });
   });
 
@@ -132,14 +140,23 @@ void main() {
     });
 
     test('ningún texto del ARB usa plural{} ni select{} de ICU', () {
-      final arb = jsonDecode(File('lib/textos/arb/app_es.arb').readAsStringSync())
-          as Map<String, Object?>;
+      final arb = jsonDecode(
+        File('lib/textos/arb/app_es.arb').readAsStringSync(),
+      ) as Map<String, Object?>;
 
       for (final e in arb.entries) {
         if (e.key.startsWith('@')) continue;
         final v = e.value! as String;
-        expect(v, isNot(contains(', plural,')), reason: '${e.key} pluraliza con ICU');
-        expect(v, isNot(contains(', select,')), reason: '${e.key} usa select de ICU');
+        expect(
+          v,
+          isNot(contains(', plural,')),
+          reason: '${e.key} pluraliza con ICU',
+        );
+        expect(
+          v,
+          isNot(contains(', select,')),
+          reason: '${e.key} usa select de ICU',
+        );
       }
     });
   });
@@ -155,8 +172,14 @@ void main() {
       expect(TextoPostDespacho.titulo, 'Post-despacho');
       expect(TextoPostDespacho.seccionQueda, 'Tiene que quedar en el camión');
       expect(TextoPostDespacho.seccionDeQuien, 'De quién es lo que vuelve');
-      expect(TextoPostDespacho.nadaQueda, 'Nada: se entregó todo lo que salió.');
-      expect(TextoPostDespacho.todoEntregado, 'Todas las paradas se entregaron.');
+      expect(
+        TextoPostDespacho.nadaQueda,
+        'Nada: se entregó todo lo que salió.',
+      );
+      expect(
+        TextoPostDespacho.todoEntregado,
+        'Todas las paradas se entregaron.',
+      );
       expect(TextoPostDespacho.firmaEntrego, 'Entregó (chofer)');
       expect(TextoPostDespacho.firmaRecibio, 'Recibió en almacén');
     });
@@ -208,12 +231,15 @@ void main() {
       expect(idiomas.map((l) => l.languageCode), <String>['es', 'en']);
     });
 
-    test('la lista de la casa y la que declara la clase generada coinciden', () {
-      expect(
-        Textos.supportedLocales.map((l) => l.languageCode).toSet(),
-        idiomas.map((l) => l.languageCode).toSet(),
-      );
-    });
+    test(
+      'la lista de la casa y la que declara la clase generada coinciden',
+      () {
+        expect(
+          Textos.supportedLocales.map((l) => l.languageCode).toSet(),
+          idiomas.map((l) => l.languageCode).toSet(),
+        );
+      },
+    );
 
     test('van las delegaciones de Material, no solo las nuestras', () {
       // Sin ellas, un selector de fecha sale en inglés dentro de una pantalla

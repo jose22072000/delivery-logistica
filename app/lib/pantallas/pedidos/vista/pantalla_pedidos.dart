@@ -67,9 +67,7 @@ class PantallaPedidos extends ConsumerWidget {
               // la frescura global; esta dice la de las colecciones que se estan
               // mirando, que es lo que decide si se arma la ruta de hoy o la de
               // ayer (caso S8).
-              const BarraDeDatos(
-                colecciones: ColeccionesDePantalla.pedidos,
-              ),
+              const BarraDeDatos(colecciones: ColeccionesDePantalla.pedidos),
             ],
           ),
           if (filtros.arranqueAcotado) const _FranjaAzul(),
@@ -422,9 +420,7 @@ class _TablaPreDespacho extends StatelessWidget {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Theme(
-        data: Theme.of(
-          context,
-        ).copyWith(dataTableTheme: temaDeTabla(context)),
+        data: Theme.of(context).copyWith(dataTableTheme: temaDeTabla(context)),
         child: DataTable(
           columns: [
             DataColumn(label: cabecera('Producto')),
@@ -457,8 +453,6 @@ class _TablaPreDespacho extends StatelessWidget {
 
   /// Las cifras de la tabla, en mono y de ancho fijo: se comparan de arriba
   /// abajo y con la proporcional las unidades bailan de fila a fila.
-  static Widget _cifra(String texto) => Text(
-    texto,
-    style: Tipos.mono(tamano: 13, color: Colores.tinta),
-  );
+  static Widget _cifra(String texto) =>
+      Text(texto, style: Tipos.mono(tamano: 13, color: Colores.tinta));
 }

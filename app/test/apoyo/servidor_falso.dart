@@ -5,12 +5,23 @@ import 'package:dio/dio.dart';
 
 /// Una peticion que llego al servidor falso.
 class PeticionVista {
-  PeticionVista(this.metodo, this.ruta, this.cabeceras, this.cuerpo);
+  PeticionVista(
+    this.metodo,
+    this.ruta,
+    this.cabeceras,
+    this.cuerpo, [
+    this.parametros = const <String, Object?>{},
+  ]);
 
   final String metodo;
   final String ruta;
   final Map<String, Object?> cabeceras;
   final Object? cuerpo;
+
+  /// Lo que iba en la direccion. La bajada manda ahi el `desde`, que es la
+  /// marca que dio el SERVIDOR: si se mandara otra cosa, el aparato se saltaria
+  /// cambios para siempre sin que nadie lo note.
+  final Map<String, Object?> parametros;
 
   @override
   String toString() => '$metodo $ruta';
@@ -37,9 +48,8 @@ class ServidorFalso implements HttpClientAdapter {
 
   final List<PeticionVista> vistas = <PeticionVista>[];
 
-  int cuantas(String metodo, String ruta) => vistas
-      .where((p) => p.metodo == metodo && p.ruta.endsWith(ruta))
-      .length;
+  int cuantas(String metodo, String ruta) =>
+      vistas.where((p) => p.metodo == metodo && p.ruta.endsWith(ruta)).length;
 
   @override
   Future<ResponseBody> fetch(
@@ -52,6 +62,7 @@ class ServidorFalso implements HttpClientAdapter {
       opciones.path,
       Map<String, Object?>.from(opciones.headers),
       opciones.data,
+      Map<String, Object?>.from(opciones.queryParameters),
     );
     vistas.add(peticion);
 

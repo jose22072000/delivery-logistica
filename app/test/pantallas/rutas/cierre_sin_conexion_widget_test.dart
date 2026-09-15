@@ -126,69 +126,66 @@ void main() {
   Finder botonDeParada(String texto, int parada) =>
       find.widgetWithText(OutlinedButton, texto).at(parada + 1);
 
-  testWidgets(
-    'sin red: se marca, se cierra la base, se reabre y SIGUE marcado',
-    (tester) async {
-      await pintar(tester);
+  testWidgets('sin red: se marca, se cierra la base, se reabre y SIGUE marcado', (
+    tester,
+  ) async {
+    await pintar(tester);
 
-      // Se marca como en el patio: dos paradas, la tercera se queda sin marcar
-      // porque el camion vuelve con ella.
-      await tester.tap(botonDeParada('Entregado', 0));
-      await asentar(tester);
-      await tester.tap(botonDeParada('Devuelto', 1));
-      await asentar(tester);
+    // Se marca como en el patio: dos paradas, la tercera se queda sin marcar
+    // porque el camion vuelve con ella.
+    await tester.tap(botonDeParada('Entregado', 0));
+    await asentar(tester);
+    await tester.tap(botonDeParada('Devuelto', 1));
+    await asentar(tester);
 
-      await tester.tap(
-        find.widgetWithText(FilledButton, 'Guardar 2 marcada(s)'),
-      );
-      await asentar(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Guardar 2 marcada(s)'));
+    await asentar(tester);
 
-      // Se pinta como hecho en el momento, sin esperar a nadie.
-      expect(find.text(CierreDeRuta.exito), findsOneWidget);
+    // Se pinta como hecho en el momento, sin esperar a nadie.
+    expect(find.text(CierreDeRuta.exito), findsOneWidget);
 
-      // El apunte esta en la cola con **la hora del aparato**.
-      //
-      // Se lee con `lote()` y dentro de `runAsync`: `pendientes()` es un flujo de
-      // Drift cuyo primer valor llega por un temporizador, y en un test de widget
-      // el tiempo no corre solo — `await ….first` se quedaria esperando para
-      // siempre.
-      final pendientes = (await tester.runAsync(
-        ColaDeSalida(base, reloj: () => laHoraDelPatio).lote,
-      ))!;
-      expect(pendientes.length, 1);
-      expect(pendientes.single.ruta, '/routes/R1/results');
-      expect(
-        pendientes.single.hechoAt,
-        laHoraDelPatio,
-        reason: 'la hora del patio, no la de la subida',
-      );
+    // El apunte esta en la cola con **la hora del aparato**.
+    //
+    // Se lee con `lote()` y dentro de `runAsync`: `pendientes()` es un flujo de
+    // Drift cuyo primer valor llega por un temporizador, y en un test de widget
+    // el tiempo no corre solo — `await ….first` se quedaria esperando para
+    // siempre.
+    final pendientes = (await tester.runAsync(
+      ColaDeSalida(base, reloj: () => laHoraDelPatio).lote,
+    ))!;
+    expect(pendientes.length, 1);
+    expect(pendientes.single.ruta, '/routes/R1/results');
+    expect(
+      pendientes.single.hechoAt,
+      laHoraDelPatio,
+      reason: 'la hora del patio, no la de la subida',
+    );
 
-      // ── Aqui es donde se cae lo que sólo estaba en memoria ────────────────
-      // Se cierra la base y se vuelve a abrir el MISMO fichero. Es lo que le
-      // pasa a la aplicacion cuando alguien la desliza fuera, o cuando el
-      // telefono se apaga en el patio.
-      await desmontar(tester);
-      await tester.runAsync(() async {
-        await base.close();
-        abrir();
-      });
+    // ── Aqui es donde se cae lo que sólo estaba en memoria ────────────────
+    // Se cierra la base y se vuelve a abrir el MISMO fichero. Es lo que le
+    // pasa a la aplicacion cuando alguien la desliza fuera, o cuando el
+    // telefono se apaga en el patio.
+    await desmontar(tester);
+    await tester.runAsync(() async {
+      await base.close();
+      abrir();
+    });
 
-      // Y se vuelve a abrir el cierre: **se parte de lo ya guardado**.
-      await pintar(tester);
-      expect(find.text('Guardar 2 marcada(s)'), findsOneWidget);
-      expect(
-        find.text('1 sin marcar · cuentan como que siguen en el camión'),
-        findsOneWidget,
-      );
+    // Y se vuelve a abrir el cierre: **se parte de lo ya guardado**.
+    await pintar(tester);
+    expect(find.text('Guardar 2 marcada(s)'), findsOneWidget);
+    expect(
+      find.text('1 sin marcar · cuentan como que siguen en el camión'),
+      findsOneWidget,
+    );
 
-      // Y el apunte sigue en la cola, con su hora: reabrir no lo da por subido.
-      final trasReabrir = (await tester.runAsync(
-        ColaDeSalida(base, reloj: () => laHoraDelPatio).lote,
-      ))!;
-      expect(trasReabrir.length, 1);
-      expect(trasReabrir.single.hechoAt, laHoraDelPatio);
+    // Y el apunte sigue en la cola, con su hora: reabrir no lo da por subido.
+    final trasReabrir = (await tester.runAsync(
+      ColaDeSalida(base, reloj: () => laHoraDelPatio).lote,
+    ))!;
+    expect(trasReabrir.length, 1);
+    expect(trasReabrir.single.hechoAt, laHoraDelPatio);
 
-      await desmontar(tester);
-    },
-  );
+    await desmontar(tester);
+  });
 }

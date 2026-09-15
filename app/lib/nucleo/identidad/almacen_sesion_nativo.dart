@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../registro/registro.dart';
 import 'almacen_sesion.dart';
 import 'sesion.dart';
 
@@ -22,11 +23,34 @@ class AlmacenSeguro implements AlmacenDeSesion {
 
   static const _clave = 'reparto.sesion';
 
+  /// La clave de la ida y vuelta de [comprobar]. Aparte de la de la sesion para
+  /// no tocarla: comprobar no puede ser lo que rompa lo que se quiere proteger.
+  static const _claveDePrueba = 'reparto.comprobacion';
+
   final FlutterSecureStorage _caja;
 
+  /// La sesion guardada, o `null`. **No lanza nunca** — ver la regla en
+  /// `almacen_sesion.dart`.
+  ///
+  /// El `try` envuelve TAMBIEN la lectura, y ese es el arreglo del 15/09/2026:
+  /// antes solo envolvia el `jsonDecode`, asi que un fallo del almacen del
+  /// sistema —en Linux, `flutter_secure_storage` habla con el servicio de
+  /// secretos por D-Bus y eso se cae de mil maneras— subia hasta el portero,
+  /// que lo traducia a «no hay sesion» y dejaba a la persona delante de un
+  /// formulario mudo con sus datos en el disco.
   @override
   Future<Sesion?> leer() async {
-    final crudo = await _caja.read(key: _clave);
+    final String? crudo;
+    try {
+      crudo = await _caja.read(key: _clave);
+    } on Object catch (e, pila) {
+      // Que NO se borre nada aqui. Un almacen que hoy no contesta puede
+      // contestar mañana, y borrar el par por un fallo del sistema es dejar a
+      // alguien fuera en la calle — la regla 3 de `identidad.md` aplicada al
+      // disco en vez de a la red.
+      Registro.fallo('el almacen del sistema no dejo leer la sesion', e, pila);
+      return null;
+    }
     if (crudo == null) return null;
     try {
       return Sesion.deJson(jsonDecode(crudo) as Map<String, Object?>);
@@ -38,10 +62,69 @@ class AlmacenSeguro implements AlmacenDeSesion {
     }
   }
 
+  /// Guarda el par **y comprueba que se puede volver a leer**.
+  ///
+  /// La comprobacion no sobra. En Linux el almacen acepta la escritura —el
+  /// secreto queda en el llavero, se puede leer el fichero— y despues
+  /// `read` no encuentra nada: la sesion estaba guardada y perdida a la vez.
+  /// Sin leerla de vuelta, eso no se nota hasta el siguiente arranque, que es
+  /// justo cuando ya no hay nadie a quien preguntar.
   @override
-  Future<void> guardar(Sesion sesion) =>
-      _caja.write(key: _clave, value: jsonEncode(sesion.aJson()));
+  Future<bool> guardar(Sesion sesion) async {
+    final texto = jsonEncode(sesion.aJson());
+    try {
+      await _caja.write(key: _clave, value: texto);
+      final vuelta = await _caja.read(key: _clave);
+      if (vuelta == texto) return true;
+      Registro.fallo(
+        'el almacen del sistema acepto la sesion y luego no la encuentra: '
+        'este aparato no va a poder trabajar sin senal',
+      );
+      return false;
+    } on Object catch (e, pila) {
+      Registro.fallo(
+        'el almacen del sistema no dejo guardar la sesion',
+        e,
+        pila,
+      );
+      return false;
+    }
+  }
 
   @override
-  Future<void> borrar() => _caja.delete(key: _clave);
+  Future<void> borrar() async {
+    try {
+      await _caja.delete(key: _clave);
+    } on Object catch (e) {
+      // Salir tiene que poder salir. Si el almacen no deja borrar, el par
+      // caduca solo y lo que no puede pasar es que la persona se quede dentro.
+      Registro.aviso('el almacen del sistema no dejo borrar la sesion: $e');
+    }
+  }
+
+  /// Una ida y vuelta de verdad, con su propia clave y limpiando detras.
+  ///
+  /// No se mira si el plugin esta montado: el caso que se vio en Linux es
+  /// exactamente uno en el que el plugin esta montado, contesta que si a la
+  /// escritura y devuelve vacio en la lectura.
+  @override
+  Future<SaludDelAlmacen> comprobar() async {
+    // Un valor distinto cada vez: uno fijo no distingue «se leyo lo que acabo
+    // de escribir» de «quedo ahi de la vez anterior».
+    final testigo = DateTime.now().microsecondsSinceEpoch.toString();
+    try {
+      await _caja.write(key: _claveDePrueba, value: testigo);
+      final vuelta = await _caja.read(key: _claveDePrueba);
+      await _caja.delete(key: _claveDePrueba);
+      if (vuelta == testigo) return const SaludDelAlmacen.bien();
+      return const SaludDelAlmacen.rota(
+        'Este aparato acepta guardar la sesión pero después no la encuentra.',
+      );
+    } on Object catch (e) {
+      Registro.aviso('el almacen del sistema no sirve en este aparato: $e');
+      return const SaludDelAlmacen.rota(
+        'Este aparato no tiene dónde guardar la sesión.',
+      );
+    }
+  }
 }
