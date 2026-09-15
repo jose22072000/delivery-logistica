@@ -14,6 +14,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../impresion/hoja.dart' as papel;
 import '../../../impresion/pre_despacho.dart' show pdfPreDespacho;
@@ -38,6 +39,13 @@ class AsistenteNuevaRuta extends ConsumerStatefulWidget {
   static const sinVehiculos =
       'No hay vehículos disponibles. Crea o libera uno en Vehículos para poder '
       'crear la ruta.';
+
+  /// Los dos botones que sacan del callejón. Un paso que no se puede terminar
+  /// **tiene que llevar al sitio donde se arregla**: nombrar la pantalla y
+  /// dejar ahí a alguien es obligarle a salir, buscarla en el menú, hacerlo y
+  /// volver a empezar el asistente desde el paso 1.
+  static const irAVehiculos = 'Agregar el primer vehículo';
+  static const irAAlmacenes = 'Poner el almacén';
 
   static const sinPedidos = 'No hay pedidos disponibles para rutear.';
 
@@ -265,7 +273,11 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
 
   Widget _pasoSalida(List<Almacen> conUbicacion) {
     if (conUbicacion.isEmpty) {
-      return const EstadoVacio(AsistenteNuevaRuta.sinAlmacenes);
+      return const _SinSalida(
+        texto: AsistenteNuevaRuta.sinAlmacenes,
+        boton: AsistenteNuevaRuta.irAAlmacenes,
+        adonde: '/warehouses',
+      );
     }
 
     return Column(
@@ -309,7 +321,11 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   Widget _pasoVehiculo() {
     final vehiculos = ref.watch(vehiculosProvider).value ?? const <Vehiculo>[];
     if (vehiculos.isEmpty) {
-      return const EstadoVacio(AsistenteNuevaRuta.sinVehiculos);
+      return const _SinSalida(
+        texto: AsistenteNuevaRuta.sinVehiculos,
+        boton: AsistenteNuevaRuta.irAVehiculos,
+        adonde: '/vehicles',
+      );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -878,6 +894,56 @@ class _PreDespachoLateral extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// UN PASO QUE NO SE PUEDE TERMINAR, CON SU SALIDA.
+///
+/// Dice qué falta y **lleva al sitio donde se arregla**, cerrando el asistente
+/// antes: dejarlo abierto encima de la pantalla a la que se acaba de ir es un
+/// cajón tapando justo lo que se venía a hacer.
+///
+/// Es el mismo criterio del paso a paso del Panel
+/// (`lib/pantallas/panel/vista/paso_a_paso.dart`): **botón sólo cuando lleva a
+/// donde el problema de verdad se toca**. Lo que no se arregla desde esta
+/// aplicación —la tasa, que la mantiene Accesos— no lleva botón, se dice a
+/// quién pedírselo; un botón que lleva a un sitio donde el problema no se
+/// arregla es peor que no tenerlo.
+///
+/// **Y no da de alta el camión aquí mismo**, aunque el cajón de Vehículos
+/// exista: esa pantalla vive de la red (`POST /api/vehicles`) y el asistente
+/// lee la flota de la BASE LOCAL, la que deja la bajada del día. Un camión
+/// creado desde aquí no aparecería en el desplegable de al lado hasta la
+/// siguiente sincronización, o sea que el paso seguiría sin poder terminarse y
+/// encima sin decir por qué.
+class _SinSalida extends StatelessWidget {
+  const _SinSalida({
+    required this.texto,
+    required this.boton,
+    required this.adonde,
+  });
+
+  final String texto;
+  final String boton;
+  final String adonde;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(texto, style: const TextStyle(color: Colores.gris)),
+      const SizedBox(height: 12),
+      FilledButton(
+        onPressed: () {
+          // El router se coge ANTES de cerrar: despues de `pop` este
+          // `context` ya no esta montado y `context.go` reventaria.
+          final ir = GoRouter.of(context);
+          Navigator.of(context).maybePop();
+          ir.go(adonde);
+        },
+        child: Text(boton),
+      ),
+    ],
+  );
 }
 
 /// El pre-despacho del asistente.

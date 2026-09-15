@@ -50,9 +50,14 @@ void main() {
 
   tearDown(() => red.close());
 
+  /// El reloj de las pruebas, quieto. Lo que se mueve es la marca de la bajada,
+  /// que es mas facil de leer que mover la hora.
+  final ahora = DateTime(2026, 9, 15, 10);
+
   VigiaDeSincronizacion montar({
     Future<void> Function(String)? ciclo,
     Duration periodo = const Duration(minutes: 5),
+    EstadoDeLoQueHay? hay,
   }) => VigiaDeSincronizacion(
     ciclo:
         ciclo ??
@@ -66,6 +71,8 @@ void main() {
       temporizadores.add(t);
       return t;
     },
+    loQueHay: () async => hay ?? EstadoDeLoQueHay.noSeSabe,
+    reloj: () => ahora,
   );
 
   /// Deja correr las microtareas pendientes. No avanza el reloj: no hace falta.
@@ -157,6 +164,8 @@ void main() {
 
   group('primer plano', () {
     test('detras se para el reloj; delante vuelve y se intenta ya', () async {
+      // Sin decirle nada de lo que hay, o sea `noSeSabe`: ante la duda se
+      // sincroniza. Es el defecto seguro.
       final vigia = montar()..arrancar();
       addTearDown(vigia.parar);
 
@@ -175,6 +184,170 @@ void main() {
         reason:
             'es el momento en que alguien saca el telefono del bolsillo '
             'despues de la mannana entera sin cobertura',
+      );
+    });
+
+    /// ACOTAR EL VOLVER DELANTE — 15/09/2026.
+    ///
+    /// Queja de Jose: con alt-tab la barra superior decia «actualizando…» sin
+    /// parar, porque cambiar de ventana y volver disparaba un ciclo entero cada
+    /// vez. La regla nueva vale para los TRES destinos, no solo para la web.
+    group('acotado: volver delante no es siempre un ciclo', () {
+      test('alt-tab con los datos recien traidos: NO se dispara nada', () async {
+        final vigia = montar(
+          hay: EstadoDeLoQueHay(
+            bajadaAt: ahora.subtract(const Duration(seconds: 20)),
+          ),
+        )..arrancar();
+        addTearDown(vigia.parar);
+
+        vigia.enPrimerPlano(false);
+        vigia.enPrimerPlano(true);
+        await asentar();
+
+        expect(
+          disparos,
+          isEmpty,
+          reason:
+              'veinte segundos de alt-tab no son motivo para un ciclo entero; '
+              'un «actualizando…» encendido siempre deja de leerse',
+        );
+        // Pero el reloj vuelve a correr: lo que se acota es el disparo, no la
+        // vigilancia.
+        expect(vigia.hayTemporizador, isTrue);
+      });
+
+      test('con la edad de un periodo SI se dispara: es el tic que se comio la '
+          'pestanna en segundo plano', () async {
+        final vigia = montar(
+          hay: EstadoDeLoQueHay(
+            bajadaAt: ahora.subtract(const Duration(minutes: 5)),
+          ),
+        )..arrancar();
+        addTearDown(vigia.parar);
+
+        vigia.enPrimerPlano(false);
+        vigia.enPrimerPlano(true);
+        await asentar();
+
+        expect(disparos, ['la aplicacion volvio delante']);
+      });
+
+      test(
+        'con algo SIN SUBIR se dispara aunque los datos sean de hace nada',
+        () async {
+          // Lo unico que se puede perder de verdad es el trabajo hecho: una
+          // parada marcada a las cuatro que nunca subio no se vuelve a hacer
+          // sola. Ahi molestar es barato.
+          final vigia = montar(
+            hay: EstadoDeLoQueHay(
+              bajadaAt: ahora.subtract(const Duration(seconds: 5)),
+              sinSubir: 23,
+            ),
+          )..arrancar();
+          addTearDown(vigia.parar);
+
+          vigia.enPrimerPlano(false);
+          vigia.enPrimerPlano(true);
+          await asentar();
+
+          expect(disparos, ['la aplicacion volvio delante']);
+        },
+      );
+
+      test('sin bajar NUNCA se dispara: null no es «hace poco»', () async {
+        final vigia = montar(hay: const EstadoDeLoQueHay())..arrancar();
+        addTearDown(vigia.parar);
+
+        vigia.enPrimerPlano(false);
+        vigia.enPrimerPlano(true);
+        await asentar();
+
+        expect(disparos, ['la aplicacion volvio delante']);
+      });
+
+      test('una bajada en el FUTURO se trata como edad desconocida', () async {
+        // El reloj del aparato se mueve —se cambia a mano, se va con la
+        // bateria, salta de zona horaria (`sincronizacion.md` §1)—. Con la
+        // marca por delante del reloj la edad no se sabe, y ante la duda se
+        // sincroniza.
+        final vigia = montar(
+          hay: EstadoDeLoQueHay(bajadaAt: ahora.add(const Duration(hours: 3))),
+        )..arrancar();
+        addTearDown(vigia.parar);
+
+        vigia.enPrimerPlano(false);
+        vigia.enPrimerPlano(true);
+        await asentar();
+
+        expect(disparos, ['la aplicacion volvio delante']);
+      });
+
+      test(
+        'el umbral es EL PERIODO, asi que en web se acota mas corto',
+        () async {
+          // Con el periodo de la web, dato de hace tres minutos ya tiene edad.
+          final vigia = montar(
+            periodo: VigiaDeSincronizacion.periodoEnWeb,
+            hay: EstadoDeLoQueHay(
+              bajadaAt: ahora.subtract(const Duration(minutes: 3)),
+            ),
+          )..arrancar();
+          addTearDown(vigia.parar);
+
+          vigia.enPrimerPlano(false);
+          vigia.enPrimerPlano(true);
+          await asentar();
+
+          expect(disparos, ['la aplicacion volvio delante']);
+
+          // Y con el de la APK, el MISMO dato todavia no la tiene. Es la misma
+          // regla leida con dos relojes, no dos reglas.
+          final enLaApk = montar(
+            hay: EstadoDeLoQueHay(
+              bajadaAt: ahora.subtract(const Duration(minutes: 3)),
+            ),
+          );
+          expect(
+            enLaApk.valeLaPenaAlVolver(
+              EstadoDeLoQueHay(
+                bajadaAt: ahora.subtract(const Duration(minutes: 3)),
+              ),
+            ),
+            isFalse,
+          );
+        },
+      );
+
+      test('si se cierra la sesion mientras se mira que hay, no se dispara', () async {
+        // Entre la pregunta a la base y la respuesta cabe una salida. Un ciclo
+        // disparado ahi correria sobre una sesion muerta.
+        final vigia = montar(hay: const EstadoDeLoQueHay())..arrancar();
+
+        vigia.enPrimerPlano(false);
+        vigia.enPrimerPlano(true);
+        vigia.parar();
+        await asentar();
+
+        expect(disparos, isEmpty);
+      });
+    });
+  });
+
+  group('el ritmo de cada destino', () {
+    test('en web el reloj va mas seguido, porque es lo UNICO que trae los '
+        'cambios', () {
+      // En la web no queda ni un gesto para traer el dia a mano: se le quitaron
+      // la pieza del Panel y la franja de estado. Si este numero se sube, la
+      // oficina mira pedidos viejos sin ningun sitio donde darle.
+      expect(
+        VigiaDeSincronizacion.periodoEnWeb,
+        lessThan(VigiaDeSincronizacion.periodoPorDefecto),
+      );
+      expect(VigiaDeSincronizacion.periodoEnWeb, const Duration(minutes: 2));
+      expect(
+        VigiaDeSincronizacion.periodoPorDefecto,
+        const Duration(minutes: 5),
       );
     });
   });

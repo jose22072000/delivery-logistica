@@ -10,11 +10,14 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../diseno/caja_de_busqueda.dart';
+import '../../../diseno/rango_de_fechas.dart';
 import '../../../diseno/tema.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
+import '../../../nucleo/proveedores.dart';
 import '../../pedidos/vista/kit.dart';
 import '../datos/repositorio_rutas.dart';
 import '../estado/proveedores_rutas.dart';
@@ -139,21 +142,19 @@ class _FiltrosDeLaLista extends ConsumerWidget {
         runSpacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          SizedBox(
-            width: 260,
-            child: TextField(
-              decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(),
-                hintText: 'Buscar por código, nombre, vehículo...',
-              ),
-              onSubmitted: (t) => notas.poner(
-                FiltrosRutas(
-                  q: t,
-                  vehiculoId: filtros.vehiculoId,
-                  desde: filtros.desde,
-                  hasta: filtros.hasta,
-                ),
+          // Igual que la de Pedidos: busca sola y **se vacia cuando
+          // `Limpiar` vacia los filtros**, en vez de quedarse un texto
+          // filtrando en silencio.
+          CajaDeBusqueda(
+            valor: filtros.q,
+            ancho: 260,
+            pista: 'Buscar por código, nombre, vehículo...',
+            alBuscar: (t) => notas.poner(
+              FiltrosRutas(
+                q: t,
+                vehiculoId: filtros.vehiculoId,
+                desde: filtros.desde,
+                hasta: filtros.hasta,
               ),
             ),
           ),
@@ -175,6 +176,26 @@ class _FiltrosDeLaLista extends ConsumerWidget {
                 vehiculoId: id,
                 desde: filtros.desde,
                 hasta: filtros.hasta,
+              ),
+            ),
+          ),
+          // Las dos fechas sobre `createdAt`. El filtro ya se aplicaba en
+          // `filtrarRutas`; lo que faltaba era con que ponerlo. Sin `sólo ese
+          // día`: eso es de Pedidos (pliego §2), aqui el pliego (§3) sólo pide
+          // `Desde` y `Hasta`.
+          RangoDeFechas(
+            desde: filtros.desde,
+            hasta: filtros.hasta,
+            conSoloEseDia: false,
+            // El reloj de la aplicacion, no el del sistema: el calendario se
+            // abre por el mismo «hoy» que usa todo lo demas.
+            hoy: ref.watch(relojProvider)(),
+            alCambiar: (desde, hasta) => notas.poner(
+              FiltrosRutas(
+                q: filtros.q,
+                vehiculoId: filtros.vehiculoId,
+                desde: desde,
+                hasta: hasta,
               ),
             ),
           ),

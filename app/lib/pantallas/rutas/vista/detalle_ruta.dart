@@ -115,7 +115,19 @@ class _Acciones extends ConsumerWidget {
         ),
         if (estado == EstadoRuta.planificada)
           FilledButton(
-            onPressed: () => hacer(() => acciones.iniciar(ruta.ruta.id)),
+            onPressed: () => hacer(() async {
+              await acciones.iniciar(ruta.ruta.id);
+              // **Y se va con ella a la pestaña donde acaba de caer.**
+              //
+              // Iniciar la saca de `Activas` —correctamente: ya no esta
+              // activa, esta en curso—, y sin esto la ruta le desaparece de
+              // delante a quien acaba de arrancarla, que se queda mirando un
+              // hueco y creyendo que no funciono. La de Next hace esto mismo
+              // (`routes/page.tsx:447`).
+              ref
+                  .read(pestanaRutasProvider.notifier)
+                  .elegir(PestanaRutas.enCurso);
+            }),
             child: const Text('Iniciar ruta'),
           ),
         // El `Cierre` esta disponible en `in_progress` **y** en `completed`:
@@ -133,7 +145,17 @@ class _Acciones extends ConsumerWidget {
           ),
         if (estado == EstadoRuta.enCurso)
           FilledButton(
-            onPressed: () => hacer(() => acciones.completar(ruta.ruta.id)),
+            onPressed: () => hacer(() async {
+              await acciones.completar(ruta.ruta.id);
+              // Al `Historial`, y **soltando la ruta elegida**: lo mismo que
+              // hace la de Next (`routes/page.tsx:463-464`). Quedarse con ella
+              // abierta a la derecha despues de darla por cerrada deja el
+              // detalle de algo que ya no es de lo que va la pantalla.
+              ref.read(rutaElegidaProvider.notifier).elegir(null);
+              ref
+                  .read(pestanaRutasProvider.notifier)
+                  .elegir(PestanaRutas.historial);
+            }),
             child: const Text('Marcar como completada'),
           ),
         if (ruta.sobrepeso)

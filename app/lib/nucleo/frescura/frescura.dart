@@ -55,18 +55,37 @@ class RegistroDeFrescura {
   Stream<DateTime?> laMasVieja([List<String> colecciones = Colecciones.todas]) {
     final consulta = _base.select(_base.frescura)
       ..where((f) => f.coleccion.isIn(colecciones));
-    return consulta.watch().map((filas) {
-      // Una coleccion que NUNCA se bajo no tiene fila. Eso no es «al dia»: es
-      // «sin descargar», y se contesta con null para que el reloj lo diga.
-      if (filas.length < colecciones.length) return null;
-      final fechas = filas
-          .map((f) => f.bajadaAt)
-          .whereType<DateTime>()
-          .toList();
-      if (fechas.length < colecciones.length) return null;
-      fechas.sort();
-      return fechas.first;
-    });
+    return consulta.watch().map((filas) => _laMasVieja(filas, colecciones));
+  }
+
+  /// LA MISMA PREGUNTA, una vez y sin stream.
+  ///
+  /// Hace falta para decidir **en seco**: el vigia, al volver la aplicacion
+  /// delante, tiene que saber si lo que hay ya tiene edad antes de disparar un
+  /// ciclo entero. Ahi no hay nada que pintar ni a quien avisar de los cambios,
+  /// asi que un stream sobra — y un `await` sobre el primer valor de un stream
+  /// de Drift lo deja abierto detras, que en una prueba de widget es un
+  /// temporizador colgado y la sesion entera se va con el.
+  Future<DateTime?> laMasViejaAhora([
+    List<String> colecciones = Colecciones.todas,
+  ]) async {
+    final filas = await (_base.select(
+      _base.frescura,
+    )..where((f) => f.coleccion.isIn(colecciones))).get();
+    return _laMasVieja(filas, colecciones);
+  }
+
+  static DateTime? _laMasVieja(
+    List<FilaFrescura> filas,
+    List<String> colecciones,
+  ) {
+    // Una coleccion que NUNCA se bajo no tiene fila. Eso no es «al dia»: es
+    // «sin descargar», y se contesta con null para que el reloj lo diga.
+    if (filas.length < colecciones.length) return null;
+    final fechas = filas.map((f) => f.bajadaAt).whereType<DateTime>().toList();
+    if (fechas.length < colecciones.length) return null;
+    fechas.sort();
+    return fechas.first;
   }
 
   /// ¿Se bajo alguna vez esta coleccion?

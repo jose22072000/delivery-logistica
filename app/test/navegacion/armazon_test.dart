@@ -135,6 +135,13 @@ void main() {
     await desmontar(tester);
   });
 
+  // LA OTRA MITAD DE ESTA PRUEBA VIVE EN `test/la_web_no_se_prepara_test.dart`.
+  //
+  // Aqui no se sustituye `trabajaSinConexionProvider`, asi que esto corre en el
+  // destino de siempre: **la APK y el escritorio**, donde la franja tiene que
+  // estar. En web NO va —alli no hay dia que traer a mano— y eso se comprueba
+  // alli, en pareja con esta. Las dos juntas son las que fijan la linea; una
+  // sola se cumpliria igual borrando la pieza entera.
   testWidgets('la franja de estado esta arriba en las DOS anchuras', (
     tester,
   ) async {

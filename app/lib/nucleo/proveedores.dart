@@ -11,6 +11,7 @@ import 'cola/provisionales.dart';
 import 'frescura/frescura.dart';
 import 'identidad/almacen_sesion.dart';
 import 'identidad/renovador.dart';
+import 'plataforma.dart';
 import 'red/cliente_api.dart';
 import 'red/entorno.dart';
 import 'red/fallos.dart';
@@ -292,8 +293,7 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
     // La regla de QUE estados cuentan vive en `haySesionParaSincronizar`, con
     // nombre y probada suelta: escrita a mano aqui ya costo un fallo que dejaba
     // la configuracion inicial en el 0 % para siempre.
-    haySesion: () =>
-        haySesionParaSincronizar(ref.read(porteroProvider).estado),
+    haySesion: () => haySesionParaSincronizar(ref.read(porteroProvider).estado),
     alMorirLaSesion: () => ref.read(porteroProvider).murio(),
     // El giro de la barra superior. Es un contador, asi que dos ciclos
     // solapados no se apagan el uno al otro.
@@ -319,6 +319,24 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
 final vigiaProvider = Provider<VigiaDeSincronizacion>((ref) {
   final vigia = VigiaDeSincronizacion(
     ciclo: (motivo) => ref.read(cicloProvider).ahora(motivo: motivo),
+    // EL RITMO, segun el destino. En web es lo UNICO que trae los cambios —alli
+    // no queda ni un gesto para traer el dia a mano—, asi que va mas seguido; en
+    // la APK cada tic se paga en bateria y datos por la conexion de alla. El
+    // porque de cada numero, en `vigia.dart`.
+    periodo: ref.read(trabajaSinConexionProvider)
+        ? VigiaDeSincronizacion.periodoPorDefecto
+        : VigiaDeSincronizacion.periodoEnWeb,
+    reloj: ref.read(relojProvider),
+    // LO QUE ACOTA EL VOLVER AL PRIMER PLANO. Sin esto, cada alt-tab es un ciclo
+    // entero y la barra superior dice «actualizando…» sin parar.
+    //
+    // Las dos preguntas son de una sola consulta cada una y ninguna es un
+    // stream: aqui no hay nada que pintar, y un `await` sobre el primer valor de
+    // un stream de Drift lo deja abierto detras.
+    loQueHay: () async => EstadoDeLoQueHay(
+      bajadaAt: await ref.read(frescuraProvider).laMasViejaAhora(),
+      sinSubir: await ref.read(colaProvider).cuantosQuedanTras(0),
+    ),
   );
   ref.onDispose(vigia.parar);
   return vigia;

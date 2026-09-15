@@ -24,6 +24,13 @@ import 'apoyo/servidor_falso.dart';
 ///    pantalla de espera y sin esperar a la red;
 ///  * con sesion y el **aparato vacio** se ve «Configurando Reparto», porque
 ///    entrar la primera vez ES configurarse el aparato.
+///
+/// **Esto es el humo de la APK y del escritorio.** Aqui no se sustituye
+/// `trabajaSinConexionProvider`, asi que corre en el destino que se prepara para
+/// quedarse sin senal. El mismo humo visto desde un navegador —sin «Configurando
+/// Reparto», sin franja y sin la promesa del dia entero— esta en
+/// `test/la_web_no_se_prepara_test.dart`, y va en pareja con este fichero: cada
+/// pieza se comprueba en los dos destinos o no se comprueba en ninguno.
 void main() {
   setUpAll(() => initializeDateFormatting('es'));
 

@@ -55,14 +55,102 @@ void main() {
     },
   );
 
-  test('una linea sin empaques suma 0 empaques pero sus unidades enteras', () async {
-    // El contrato del servidor dice `formatos: Σ packs`. La linea de o3 no trae
-    // `packs`, asi que no suma empaques — pero sus 5 unidades si cuentan, o
-    // desapareceria de la hoja un producto que hay que sacar.
-    final totales = await consultas.preDespachoDe(['o3']);
-    expect(totales.lineas.single.producto, 'Aceite');
-    expect(totales.lineas.single.empaques, 0);
-    expect(totales.lineas.single.unidades, 5);
+  // ---------------------------------------------------------------------------
+  // LA HOJA DEL ALMACEN NO PUEDE SALIR CORTA
+  // ---------------------------------------------------------------------------
+  //
+  // Los empaques de una linea son sus `packs` y, si no los trae, sus
+  // `quantity` (`reglas-negocio.md` §12). Sumar `packs` a secas hace que un
+  // producto cuya linea viene sin empaques cuente **0**, y entonces la hoja
+  // con la que alguien baja al almacen pide menos cajas de las que hay que
+  // cargar. Eso no se descubre hasta que el camion ya se fue.
+  //
+  // El juego de datos: o3 lleva 'Aceite' con 5 unidades y **`packs` nulo**.
+
+  const hojaCorta =
+      'LA HOJA DEL ALMACEN SALDRIA CORTA: una linea sin `packs` tiene que '
+      'contar sus unidades, no cero. Con cero se cargan menos cajas de las que '
+      'hay que cargar y nadie se entera hasta que el camion se fue.';
+
+  test(
+    'los empaques de una linea sin `packs` son sus unidades, nunca cero',
+    () async {
+      final totales = await consultas.preDespachoDe(['o3']);
+      expect(totales.lineas.single.producto, 'Aceite');
+      expect(totales.lineas.single.unidades, 5);
+      expect(totales.lineas.single.empaques, 5, reason: hojaCorta);
+    },
+  );
+
+  test('el pre-despacho de lo ELEGIDO cuenta los empaques IGUAL que el de lo '
+      'FILTRADO cuando `packs` es nulo', () async {
+    // La misma linea, contada por los dos caminos. Los dos botones
+    // `Ver e imprimir` de la pantalla sacan la MISMA hoja, asi que dos
+    // numeros distintos aqui son dos papeles distintos para el mismo almacen.
+    final elegido = await consultas.preDespachoDe(['o3']);
+    final filtrado = await consultas.preDespachoDeLoFiltrado(
+      // Sin filtros: con el arranque acotado o3 no entra (no tiene factura).
+      const FiltrosPedidos.sinNada(),
+    );
+    final aceiteFiltrado = filtrado.lineas.firstWhere(
+      (l) => l.producto == 'Aceite',
+    );
+
+    expect(
+      elegido.lineas.single.empaques,
+      aceiteFiltrado.empaques,
+      reason: hojaCorta,
+    );
+    expect(elegido.lineas.single.empaques, 5, reason: hojaCorta);
+  });
+
+  test('el peso de la linea usa los MISMOS empaques que la columna de al lado', () async {
+    // Una linea sin `packs` pero con producto emparejado: 4 unidades de Arroz,
+    // que pesa 25 kg por empaque. Si los empaques se cuentan con el respaldo
+    // (4) el peso son 100 kg; si se contaran con `packs` a secas, la fila
+    // diria 4 empaques y 0 kg — dos columnas de la misma fila hablando de
+    // bultos distintos.
+    await sembrarPedido(base, id: 'o12', cliente: 'Lena');
+    await sembrarRenglon(
+      base,
+      id: 'i5',
+      pedidoId: 'o12',
+      producto: 'Arroz',
+      unidades: 4,
+      productoId: 'p1',
+    );
+
+    final totales = await consultas.preDespachoDe(['o12']);
+    expect(totales.lineas.single.empaques, 4, reason: hojaCorta);
+    expect(totales.lineas.single.pesoKg, 100);
+  });
+
+  test('un `packs` que viene en CERO tampoco cuenta cero', () async {
+    // La regla es `packs > 0 ? packs : quantity`, no «si viene, usalo». Un cero
+    // explicito es tan mentira como un nulo —hay renglones espejados que llegan
+    // asi— y con `packs IS NOT NULL` se colaria tal cual en la hoja.
+    await sembrarPedido(base, id: 'o13', cliente: 'Mario');
+    await sembrarRenglon(
+      base,
+      id: 'i6',
+      pedidoId: 'o13',
+      producto: 'Sal',
+      unidades: 7,
+      empaques: 0,
+    );
+
+    final totales = await consultas.preDespachoDe(['o13']);
+    expect(totales.lineas.single.empaques, 7, reason: hojaCorta);
+  });
+
+  test('la cabecera de la hoja: cuantos pedidos y cuantos kilos', () async {
+    // Es la esquina derecha del papel (`pantallas.md` §10.1). Cuenta PEDIDOS,
+    // no lineas: o1 tiene dos renglones y sigue siendo un pedido.
+    final totales = await consultas.preDespachoDe(['o1', 'o2']);
+    expect(totales.pedidos, 2);
+    // 100 kg de o1 + 200 kg de o2, del peso del PEDIDO, no de la suma por
+    // producto (que ahi son 125).
+    expect(totales.pesoDeLosPedidos, 300);
   });
 
   test('el pre-despacho de lo filtrado usa el MISMO where que la lista', () async {

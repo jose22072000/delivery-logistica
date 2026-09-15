@@ -11,12 +11,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../impresion/armar_post_despacho.dart' as papel;
+import '../../../impresion/post_despacho.dart' show pdfPostDespacho;
+import '../../../impresion/vista_previa.dart';
 import '../../../nucleo/base/base.dart';
 import '../../pedidos/datos/formato.dart';
 import '../../pedidos/datos/repositorio_pedidos.dart';
 import '../../pedidos/vista/kit.dart';
 import '../datos/acciones_rutas.dart';
 import '../datos/post_despacho.dart';
+import '../datos/repositorio_rutas.dart';
 import '../estado/proveedores_rutas.dart';
 
 class CierreDeRuta extends ConsumerStatefulWidget {
@@ -160,7 +164,11 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
       pie: Row(
         children: [
           OutlinedButton(
-            onPressed: () => _verPostDespacho(hoja),
+            onPressed: () => _verPostDespacho(
+              ruta: ruta,
+              paradas: paradas,
+              renglones: renglones,
+            ),
             child: const Text('Post-despacho'),
           ),
           const Spacer(),
@@ -227,41 +235,74 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
     );
   }
 
-  /// La hoja impresa es de `lib/impresion/`, que es otra ola. Mientras tanto, la
-  /// cuenta —que es la parte que decide si falta mercancia— ya esta hecha y se
-  /// ensena en un cajon, en vez de dejar un boton que no hace nada.
-  void _verPostDespacho(HojaPostDespacho hoja) {
+  /// La hoja imprimible del post-despacho, **con lo marcado en este momento**
+  /// aunque todavia no se haya guardado: es lo que quien descarga tiene en la
+  /// mano mientras cuenta, y esperar a guardar seria pedirle que cuente de
+  /// memoria.
+  ///
+  /// Aqui estaba el hueco: la cuenta y el PDF existian los dos y estaban
+  /// probados, pero el boton abria una tabla en un cajon. Sin papel no hay
+  /// firma del chofer de lo que volvio en el camion.
+  ///
+  /// La cuenta se rehace con `armarPostDespacho` de `lib/impresion/`, que es el
+  /// que come la hoja: es la MISMA regla de `reglas-negocio.md` §12 que la de
+  /// `datos/post_despacho.dart` —empaques con respaldo a unidades, lo sin
+  /// marcar cuenta como que sigue arriba—, y las dos estan probadas contra los
+  /// mismos numeros.
+  void _verPostDespacho({
+    required RutaConTodo? ruta,
+    required List<Pedido> paradas,
+    required Map<String, List<RenglonConPeso>> renglones,
+  }) {
+    final hoja = papel.armarPostDespacho(
+      papel.DatosDeRuta(
+        ruta: ruta?.ruta.routeCode ?? ruta?.ruta.name ?? widget.rutaId,
+        sucursal: ruta?.sucursal?.name ?? '',
+        vehiculo: ruta?.vehiculo?.name ?? '',
+        // Sin salida no se escribe linea de horario, y el regreso no va solo:
+        // igual que en la de Next.
+        salida: ruta?.ruta.startedAt == null
+            ? null
+            : fechaYHora(ruta!.ruta.startedAt),
+        regreso: ruta?.ruta.finishedAt == null
+            ? null
+            : fechaYHora(ruta!.ruta.finishedAt),
+      ),
+      <papel.PedidoDeRuta>[
+        for (final parada in paradas)
+          papel.PedidoDeRuta(
+            customerName: parada.customerName,
+            resultado: _resultados[parada.id],
+            resultadoNota: _notas[parada.id]?.text,
+            items: <papel.ItemDePedido>[
+              for (final r in renglones[parada.id] ?? const <RenglonConPeso>[])
+                papel.ItemDePedido(
+                  description: r.renglon.description,
+                  packs: r.renglon.packs,
+                  quantity: r.renglon.quantity,
+                ),
+            ],
+          ),
+      ],
+    );
+
     abrirCajon<void>(
       context,
-      (_) => Cajon(
+      (contexto) => Cajon(
         titulo: 'Post-despacho',
         subtitulo:
             '${hoja.entregadas} entregadas · ${hoja.devueltas} devueltas · '
             '${hoja.canceladas} canceladas · ${hoja.sinMarcar} sin marcar',
-        ancho: AnchoCajon.lg,
-        cuerpo: Padding(
-          padding: const EdgeInsets.all(16),
-          child: hoja.lineas.isEmpty
-              ? const Text('Nada: se entregó todo lo que salió.')
-              : DataTable(
-                  columns: const [
-                    DataColumn(label: Text('Producto')),
-                    DataColumn(label: Text('Salió')),
-                    DataColumn(label: Text('Entregado')),
-                    DataColumn(label: Text('Queda')),
-                  ],
-                  rows: [
-                    for (final linea in hoja.lineas)
-                      DataRow(
-                        cells: [
-                          DataCell(Text(linea.producto)),
-                          DataCell(Text(cantidad(linea.salio))),
-                          DataCell(Text(cantidad(linea.entregado))),
-                          DataCell(Text(cantidad(linea.queda))),
-                        ],
-                      ),
-                  ],
-                ),
+        ancho: AnchoCajon.xl,
+        // El cuerpo del cajon se desplaza, asi que no tiene alto que dar; la
+        // vista previa necesita uno concreto para pintar la hoja.
+        cuerpo: SizedBox(
+          height: MediaQuery.sizeOf(contexto).height * 0.75,
+          child: VistaPreviaPdf(
+            armar: (formato) =>
+                pdfPostDespacho(hoja, impresoEn: DateTime.now()),
+            nombreDeFichero: 'post-despacho.pdf',
+          ),
         ),
       ),
     );

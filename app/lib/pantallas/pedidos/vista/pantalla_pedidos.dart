@@ -12,9 +12,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../diseno/anchos.dart';
+import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/cargando.dart';
+import '../../../diseno/rango_de_fechas.dart';
 import '../../../diseno/tabla_ancha.dart';
 import '../../../diseno/tema.dart';
+import '../../../impresion/hoja.dart' as papel;
+import '../../../impresion/pre_despacho.dart' show pdfPreDespacho;
+import '../../../impresion/vista_previa.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/frescura/reloj_de_datos.dart';
 import '../../../nucleo/proveedores.dart';
@@ -170,18 +175,12 @@ class _BarraDeFiltros extends ConsumerWidget {
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        SizedBox(
-          width: 220,
-          child: TextField(
-            style: Tipos.texto(tamano: 14),
-            decoration: const InputDecoration(
-              hintText: 'Buscar',
-              isDense: true,
-              prefixIcon: Icon(Icons.search, size: 18),
-              prefixIconConstraints: BoxConstraints(minWidth: 36),
-            ),
-            onSubmitted: (t) => notas.cambiar((f) => f.copiarCon(q: t)),
-          ),
+        // Busca sola a los 400 ms, y **se vacia cuando se vacian los
+        // filtros**: antes se quedaba el texto puesto filtrando en silencio
+        // debajo de una lista que ya no estaba filtrada.
+        CajaDeBusqueda(
+          valor: filtros.q,
+          alBuscar: (t) => notas.cambiar((f) => f.copiarCon(q: t)),
         ),
         Selector<RepartoFiltro>(
           titulo: 'Estado de reparto en delivery',
@@ -228,17 +227,99 @@ class _BarraDeFiltros extends ConsumerWidget {
           ],
           alElegir: (o) => notas.cambiar((f) => f.copiarCon(orden: o)),
         ),
-        if (filtros.desde != null || filtros.hasta != null)
-          IconButton(
-            tooltip: 'Quitar el filtro de fechas',
-            icon: const Icon(Icons.close),
-            onPressed: () => notas.cambiar(
-              (f) => f.copiarCon(limpiarDesde: true, limpiarHasta: true),
-            ),
-          ),
+        // `Desde` / `Hasta` / `sólo ese día` / ✕. El SQL que acota por fecha
+        // ya estaba escrito y la ✕ tambien; lo que no habia era con que PONER
+        // las fechas, asi que «el pre-despacho de HOY» era inalcanzable.
+        RangoDeFechas(
+          desde: filtros.desde,
+          hasta: filtros.hasta,
+          tituloDesde: 'Desde (fecha del pedido)',
+          tituloHasta: 'Hasta (fecha del pedido)',
+          hoy: ref.watch(relojProvider)(),
+          alCambiar: notas.ponerFechas,
+        ),
       ],
     );
   }
+}
+
+/// El dia tal y como lo escribe la hoja: `AAAA-MM-DD`, y **sólo cuando el rango
+/// es un dia**, igual que la de Next. Con un rango de varios dias la cabecera
+/// no dice ninguno: escribir uno de los dos seria mentir sobre lo que hay
+/// debajo.
+String? diaDeLaHoja(FiltrosPedidos f) {
+  final desde = f.desde;
+  if (desde == null || desde != f.hasta) return null;
+  return '${desde.year.toString().padLeft(4, '0')}-'
+      '${desde.month.toString().padLeft(2, '0')}-'
+      '${desde.day.toString().padLeft(2, '0')}';
+}
+
+/// La hoja que se manda al PDF, como funcion pura.
+///
+/// Va aparte del widget porque es lo que de verdad lleva los numeros al papel:
+/// asi se comprueba sin pintar nada. La usan los DOS botones `Ver e imprimir`
+/// de esta pantalla —el de lo marcado y el de lo filtrado—, para que las dos
+/// hojas salgan con la misma forma.
+papel.HojaPreDespacho hojaDePreDespacho({
+  required TotalesPreDespacho totales,
+  required String sucursal,
+  required String? dia,
+}) => papel.HojaPreDespacho(
+  sucursal: sucursal,
+  // Pedidos no sabe de camiones: esta hoja sale del almacen, no de una ruta.
+  vehiculo: '',
+  dia: dia,
+  pedidos: totales.pedidos,
+  pesoKg: totales.pesoDeLosPedidos,
+  lineas: [
+    for (final linea in totales.lineas)
+      papel.LineaPreDespacho(
+        producto: linea.producto,
+        formatos: linea.empaques,
+        unidades: linea.unidades,
+        // En el papel el peso es un numero: un producto sin peso resuelto
+        // suma cero kilos, que es lo que pesa lo que no sabemos.
+        pesoKg: linea.pesoKg ?? 0,
+      ),
+  ],
+);
+
+/// Abre la hoja del pre-despacho: **se mira primero y se imprime desde la
+/// propia vista previa**. Es el orden que tenia la de Next y el que tiene
+/// sentido cuando quien saca la mercancia es otra persona.
+void verEImprimirPreDespacho(
+  BuildContext context, {
+  required TotalesPreDespacho totales,
+  required String sucursal,
+  required String? dia,
+}) {
+  final hoja = hojaDePreDespacho(
+    totales: totales,
+    sucursal: sucursal,
+    dia: dia,
+  );
+
+  abrirCajon<void>(
+    context,
+    (contexto) => Cajon(
+      titulo: 'Pre-despacho',
+      subtitulo:
+          '${totales.pedidos} pedido(s) · '
+          '${totales.pesoDeLosPedidos.toStringAsFixed(1)} kg',
+      ancho: AnchoCajon.xl,
+      // La vista previa quiere todo el alto que le den, y el cuerpo del cajon
+      // es un desplazable: sin un alto concreto no hay nada que le diga
+      // cuanto, y la hoja no llega a pintarse.
+      cuerpo: SizedBox(
+        height: MediaQuery.sizeOf(contexto).height * 0.75,
+        child: VistaPreviaPdf(
+          armar: (formato) => pdfPreDespacho(hoja, impresoEn: DateTime.now()),
+          nombreDeFichero: 'pre-despacho.pdf',
+        ),
+      ),
+    ),
+  );
 }
 
 class _Cuerpo extends ConsumerWidget {
@@ -330,6 +411,20 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
                     ),
                   ),
                 ),
+                // Sin esto no hay papel para el almacen: el PDF existia y
+                // estaba probado, y no habia ningun boton que lo llamara.
+                TextButton(
+                  onPressed: totales == null || totales.lineas.isEmpty
+                      ? null
+                      : () => verEImprimirPreDespacho(
+                          context,
+                          totales: totales,
+                          sucursal:
+                              ref.watch(sucursalDeLaHojaProvider).value ?? '',
+                          dia: diaDeLaHoja(ref.watch(filtrosPedidosProvider)),
+                        ),
+                  child: const Text('Ver e imprimir'),
+                ),
                 TextButton(
                   onPressed: () => ref
                       .read(seleccionPedidosProvider.notifier)
@@ -385,12 +480,31 @@ class _PreDespachoDeLoFiltradoState
         iconColor: Colores.tintaSuave,
         collapsedIconColor: Colores.tintaSuave,
         tilePadding: const EdgeInsets.symmetric(horizontal: Aire.lg),
-        title: Text(
-          'Pre-despacho de lo filtrado'
-          '${totales == null ? '' : ' · ${totales.productos} producto(s)'
-                    ' · ${cantidad(totales.empaques)} empaques'
-                    ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
-          style: Tipos.texto(tamano: 14, peso: FontWeight.w600),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Pre-despacho de lo filtrado'
+                '${totales == null ? '' : ' · ${totales.productos} producto(s)'
+                          ' · ${cantidad(totales.empaques)} empaques'
+                          ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
+                style: Tipos.texto(tamano: 14, peso: FontWeight.w600),
+              ),
+            ),
+            // Deshabilitado mientras no haya suma: cerrado no se ha sumado
+            // nada todavia, y una hoja en blanco no es una hoja.
+            TextButton(
+              onPressed: totales == null || totales.lineas.isEmpty
+                  ? null
+                  : () => verEImprimirPreDespacho(
+                      context,
+                      totales: totales,
+                      sucursal: ref.watch(sucursalDeLaHojaProvider).value ?? '',
+                      dia: diaDeLaHoja(ref.watch(filtrosPedidosProvider)),
+                    ),
+              child: const Text('Ver e imprimir'),
+            ),
+          ],
         ),
         onExpansionChanged: (abierto) => setState(() => _abierto = abierto),
         children: [

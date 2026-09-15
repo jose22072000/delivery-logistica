@@ -286,9 +286,8 @@ class LoQueTieneElAparato extends StatelessWidget {
             child: Text(
               texto,
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: color),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: color),
             ),
           ),
         ],

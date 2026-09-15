@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../registro/registro.dart';
+import '../reloj.dart';
 
 /// El aviso de `connectivity_plus`, reducido a lo unico que se puede creer: que
 /// el aparato **CREE** que hay red.
@@ -50,6 +51,40 @@ Future<bool> hayPistaDeRed() async {
 /// fallar por un motivo que no tiene nada que ver con lo que se estaba probando.
 typedef CrearTemporizador = Timer Function(Duration, void Function(Timer));
 
+/// LO QUE HAY EN EL APARATO AHORA MISMO, reducido a las dos cosas que deciden si
+/// vale la pena un ciclo al volver delante.
+///
+/// Es una pieza sola y no dos parametros porque las dos se preguntan juntas y en
+/// el mismo momento: una respuesta de cada una, tomadas con un segundo de
+/// diferencia, decidirian sobre un aparato que no existio nunca.
+class EstadoDeLoQueHay {
+  const EstadoDeLoQueHay({this.bajadaAt, this.sinSubir = 0});
+
+  /// Lo que se supone antes de preguntar: **ni idea**, y ante la duda se
+  /// sincroniza. Un aparato del que no se sabe nada es indistinguible de uno
+  /// virgen, y no bajar ahi es dejar a alguien con la pantalla en ceros.
+  static const noSeSabe = EstadoDeLoQueHay();
+
+  /// De cuando es la bajada MAS VIEJA de todas las colecciones. `null` es
+  /// **nunca**, que no es «hace mucho»: es un aparato sin estrenar.
+  final DateTime? bajadaAt;
+
+  /// Cuantos apuntes quedan en la cola sin subir.
+  final int sinSubir;
+
+  @override
+  String toString() =>
+      'EstadoDeLoQueHay(bajadaAt: $bajadaAt, sinSubir: $sinSubir)';
+}
+
+/// Como se le pregunta a la base por [EstadoDeLoQueHay]. Se inyecta: el vigia no
+/// sabe que existe Drift y no tiene por que.
+typedef LoQueHayAhora = Future<EstadoDeLoQueHay> Function();
+
+/// Lo que se contesta cuando nadie inyecto nada: **no se sabe**, o sea, se
+/// sincroniza. El defecto seguro es el que trabaja de mas, no el que se calla.
+Future<EstadoDeLoQueHay> noSeSabeLoQueHay() async => EstadoDeLoQueHay.noSeSabe;
+
 /// EL VIGIA. Lo que dispara el ciclo cuando nadie se lo pide.
 ///
 /// Tres ocasiones, y las tres hacen falta:
@@ -75,10 +110,14 @@ class VigiaDeSincronizacion {
     Stream<bool> Function() avisosDeRed = avisosDeConnectivityPlus,
     Duration periodo = periodoPorDefecto,
     CrearTemporizador crearTemporizador = Timer.periodic,
+    LoQueHayAhora loQueHay = noSeSabeLoQueHay,
+    Reloj reloj = relojDelAparato,
   }) : _ciclo = ciclo,
        _avisosDeRed = avisosDeRed,
        _periodo = periodo,
-       _crearTemporizador = crearTemporizador;
+       _crearTemporizador = crearTemporizador,
+       _loQueHay = loQueHay,
+       _reloj = reloj;
 
   /// Cinco minutos, y el numero esta pensado.
   ///
@@ -94,10 +133,32 @@ class VigiaDeSincronizacion {
   /// uno es una bajada por diferencias que casi siempre vuelve vacia.
   static const periodoPorDefecto = Duration(minutes: 5);
 
+  /// DOS MINUTOS EN WEB, y el numero tambien esta pensado.
+  ///
+  /// En la web no queda ni un gesto para traer el dia a mano: se le quitaron la
+  /// pieza del Panel y la franja de estado, porque ahi no hay dia que traer —se
+  /// sincroniza solo. Eso sube el liston de este reloj: **es lo unico que trae
+  /// los cambios**, y si se queda corto la oficina mira pedidos de hace cinco
+  /// minutos sin tener ningun sitio donde darle.
+  ///
+  /// Los dos motivos que alargan el periodo en la APK aqui no aplican: no hay
+  /// bateria que gastar ni datos que pagar, y la conexion no es la del patio de
+  /// un almacen en Palma sino la de un navegador en una oficina. Lo que si
+  /// aplica es lo contrario — cada tic es una bajada **por diferencias** que
+  /// casi siempre vuelve vacia, o sea una peticion pequena.
+  ///
+  /// Y corto del todo tampoco: cada ciclo enciende el giro y el `actualizando…`
+  /// de la barra superior, asi que medio minuto seria un parpadeo constante
+  /// arriba — que es justo la queja que se viene a arreglar. Dos minutos son
+  /// unos 240 ciclos en una jornada de ocho horas, quietos entre uno y otro.
+  static const periodoEnWeb = Duration(minutes: 2);
+
   final Future<void> Function(String motivo) _ciclo;
   final Stream<bool> Function() _avisosDeRed;
   final Duration _periodo;
   final CrearTemporizador _crearTemporizador;
+  final LoQueHayAhora _loQueHay;
+  final Reloj _reloj;
 
   StreamSubscription<bool>? _suscripcion;
   Timer? _temporizador;
@@ -147,18 +208,78 @@ class VigiaDeSincronizacion {
   /// Detras no se gasta: en la APK el sistema congela el proceso de todas formas
   /// y en web la pestanna en segundo plano estrangula los temporizadores. Lo que
   /// no puede pasar es quedarse con un tic a medias de por vida, asi que al
-  /// volver se dispara uno **ya**, que es justo el momento en que alguien saca el
-  /// telefono del bolsillo despues de la mannana entera sin cobertura.
+  /// volver **se mira si hace falta** y, si hace falta, se dispara ya.
+  ///
+  /// ## Por que «si hace falta» y no siempre — 15/09/2026
+  ///
+  /// Antes volver delante disparaba un ciclo entero, sin mas. Queja de Jose: con
+  /// alt-tab la barra superior decia «actualizando…» **sin parar**, porque
+  /// cambiar de ventana y volver es un ciclo completo cada vez. En un escritorio
+  /// eso pasa treinta veces en una mannana y en la web, con la pestanna al lado
+  /// del correo, mas. Un indicador que esta encendido siempre no informa de
+  /// nada: se deja de leer, y entonces tampoco se lee el dia que si importa.
+  ///
+  /// La regla que lo acota, y **vale para los tres destinos**:
+  ///
+  ///  * **Si queda algo sin subir, se dispara siempre.** Lo unico que se puede
+  ///    perder de verdad es el trabajo hecho; una parada marcada a las cuatro
+  ///    que nunca subio no se vuelve a hacer sola. Ahi molestar es barato.
+  ///  * **Si no, solo cuando lo que hay ya tiene la edad de un periodo.** Ese
+  ///    es el umbral y no otro porque es exactamente lo que el reloj iba a hacer
+  ///    de todas formas: volver delante no adelanta ningun ciclo, **recupera el
+  ///    tic que la pestanna en segundo plano se comio**. Un alt-tab de diez
+  ///    segundos no dispara nada; volver despues de la mannana entera sin
+  ///    cobertura, si.
+  ///  * **Si no se sabe de cuando son los datos, se dispara.** `null` no es
+  ///    «hace poco»: es un aparato sin estrenar.
   void enPrimerPlano(bool si) {
     if (_delante == si) return;
     _delante = si;
     if (!_andando) return;
     if (si) {
       _ponerTemporizador();
-      _disparar('la aplicacion volvio delante');
+      unawaited(_alVolverDelante());
     } else {
       _quitarTemporizador();
     }
+  }
+
+  /// La pregunta a la base y, si toca, el disparo.
+  ///
+  /// Nunca lanza: quien llama es un aviso del sistema y no hay nadie esperando
+  /// el resultado. Una base que no contesta se trata como «no se sabe», que es
+  /// el lado que trabaja de mas.
+  Future<void> _alVolverDelante() async {
+    EstadoDeLoQueHay hay;
+    try {
+      hay = await _loQueHay();
+    } on Object catch (e) {
+      Registro.aviso(
+        'vigia: no se pudo mirar que hay, se sincroniza igual: $e',
+      );
+      hay = EstadoDeLoQueHay.noSeSabe;
+    }
+    // Entre la pregunta y la respuesta puede haberse cerrado la sesion. Un ciclo
+    // disparado aqui correria sobre una sesion muerta.
+    if (!_andando || !_delante) return;
+    if (!valeLaPenaAlVolver(hay)) {
+      Registro.info('vigia: volvio delante y no hacia falta sincronizar');
+      return;
+    }
+    _disparar('la aplicacion volvio delante');
+  }
+
+  /// La regla de arriba, suelta y sin nada asincrono, para poder probarla.
+  bool valeLaPenaAlVolver(EstadoDeLoQueHay hay) {
+    if (hay.sinSubir > 0) return true;
+    final cuando = hay.bajadaAt;
+    if (cuando == null) return true;
+    final edad = _reloj().difference(cuando);
+    // Una bajada en el FUTURO es el reloj del aparato movido —se cambia a mano,
+    // se va con la bateria, salta de zona horaria (`sincronizacion.md` §1)—, y
+    // entonces la edad no se sabe. Se sincroniza, que es el lado seguro.
+    if (edad.isNegative) return true;
+    return edad >= _periodo;
   }
 
   void _ponerTemporizador() {

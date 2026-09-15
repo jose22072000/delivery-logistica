@@ -37,9 +37,23 @@ class LineaPreDespacho {
 
 /// Los totales del bloque de pre-despacho.
 class TotalesPreDespacho {
-  const TotalesPreDespacho(this.lineas);
+  const TotalesPreDespacho(
+    this.lineas, {
+    this.pedidos = 0,
+    this.pesoDeLosPedidos = 0,
+  });
 
   final List<LineaPreDespacho> lineas;
+
+  /// Cuantos pedidos entraron en esta suma. Es el `<n> pedido(s)` de la cabecera
+  /// de la hoja impresa.
+  final int pedidos;
+
+  /// El peso del CONJUNTO de pedidos, que es el `<n.n> kg` de la cabecera de la
+  /// hoja. **No es la suma de [pesoKg] por producto**: la de Next imprime el
+  /// peso de los pedidos, y un producto sin peso resuelto no suma nada ahi
+  /// aunque el pedido si pese.
+  final double pesoDeLosPedidos;
 
   int get productos => lineas.length;
   double get empaques => lineas.fold(0, (suma, linea) => suma + linea.empaques);
@@ -348,14 +362,39 @@ class ConsultasPedidos {
     return _preDespacho(_base.orders.id.isIn(pedidoIds));
   }
 
+  /// **Los empaques de una linea: sus `packs`, y si no los trae, sus
+  /// `quantity`.** Nunca cero.
+  ///
+  /// Esto es la MISMA regla que [RenglonConPeso.empaques], que `armarPostDespacho`
+  /// y que `reglas-negocio.md` §12, y no estaba aqui: el pre-despacho sumaba
+  /// `SUM(packs)` a secas, asi que un producto cuya linea viene sin empaques
+  /// contaba **0** y **la hoja del almacen salia corta** — se cargan menos cajas
+  /// de las que hay que cargar, y eso no se descubre hasta que el camion ya se
+  /// fue. Un cero ahi no es un dato: es una mentira con forma de numero.
+  ///
+  /// `CASE WHEN packs > 0` cubre tambien el `packs` nulo: en SQL una condicion
+  /// nula no es cierta, asi que cae al `ELSE` igual que el `> 0` de Dart.
+  Expression<double> get _empaquesDeLaLinea => CaseWhenExpression<double>(
+    cases: <CaseWhen<bool, double>>[
+      CaseWhen(
+        _base.orderItems.packs.isBiggerThanValue(0),
+        then: _base.orderItems.packs,
+      ),
+    ],
+    orElse: _base.orderItems.quantity,
+  );
+
   Future<TotalesPreDespacho> _preDespacho(Expression<bool> filtro) async {
     final producto = _base.orderItems.description;
-    final empaques = _base.orderItems.packs.sum();
+    final empaques = _empaquesDeLaLinea.sum();
     final unidades = _base.orderItems.quantity.sum();
     // El peso de la linea sale del catalogo: `kg por empaque × empaques`. Si el
     // producto no esta emparejado, `SUM` se salta la linea y el total queda
-    // `null`, que la pantalla pinta `—` y no `0`.
-    final peso = (_base.orderItems.packs * _base.products.weight).sum();
+    // `null`, que la pantalla pinta `—` y no `0`. Los empaques son los mismos de
+    // arriba, con su respaldo: si aqui se usara `packs` a secas, una linea sin
+    // empaques contaria en la columna `Empaques` y no en la de `kg`, y las dos
+    // columnas de la misma fila dejarian de hablar del mismo bulto.
+    final peso = (_empaquesDeLaLinea * _base.products.weight).sum();
 
     final consulta =
         _base.selectOnly(_base.orderItems).join([
@@ -376,15 +415,34 @@ class ConsultasPedidos {
           ..orderBy([OrderingTerm.desc(empaques)]);
 
     final filas = await consulta.get();
-    return TotalesPreDespacho([
-      for (final fila in filas)
-        LineaPreDespacho(
-          producto: fila.read(producto) ?? '',
-          empaques: fila.read(empaques) ?? 0,
-          unidades: fila.read(unidades) ?? 0,
-          pesoKg: fila.read(peso),
-        ),
-    ]);
+    final (cuantos, kilos) = await _cabeceraDeLaHoja(filtro);
+    return TotalesPreDespacho(
+      [
+        for (final fila in filas)
+          LineaPreDespacho(
+            producto: fila.read(producto) ?? '',
+            empaques: fila.read(empaques) ?? 0,
+            unidades: fila.read(unidades) ?? 0,
+            pesoKg: fila.read(peso),
+          ),
+      ],
+      pedidos: cuantos,
+      pesoDeLosPedidos: kilos,
+    );
+  }
+
+  /// Cuantos pedidos y cuantos kilos entran en la hoja. Es la esquina derecha
+  /// del papel (`pantallas.md` §10.1) y va aparte de la suma por producto
+  /// porque cuenta PEDIDOS, no lineas: sumarlo en la misma consulta lo
+  /// multiplicaria por el numero de renglones de cada pedido.
+  Future<(int, double)> _cabeceraDeLaHoja(Expression<bool> filtro) async {
+    final cuantos = _base.orders.id.count();
+    final kilos = _base.orders.weight.sum();
+    final consulta = _base.selectOnly(_base.orders)
+      ..addColumns([cuantos, kilos])
+      ..where(filtro);
+    final fila = await consulta.getSingle();
+    return (fila.read(cuantos) ?? 0, fila.read(kilos) ?? 0);
   }
 
   /// Los municipios y vendedores con su conteo, para los dos selectores.

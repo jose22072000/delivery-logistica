@@ -37,6 +37,19 @@ class FiltrosPedidosNotifier extends Notifier<FiltrosPedidos> {
   void quitarTodos() => state = const FiltrosPedidos.sinNada();
 
   void irAPagina(int pagina) => state = state.copiarCon(pagina: pagina);
+
+  /// Las dos fechas a la vez, y con `null` explicito.
+  ///
+  /// Van juntas porque son un solo filtro: el rango. Y con `null` que borra,
+  /// porque `copiarCon` no puede distinguir «ponlo a nada» de «no lo toques»
+  /// —los dos llegan como `null`— y sin esto no habria forma de quitar una
+  /// fecha ya puesta.
+  void ponerFechas(DateTime? desde, DateTime? hasta) => state = state.copiarCon(
+    desde: desde,
+    limpiarDesde: desde == null,
+    hasta: hasta,
+    limpiarHasta: hasta == null,
+  );
 }
 
 final filtrosPedidosProvider =
@@ -139,6 +152,26 @@ final detallePedidoProvider = FutureProvider.family<DetallePedido?, String>(
 final pedidosDescargadosProvider = FutureProvider<bool>(
   (ref) => ref.watch(frescuraProvider).seDescargo(Colecciones.pedidos),
 );
+
+/// El nombre de la sucursal que va en la cabecera de la hoja impresa.
+///
+/// Sin sucursal elegida arriba se escribe `Todas las sucursales`, literal de la
+/// de Next: en la hoja del almacen no puede quedar un hueco donde tendria que
+/// decir de donde sale la mercancia.
+final sucursalDeLaHojaProvider = StreamProvider<String>((ref) {
+  final base = ref.watch(baseProvider);
+  final mirada = ref.watch(sucursalMiradaProvider);
+  if (mirada == null || mirada.isEmpty) {
+    return Stream<String>.value(SucursalDeLaHoja.todas);
+  }
+  return (base.select(base.branches)..where((b) => b.id.equals(mirada)))
+      .watchSingleOrNull()
+      .map((sucursal) => sucursal?.name ?? '');
+});
+
+abstract final class SucursalDeLaHoja {
+  static const todas = 'Todas las sucursales';
+}
 
 /// Las rutas, por id. Lo necesita la columna `Entrega`: el estado
 /// de reparto de un pedido «en despacho» o «en ruta» depende de en que estado

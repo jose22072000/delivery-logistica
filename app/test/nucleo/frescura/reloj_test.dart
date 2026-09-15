@@ -130,6 +130,30 @@ void main() {
         );
       },
     );
+
+    test('`laMasViejaAhora` contesta LO MISMO, sin dejar un stream abierto', () async {
+      // La usa el vigia para decidir en seco si vale la pena un ciclo al volver
+      // delante. Si contestara otra cosa que la version en vivo, la franja y el
+      // vigia estarian mirando dos aparatos distintos.
+      const dos = [Colecciones.pedidos, Colecciones.rutas];
+
+      expect(await frescura.laMasViejaAhora(dos), isNull);
+
+      await frescura.marcar(Colecciones.pedidos, hasta: 'a');
+      expect(
+        await frescura.laMasViejaAhora(dos),
+        isNull,
+        reason: 'falta `routes`: igual que la de siempre, sin descargar',
+      );
+
+      reloj.ahora = DateTime(2026, 9, 14, 11);
+      await frescura.marcar(Colecciones.rutas, hasta: 'b');
+      expect(
+        await frescura.laMasViejaAhora(dos),
+        await frescura.laMasVieja(dos).first,
+      );
+      expect(await frescura.laMasViejaAhora(dos), DateTime(2026, 9, 14, 7, 42));
+    });
   });
 
   group('el widget', () {

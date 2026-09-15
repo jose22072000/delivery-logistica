@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../diseno/colores.dart';
 import '../../../diseno/tema.dart';
 import '../../../navegacion/portero.dart';
+import '../../../nucleo/plataforma.dart';
 import '../datos/servicio_acceso.dart';
 import '../estado/estado_acceso.dart';
 
@@ -30,6 +31,16 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
   final _formulario = GlobalKey<FormState>();
   bool _verContrasena = false;
 
+  /// SE ENTRÓ Y LA SESIÓN NO SE QUEDÓ. No es lo mismo que la comprobación de
+  /// antes de escribir la contraseña: esto ya pasó, con esta cuenta, ahora.
+  ///
+  /// Existe aparte porque en web la comprobación previa no se hace —allí no hay
+  /// promesa de día sin señal que cumplir— pero **el fallo de verdad sí se
+  /// dice**: si el navegador no guarda, el botón de entrar no haría nada y la
+  /// persona se quedaría delante de un formulario mudo probando una contraseña
+  /// que era buena.
+  bool _noSeGuardo = false;
+
   @override
   void dispose() {
     _usuario.dispose();
@@ -47,7 +58,14 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
       // ENTRÓ, pero la sesión no se quedó guardada. Se dice AHORA, que es el
       // único momento en el que todavía hay conexión y hay a quién preguntar:
       // descubrirlo mañana es descubrirlo en el patio de un almacén.
+      //
+      // Y en web se dice igual, aunque allí no haya promesa que romper: sin
+      // sesión guardada el interceptor no tiene token que poner y todo
+      // respondería 401. Eso es un fallo de verdad, y lo que se quitó de la web
+      // es el aparato de PREPARARSE para no tener conexión, no el aviso de que
+      // algo acaba de salir mal.
       ref.invalidate(saludDelAlmacenProvider);
+      setState(() => _noSeGuardo = true);
       return;
     }
     // Quien mueve la aplicación de sitio es el portero, no esta pantalla.
@@ -58,8 +76,30 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
   Widget build(BuildContext context) {
     final estado = ref.watch(formularioProvider);
     final entrando = estado is Entrando;
+    // ¿HAY PROMESA QUE HACER? En web, NO — 15/09/2026.
+    //
+    // «Una vez dentro, no: puedes seguir trabajando el día entero sin señal» es
+    // la regla de la casa y es verdad en la APK y en el escritorio, donde quien
+    // entra se va al patio de un almacén. En un navegador es mentira en las dos
+    // direcciones: ni hace falta —la web se abre desde internet, siempre— ni se
+    // cumple, porque lo que sostiene la sesión ahí es lo que haya en el
+    // navegador y nadie le prometió a esa persona un día entero de nada.
+    //
+    // Y por lo mismo se cae el aviso de «este aparato no guarda la sesión»: sólo
+    // existe para decir que la promesa NO se va a poder cumplir. Sin promesa no
+    // hay nada que desdecir, y lo que quedaría es un recuadro ámbar diciéndole a
+    // alguien que va a tener que volver a entrar en un sitio donde eso es lo
+    // normal. **Ni se pinta ni se pregunta**: la comprobación del almacén es una
+    // ida y vuelta de verdad, y aquí no la paga nadie.
+    final hayPromesaDeDiaSinSenal = ref.watch(trabajaSinConexionProvider);
     // LA PROMESA, comprobada. Ver `nucleo/identidad/almacen_sesion.dart`.
-    final salud = ref.watch(saludDelAlmacenProvider).asData?.value;
+    //
+    // En web se le pregunta al almacén **sólo si ya falló de verdad**: nada de
+    // sondearlo antes por si acaso, que es justo el aparato de prepararse que
+    // aquí sobra.
+    final salud = (hayPromesaDeDiaSinSenal || _noSeGuardo)
+        ? ref.watch(saludDelAlmacenProvider).asData?.value
+        : null;
     final guarda = salud?.guarda ?? true;
     // ¿Había datos en el aparato y aun así no hay sesión? Entonces esto no es
     // «entra»: es que la sesión se perdió, y hay que decirlo.
@@ -126,7 +166,10 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
                   ],
                   if (!guarda) ...[
                     const SizedBox(height: Aire.lg),
-                    _NoGuarda(motivo: salud!.motivo!),
+                    _NoGuarda(
+                      motivo: salud!.motivo!,
+                      hayPromesaDeDiaSinSenal: hayPromesaDeDiaSinSenal,
+                    ),
                   ],
                   const SizedBox(height: Aire.xl),
                   TextFormField(
@@ -188,23 +231,31 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
                           )
                         : const Text('Entrar'),
                   ),
-                  const SizedBox(height: Aire.md),
-                  Text(
-                    // La regla de la casa, dicha antes de que haga falta: quien
-                    // se queda sin señal en la calle no tiene a quién preguntar.
-                    //
-                    // **O se cumple, o no se promete.** Si este aparato no
-                    // puede guardar la sesión, la frase de siempre es mentira y
-                    // no se escribe: lo que se escribe es lo que de verdad va a
-                    // pasar. El aviso de arriba dice el resto.
-                    guarda
-                        ? 'Para entrar hace falta conexión. Una vez dentro, no: '
-                              'puedes seguir trabajando el día entero sin señal.'
-                        : 'Para entrar hace falta conexión, y en este aparato '
-                              'hará falta cada vez que abras la aplicación.',
-                    textAlign: TextAlign.center,
-                    style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
-                  ),
+                  // LA PROMESA DEL DÍA SIN SEÑAL — sólo donde hay día sin señal.
+                  // En web no se escribe ninguna frase en su lugar: no hay nada
+                  // que avisar, y una línea puesta para llenar el hueco es una
+                  // línea que nadie lee.
+                  if (hayPromesaDeDiaSinSenal) ...[
+                    const SizedBox(height: Aire.md),
+                    Text(
+                      // La regla de la casa, dicha antes de que haga falta:
+                      // quien se queda sin señal en la calle no tiene a quién
+                      // preguntar.
+                      //
+                      // **O se cumple, o no se promete.** Si este aparato no
+                      // puede guardar la sesión, la frase de siempre es mentira
+                      // y no se escribe: lo que se escribe es lo que de verdad
+                      // va a pasar. El aviso de arriba dice el resto.
+                      guarda
+                          ? 'Para entrar hace falta conexión. Una vez dentro, '
+                                'no: puedes seguir trabajando el día entero sin '
+                                'señal.'
+                          : 'Para entrar hace falta conexión, y en este aparato '
+                                'hará falta cada vez que abras la aplicación.',
+                      textAlign: TextAlign.center,
+                      style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -234,20 +285,37 @@ class _SesionPerdida extends StatelessWidget {
   );
 }
 
-/// ESTE APARATO NO GUARDA LA SESIÓN. Dicho ANTES de escribir la contraseña.
+/// ESTE APARATO NO GUARDA LA SESIÓN.
+///
+/// En la APK y en el escritorio se dice **antes** de escribir la contraseña,
+/// porque lo que está en juego es la promesa del día entero sin señal y hay que
+/// desdecirla a tiempo. En web no se dice nunca por adelantado —allí no hay tal
+/// promesa— y sólo aparece cuando el navegador ya se ha negado a guardar de
+/// verdad, que ahí es otra cosa: sin sesión guardada no hay token que poner en
+/// las peticiones y la página no sirve para nada.
 class _NoGuarda extends StatelessWidget {
-  const _NoGuarda({required this.motivo});
+  const _NoGuarda({
+    required this.motivo,
+    required this.hayPromesaDeDiaSinSenal,
+  });
 
   final String motivo;
+
+  /// `true` en la APK y el escritorio. En web cambia qué se explica, porque lo
+  /// que se rompe no es lo mismo.
+  final bool hayPromesaDeDiaSinSenal;
 
   @override
   Widget build(BuildContext context) => _Recuadro(
     icono: Icons.lock_open_outlined,
     titulo: motivo,
-    detalle:
-        'Vas a poder trabajar todo el día sin señal, pero al cerrar la '
-        'aplicación tendrás que entrar otra vez, y para eso hace falta '
-        'conexión. Avisa a la oficina antes de irte al almacén.',
+    detalle: hayPromesaDeDiaSinSenal
+        ? 'Vas a poder trabajar todo el día sin señal, pero al cerrar la '
+              'aplicación tendrás que entrar otra vez, y para eso hace falta '
+              'conexión. Avisa a la oficina antes de irte al almacén.'
+        : 'Puede ser una ventana privada o el navegador con los datos del sitio '
+              'bloqueados. Ábrelo en una ventana normal y vuelve a entrar: sin '
+              'guardar la sesión, la página no se puede quedar dentro.',
   );
 }
 

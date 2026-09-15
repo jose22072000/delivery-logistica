@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../arranque/arranque.dart';
 import '../nucleo/identidad/sesion.dart';
+import '../nucleo/plataforma.dart';
 import '../nucleo/proveedores.dart';
 import '../nucleo/registro/registro.dart';
 import '../pantallas/acceso/estado/estado_acceso.dart';
@@ -195,12 +196,30 @@ class Portero extends ChangeNotifier {
   /// **Si el aparato ya tiene los datos, arranca directo**, sin pantalla de
   /// espera y sin esperar a la red: el ciclo sale por detrás como siempre. Si
   /// está vacío, la pantalla de configuración manda hasta que termine.
+  ///
+  /// ## En web NO se configura nada, y por eso no se ve — 15/09/2026
+  ///
+  /// «Configurando Reparto» existe para dejar el aparato listo para un día
+  /// entero sin señal: es una promesa que hay que cumplir ANTES de que alguien
+  /// se vaya al patio de un almacén, y por eso se espera con la pantalla
+  /// delante. Quien abre un navegador no se va a ningún sitio y no se le puede
+  /// caer la conexión encima del hombro: la primera carga es la misma bajada,
+  /// pero por detrás, y se entra directo.
+  ///
+  /// Y no se queda nadie mirando una pantalla en blanco: **las siete pantallas
+  /// ya saben decir que todavía no se han descargado** (`SinDescargar`, caso
+  /// S7), que es exactamente lo que hace falta mientras la primera bajada llega.
   Future<void> _entrar({required bool sinComprobar}) async {
     // EL NOMBRE, anotado en SU copia. Es lo único que deja que el gesto de
     // olvidar a alguien diga «Yasmani» en vez del `sub` del token, que a quien
     // lo lee no le dice nada (`nucleo/base/personas.dart`).
     await _anotarQuienEs();
-    if (sinComprobar || !await _elAparatoEstaVacio()) {
+    // El orden de la condición no es casual: en web se corta ANTES de contar lo
+    // que hay, que son dieciocho consultas para decidir algo ya decidido.
+    final prepararseParaNoTenerSenal = _ref.read(trabajaSinConexionProvider);
+    if (sinComprobar ||
+        !prepararseParaNoTenerSenal ||
+        !await _elAparatoEstaVacio()) {
       _configuracion = null;
       _poner(EstadoDeAcceso.dentro, sinComprobar: sinComprobar);
       _sincronizar('al entrar');
