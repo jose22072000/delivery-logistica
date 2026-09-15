@@ -1,4 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:reparto/nucleo/base/base.dart';
+import 'package:reparto/nucleo/frescura/copia_bajada.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
@@ -22,6 +24,25 @@ final vehiculosProvider = FutureProvider.autoDispose<List<VehiculoDeLaApi>>((
 
 final ajustesVehiculosProvider = FutureProvider.autoDispose<AjustesDeLaApi>(
   (ref) => ref.watch(repositorioVehiculosProvider).ajustes(),
+);
+
+/// LO QUE EL APARATO TIENE BAJADO de la flota.
+///
+/// Esta pantalla vive de la red y no de la base, pero la base **si** tiene una
+/// copia de `vehicles`: la deja la bajada del dia, y de ella comen el asistente
+/// de rutas y el tablero. Sin conexion eso es lo unico que hay, y decirlo separa
+/// las dos situaciones que hoy se ven iguales:
+///
+///  * el aparato bajo la flota y no hay red → se sigue pudiendo armar la ruta
+///    con lo que hay dentro;
+///  * el aparato **no la ha bajado nunca** → no se arregla dando de alta un
+///    camion, se arregla trayendo el dia.
+final flotaEnElAparatoProvider = StreamProvider<CopiaBajada>(
+  (ref) => copiaBajada(
+    ref.watch(baseProvider),
+    coleccion: Colecciones.vehiculos,
+    tabla: ref.watch(baseProvider).vehicles,
+  ),
 );
 
 /// La busqueda de la cabecera. Filtra **en el cliente** por nombre y placa.

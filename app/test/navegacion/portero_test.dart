@@ -118,4 +118,40 @@ void main() {
       );
     });
   });
+
+  pruebasDeSesionParaSincronizar();
+}
+
+/// CONFIGURANDO CUENTA COMO SESION.
+///
+/// Esta prueba existe por un fallo concreto: el cableado preguntaba si el estado
+/// era `dentro` y punto, asi que durante la configuracion inicial —que es
+/// `configurando`— el ciclo de sincronizacion cortaba en su guarda de «sin
+/// sesion no se intenta nada» y no mandaba una sola peticion. «Configurando
+/// Reparto» se quedaba en el 0 % para siempre y un aparato nuevo no se podia
+/// estrenar. Sin error, sin registro, sin nada que mirar.
+void pruebasDeSesionParaSincronizar() {
+  group('con que sesion se sincroniza', () {
+    test('dentro y configurando: en los dos hay sesion', () {
+      expect(haySesionParaSincronizar(EstadoDeAcceso.dentro), isTrue);
+      expect(
+        haySesionParaSincronizar(EstadoDeAcceso.configurando),
+        isTrue,
+        reason:
+            'sin esto la configuracion inicial se queda en el 0 % para siempre: '
+            'es justo cuando mas falta hace sincronizar',
+      );
+    });
+
+    test('fuera y comprobando: no se toca la red', () {
+      expect(haySesionParaSincronizar(EstadoDeAcceso.fuera), isFalse);
+      expect(
+        haySesionParaSincronizar(EstadoDeAcceso.comprobando),
+        isFalse,
+        reason:
+            'mientras se mira lo guardado todavia no se sabe de quien seria la '
+            'cola: mandarla podria subirla con la sesion equivocada',
+      );
+    });
+  });
 }

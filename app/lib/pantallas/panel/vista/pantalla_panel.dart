@@ -9,6 +9,7 @@ import '../../../diseno/numeros.dart';
 import '../../../diseno/tarjeta.dart';
 import '../../../diseno/tema.dart';
 import 'estado_del_dia.dart';
+import 'paso_a_paso.dart';
 import '../datos/consultas_panel.dart';
 import '../estado/panel_estado.dart';
 
@@ -33,6 +34,17 @@ class PantallaPanel extends ConsumerWidget {
     return ListView(
       padding: EdgeInsets.all(estrecho ? Aire.md : Aire.xl),
       children: [
+        // EL PASO A PASO DE LA PUESTA EN MARCHA, **por encima del estado del
+        // dia**, y sólo cuando falta algo.
+        //
+        // Los dos no compiten nunca por el primer sitio, y esa es toda la regla:
+        // este widget se pinta sólo si el aparato YA TIENE datos y aun asi falta
+        // configuracion. Sin datos no se sabe que falta y manda `EstadoDelDia`,
+        // que es el que trae el dia; con datos y sin camiones, traer el dia otra
+        // vez no va a hacer aparecer ninguno, asi que lo primero es configurar.
+        // El porque entero, en `paso_a_paso.dart`.
+        const PasoAPaso(),
+
         // EL ESTADO DEL DIA, lo primero de la pantalla y por encima de las
         // cifras. **Una sola pieza y no dos botones**: la pantalla ya sabe si
         // toca traer, enviar o solo decir que se esta trabajando sin conexion,

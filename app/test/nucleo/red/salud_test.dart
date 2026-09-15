@@ -20,9 +20,10 @@ void main() {
 
   group('lento en ponerse', () {
     test('un fallo suelto NO dice que la conexion va mal', () {
-      // Un ciclo caido ya son ochenta segundos largos de reintentos por dentro
-      // (1 s, 4 s, 15 s y 60 s). Aun asi, uno no basta: en una conexion que va y
-      // viene, avisar a la primera es parpadear todo el dia.
+      // Un ciclo caido ya son cerca de un minuto de reintentos por dentro
+      // (1 s, 4 s y 10 s sobre cuatro intentos, `cliente_api.dart`). Aun asi,
+      // uno no basta: en una conexion que va y viene, avisar a la primera es
+      // parpadear todo el dia.
       expect(conFallos(1).vaMal, isFalse);
     });
 

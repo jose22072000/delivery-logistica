@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:reparto/nucleo/frescura/copia_bajada.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
 import '../../../diseno/cajon.dart';
 import '../../../diseno/colores.dart';
+import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/tema.dart';
 import '../datos/almacen_api.dart';
 import '../estado/estado_almacenes.dart';
@@ -125,6 +127,11 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
           if (datos.error case final fallo?)
             _Fallo(
               fallo: fallo,
+              // QUE TIENE EL APARATO DENTRO. «Sin conexión» a secas no dice si
+              // el almacén está bajado o si este aparato no lo ha visto nunca,
+              // y son dos cosas distintas: con la copia se sigue midiendo el
+              // domicilio; sin ella no hay desde dónde.
+              enElAparato: ref.watch(almacenesEnElAparatoProvider).value,
               alReintentar: () => ref.invalidate(almacenesProvider),
             )
           else if (datos.value case final sucursales?)
@@ -161,13 +168,20 @@ class _Contenido extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
     if (sucursales.isEmpty || sucursal == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 32),
-        child: Text(
-          'No hay ninguna sucursal a la vista con código en Accesos.',
-        ),
+      // Tampoco es un callejon: se dice por que no hay nada que ensenar y donde
+      // se arregla. **Sin boton**, porque el codigo de la sucursal se pone en
+      // Accesos y desde aqui no se toca.
+      return const Invitacion(
+        icono: Icons.store_outlined,
+        titulo: 'No hay ninguna sucursal a la vista con código en Accesos.',
+        queEs:
+            'Los almacenes son de la sucursal, y la sucursal se reconoce por '
+            'su código (STG, HAB, CAM…). Sin ese código no hay a quién '
+            'preguntarle por sus almacenes.',
+        llamada:
+            'Se arregla en Accesos, poniéndole el código a la sucursal. Si te '
+            'debería salir alguna, pídelo a administración.',
       );
     }
 
@@ -216,13 +230,30 @@ class _Contenido extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         if (actual.almacenes.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 24),
-            child: Text(
-              'Esta sucursal no tiene ninguno: sus domicilios no se pueden '
-              'cotizar.',
-              style: tema.textTheme.bodyMedium,
-            ),
+          // EL VACIO ES UNA INVITACION. Aqui se llega con Accesos contestando y
+          // diciendo que esa sucursal no tiene ninguno: es un vacio de verdad,
+          // y por eso se puede invitar a darlo de alta. El «no se ha
+          // descargado» vive en `_Fallo` y dice otra cosa.
+          //
+          // El literal del pliego (§6) se conserva entero como llamada; lo que
+          // se añade es que ES un almacén para quien reparte y que se rompe
+          // mientras no haya ninguno.
+          Invitacion(
+            icono: Icons.warehouse_outlined,
+            titulo: 'Sin almacenes en ${actual.nombre}',
+            queEs:
+                'El almacén es el sitio del que sale el camión y desde el que '
+                'se mide la distancia hasta cada cliente. Lleva su dirección y '
+                'su punto en el mapa.',
+            siNoEsta:
+                'Sin ninguno no hay desde dónde medir: los domicilios de esta '
+                'sucursal salen sin precio y el asistente de rutas no pasa del '
+                'punto de partida.',
+            llamada:
+                'Esta sucursal no tiene ninguno: sus domicilios no se pueden '
+                'cotizar.',
+            textoDelBoton: 'Nuevo almacén',
+            alPulsar: () => alAbrir(actual),
           )
         else
           for (final (indice, a) in actual.almacenes.indexed)
@@ -250,10 +281,17 @@ class _Contenido extends StatelessWidget {
 }
 
 class _Fallo extends StatelessWidget {
-  const _Fallo({required this.fallo, required this.alReintentar});
+  const _Fallo({
+    required this.fallo,
+    required this.alReintentar,
+    this.enElAparato,
+  });
 
   final Object fallo;
   final VoidCallback alReintentar;
+
+  /// Lo que la bajada del dia dejo en la base. `null` mientras se mira.
+  final CopiaBajada? enElAparato;
 
   @override
   Widget build(BuildContext context) {
@@ -271,11 +309,35 @@ class _Fallo extends StatelessWidget {
         'No se pudieron traer los almacenes de Accesos. Lo de abajo está vacío '
             'por eso, no porque no haya ninguno.',
     };
+    // LO QUE HAY DENTRO DEL TELEFONO, y **sólo si el fallo es de red**: cuando
+    // Accesos contesta y dice que no, la copia local no viene al caso.
+    final copia = enElAparato;
+    final Widget? dentro = (fallo is! FalloDeRed || copia == null)
+        ? null
+        : copia.seDescargo
+        ? LoQueTieneElAparato(
+            texto: copia.cuantos == 0
+                ? 'La última bajada tampoco trajo ningún almacén: están vacíos, '
+                      'no sin descargar.'
+                : 'El aparato tiene ${copia.cuantos} almacén(es) de la última '
+                      'bajada: desde ésos se sigue midiendo el domicilio '
+                      'aunque esta pantalla no cargue.',
+            enAmbar: copia.cuantos == 0,
+          )
+        : const LoQueTieneElAparato(
+            texto:
+                'Este aparato no ha descargado los almacenes todavía. No es '
+                'que no haya ninguno: es que no están aquí. Bajan solos al '
+                'traer el día desde el Panel.',
+            enAmbar: true,
+          );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 32),
       child: Column(
         children: [
           Text(texto, textAlign: TextAlign.center),
+          ?dentro,
           const SizedBox(height: 12),
           OutlinedButton(
             onPressed: alReintentar,

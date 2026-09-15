@@ -36,6 +36,12 @@ dependencies:
   sqlite3: 2.9.4               # de aqui sale web/sqlite3.wasm
   path_provider: 2.1.6
 
+  # HMAC-SHA256 para el fichero de la sesion del escritorio de Linux
+  # (`nucleo/identidad/almacen_sesion_fichero.dart`). Ya venia de rebote con
+  # otras dependencias; se pone explicita porque ahora se importa a proposito, y
+  # exacta como todas.
+  crypto: 3.0.7
+
   # Red — hace falta interceptor con candado, no un `http.get`.
   dio: 5.11.1
 

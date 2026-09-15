@@ -29,6 +29,23 @@ enum EstadoDeAcceso {
   fuera,
 }
 
+/// ¿HAY SESIÓN CON LA QUE SINCRONIZAR? Son DOS estados, no uno.
+///
+/// `configurando` cuenta igual que `dentro`: en los dos hay sesión —se acaba de
+/// entrar— y lo único que cambia es que el aparato todavía está vacío. Que es
+/// justo cuando más falta hace sincronizar.
+///
+/// Está aquí, con nombre y probada suelta, porque vivir escrita a mano dentro
+/// del cableado (`nucleo/proveedores.dart`) ya costó un fallo que no se veía:
+/// con sólo `dentro`, [Portero.configurar] llamaba al ciclo estando en
+/// `configurando`, el ciclo cortaba en su guarda de «sin sesión no se intenta
+/// nada» y devolvía «nada que hacer» **sin mandar una sola petición**. La
+/// pantalla de «Configurando Reparto» se quedaba en el 0 % para siempre y un
+/// aparato nuevo no se podía estrenar. Sin error, sin registro, sin nada que
+/// mirar.
+bool haySesionParaSincronizar(EstadoDeAcceso estado) =>
+    estado == EstadoDeAcceso.dentro || estado == EstadoDeAcceso.configurando;
+
 /// POR DÓNDE VA la configuración inicial, o por qué no se pudo.
 class ConfiguracionInicial {
   const ConfiguracionInicial.enMarcha() : fallo = null, faltoAlgo = false;
@@ -239,6 +256,19 @@ class Portero extends ChangeNotifier {
 
   /// ¿Está el aparato sin configurar? La respuesta sale de LA BASE, no de lo que
   /// contestó el servidor (`nucleo/sincro/recuento.dart`).
+  ///
+  /// AQUÍ SE PREGUNTA SI ESTÁ VIRGEN, **no si está completo**, y la diferencia
+  /// costó un intento.
+  ///
+  /// Se probó a exigir además que no faltara ninguna imprescindible
+  /// (`Faltas.de`, que cuenta como falta una colección bajada y a cero filas).
+  /// Eso deja **encerrada para siempre** a una sucursal que de verdad no tiene
+  /// almacenes todavía: nunca saldría de «Configurando Reparto», con la barra
+  /// quieta y sin nada que pueda hacer. Lo cazó `widget_test`.
+  ///
+  /// Que falte algo se dice **dentro**, en el paso a paso del Panel y en el
+  /// aviso de la bajada, que para eso están. Dejar a alguien fuera de la
+  /// aplicación es una respuesta peor que dejarle entrar avisado.
   Future<bool> _elAparatoEstaVacio() async {
     try {
       return (await _ref.read(recontadorProvider).ahora()).vaATraerTodo;

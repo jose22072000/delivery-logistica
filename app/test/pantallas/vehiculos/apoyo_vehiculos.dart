@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/identidad/almacen_sesion.dart';
@@ -59,4 +60,32 @@ class Banco {
     contenedor.dispose();
     await base.close();
   }
+}
+
+/// Deja en la base la COPIA BAJADA de la flota, con su marca de frescura.
+///
+/// Es lo que la bajada del dia habria dejado. Sirve para distinguir en pantalla
+/// «este aparato no ha descargado la flota» de «el aparato la tiene y ahora no
+/// hay red», que son dos situaciones distintas y se arreglan al reves.
+Future<void> sembrarFlotaBajada(
+  BaseLocal base, {
+  int cuantos = 1,
+  DateTime? cuando,
+}) async {
+  for (var i = 0; i < cuantos; i++) {
+    await base
+        .into(base.vehicles)
+        .insertOnConflictUpdate(
+          VehiclesCompanion.insert(id: 'v$i', name: 'Camión #$i'),
+        );
+  }
+  await base
+      .into(base.frescura)
+      .insertOnConflictUpdate(
+        FrescuraCompanion.insert(
+          coleccion: Colecciones.vehiculos,
+          bajadaAt: Value(cuando ?? DateTime(2026, 9, 15, 8)),
+          completa: const Value(true),
+        ),
+      );
 }

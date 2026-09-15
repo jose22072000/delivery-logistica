@@ -2,9 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:reparto/nucleo/frescura/copia_bajada.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
 import '../../../diseno/cajon.dart';
+import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/tema.dart';
 import '../datos/vehiculo_api.dart';
 import '../estado/estado_vehiculos.dart';
@@ -173,6 +175,11 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
           if (lista.error case final fallo?)
             _Fallo(
               fallo: fallo,
+              // QUE TIENE EL APARATO DENTRO. Sin esto, «Sin conexión» deja sin
+              // contestar la pregunta que de verdad importa: si el aparato
+              // bajo la flota alguna vez o no la ha bajado nunca. Son dos
+              // situaciones que hoy se ven iguales y se arreglan al reves.
+              enElAparato: ref.watch(flotaEnElAparatoProvider).value,
               alReintentar: () => ref.invalidate(vehiculosProvider),
             )
           else if (lista.value case final vehiculos?)
@@ -204,10 +211,17 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
 /// Un `FalloDeRed` no es «no hay vehiculos»: son dos cosas distintas y pintarlas
 /// igual hace que alguien crea que la flota se borro.
 class _Fallo extends StatelessWidget {
-  const _Fallo({required this.fallo, required this.alReintentar});
+  const _Fallo({
+    required this.fallo,
+    required this.alReintentar,
+    this.enElAparato,
+  });
 
   final Object fallo;
   final VoidCallback alReintentar;
+
+  /// Lo que la bajada del dia dejo en la base. `null` mientras se mira.
+  final CopiaBajada? enElAparato;
 
   @override
   Widget build(BuildContext context) {
@@ -220,11 +234,41 @@ class _Fallo extends StatelessWidget {
       final FalloApi f => f.mensaje,
       _ => 'No se pudo traer la flota. $fallo',
     };
+
+    // LO QUE HAY DENTRO DEL TELEFONO, y **sólo cuando el fallo es de red**: si
+    // el servidor contesto y dijo que no, la copia local no viene al caso y
+    // anadirla sería ruido encima de un mensaje que ya es claro.
+    final copia = enElAparato;
+    final Widget? dentro = (fallo is! FalloDeRed || copia == null)
+        ? null
+        : copia.seDescargo
+        ? LoQueTieneElAparato(
+            texto: copia.cuantos == 0
+                // Se bajo y no habia ninguno: eso SI es un vacio, y se dice
+                // como tal aunque ahora mismo no haya red para confirmarlo.
+                ? 'La última bajada tampoco trajo ningún vehículo: la flota '
+                      'está vacía, no sin descargar.'
+                : 'El aparato tiene ${copia.cuantos} vehículo(s) de la última '
+                      'bajada: con ésos se puede armar la ruta aunque esta '
+                      'pantalla no cargue.',
+            enAmbar: copia.cuantos == 0,
+          )
+        : const LoQueTieneElAparato(
+            // El caso que importa: no es que no haya camiones, es que este
+            // aparato no los ha descargado. Se arregla trayendo el día.
+            texto:
+                'Este aparato no ha descargado la flota todavía. No es que no '
+                'haya vehículos: es que no están aquí. Baja sola al traer el '
+                'día desde el Panel.',
+            enAmbar: true,
+          );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 32),
       child: Column(
         children: [
           Text(texto, textAlign: TextAlign.center),
+          ?dentro,
           const SizedBox(height: 12),
           OutlinedButton(
             onPressed: alReintentar,
@@ -258,23 +302,30 @@ class _Rejilla extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (vehiculos.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32),
-        child: Column(
-          children: [
-            const Text('Sin vehículos'),
-            const SizedBox(height: 4),
-            Text(
-              'Agrega tu primer vehículo para asignarlo a rutas',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: alAgregar,
-              child: const Text('Agregar Vehículo'),
-            ),
-          ],
-        ),
+      // EL VACIO ES UNA INVITACION, no un callejon.
+      //
+      // Aqui se llega con el servidor contestando y diciendo que no hay
+      // ninguno: es un VACIO DE VERDAD, y por eso se puede invitar a dar de
+      // alta. El «no se ha descargado» vive en `_Fallo`, que es el otro camino,
+      // y dice otra cosa.
+      //
+      // Los dos literales del pliego (§5) se conservan: `Sin vehículos` es el
+      // titulo y `Agrega tu primer vehículo para asignarlo a rutas` es el botón
+      // de siempre. Lo que se añade es lo que faltaba: **que es esto** y **qué
+      // se rompe mientras siga vacío**.
+      return Invitacion(
+        icono: Icons.local_shipping_outlined,
+        titulo: 'Sin vehículos',
+        queEs:
+            'Aquí van los camiones con los que se reparte: cuánto carga cada '
+            'uno, qué cuesta su kilómetro y cuál está hoy en ruta.',
+        siNoEsta:
+            'Mientras no haya ninguno no se puede terminar de armar una ruta '
+            '—el asistente se para en el paso del vehículo— y las columnas del '
+            'tablero se quedan sin camión.',
+        llamada: 'Agrega tu primer vehículo para asignarlo a rutas',
+        textoDelBoton: 'Agregar Vehículo',
+        alPulsar: alAgregar,
       );
     }
 

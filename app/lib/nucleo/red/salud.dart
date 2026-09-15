@@ -29,11 +29,20 @@ class SaludDeLaRed {
   /// parpadea deja de leerse a los diez minutos — que es justo lo que le pasa al
   /// ámbar de esta casa si se gasta en balde.
   ///
-  /// Y tres no es «tres paquetes perdidos»: cada ciclo reintenta por dentro
-  /// cuatro veces (1 s, 4 s, 15 s y 60 s, `cliente_api.dart`), así que UN ciclo
-  /// caído ya son ochenta segundos largos de intentarlo. Tres seguidos
-  /// significan que la conexión lleva minutos sin servir, no que se perdió un
-  /// paquete.
+  /// Y tres no es «tres paquetes perdidos»: cada petición del ciclo reintenta
+  /// por dentro tres veces (1 s, 4 s y 10 s, `cliente_api.dart`), así que UN
+  /// ciclo caído son cuatro intentos y 15 s de esperas — **unos 55 s cuando la
+  /// conexión no llega a establecerse, que es como se cae de verdad allá**, y
+  /// hasta ~115 s si el servidor coge la conexión y se queda mudo cada vez.
+  /// Tres seguidos siguen significando que la conexión lleva **minutos** sin
+  /// servir, no que se perdió un paquete.
+  ///
+  /// El número se dejó en tres al bajar los plazos el 15/09/2026 y no se subió
+  /// a compensar: antes eran ~80 s por ciclo y hacían falta tres para llegar a
+  /// «minutos»; ahora son ~55 s y tres siguen siendo minutos. Lo que cambió
+  /// para bien es que el aviso aparece antes —dos minutos y medio en vez de
+  /// cuatro— y quien está en el patio del almacén se entera de que no hay
+  /// señal mientras todavía le sirve de algo.
   static const fallosParaDarlaPorMala = 3;
 
   /// `true` cuando las peticiones llevan un rato sin llegar.

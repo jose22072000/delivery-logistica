@@ -86,7 +86,7 @@ void main() {
     expect(
       vueltas,
       esperasPorDefecto.length + 1,
-      reason: 'el primer intento mas los cuatro reintentos',
+      reason: 'el primer intento mas los tres reintentos',
     );
     expect(
       (await m.almacen.leer())?.refresh,

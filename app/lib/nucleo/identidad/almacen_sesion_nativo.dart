@@ -1,13 +1,31 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../registro/registro.dart';
 import 'almacen_sesion.dart';
+import 'almacen_sesion_fichero.dart';
 import 'sesion.dart';
 
-/// APK: Keystore / `EncryptedSharedPreferences`.
-AlmacenDeSesion abrirAlmacenDeSesion() => AlmacenSeguro();
+/// DONDE GUARDA CADA DESTINO, y por que no es el mismo sitio en todos.
+///
+/// * **Android** → el almacen del sistema (Keystore). Probado y funcionando.
+/// * **Linux** → un fichero propio, cifrado y atado a la maquina
+///   ([AlmacenEnFichero]). NO el almacen del sistema: en Linux
+///   `flutter_secure_storage` 3.0.3 acepta la escritura y despues no encuentra
+///   nada, asi que la aplicacion de escritorio pedia la contrasena en cada
+///   arranque — y sin senal eso es no poder entrar. El porque, con el codigo
+///   del plugin delante, en `almacen_sesion_fichero.dart`.
+/// * **Windows y Apple** → el almacen del sistema (DPAPI, Llavero). Se dejan
+///   como estaban: alli el fallo de Linux no aplica, porque es otro codigo
+///   nativo distinto. **Windows no se ha comprobado desde este equipo** — no se
+///   puede, Flutter no cruza de plataforma—, asi que si alguna vez se ve el
+///   mismo cuadro (entrar, cerrar, abrir y que pida la contrasena), la salida
+///   es la misma que aqui: este fichero, que no depende de ningun servicio del
+///   sistema.
+AlmacenDeSesion abrirAlmacenDeSesion() =>
+    Platform.isLinux ? AlmacenEnFichero() : AlmacenSeguro();
 
 class AlmacenSeguro implements AlmacenDeSesion {
   AlmacenSeguro([FlutterSecureStorage? caja])

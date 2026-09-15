@@ -27,10 +27,16 @@ import 'apoyo/servidor_falso.dart';
 void main() {
   setUpAll(() => initializeDateFormatting('es'));
 
-  Future<void> montar(
+  /// [demora] es lo que tarda el servidor falso en contestar. Por defecto cero
+  /// —las pruebas que no miran el camino no quieren esperar— pero la de la
+  /// configuracion inicial SI la necesita: sin demora la bajada termina antes
+  /// del primer fotograma y la pantalla que se quiere comprobar no llega a
+  /// pintarse nunca. Una bajada instantanea no existe fuera de un test.
+  Future<void> montarSinAsentar(
     WidgetTester tester, {
     required AlmacenDeSesion almacen,
     bool yaConfigurado = false,
+    Duration demora = Duration.zero,
   }) async {
     tester.view.physicalSize = const Size(1440, 1000);
     tester.view.devicePixelRatio = 1;
@@ -52,19 +58,34 @@ void main() {
           ),
           // Y la bajada del dia, contra el servidor falso y sin esperas.
           clienteApiProvider.overrideWithValue(
-            clienteFalso(
-              (p) async => RespuestaFalsa(200, <String, Object?>{
+            clienteFalso((p) async {
+              if (demora > Duration.zero) await Future<void>.delayed(demora);
+              return RespuestaFalsa(200, <String, Object?>{
                 'hasta': '2026-09-14T08:00:00Z',
                 'completa': true,
                 'truncado': false,
                 'cambios': <String, Object?>{},
                 'sucursales': <Object?>[],
-              }),
-            ),
+              });
+            }),
           ),
         ],
         child: const RepartoApp(),
       ),
+    );
+  }
+
+  /// Igual que [montarSinAsentar] pero esperando a que todo se asiente, que es
+  /// lo que quieren las dos primeras pruebas.
+  Future<void> montar(
+    WidgetTester tester, {
+    required AlmacenDeSesion almacen,
+    bool yaConfigurado = false,
+  }) async {
+    await montarSinAsentar(
+      tester,
+      almacen: almacen,
+      yaConfigurado: yaConfigurado,
     );
     await tester.pumpAndSettle();
   }
@@ -116,15 +137,48 @@ void main() {
   testWidgets('con sesion y el aparato VACIO: «Configurando Reparto»', (
     tester,
   ) async {
-    // LA PRIMERA VEZ. Lo que habia antes era el Panel en ceros mientras las
-    // cosas aparecian por detras, y un Panel a cero es indistinguible de una
-    // sucursal sin nada que repartir.
-    await montar(tester, almacen: AlmacenEnMemoria(sesionDePrueba()));
+    // LA PRIMERA VEZ, y son DOS mitades: se ve mientras configura, y se quita
+    // cuando acaba. Lo que habia antes era el Panel en ceros mientras las cosas
+    // aparecian por detras, y un Panel a cero es indistinguible de una sucursal
+    // sin nada que repartir.
+    //
+    // Se mira SIN dejar que todo se asiente, a proposito: `pumpAndSettle` espera
+    // a que el ciclo termine, y entonces la pantalla que se quiere comprobar ya
+    // se ha ido. Esta prueba se escribio cuando el ciclo NO ARRANCABA —se
+    // quedaba en el 0 % para siempre— y por eso `pumpAndSettle` la dejaba a la
+    // vista: pasaba por el fallo, no a pesar de el.
+    await montarSinAsentar(
+      tester,
+      almacen: AlmacenEnMemoria(sesionDePrueba()),
+      demora: const Duration(seconds: 1),
+    );
+    // Con duracion, no un `pump()` a secas: la cadena de antes de la bajada
+    // —leer la sesion, abrir la copia de esa persona, contar lo que hay— son
+    // varias vueltas de base, y sin dejar correr el reloj el arbol todavia esta
+    // vacio y la comprobacion mira una pantalla que aun no se ha pintado.
+    await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.byType(PantallaConfigurando), findsOneWidget);
     expect(find.text('Configurando Reparto'), findsOneWidget);
     // Y NO el Panel por detras: nada de entrar mientras se configura.
     expect(find.byType(FranjaDeEstado), findsNothing);
+
+    // Y LA SEGUNDA MITAD: cuando la bajada termina, se entra. El servidor falso
+    // contesta «no hay nada que traer», que para un aparato virgen es una
+    // respuesta legitima —una sucursal recien abierta— y cuenta como
+    // configurado. Quedarse aqui seria encerrar a esa persona en una barra que
+    // ya no se mueve.
+    // El reloj tiene que pasar de la demora del servidor falso: `pumpAndSettle`
+    // solo pinta mientras haya fotogramas pedidos, y la barra de avance los
+    // pide, asi que se asienta con la bajada todavia en vuelo.
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(
+      find.byType(PantallaConfigurando),
+      findsNothing,
+      reason: 'la configuracion acabo: no se puede quedar la pantalla puesta',
+    );
+    expect(find.text('Panel'), findsWidgets);
 
     await desmontar(tester);
   });

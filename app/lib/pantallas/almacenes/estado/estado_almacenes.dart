@@ -1,4 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:reparto/nucleo/base/base.dart';
+import 'package:reparto/nucleo/frescura/copia_bajada.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
@@ -16,6 +18,22 @@ final almacenesProvider = FutureProvider.autoDispose<List<SucursalDeAccesos>>((
   ref.watch(sucursalMiradaProvider);
   return ref.watch(repositorioAlmacenesProvider).listar();
 });
+
+/// LO QUE EL APARATO TIENE BAJADO de los almacenes.
+///
+/// Esta pantalla lee y escribe en Accesos, pero la bajada del dia deja ademas
+/// una copia de `warehouses` en la base, y de ella salen el punto de partida del
+/// asistente de rutas y el origen desde el que se mide el domicilio. Sin red es
+/// lo unico que hay, y decirlo separa dos situaciones que hoy se ven iguales:
+/// «no se pudo preguntar, pero el aparato tiene la copia del lunes» y «este
+/// aparato no ha descargado los almacenes nunca».
+final almacenesEnElAparatoProvider = StreamProvider<CopiaBajada>(
+  (ref) => copiaBajada(
+    ref.watch(baseProvider),
+    coleccion: Colecciones.almacenes,
+    tabla: ref.watch(baseProvider).warehouses,
+  ),
+);
 
 /// Que sucursal se esta mirando DENTRO de la pantalla. `null` = la primera de la
 /// lista.

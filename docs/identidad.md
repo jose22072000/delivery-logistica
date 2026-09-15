@@ -216,3 +216,58 @@ comparten la tablet, y borrar ahí es tirar el día de alguien sin decírselo. L
 cerraría de verdad es cifrar cada copia con una clave derivada de la contraseña, y eso
 choca con la regla de que sin conexión no se comprueba ninguna contraseña. Queda escrito
 para el día que se decida.
+
+---
+
+## Dónde guarda cada destino, y por qué el escritorio no usa el llavero — 15/09/2026
+
+La sesión se guarda en un sitio distinto según el aparato, y no por capricho:
+
+| Destino | Dónde | Comprobado |
+|---|---|---|
+| **Android** | Keystore, vía `flutter_secure_storage` | sí, funciona |
+| **Linux (escritorio)** | **fichero propio, cifrado**, en `~/.local/share/cloud.procovar.reparto/sesion.caja` | sí — entrar, cerrar, abrir sin red y entrar sin contraseña |
+| **Windows (escritorio)** | DPAPI, vía `flutter_secure_storage` | **no** — no se puede comprobar desde Linux |
+| **Web** | la cookie de auth; el almacén devuelve `null` siempre | sí |
+
+En Linux el almacén del sistema **es de sólo escritura** y por eso se dejó de usar:
+`flutter_secure_storage_linux` 3.0.3 arma su `SecretSchema` con
+`the_schema.name = label.c_str()` en el constructor y después reasigna ese `std::string`
+en `setLabel()`. El puntero queda colgando, el atributo `xdg:schema` que se escribe es
+basura, y el `lookup` de vuelta —misma etiqueta, misma cuenta— no encuentra nada. `write`
+dice que sí, `read` devuelve vacío. Eso es exactamente el caso S1 de `pruebas.md` fallando,
+y **descalificaba la aplicación de escritorio entera**: cierras, abres sin señal y no
+puedes entrar, con tus datos ahí mismo en el disco.
+
+Se eligió almacén propio en vez de mantener un fork del plugin porque el fork obliga a
+compilar C++ nuestro en cada máquina que compile, ata a seguir la versión de arriba para
+siempre, y **aun arreglado dependería de que haya un servicio de secretos corriendo y
+desbloqueado**. El fichero está siempre.
+
+### Qué seguridad tiene ese fichero, sin adornos
+
+La clave sale de `HMAC-SHA256(sal del fichero, machine-id + usuario + ruta)`, y las tres
+piezas de ese material se pueden leer en esta máquina con esta cuenta. **Tiene que ser
+así**: la regla de arriba dice que sin conexión no se comprueba ninguna contraseña, así que
+la clave no puede salir de la contraseña de nadie — si saliera, abrir sin señal la pediría,
+que es justo lo que este almacén evita.
+
+- **No protege** de quien entre con esa cuenta en ese ordenador, ni de root, ni de un
+  programa corriendo como esa persona. Ahí lo único que hay son los permisos `0600` y que
+  el refresh caduca a los 30 días.
+- **Sí protege** de que el fichero viaje suelto y siga sirviendo: una copia de seguridad
+  restaurada en otra máquina, el directorio en un pendrive, la carpeta adjunta en un
+  informe de fallo. Fuera de esa máquina y esa cuenta no se abre.
+- **Sí evita** que el token salga en claro en un `grep`, en un indexador o en un vistazo al
+  disco.
+
+Es **cifrado atado a la máquina**, no una caja fuerte, y está escrito así en
+`app/lib/nucleo/identidad/almacen_sesion_fichero.dart`.
+
+### Windows sigue sin comprobarse
+
+DPAPI es otro código nativo y el fallo de Linux no le aplica, pero **eso no es haberlo
+probado**. Si alguna vez se ve el mismo cuadro —entrar, cerrar, abrir y que pida la
+contraseña—, la salida ya está escrita: ese mismo fichero, que no depende de ningún
+servicio del sistema. Mientras tanto, la comprobación es la de siempre y la hace la propia
+aplicación al entrar: si el almacén no guarda, **no se promete** el día entero sin señal.

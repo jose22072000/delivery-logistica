@@ -87,8 +87,13 @@ final dioAuthProvider = Provider<Dio>(
   (ref) => Dio(
     BaseOptions(
       baseUrl: '${Entorno.authUrl}/api/auth',
+      // Los mismos plazos que el resto (`red/cliente_api.dart`), y aqui aprieta
+      // mas que en ningun sitio: esta es la peticion del ARRANQUE, la que se
+      // hace antes de pintar nada. Con los 30 s de antes, abrir la aplicacion
+      // con senal mala eran 30 s de pantalla de espera antes de entrar con lo
+      // guardado. Renovar no reintenta, asi que este numero ES el peor caso.
       connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 15),
       contentType: Headers.jsonContentType,
     ),
   ),
@@ -283,7 +288,12 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
     // Quien sabe si hay sesion es el portero, y no el almacen: en web el almacen
     // devuelve `null` SIEMPRE porque alli la sesion es la cookie. Preguntarle a
     // el dejaria la web sin sincronizar nunca.
-    haySesion: () => ref.read(porteroProvider).estado == EstadoDeAcceso.dentro,
+    //
+    // La regla de QUE estados cuentan vive en `haySesionParaSincronizar`, con
+    // nombre y probada suelta: escrita a mano aqui ya costo un fallo que dejaba
+    // la configuracion inicial en el 0 % para siempre.
+    haySesion: () =>
+        haySesionParaSincronizar(ref.read(porteroProvider).estado),
     alMorirLaSesion: () => ref.read(porteroProvider).murio(),
     // El giro de la barra superior. Es un contador, asi que dos ciclos
     // solapados no se apagan el uno al otro.

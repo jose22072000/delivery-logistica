@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reparto/nucleo/proveedores.dart';
-import 'package:reparto/nucleo/red/cliente_api.dart';
 import 'package:reparto/pantallas/vehiculos/vista/pantalla_vehiculos.dart';
 
 import '../../apoyo/servidor_falso.dart';
@@ -13,17 +12,44 @@ import 'apoyo_vehiculos.dart';
 /// El cartel no es decoracion: es lo que evita que alguien se ponga a dar de
 /// alta camiones en la calle creyendo que se estan guardando.
 void main() {
-  Future<void> pintar(WidgetTester tester, ClienteApi cliente) async {
+  /// Se monta con **la base del banco**, no con una nueva.
+  ///
+  /// La pantalla mira ahora la copia bajada para poder decir si el aparato tiene
+  /// la flota dentro o no la ha descargado nunca. Sin este override, el
+  /// `baseProvider` abriria una base de verdad en medio del test —con su timer,
+  /// que deja la prueba en rojo— y ademas se estaria comprobando otra base
+  /// distinta de la que el banco siembra.
+  Future<void> pintar(WidgetTester tester, Banco banco) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [clienteApiProvider.overrideWithValue(cliente)],
+        overrides: [
+          baseProvider.overrideWithValue(banco.base),
+          clienteApiProvider.overrideWithValue(
+            banco.contenedor.read(clienteApiProvider),
+          ),
+        ],
         // El `Scaffold` lo pone el armazon, no la pantalla (el contrato esta
         // en `lib/navegacion/pantalla_registrada.dart`). Montada a pelo no hay
         // ningun `Material` debajo y el buscador revienta al construirse.
         child: const MaterialApp(home: Scaffold(body: PantallaVehiculos())),
       ),
     );
-    await tester.pumpAndSettle();
+    // Tope corto a proposito: el de por defecto son diez minutos, y una
+    // pantalla que no se asienta dejaria la prueba colgada sin decir por que.
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 10),
+    );
+  }
+
+  /// Desmonta el arbol DENTRO de la prueba: los `Stream` de Drift dejan un
+  /// temporizador de cero al cerrarse, y si el arbol muere despues de que la
+  /// prueba termine, falla por «queda un Timer» sin que haya nada roto.
+  Future<void> desmontar(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
   }
 
   testWidgets('sin red lo dice, y dice que aquí no se guarda nada', (
@@ -31,7 +57,7 @@ void main() {
   ) async {
     final banco = Banco.sinRed();
     addTearDown(banco.cerrar);
-    await pintar(tester, banco.contenedor.read(clienteApiProvider));
+    await pintar(tester, banco);
 
     expect(find.textContaining('Sin conexión.'), findsOneWidget);
     expect(
@@ -41,6 +67,40 @@ void main() {
     // Y NO el vacio de «no hay vehiculos», que diria otra cosa muy distinta.
     expect(find.text('Sin vehículos'), findsNothing);
     expect(find.text('Reintentar'), findsOneWidget);
+
+    // SIN BAJAR: se dice que no estan aqui, no que no existan. Y se dice como
+    // se arregla, que es trayendo el dia — no dando de alta un camion.
+    expect(
+      find.textContaining('no ha descargado la flota todavía'),
+      findsOneWidget,
+    );
+    expect(find.text('Agregar Vehículo'), findsOneWidget); // sólo el de arriba
+
+    await desmontar(tester);
+  });
+
+  testWidgets('sin red, con la flota YA bajada, dice qué tiene dentro', (
+    tester,
+  ) async {
+    final banco = Banco.sinRed();
+    addTearDown(banco.cerrar);
+    await sembrarFlotaBajada(banco.base, cuantos: 3);
+
+    await pintar(tester, banco);
+
+    // El mismo «Sin conexión», pero la segunda linea es OTRA: aqui si hay con
+    // que trabajar, y decirlo evita que alguien dé por perdida la mañana.
+    expect(find.textContaining('Sin conexión.'), findsOneWidget);
+    expect(
+      find.textContaining('tiene 3 vehículo(s) de la última bajada'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('no ha descargado la flota todavía'),
+      findsNothing,
+    );
+
+    await desmontar(tester);
   });
 
   testWidgets('con red y sin flota: el vacío del pliego', (tester) async {
@@ -50,7 +110,7 @@ void main() {
           : RespuestaFalsa(200, const <Object?>[]),
     );
     addTearDown(banco.cerrar);
-    await pintar(tester, banco.contenedor.read(clienteApiProvider));
+    await pintar(tester, banco);
 
     expect(find.text('Sin vehículos'), findsOneWidget);
     expect(
@@ -58,6 +118,26 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('Sin conexión.'), findsNothing);
+
+    // EL VACIO INVITA: dice que es esto en el idioma de quien reparte y que se
+    // rompe mientras siga vacio. «Sin vehículos» a secas no decia ninguna de
+    // las dos.
+    expect(
+      find.textContaining('Aquí van los camiones con los que se reparte'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('no se puede terminar de armar una ruta'),
+      findsOneWidget,
+    );
+    // Y NO el texto de «no se ha descargado»: el servidor contesto y dijo que
+    // no hay ninguno. Eso es un dato, no un fallo.
+    expect(
+      find.textContaining('no ha descargado la flota todavía'),
+      findsNothing,
+    );
+
+    await desmontar(tester);
   });
 
   testWidgets('con flota: la tarjeta con sus literales', (tester) async {
@@ -80,7 +160,7 @@ void main() {
             ]),
     );
     addTearDown(banco.cerrar);
-    await pintar(tester, banco.contenedor.read(clienteApiProvider));
+    await pintar(tester, banco);
 
     expect(find.text('Camión #1'), findsOneWidget);
     expect(find.text('ABC-1234'), findsOneWidget);
@@ -94,5 +174,7 @@ void main() {
     expect(find.text('Usar para domicilio'), findsOneWidget);
     // `Marcar disponible` sólo aparece cuando esta en uso.
     expect(find.text('Marcar disponible'), findsOneWidget);
+
+    await desmontar(tester);
   });
 }
