@@ -74,10 +74,26 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(
-                    Icons.local_shipping_outlined,
-                    size: 34,
-                    color: Colores.primario,
+                  // LA MARCA, y a tamano legible.
+                  //
+                  // Aqui es donde el logo de PROCOVAR se puede ver de verdad: el
+                  // monograma va calado en la caja del camion y a 36 px —lo que
+                  // mide el isotipo de la barra lateral— seria una mancha. Esta
+                  // pantalla tiene sitio de sobra, y es ademas la primera que ve
+                  // cualquiera, asi que es la que tiene que decir de quien es
+                  // esto antes de pedir una contrasena.
+                  Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(Radios.xl),
+                      child: Image.asset(
+                        'assets/marca/logo.png',
+                        width: 72,
+                        height: 72,
+                        // Sin esto el navegador la interpola al encoger y los
+                        // trazos del monograma —que son finos— salen sucios.
+                        filterQuality: FilterQuality.medium,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: Aire.md),
                   Text(

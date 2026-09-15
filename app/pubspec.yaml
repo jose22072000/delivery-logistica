@@ -64,6 +64,10 @@ dependencies:
   # paquete mira ahi primero y no sale a la red, que es lo unico que sirve en el
   # patio de un almacen. La version, exacta como todas.
   google_fonts: 8.2.1
+  # Abrir OTRA aplicacion de Procovar desde el menu de la cuenta. Hace falta un
+  # plugin porque el mismo codigo corre en web y en la APK: en web es una
+  # pestana nueva, en Android es el navegador del telefono. La version, exacta.
+  url_launcher: 6.3.2
 
 dev_dependencies:
   flutter_test:
@@ -92,3 +96,8 @@ flutter:
     # el manifiesto (`Familia-Peso.ttf`). Con esto `allowRuntimeFetching = false`
     # y la aplicacion nunca pide una tipografia por red.
     - assets/google_fonts/
+    # La marca. Salen de `marca/*.svg` con `marca/generar.sh`, que decide cual
+    # segun el tamano: `logo.png` lleva el monograma de PROCOVAR calado en la
+    # caja del camion y vale de 96 px para arriba; `isotipo.png` es la silueta
+    # sola, para los 36 px de la barra lateral.
+    - assets/marca/

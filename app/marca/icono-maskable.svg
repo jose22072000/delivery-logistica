@@ -1,20 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <!-- LA VERSION PARA ANDROID (`maskable`).
-       Android recorta el icono con la forma que tenga el lanzador —circulo, cuadrado
-       redondeado, gota— y lo que se sale se pierde. Por eso el dibujo va encogido al 60 %
-       y centrado: cabe entero dentro del circulo del 80 % que la norma garantiza, y el
-       oro llega hasta el borde para que el recorte no ensene esquinas transparentes. -->
+       Android recorta el icono con la forma del lanzador —circulo, cuadrado redondeado,
+       gota— y lo que se sale se pierde. Por eso el dibujo va al 60 % y centrado: cabe
+       entero dentro del circulo del 80 % que garantiza la norma, y el oro llega al borde
+       para que el recorte no ensene esquinas transparentes.
+       Al encogerse al 60 %, el monograma solo aguanta en las densidades altas: `generar.sh`
+       usa esta de xhdpi para arriba y la pequena en mdpi y hdpi. -->
   <rect width="64" height="64" fill="#E0A52A"/>
   <g transform="translate(12.8 12.8) scale(0.6)">
     <g fill="#17130E">
-      <rect x="6" y="14" width="30" height="24" rx="1.5"/>
-      <path d="M40 22 h9 l9 9 v7 H40 z"/>
-      <circle cx="17" cy="44" r="6.5"/>
-      <circle cx="48" cy="44" r="6.5"/>
+      <rect x="4" y="12" width="34" height="27" rx="1.5"/>
+      <path d="M40 22 h9 l9 9 v8 H40 z"/>
+      <circle cx="15" cy="45" r="6"/>
+      <circle cx="48" cy="45" r="6"/>
     </g>
-    <g fill="#E0A52A">
-      <circle cx="17" cy="44" r="2.8"/>
-      <circle cx="48" cy="44" r="2.8"/>
+    <g fill="#E0A52A" transform="translate(6.45 10.95) scale(0.4545)">
+    <rect x="12" y="10" width="6" height="44"/>
+    <rect x="12" y="48" width="30" height="6"/>
+    <path d="M22 54 L34 10 h7 L29 54 z"/>
+    <path d="M34 54 L44 22 h6 v32 h-6 V34 l-4 20 z"/>
+    <rect x="46" y="10" width="6" height="44"/>
+    <rect x="22" y="10" width="30" height="5"/>
     </g>
   </g>
 </svg>

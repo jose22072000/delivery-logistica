@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- LA VERSION PEQUENA, para 16 y 32 px.
+  <!-- LA VERSION PEQUENA, de 16 a 64 px.
        No es el mismo dibujo encogido: `icono.svg` tiene las ruedas huecas y separadas del
        cuerpo, y a 16 px ese hueco desaparece y el camion se lee como una mancha con dos
        patas. Aqui es UNA SOLA SILUETA —caja, cabina y ruedas pegadas—, que es lo unico

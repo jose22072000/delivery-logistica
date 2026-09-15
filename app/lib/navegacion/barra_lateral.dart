@@ -51,18 +51,23 @@ class BarraLateral extends StatelessWidget {
                   // telefono. Un icono suelto no es una marca; el cuadrado si.
                   //
                   // En tinta y no en blanco: blanco sobre oro no se lee.
-                  Container(
-                    width: 36,
-                    height: 36,
+                  // Es `isotipo.png` y no `logo.png`: a 36 px el monograma de la
+                  // caja mide diez pixeles y ensucia la unica forma que a ese
+                  // tamano se lee. El monograma se ve entero en la pantalla de
+                  // entrada, que tiene sitio.
+                  DecoratedBox(
                     decoration: BoxDecoration(
-                      color: Colores.oro,
                       borderRadius: BorderRadius.circular(Radios.lg),
                       boxShadow: Sombras.md,
                     ),
-                    child: const Icon(
-                      Icons.local_shipping,
-                      color: Colores.tinta,
-                      size: 20,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(Radios.lg),
+                      child: Image.asset(
+                        'assets/marca/isotipo.png',
+                        width: 36,
+                        height: 36,
+                        filterQuality: FilterQuality.medium,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),

@@ -1,27 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- EL CAMION DEL REPARTO.
-       Misma idea que la marca de PROCOVAR y la de PEDIDO —un cuadrado de color macizo con
-       el dibujo encima— pero en ORO en vez de azul, y con un camion en vez del monograma
-       VA. Asi se reconoce como de la casa y a la vez se distingue de las otras
-       aplicaciones en la pantalla de un telefono.
-       El dibujo va en TINTA y no en blanco: blanco sobre oro no tiene contraste para
-       leerse a 16 px, que es donde vive un favicon.
-       Son cuatro piezas grandes a proposito; a ese tamano un dibujo con detalle se
-       convierte en una mancha. -->
+  <!-- LA MARCA DEL REPARTO: un camion de PROCOVAR, con el monograma pintado en la caja.
+       Es lo que pidio Jose: la idea del logo de PEDIDO —cuadrado de color macizo con el
+       dibujo encima— pero en ORO en vez del azul `#054C74`, y con transporte.
+       El monograma NO es un dibujo nuevo: son los seis trazos del logo de PROCOVAR tal
+       cual, sacados de `delivery/public/favicon-claro.svg`, calados en la caja. Por eso
+       esto no compite con el logo de la casa: ES el logo de la casa, encima de un camion,
+       como va en la calle.
+       El dibujo en TINTA y no en blanco: blanco sobre oro no se lee.
+       ESTE FICHERO SOLO VALE DE 96 px PARA ARRIBA. Por debajo el monograma se convierte
+       en una mancha dentro de la caja; ahi entra `icono-pequeno.svg`. Lo decide
+       `generar.sh`, no quien lo llame. -->
   <rect width="64" height="64" fill="#E0A52A"/>
   <g fill="#17130E">
-    <!-- La caja. -->
-    <rect x="6" y="14" width="30" height="24" rx="1.5"/>
-    <!-- La cabina, con el morro cortado. -->
-    <path d="M40 22 h9 l9 9 v7 H40 z"/>
-    <!-- Las ruedas. -->
-    <circle cx="17" cy="44" r="6.5"/>
-    <circle cx="48" cy="44" r="6.5"/>
+    <rect x="4" y="12" width="34" height="27" rx="1.5"/>
+    <path d="M40 22 h9 l9 9 v8 H40 z"/>
+    <circle cx="15" cy="45" r="6"/>
+    <circle cx="48" cy="45" r="6"/>
   </g>
-  <!-- El centro de la rueda es el fondo, no otro color: asi la rueda se lee como rueda y
-       no como un punto macizo. -->
-  <g fill="#E0A52A">
-    <circle cx="17" cy="44" r="2.8"/>
-    <circle cx="48" cy="44" r="2.8"/>
+  <g fill="#E0A52A" transform="translate(6.45 10.95) scale(0.4545)">
+    <rect x="12" y="10" width="6" height="44"/>
+    <rect x="12" y="48" width="30" height="6"/>
+    <path d="M22 54 L34 10 h7 L29 54 z"/>
+    <path d="M34 54 L44 22 h6 v32 h-6 V34 l-4 20 z"/>
+    <rect x="46" y="10" width="6" height="44"/>
+    <rect x="22" y="10" width="30" height="5"/>
   </g>
 </svg>
