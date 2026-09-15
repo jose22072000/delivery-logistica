@@ -93,6 +93,13 @@ Future<void> sembrarPedido(
   double? endLat,
   double? endLng,
   int? orden,
+  // Por defecto **lleva domicilio**: estos son los pedidos que se reparten, y el
+  // paso 4 del asistente arranca en `Sólo con domicilio` (pliego §3). Un nulo
+  // aqui no es «no se sabe», es «no lleva», asi que dejarlo sin poner sacaria a
+  // todo el juego de datos de la lista de elegibles.
+  bool? requiereDomicilio = true,
+  String? estado,
+  DateTime? fechaComprometida,
 }) => base
     .into(base.orders)
     .insert(
@@ -122,6 +129,9 @@ Future<void> sembrarPedido(
         sucursalCodigo: const Value('CAM'),
         source: const Value(Procedencia.pedido),
         stopOrder: Value(orden),
+        requiereDomicilio: Value(requiereDomicilio),
+        estado: Value(estado),
+        fechaComprometida: Value(fechaComprometida),
       ),
     );
 

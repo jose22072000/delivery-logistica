@@ -163,6 +163,9 @@ class FiltrosDisponibles {
     this.q = '',
     this.municipio = '',
     this.vendedor = '',
+    this.estado = EstadoDelPedido.cualquiera,
+    this.domicilio = DomicilioFiltro.soloCon,
+    this.cotizado = CotizadoDelDomicilio.cualquiera,
     this.dia,
     this.kmMax,
     this.costoMin,
@@ -172,27 +175,49 @@ class FiltrosDisponibles {
   final String q;
   final String municipio;
   final String vendedor;
+  final EstadoDelPedido estado;
+
+  /// **Arranca en `Sólo con domicilio`** (pliego §3, paso 4), y `Limpiar` vuelve
+  /// aqui, no a «con y sin».
+  final DomicilioFiltro domicilio;
+
+  final CotizadoDelDomicilio cotizado;
   final DateTime? dia;
   final double? kmMax;
   final double? costoMin;
+
+  /// `Limpiar` del paso 4: se queda la sucursal —es de lo que va la ruta— y
+  /// vuelve el domicilio a `1`.
+  FiltrosDisponibles limpios() => FiltrosDisponibles(sucursalId: sucursalId);
 
   FiltrosDisponibles copiarCon({
     String? sucursalId,
     String? q,
     String? municipio,
     String? vendedor,
+    EstadoDelPedido? estado,
+    DomicilioFiltro? domicilio,
+    CotizadoDelDomicilio? cotizado,
     DateTime? dia,
     bool limpiarDia = false,
     double? kmMax,
+    bool limpiarKmMax = false,
     double? costoMin,
+    bool limpiarCostoMin = false,
   }) => FiltrosDisponibles(
     sucursalId: sucursalId ?? this.sucursalId,
     q: q ?? this.q,
     municipio: municipio ?? this.municipio,
     vendedor: vendedor ?? this.vendedor,
+    estado: estado ?? this.estado,
+    domicilio: domicilio ?? this.domicilio,
+    cotizado: cotizado ?? this.cotizado,
     dia: limpiarDia ? null : (dia ?? this.dia),
-    kmMax: kmMax ?? this.kmMax,
-    costoMin: costoMin ?? this.costoMin,
+    // Sin el `limpiar…` no habria forma de BORRAR un tope: pasar `null` es
+    // indistinguible de «no lo toques», y el `km máx.` se quedaria puesto para
+    // siempre.
+    kmMax: limpiarKmMax ? null : (kmMax ?? this.kmMax),
+    costoMin: limpiarCostoMin ? null : (costoMin ?? this.costoMin),
   );
 
   @override
@@ -203,13 +228,26 @@ class FiltrosDisponibles {
           other.q == q &&
           other.municipio == municipio &&
           other.vendedor == vendedor &&
+          other.estado == estado &&
+          other.domicilio == domicilio &&
+          other.cotizado == cotizado &&
           other.dia == dia &&
           other.kmMax == kmMax &&
           other.costoMin == costoMin;
 
   @override
-  int get hashCode =>
-      Object.hash(sucursalId, q, municipio, vendedor, dia, kmMax, costoMin);
+  int get hashCode => Object.hash(
+    sucursalId,
+    q,
+    municipio,
+    vendedor,
+    estado,
+    domicilio,
+    cotizado,
+    dia,
+    kmMax,
+    costoMin,
+  );
 }
 
 /// Los pedidos elegibles para una ruta. **El cuadre con la factura no es
@@ -223,11 +261,75 @@ final disponiblesProvider =
             q: filtros.q,
             municipio: filtros.municipio,
             vendedor: filtros.vendedor,
+            estado: filtros.estado.param,
+            domicilio: filtros.domicilio.param,
+            cotizado: filtros.cotizado.param,
             dia: filtros.dia,
             kmMax: filtros.kmMax,
             costoMin: filtros.costoMin,
+            // El MISMO reloj que el resto de la aplicacion: `expirada` se decide
+            // contra la hora, y dos relojes distintos son dos listas distintas.
+            ahora: ref.watch(relojProvider)(),
           ),
     );
+
+/// Los municipios y los vendedores que hay **entre los disponibles**, para los
+/// dos selectores del paso 4.
+///
+/// Salen de la lista SIN `q`, sin vendedor y sin municipio a proposito (es lo
+/// que hace `/api/orders/available` para las opciones de filtro): si se sacaran
+/// de la lista ya filtrada, elegir un vendedor borraria del desplegable a todos
+/// los demas y no habria forma de cambiar de opinion sin limpiar.
+final opcionesDeDisponiblesProvider =
+    FutureProvider.family<OpcionesDeDisponibles, FiltrosDisponibles>((
+      ref,
+      filtros,
+    ) async {
+      final pedidos = await ref.watch(
+        disponiblesProvider(
+          filtros.copiarCon(q: '', vendedor: '', municipio: ''),
+        ).future,
+      );
+      return OpcionesDeDisponibles(
+        municipios: {
+          for (final p in pedidos)
+            if ((p.municipio ?? '').isNotEmpty) p.municipio!,
+        }.toList()..sort(),
+        vendedores: {
+          for (final p in pedidos)
+            if ((p.vendedor ?? '').isNotEmpty) p.vendedor!,
+        }.toList()..sort(),
+      );
+    });
+
+/// Los renglones de los pedidos elegibles: de aqui salen los articulos de cada
+/// fila del paso 4.
+final renglonesDeDisponiblesProvider =
+    FutureProvider.family<Map<String, List<RenglonConPeso>>, FiltrosDisponibles>(
+      (ref, filtros) async {
+        final pedidos = await ref.watch(disponiblesProvider(filtros).future);
+        return ref.watch(consultasRutasProvider).renglonesDe([
+          for (final p in pedidos) p.id,
+        ]);
+      },
+    );
+
+/// Lo que llena los dos desplegables del paso 4.
+@immutable
+class OpcionesDeDisponibles {
+  const OpcionesDeDisponibles({
+    required this.municipios,
+    required this.vendedores,
+  });
+
+  static const vacias = OpcionesDeDisponibles(
+    municipios: <String>[],
+    vendedores: <String>[],
+  );
+
+  final List<String> municipios;
+  final List<String> vendedores;
+}
 
 /// Los almacenes de una sucursal, por su CODIGO (`branches.externalId`), que es
 /// como los guarda Accesos. El principal viene primero.

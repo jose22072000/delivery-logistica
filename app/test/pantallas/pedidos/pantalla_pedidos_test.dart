@@ -12,7 +12,6 @@ import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/frescura/frescura.dart';
 import 'package:reparto/nucleo/frescura/reloj_de_datos.dart';
 import 'package:reparto/nucleo/proveedores.dart';
-import 'package:reparto/nucleo/reloj.dart';
 import 'package:reparto/pantallas/pedidos/vista/pantalla_pedidos.dart';
 
 import '../../apoyo/base_de_prueba.dart';
@@ -61,7 +60,12 @@ void main() {
           baseProvider.overrideWithValue(base),
           relojProvider.overrideWithValue(() => ahora),
         ],
-        child: const MaterialApp(home: PantallaPedidos()),
+        // La pantalla ya NO trae `Scaffold` propio —lo pone el armazon—, asi que
+        // aqui se monta con el suyo: sin el, un `TextField` no encuentra ningun
+        // `Material` encima y la pantalla ni se pinta.
+        child: const MaterialApp(
+          home: Scaffold(body: PantallaPedidos()),
+        ),
       ),
     );
     await asentar(tester);

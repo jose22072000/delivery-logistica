@@ -9,7 +9,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/cola/cola_salida.dart';
 import 'package:reparto/nucleo/proveedores.dart';
-import 'package:reparto/nucleo/reloj.dart';
 import 'package:reparto/pantallas/rutas/vista/cierre_de_ruta.dart';
 
 import '../../apoyo/base_de_prueba.dart';
@@ -84,7 +83,15 @@ void main() {
           baseProvider.overrideWithValue(base),
           relojProvider.overrideWithValue(() => laHoraDelPatio),
         ],
-        child: const MaterialApp(home: CierreDeRuta(rutaId: 'R1')),
+        // El cajon se monta SOBRE un `Scaffold`, igual que en la aplicacion:
+        // alli lo pone el armazon (`navegacion/armazon.dart`) y el cajon se abre
+        // encima como una ruta modal. Sin el, `ScaffoldMessenger.showSnackBar`
+        // no encuentra de donde colgar el aviso y revienta —que es exactamente
+        // lo que pasaba aqui al guardar—. Montar el widget desnudo probaba una
+        // pantalla que no existe en ningun sitio.
+        child: const MaterialApp(
+          home: Scaffold(body: CierreDeRuta(rutaId: 'R1')),
+        ),
       ),
     );
     await asentar(tester);
@@ -192,8 +199,15 @@ void main() {
 
     // El cierre esta en la cola, con la hora del aparato, sin haber hablado con
     // ningun servidor.
+    //
+    // Se lee con `lote()` —una consulta que termina— y DENTRO de `runAsync`.
+    // `pendientes()` es un flujo de Drift y su primer valor llega por un
+    // temporizador; en un test de widget el tiempo no corre solo, asi que
+    // `await ….first` se quedaba esperando un temporizador que nadie dispara y
+    // **colgaba la suite entera** en vez de fallar. `runAsync` saca esta lectura
+    // del tiempo simulado y la deja correr de verdad.
     final cola = ColaDeSalida(base, reloj: () => laHoraDelPatio);
-    final pendientes = await cola.pendientes().first;
+    final pendientes = (await tester.runAsync(cola.lote))!;
     expect(pendientes.length, 1);
     expect(pendientes.single.ruta, '/routes/R1/results');
     expect(pendientes.single.hechoAt, laHoraDelPatio);

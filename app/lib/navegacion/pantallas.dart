@@ -1,10 +1,10 @@
-import 'package:flutter/material.dart';
-
 import '../pantallas/almacenes/registro.dart';
 import '../pantallas/clientes/registro.dart';
 import '../pantallas/vehiculos/registro.dart';
 import '../pantallas/informes/registro.dart';
 import '../pantallas/panel/registro.dart';
+import '../pantallas/pedidos/registro.dart';
+import '../pantallas/rutas/registro.dart';
 import '../pantallas/tablero/registro.dart';
 import 'pantalla_registrada.dart';
 
@@ -15,10 +15,7 @@ import 'pantalla_registrada.dart';
 /// `registrarX()` y anade el import. El contrato entero esta explicado en
 /// `pantalla_registrada.dart`.
 ///
-/// Las que todavia no estan escritas entran como `_pendiente`: asi la
-/// aplicacion **compila y se navega desde el primer dia**, el menu esta
-/// completo, y quien abre una pantalla sin montar lee por que no hay nada en vez
-/// de encontrarse un 404 que parece un fallo.
+/// Ya estan las siete mas el tablero: no queda ninguna por montar.
 List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
   registrarPanel(),
 
@@ -29,8 +26,8 @@ List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
   // decide lo contrario, es cambiar `enElMenu` a false.
   registrarTablero(),
 
-  _pendiente('/routes', 'Rutas', Icons.route_outlined),
-  _pendiente('/orders', 'Pedidos', Icons.inventory_2_outlined),
+  registrarRutas(),
+  registrarPedidos(),
   registrarClientes(),
   registrarVehiculos(),
   registrarAlmacenes(),
@@ -40,31 +37,6 @@ List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
   registrarInformes(),
 ];
 
-/// Una pantalla que todavia no existe. Ocupa su sitio en el menu y dice lo que
-/// pasa, que es mas honesto que una ruta que no resuelve.
-PantallaRegistrada _pendiente(String ruta, String titulo, IconData icono) =>
-    PantallaRegistrada(
-      ruta: ruta,
-      titulo: titulo,
-      icono: icono,
-      enElMenu: true,
-      construir: (contexto, estado) => _EnConstruccion(titulo: titulo),
-    );
-
-class _EnConstruccion extends StatelessWidget {
-  const _EnConstruccion({required this.titulo});
-
-  final String titulo;
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Text(
-        '«$titulo» todavía no está montada.',
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.bodyMedium,
-      ),
-    ),
-  );
-}
+// Ya NO hay `_pendiente(...)`: con Rutas y Pedidos montadas no queda ninguna
+// pantalla sin escribir, y un hueco que no se usa es codigo muerto que hace
+// pensar que todavia falta algo. Si hiciera falta otra vez, esta en el historial.

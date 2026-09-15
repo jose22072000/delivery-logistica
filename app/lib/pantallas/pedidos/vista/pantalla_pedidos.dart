@@ -38,28 +38,32 @@ class PantallaPedidos extends ConsumerWidget {
     final pagina = ref.watch(paginaPedidosProvider);
     final descargados = ref.watch(pedidosDescargadosProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pedidos'),
-        // El reloj de datos va ARRIBA y siempre visible (caso S8). Cuando exista
-        // el armazon comun se sube alli y se quita de aqui; mientras tanto no se
-        // deja ni una pantalla sin decir de que hora son sus datos.
-        actions: const [
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 12),
-            child: Center(
-              child: BarraDeDatos(colecciones: ColeccionesDePantalla.pedidos),
-            ),
-          ),
-        ],
-      ),
-      body: ListView(
+    // SIN `Scaffold` ni `AppBar` propios: los pone el armazon
+    // (`navegacion/pantalla_registrada.dart`), que ya trae barra lateral, barra
+    // superior con el titulo «Pedidos» y franja de estado. Uno dentro de otro
+    // apila dos superficies de Material y deja los avisos emergentes colgando
+    // del de dentro, que es el que no se ve entero.
+    return SafeArea(
+      child: ListView(
         padding: const EdgeInsets.all(12),
         children: [
-          Text(
-            'Todos los pedidos acumulados de todas las rutas',
-            style: Theme.of(context).textTheme.bodySmall
-                ?.copyWith(color: Colores.gris),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Todos los pedidos acumulados de todas las rutas',
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: Colores.gris),
+                ),
+              ),
+              // El reloj de datos de ESTA pantalla. La franja del armazon dice
+              // la frescura global; esta dice la de las colecciones que se estan
+              // mirando, que es lo que decide si se arma la ruta de hoy o la de
+              // ayer (caso S8).
+              const BarraDeDatos(
+                colecciones: ColeccionesDePantalla.pedidos,
+              ),
+            ],
           ),
           if (filtros.arranqueAcotado) const _FranjaAzul(),
           Padding(

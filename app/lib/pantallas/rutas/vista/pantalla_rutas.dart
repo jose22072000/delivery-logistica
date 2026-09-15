@@ -29,19 +29,13 @@ class PantallaRutas extends ConsumerWidget {
     final elegida = ref.watch(rutaElegidaProvider);
     final filtros = ref.watch(filtrosRutasProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Rutas'),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 12),
-            child: Center(
-              child: BarraDeDatos(colecciones: ColeccionesDePantalla.rutas),
-            ),
-          ),
-        ],
-      ),
-      body: Column(
+    // SIN `Scaffold` ni `AppBar` propios: los pone el armazon
+    // (`navegacion/pantalla_registrada.dart`), que ya trae barra lateral, barra
+    // superior con el titulo «Rutas» y franja de estado. Uno dentro de otro
+    // apila dos superficies de Material y deja los avisos emergentes —los
+    // rechazos del armado y el `Cierre guardado.`— colgando del de dentro.
+    return SafeArea(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
@@ -55,6 +49,10 @@ class PantallaRutas extends ConsumerWidget {
                   'Planificador de Rutas',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
+                // El reloj de datos de las colecciones de esta pantalla. La
+                // franja del armazon da la frescura global; esta da la de lo que
+                // se esta mirando.
+                const BarraDeDatos(colecciones: ColeccionesDePantalla.rutas),
                 for (final cual in PestanaRutas.values)
                   OutlinedButton(
                     onPressed: () =>

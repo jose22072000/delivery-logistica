@@ -59,7 +59,13 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
   /// Sin esto, reabrir el cierre para corregir una parada borraria las otras
   /// veinte de la vista y habria que marcarlas otra vez.
   void _partirDeLoGuardado(List<Pedido> paradas) {
-    if (_partidoDeLoGuardado) return;
+    // **`paradas.isEmpty` no es «ninguna parada»: casi siempre es «todavia no han
+    // llegado».** Las paradas vienen de un flujo de la base y el primer
+    // fotograma se pinta con la lista vacia. Dandolo por bueno se marcaba el
+    // arranque como hecho contra cero paradas, y cuando llegaban de verdad ya no
+    // se volvia a mirar: reabrir el cierre para corregir UNA parada ensenaba las
+    // otras veinte sin marcar, como si no se hubiera guardado nada.
+    if (_partidoDeLoGuardado || paradas.isEmpty) return;
     _partidoDeLoGuardado = true;
     for (final parada in paradas) {
       _resultados[parada.id] = parada.resultado;

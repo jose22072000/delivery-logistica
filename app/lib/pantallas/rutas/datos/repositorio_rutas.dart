@@ -30,6 +30,52 @@ enum PestanaRutas {
   };
 }
 
+/// `estado` — el estado del pedido **en PEDIDO**, del paso 4 del asistente.
+///
+/// `expirada` no es un valor de la columna `orders.estado`: es una cuenta contra
+/// `fechaComprometida`, y por eso vive aqui y no en `EstadoEnPedido`, que es el
+/// espejo de lo que manda PEDIDO.
+enum EstadoDelPedido {
+  cualquiera('', 'Cualquier estado'),
+  enProceso(EstadoEnPedido.enProceso, 'En proceso'),
+  completada(EstadoEnPedido.completada, 'Completada'),
+  expirada(expiradaParam, 'Expirada');
+
+  const EstadoDelPedido(this.param, this.etiqueta);
+
+  /// El literal del query param, aparte, para poder usarlo en un `switch` de
+  /// constantes.
+  static const expiradaParam = 'expirada';
+
+  final String param;
+  final String etiqueta;
+}
+
+/// `domicilio` — si el pedido lleva entrega a domicilio. **Arranca en `1`**
+/// (pliego §3, paso 4): una ruta se arma con lo que hay que llevar a casa.
+enum DomicilioFiltro {
+  cualquiera('', 'Con y sin domicilio'),
+  soloCon('1', 'Sólo con domicilio'),
+  soloSin('0', 'Sólo sin domicilio');
+
+  const DomicilioFiltro(this.param, this.etiqueta);
+
+  final String param;
+  final String etiqueta;
+}
+
+/// `cotizado` — si Entrega ya le puso costo de domicilio.
+enum CotizadoDelDomicilio {
+  cualquiera('', 'Cotizados y sin cotizar'),
+  si('1', 'Ya cotizados'),
+  no('0', 'Sin cotizar');
+
+  const CotizadoDelDomicilio(this.param, this.etiqueta);
+
+  final String param;
+  final String etiqueta;
+}
+
 /// Los filtros de la columna izquierda. Se aplican **en el cliente** sobre las
 /// rutas ya traidas, como en la de Next.
 class FiltrosRutas {
@@ -181,14 +227,26 @@ class ConsultasRutas {
   /// filtro de factura de la pantalla NO es configurable: siempre `cuadra`
   /// (`facturaEstado = 'igual'`), que es lo unico que el armado del servidor
   /// acepta. Ofrecer aqui lo que alli se rechaza es fabricar rechazos tardios.
+  /// [estado], [domicilio] y [cotizado] llevan **los mismos valores que los
+  /// query params del servidor** (`contratos-api.md`, «Filtros compartidos»):
+  /// `''` es sin filtro. Se escriben asi, como texto, y no como enums propios,
+  /// para que la prueba de paridad pueda mandar la misma cadena a las dos.
+  ///
+  /// [ahora] entra por parametro porque `en_proceso` y `expirada` se deciden
+  /// contra la hora: leyendo el reloj aqui dentro la consulta daria un resultado
+  /// distinto cada vez que se llama y no habria forma de probarla.
   Future<List<Pedido>> disponibles({
     String? sucursalId,
     String q = '',
     String municipio = '',
     String vendedor = '',
+    String estado = '',
+    String domicilio = '',
+    String cotizado = '',
     DateTime? dia,
     double? kmMax,
     double? costoMin,
+    DateTime? ahora,
   }) async {
     final o = _base.orders;
     Expression<bool> donde =
@@ -203,6 +261,44 @@ class ConsultasRutas {
     }
     if (municipio.isNotEmpty) donde = donde & o.municipio.equals(municipio);
     if (vendedor.isNotEmpty) donde = donde & o.vendedor.equals(vendedor);
+
+    // `domicilio=0` incluye los NULL a proposito: un pedido al que nadie le dijo
+    // si lleva domicilio NO lleva domicilio. Es lo que hace el servidor, y si
+    // aqui se tratara el nulo como «no se sabe» las dos listas no cuadrarian.
+    if (domicilio == '1') {
+      donde = donde & o.requiereDomicilio.equals(true);
+    } else if (domicilio == '0') {
+      donde =
+          donde & (o.requiereDomicilio.isNull() | o.requiereDomicilio.equals(false));
+    }
+
+    // Cotizado mira `pedidoCosto`, y **un nulo no es un cero**: cero es un precio
+    // puesto (un domicilio gratis) y nulo es que Entrega todavia no lo puso.
+    if (cotizado == '1') {
+      donde = donde & o.pedidoCosto.isNotNull();
+    } else if (cotizado == '0') {
+      donde = donde & o.pedidoCosto.isNull();
+    }
+
+    if (estado.isNotEmpty) {
+      // `noCompletada` cuenta los NULL: un pedido sin estado sigue siendo un
+      // pedido por entregar, y dejarlo fuera lo haria invisible para rutear.
+      final noCompletada =
+          o.estado.isNull() | o.estado.equals(EstadoEnPedido.completada).not();
+      final cuando = ahora ?? DateTime.now();
+      donde = donde & switch (estado) {
+        EstadoEnPedido.completada => o.estado.equals(EstadoEnPedido.completada),
+        EstadoEnPedido.enProceso =>
+          noCompletada &
+              (o.fechaComprometida.isNull() |
+                  o.fechaComprometida.isBiggerOrEqualValue(cuando)),
+        EstadoDelPedido.expiradaParam =>
+          noCompletada & o.fechaComprometida.isSmallerThanValue(cuando),
+        // Un valor que no conocemos no filtra nada: mas vale ensenar de mas que
+        // esconder pedidos por una cadena que alguien escribio mal.
+        _ => const Constant(true),
+      };
+    }
 
     final busca = q.trim().toLowerCase();
     if (busca.isNotEmpty) {
