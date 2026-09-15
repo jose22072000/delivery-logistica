@@ -49,7 +49,7 @@ class ServicioTablero {
     }
 
     final datos = await _cliente.pedir<Map<String, Object?>>(
-      '/api/board',
+      '/board',
       params: <String, Object?>{'branchId': sucursalId},
     );
 

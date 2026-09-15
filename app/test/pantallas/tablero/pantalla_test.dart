@@ -131,7 +131,7 @@ void main() {
     // Y no se llamó a nadie: quedó en la cola.
     expect(servidor.vistas, isEmpty);
     final apuntes = await ColaDeSalida(base).lote();
-    expect(apuntes.last.ruta, '/api/board/placements/cerca');
+    expect(apuntes.last.ruta, '/board/placements/cerca');
 
     await desmontar(tester);
   });

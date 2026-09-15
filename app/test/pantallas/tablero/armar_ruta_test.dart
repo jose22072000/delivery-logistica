@@ -79,7 +79,7 @@ void main() {
 
     final ultimo = (await cola.lote()).last;
     expect(ultimo.metodo, 'POST');
-    expect(ultimo.ruta, '/api/board/columns/$centro/route');
+    expect(ultimo.ruta, '/board/columns/$centro/route');
     expect(ultimo.provisional, rutaId);
     expect(jsonDecode(ultimo.cuerpo), {'vehiculoId': 'v1', 'optimizar': false});
   });

@@ -110,7 +110,7 @@ void main() {
       );
       final ultimo = (await cola.lote()).last;
       expect(ultimo.metodo, 'PUT');
-      expect(ultimo.ruta, '/api/board/columns/orden?branchId=$sucursalStg');
+      expect(ultimo.ruta, '/board/columns/orden?branchId=$sucursalStg');
       expect(jsonDecode(ultimo.cuerpo), {
         'ids': [c, a, b],
       });

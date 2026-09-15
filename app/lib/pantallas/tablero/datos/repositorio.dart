@@ -116,7 +116,7 @@ class RepositorioTablero {
       // en ningun sitio (tablero.md §9).
       await _cola.encolar(
         metodo: 'PUT',
-        ruta: '/api/board/placements/$pedidoId',
+        ruta: '/board/placements/$pedidoId',
         cuerpo: <String, Object?>{'columnaId': columnaId, 'posicion': donde},
       );
     });
@@ -148,7 +148,7 @@ class RepositorioTablero {
       );
       await _cola.encolar(
         metodo: 'DELETE',
-        ruta: '/api/board/placements/$pedidoId',
+        ruta: '/board/placements/$pedidoId',
         cuerpo: const <String, Object?>{},
       );
     });
@@ -205,7 +205,7 @@ class RepositorioTablero {
         );
         await _cola.encolar(
           metodo: 'POST',
-          ruta: '/api/board/columns?branchId=$sucursalId',
+          ruta: '/board/columns?branchId=$sucursalId',
           cuerpo: <String, Object?>{
             'nombre': limpio,
             'vehiculoId': ?vehiculoId,
@@ -236,7 +236,7 @@ class RepositorioTablero {
         );
         await _cola.encolar(
           metodo: 'PATCH',
-          ruta: '/api/board/columns/$columnaId',
+          ruta: '/board/columns/$columnaId',
           cuerpo: <String, Object?>{'nombre': limpio},
         );
       });
@@ -264,7 +264,7 @@ class RepositorioTablero {
       // este presente.
       await _cola.encolar(
         metodo: 'PATCH',
-        ruta: '/api/board/columns/$columnaId',
+        ruta: '/board/columns/$columnaId',
         cuerpo: <String, Object?>{'vehiculoId': vehiculoId},
       );
     });
@@ -293,7 +293,7 @@ class RepositorioTablero {
       }
       await _cola.encolar(
         metodo: 'PUT',
-        ruta: '/api/board/columns/orden?branchId=$sucursalId',
+        ruta: '/board/columns/orden?branchId=$sucursalId',
         cuerpo: <String, Object?>{'ids': idsEnOrden},
       );
     });
@@ -317,7 +317,7 @@ class RepositorioTablero {
       for (final pedidoId in dentro) {
         await _cola.encolar(
           metodo: 'DELETE',
-          ruta: '/api/board/placements/$pedidoId',
+          ruta: '/board/placements/$pedidoId',
           cuerpo: const <String, Object?>{},
         );
       }
@@ -345,7 +345,7 @@ class RepositorioTablero {
         );
         await _cola.encolar(
           metodo: 'PUT',
-          ruta: '/api/board/placements/${dentro[i]}',
+          ruta: '/board/placements/${dentro[i]}',
           cuerpo: <String, Object?>{'columnaId': destinoId, 'posicion': donde},
         );
       }
@@ -390,7 +390,7 @@ class RepositorioTablero {
           : (vaciar ? '?vaciar=1' : '');
       await _cola.encolar(
         metodo: 'DELETE',
-        ruta: '/api/board/columns/$columnaId$cola',
+        ruta: '/board/columns/$columnaId$cola',
         cuerpo: const <String, Object?>{},
       );
     });
@@ -508,7 +508,7 @@ class RepositorioTablero {
 
       await _cola.encolar(
         metodo: 'POST',
-        ruta: '/api/board/columns/$columnaId/route',
+        ruta: '/board/columns/$columnaId/route',
         cuerpo: <String, Object?>{
           'nombre': ?nombre,
           'vehiculoId': ?columna?.vehiculoId,

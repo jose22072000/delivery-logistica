@@ -121,9 +121,9 @@ void main() {
       final cola = ColaDeSalida(base);
       var lote = await cola.lote();
       expect(lote.map((a) => a.ruta).toList(), [
-        '/api/board/columns?branchId=$sucursalStg',
-        '/api/board/placements/p-cerca',
-        '/api/board/placements/p-medio',
+        '/board/columns?branchId=$sucursalStg',
+        '/board/placements/p-cerca',
+        '/board/placements/p-medio',
       ]);
       expect(lote.first.provisional, columnaId);
       expect(jsonDecode(lote[1].cuerpo), {
@@ -187,7 +187,7 @@ void main() {
     // Sin esto, las colocaciones que van detrás irían a una columna que no
     // existe en ningún sitio y se perderían justo después de subirse.
     final pendientes = await cola.lote();
-    expect(pendientes.single.ruta, '/api/board/placements/p1');
+    expect(pendientes.single.ruta, '/board/placements/p1');
     expect(jsonDecode(pendientes.single.cuerpo), {
       'columnaId': 'col-de-verdad',
       'posicion': 1,
