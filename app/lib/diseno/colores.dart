@@ -33,6 +33,16 @@ abstract final class Colores {
   /// `--accent: #E8820C`. El naranja de la flota.
   static const acento = Color(0xFFE8820C);
 
+  /// EL ORO DE LA MARCA DEL REPARTO. Solo para el isotipo y el icono de la
+  /// aplicacion, no para la interfaz.
+  ///
+  /// Es el color del cuadrado del logo (`marca/icono.svg`), el mismo sitio que
+  /// en PEDIDO ocupa el azul `#054C74`. Se queda fuera de la paleta de trabajo a
+  /// proposito: la interfaz sigue siendo la de delivery, con `primario` para lo
+  /// que se pulsa y `acento` para avisar. Un oro suelto en un boton se leeria
+  /// como un aviso que no es.
+  static const oro = Color(0xFFE0A52A);
+
   /// `--paper: #F7F4EF`. EL FONDO. Es papel calido, no el `#F9FAFB` azulado de
   /// Material: es lo primero que se ve y lo primero que delata que una pantalla
   /// no es la de delivery.

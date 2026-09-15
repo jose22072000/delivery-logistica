@@ -44,20 +44,24 @@ class BarraLateral extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(Aire.xl, Aire.xl, Aire.lg, 20),
               child: Row(
                 children: [
-                  // El isotipo de delivery: cuadrado primario de 36 px con el
-                  // camion en blanco (`w-9 h-9 rounded-xl bg-primary`). Un icono
-                  // suelto no es una marca; el cuadrado si.
+                  // EL ISOTIPO DEL REPARTO: cuadrado de 36 px en el oro de la
+                  // marca con el camion en tinta — el mismo dibujo que el icono
+                  // de la aplicacion (`marca/icono.svg`), para que lo que se ve
+                  // en la barra sea lo mismo que se ve en el escritorio del
+                  // telefono. Un icono suelto no es una marca; el cuadrado si.
+                  //
+                  // En tinta y no en blanco: blanco sobre oro no se lee.
                   Container(
                     width: 36,
                     height: 36,
                     decoration: BoxDecoration(
-                      color: Colores.primario,
+                      color: Colores.oro,
                       borderRadius: BorderRadius.circular(Radios.lg),
                       boxShadow: Sombras.md,
                     ),
                     child: const Icon(
                       Icons.local_shipping,
-                      color: Colors.white,
+                      color: Colores.tinta,
                       size: 20,
                     ),
                   ),
@@ -82,13 +86,13 @@ class BarraLateral extends StatelessWidget {
                         // `text-[11px] uppercase tracking-[0.18em]`: el rotulo
                         // pequeno bajo la marca.
                         Text(
-                          'PLATAFORMA DE DELIVERY',
+                          'Plataforma de Delivery',
                           overflow: TextOverflow.ellipsis,
                           style: Tipos.texto(
-                            tamano: 9.5,
-                            peso: FontWeight.w600,
-                            color: Colores.tintaSuave.withValues(alpha: 0.7),
-                            interletra: 9.5 * 0.18,
+                            tamano: 11,
+                            peso: FontWeight.w500,
+                            color: Colores.tintaSuave.withValues(alpha: 0.8),
+                            interletra: 0.4,
                           ),
                         ),
                       ],
