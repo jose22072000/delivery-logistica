@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../diseno/colores.dart';
+import '../../../diseno/insignia.dart';
+import '../../../diseno/tabla_ancha.dart';
+import '../../../diseno/tema.dart';
 import '../datos/repositorio_clientes.dart';
 
 /// La tabla de Clientes: 4 columnas y **desplazamiento propio**.
@@ -23,8 +27,6 @@ class TablaClientes extends StatelessWidget {
   /// El ancho por debajo del cual la tabla se desplaza sola.
   static const anchoMinimo = 736.0;
 
-  static const ambar = Color(0xFFB45309);
-
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, medidas) => SingleChildScrollView(
@@ -35,22 +37,25 @@ class TablaClientes extends StatelessWidget {
               ? anchoMinimo
               : medidas.maxWidth,
         ),
-        child: DataTable(
-          columnSpacing: 24,
-          columns: const [
-            DataColumn(label: Text('Cliente')),
-            DataColumn(label: Text('Dirección')),
-            DataColumn(label: Text('Vendedor')),
-            DataColumn(label: Text('Origen')),
-          ],
-          rows: [for (final c in clientes) _fila(context, c)],
+        child: Theme(
+          data: Theme.of(
+            context,
+          ).copyWith(dataTableTheme: temaDeTabla(context)),
+          child: DataTable(
+            columns: [
+              DataColumn(label: cabecera('Cliente')),
+              DataColumn(label: cabecera('Dirección')),
+              DataColumn(label: cabecera('Vendedor')),
+              DataColumn(label: cabecera('Origen')),
+            ],
+            rows: [for (final c in clientes) _fila(context, c)],
+          ),
         ),
       ),
     ),
   );
 
   DataRow _fila(BuildContext context, ClienteConKm fila) {
-    final tema = Theme.of(context);
     final c = fila.cliente;
     final direccion = [
       c.address,
@@ -64,23 +69,29 @@ class TablaClientes extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(c.name),
+              Text(
+                c.name,
+                style: Tipos.texto(tamano: 14, peso: FontWeight.w500),
+              ),
+              // El codigo en JetBrains Mono, no en la `monospace` del sistema:
+              // en Windows esa es Courier New y no se parece a nada de aqui.
               if (c.codigo != null && c.codigo!.isNotEmpty)
                 Text(
                   c.codigo!,
-                  style: tema.textTheme.bodySmall?.copyWith(
-                    fontFamily: 'monospace',
-                  ),
+                  style: Tipos.mono(tamano: 11.5, color: Colores.tintaSuave),
                 ),
               if (c.phone != null && c.phone!.isNotEmpty)
-                Text(c.phone!, style: tema.textTheme.bodySmall)
+                Text(
+                  c.phone!,
+                  style: Tipos.mono(tamano: 11.5, color: Colores.tintaSuave),
+                )
               else
                 // En ambar porque un cliente sin telefono es una entrega que no
                 // se puede avisar, y eso se decide antes de salir, no en la
                 // puerta.
                 Text(
                   'sin teléfono',
-                  style: tema.textTheme.bodySmall?.copyWith(color: ambar),
+                  style: Tipos.texto(tamano: 11.5, color: Colores.ambar),
                 ),
             ],
           ),
@@ -93,7 +104,10 @@ class TablaClientes extends StatelessWidget {
             children: [
               Text(c.vendedor?.isNotEmpty ?? false ? c.vendedor! : '—'),
               if (conDistancia && fila.km != null)
-                Text('${fila.km} km', style: tema.textTheme.bodySmall),
+                Text(
+                  '${fila.km} km',
+                  style: Tipos.mono(tamano: 11.5, color: Colores.tintaSuave),
+                ),
             ],
           ),
         ),
@@ -111,17 +125,10 @@ class _Insignia extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dePedido = deSource == 'pedido';
-    final color = dePedido ? const Color(0xFF1D4ED8) : const Color(0xFF4B5563);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        dePedido ? 'PEDIDO' : 'Manual',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
-      ),
+    return Insignia(
+      dePedido ? 'PEDIDO' : 'Manual',
+      color: dePedido ? Colores.azul : Colores.tintaSuave,
+      fondo: dePedido ? Colores.azulFondo : Colores.grisFondo,
     );
   }
 }

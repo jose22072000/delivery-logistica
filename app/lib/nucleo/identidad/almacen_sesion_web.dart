@@ -1,17 +1,73 @@
+import 'dart:convert';
+
+import 'package:web/web.dart' as web;
+
+import '../registro/registro.dart';
 import 'almacen_sesion.dart';
 import 'sesion.dart';
 
-/// Web: **no se guarda nada**.
+/// Web: el par de tokens, en el almacen del navegador.
 ///
-/// El login unico de auth deja su cookie y Dio va con `withCredentials: true`.
-/// Meter el par de tokens en `localStorage` seria dejarlo al alcance de
-/// cualquier script de la pagina, y ademas duplicaria la sesion que el navegador
-/// ya lleva.
+/// **Por que aqui tambien se guarda el par.** El plan era que en web mandara la
+/// cookie del login unico de auth (ver [AlmacenPorCookie], que se deja escrita
+/// abajo para el dia que eso exista). Hoy no existe: la web del reparto entra
+/// por la MISMA puerta que la APK —usuario y contrasena contra
+/// `POST /api/auth/token`— y si aqui no se guardara nada, el interceptor no
+/// tendria token que poner en las peticiones y cada recarga de la pagina
+/// devolveria a la pantalla de acceso. Eso no es «mas seguro»: es la aplicacion
+/// sin datos, que es lo que se vio al abrirla.
 ///
-/// Que `leer()` devuelva `null` aqui NO es «no hay sesion»: es «la sesion no la
-/// llevo yo». Quien decide si hay sesion en web es el servidor al contestar.
-AlmacenDeSesion abrirAlmacenDeSesion() => const AlmacenPorCookie();
+/// `localStorage` y no `sessionStorage`: el logistico recarga, cierra la pestana
+/// y vuelve, y la regla de la casa es que quien entro sigue dentro. Lo que se
+/// guarda es exactamente lo mismo que guarda la APK en el Keystore, con la
+/// diferencia conocida de que en el navegador no hay Keystore — por eso el
+/// acceso dura lo que dura el refresh y un 401 lo borra entero.
+AlmacenDeSesion abrirAlmacenDeSesion() => const AlmacenDelNavegador();
 
+class AlmacenDelNavegador implements AlmacenDeSesion {
+  const AlmacenDelNavegador();
+
+  static const clave = 'reparto.sesion';
+
+  @override
+  Future<Sesion?> leer() async {
+    final crudo = _caja?.getItem(clave);
+    if (crudo == null) return null;
+    try {
+      return Sesion.deJson(jsonDecode(crudo) as Map<String, Object?>);
+    } on Object {
+      // Guardado ilegible: se trata como «no hay sesion», no como un fallo. Lo
+      // peor que puede pasar es que la persona entre otra vez.
+      await borrar();
+      return null;
+    }
+  }
+
+  @override
+  Future<void> guardar(Sesion sesion) async =>
+      _caja?.setItem(clave, jsonEncode(sesion.aJson()));
+
+  @override
+  Future<void> borrar() async => _caja?.removeItem(clave);
+
+  /// `localStorage` puede no estar: en modo privado de algunos navegadores el
+  /// acceso lanza. Sin el, la aplicacion se comporta como si no hubiera sesion
+  /// guardada —hay que entrar otra vez— en vez de no arrancar.
+  static web.Storage? get _caja {
+    try {
+      return web.window.localStorage;
+    } on Object catch (e) {
+      Registro.aviso('el navegador no deja guardar la sesion: $e');
+      return null;
+    }
+  }
+}
+
+/// El almacen del login unico, para cuando auth deje su cookie en la web.
+///
+/// Con el, `leer()` devolver `null` NO es «no hay sesion»: es «la sesion no la
+/// llevo yo», y quien decide es el servidor al contestar. Mientras la web entre
+/// con usuario y contrasena, el que se usa es [AlmacenDelNavegador].
 class AlmacenPorCookie implements AlmacenDeSesion {
   const AlmacenPorCookie();
 

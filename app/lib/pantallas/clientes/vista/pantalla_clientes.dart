@@ -5,6 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/frescura/reloj_de_datos.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 
+import '../../../diseno/anchos.dart';
+import '../../../diseno/colores.dart';
+import '../../../diseno/tabla_ancha.dart';
+import '../../../diseno/tema.dart';
 import '../datos/repositorio_clientes.dart';
 import '../estado/estado_clientes.dart';
 import 'paginacion.dart';
@@ -67,9 +71,12 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
     // dentro, que es el que no se ve entero.
     //
     // Ver el contrato en `lib/navegacion/pantalla_registrada.dart`.
+    // `p-3 sm:p-6` de delivery.
+    final estrecho = MediaQuery.sizeOf(context).width < Anchos.idioma;
+
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(estrecho ? Aire.md : Aire.xl),
         children: [
           _Cabecera(
             // Mientras no hay dato todavia no se sabe de cuando es: se dice
@@ -80,7 +87,7 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
             pagina: pagina.value,
             alIr: (n) => ref.read(filtrosClientesProvider.notifier).aPagina(n),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: Aire.lg),
           _Filtros(
             filtros: filtros,
             datos: pagina.value,
@@ -92,7 +99,7 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
               ref.read(filtrosClientesProvider.notifier).quitar();
             },
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: Aire.lg),
           // El dato viejo NO se borra mientras refresca: el giro de
           // `actualizando…` ya lo dice arriba, y quitar la lista de golpe deja
           // a alguien mirando un hueco con el dedo en la fila que iba a leer.
@@ -162,7 +169,12 @@ class _Cabecera extends StatelessWidget {
         Wrap(
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Text(subtitulo.toString(), style: tema.textTheme.bodySmall),
+            Text(
+              subtitulo.toString(),
+              style: tema.textTheme.bodySmall?.copyWith(
+                color: Colores.tintaSuave,
+              ),
+            ),
             if (pagina != null)
               PaginacionCorta(
                 pagina: pagina!.pagina,
@@ -209,10 +221,11 @@ class _Filtros extends StatelessWidget {
           child: TextField(
             controller: buscador,
             onChanged: alBuscar,
+            style: Tipos.texto(tamano: 14),
             decoration: const InputDecoration(
               isDense: true,
-              border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.search, size: 18),
+              prefixIconConstraints: BoxConstraints(minWidth: 36),
               hintText: 'Buscar por nombre, dirección o municipio…',
             ),
           ),
@@ -365,17 +378,21 @@ class _Lista extends StatelessWidget {
                 'Esta sucursal no tiene ningún almacén con coordenadas: '
                 'aquí no se puede medir la distancia.',
           ),
-        TablaClientes(
-          clientes: datos.clientes,
-          conDistancia: filtros.kmMax != null,
-        ),
-        PaginacionLarga(
-          pagina: datos.pagina,
-          paginas: datos.paginas,
-          desde: datos.desde,
-          hasta: datos.hasta,
-          total: datos.total,
-          alIr: alIr,
+        // La tabla y su paginacion, en la MISMA caja: en delivery la
+        // paginacion es el pie de la tabla, no una barra suelta debajo.
+        TarjetaDeTabla(
+          pie: PaginacionLarga(
+            pagina: datos.pagina,
+            paginas: datos.paginas,
+            desde: datos.desde,
+            hasta: datos.hasta,
+            total: datos.total,
+            alIr: alIr,
+          ),
+          child: TablaClientes(
+            clientes: datos.clientes,
+            conDistancia: filtros.kmMax != null,
+          ),
         ),
       ],
     );
@@ -389,7 +406,13 @@ class _Aviso extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 24),
-    child: Text(texto, textAlign: TextAlign.center),
+    padding: const EdgeInsets.symmetric(vertical: 40, horizontal: Aire.lg),
+    child: Text(
+      texto,
+      textAlign: TextAlign.center,
+      style: Theme.of(
+        context,
+      ).textTheme.bodyMedium?.copyWith(color: Colores.tintaSuave),
+    ),
   );
 }

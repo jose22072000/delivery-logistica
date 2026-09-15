@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'diseno/tema.dart';
+import 'navegacion/portero.dart';
 import 'navegacion/rutas.dart';
 import 'textos/textos.dart';
 
@@ -11,7 +13,7 @@ import 'textos/textos.dart';
 /// verdad: los filtros de las listas viajan en la direccion, y una pantalla
 /// filtrada que no se puede mandar por enlace deja a media oficina leyendo
 /// numeros por telefono.
-class RepartoApp extends StatefulWidget {
+class RepartoApp extends ConsumerStatefulWidget {
   const RepartoApp({super.key, this.enrutador});
 
   /// Se puede inyectar en los tests para montar el armazon con pantallas de
@@ -19,11 +21,25 @@ class RepartoApp extends StatefulWidget {
   final GoRouter? enrutador;
 
   @override
-  State<RepartoApp> createState() => _RepartoAppState();
+  ConsumerState<RepartoApp> createState() => _RepartoAppState();
 }
 
-class _RepartoAppState extends State<RepartoApp> {
-  late final GoRouter _enrutador = widget.enrutador ?? crearEnrutador();
+class _RepartoAppState extends ConsumerState<RepartoApp> {
+  late final GoRouter _enrutador =
+      widget.enrutador ?? crearEnrutador(portero: ref.read(porteroProvider));
+
+  @override
+  void initState() {
+    super.initState();
+    // EL ARRANQUE, una sola vez y aqui: abre la base, lee la sesion guardada e
+    // intenta renovar. Mientras tanto se ve la espera; al acabar, el portero
+    // mueve la aplicacion al Panel o al acceso.
+    if (widget.enrutador == null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => ref.read(porteroProvider).comprobar(),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) => MaterialApp.router(

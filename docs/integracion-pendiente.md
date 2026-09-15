@@ -249,10 +249,18 @@ por dentro, lo que faltaba era enchufarlas.
       sesión, el renovador con su candado— pero no hay dónde entrar, y el armazón no exige
       sesión: entra directo al Panel. Sin sesión no se descarga nada, así que todas las
       pantallas dicen «no se ha descargado todavía» y la aplicación parece rota.
-- [ ] **No hay lector de Ventra.** `POST /api/products/sync` contesta
-      `502 «este servicio todavía no tiene lector de Ventra configurado»`. Hay interfaz
-      (`LectorDeVentra`) y hay dónde enchufarlo (`PonerLectorDeVentra`), pero nadie escribió
-      la implementación. Sin catálogo no hay pesos y el pre-despacho sale incompleto.
+- [x] ~~**No hay lector de Ventra.**~~ — **hecho (15/09/2026).** Está en
+      `internal/ventra`, y es un cliente HTTP de la API externa de Ventra
+      (`docs/API-VENTRA.md`), no un MySQL. Se enchufa en `cmd/api/main.go` con
+      `PonerLectorDeVentra` **sólo si están `WAREHOUSE_API_URL` y `WAREHOUSE_API_TOKEN`**;
+      sin ellas el servicio arranca igual, avisa al arrancar y `products/sync` sigue
+      contestando el 502 de siempre — nunca un 200 con ceros. Tres cosas que no se pueden
+      relajar al tocarlo: el catálogo se pide **por sucursal** (`?database=`, porque el
+      precio y las existencias varían por sucursal), **un catálogo vacío se devuelve como
+      ERROR** (una base caída contesta vacío y sin error, y tomarlo por bueno deja los
+      pedidos sin peso), y las bases **se preguntan** a `/axis/databases` en vez de
+      adivinarse (`granma` es BAYAMO). `VENTRA_BASES` empareja a mano el día que Ventra
+      añada o renombre una.
 - [x] **La almohadilla en la URL.** Flutter web enruta con `#` por defecto. Quitado con
       `usePathUrlStrategy()`; el nginx ya servía `index.html` en cualquier ruta, que es lo
       que hace falta para que recargar no dé 404.

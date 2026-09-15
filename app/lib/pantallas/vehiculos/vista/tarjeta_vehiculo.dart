@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../diseno/colores.dart';
+import '../../../diseno/insignia.dart';
+import '../../../diseno/tarjeta.dart';
+import '../../../diseno/tema.dart';
 import '../datos/vehiculo_api.dart';
 
 /// La tarjeta de la rejilla. Pliego: `pantallas.md` §5.
@@ -19,50 +23,73 @@ class TarjetaVehiculo extends StatelessWidget {
   final VoidCallback alMarcarDisponible;
   final VoidCallback alUsarParaDomicilio;
 
-  static const _verde = Color(0xFF15803D);
-  static const _azul = Color(0xFF1D4ED8);
-  static const _ambar = Color(0xFFB45309);
-
+  /// Los tres colores son los SEMANTICOS del kit, no unos propios: azul = en
+  /// marcha, ambar = atencion, verde = listo. Los tenia repetidos aqui y por eso
+  /// el «en uso» de un vehiculo no era el mismo azul que el de un pedido.
   Color get _colorEstado {
-    if (vehiculo.enUso) return _azul;
-    if (vehiculo.enMantenimiento) return _ambar;
-    return _verde;
+    if (vehiculo.enUso) return Colores.azul;
+    if (vehiculo.enMantenimiento) return Colores.ambar;
+    return Colores.verde;
+  }
+
+  Color get _fondoEstado {
+    if (vehiculo.enUso) return Colores.azulFondo;
+    if (vehiculo.enMantenimiento) return Colores.ambarFondo;
+    return Colores.verdeFondo;
   }
 
   @override
   Widget build(BuildContext context) {
     final tema = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+    return Tarjeta(
+      relleno: const EdgeInsets.all(Aire.xl),
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                Icon(
-                  vehiculo.enMantenimiento ? Icons.build : Icons.local_shipping,
-                  color: _colorEstado,
+                // El icono en su cuadrado tintado, como las tarjetas del panel.
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: _fondoEstado,
+                    borderRadius: BorderRadius.circular(Radios.md),
+                  ),
+                  child: Icon(
+                    vehiculo.enMantenimiento
+                        ? Icons.build
+                        : Icons.local_shipping,
+                    size: 20,
+                    color: _colorEstado,
+                  ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: Aire.md),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(vehiculo.nombre, style: tema.textTheme.titleSmall),
+                      // La placa en JetBrains Mono: es un codigo, y con la
+                      // `monospace` del sistema sale en Courier New en Windows.
                       if (vehiculo.placa?.isNotEmpty ?? false)
                         Text(
                           vehiculo.placa!,
-                          style: tema.textTheme.bodySmall?.copyWith(
-                            fontFamily: 'monospace',
+                          style: Tipos.mono(
+                            tamano: 12,
+                            color: Colores.tintaSuave,
                           ),
                         ),
                     ],
                   ),
                 ),
-                _Insignia(texto: vehiculo.etiquetaEstado, color: _colorEstado),
+                Insignia(
+                  vehiculo.etiquetaEstado,
+                  color: _colorEstado,
+                  fondo: _fondoEstado,
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -114,14 +141,23 @@ class TarjetaVehiculo extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: _azul.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
+                  color: Colores.azulFondo,
+                  borderRadius: BorderRadius.circular(Radios.md),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Ruta activa', style: tema.textTheme.labelSmall),
+                    Text(
+                      'RUTA ACTIVA',
+                      style: Tipos.texto(
+                        tamano: 10,
+                        peso: FontWeight.w600,
+                        color: Colores.azul,
+                        interletra: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
                     Text(vehiculo.rutaActiva!.titulo),
                   ],
                 ),
@@ -130,11 +166,18 @@ class TarjetaVehiculo extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               '${vehiculo.pedidos} órdenes asignadas',
-              style: tema.textTheme.bodySmall,
+              style: tema.textTheme.bodySmall?.copyWith(
+                color: Colores.tintaSuave,
+              ),
             ),
             if (vehiculo.notas?.isNotEmpty ?? false) ...[
-              const SizedBox(height: 4),
-              Text(vehiculo.notas!, style: tema.textTheme.bodySmall),
+              const SizedBox(height: Aire.xs),
+              Text(
+                vehiculo.notas!,
+                style: tema.textTheme.bodySmall?.copyWith(
+                  color: Colores.tintaSuave,
+                ),
+              ),
             ],
             const SizedBox(height: 8),
             Wrap(
@@ -155,8 +198,7 @@ class TarjetaVehiculo extends StatelessWidget {
                 ),
               ],
             ),
-          ],
-        ),
+      ],
       ),
     );
   }
@@ -170,38 +212,40 @@ class _Caja extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(8),
+    padding: const EdgeInsets.symmetric(
+      horizontal: Aire.md,
+      vertical: Aire.sm,
+    ),
     decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(8),
+      color: Colores.papel,
+      border: Border.all(color: Colores.linea),
+      borderRadius: BorderRadius.circular(Radios.md),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(titulo, style: Theme.of(context).textTheme.labelSmall),
-        Text(valor),
+        Text(
+          titulo.toUpperCase(),
+          style: Tipos.texto(
+            tamano: 10,
+            peso: FontWeight.w600,
+            color: Colores.tintaSuave,
+            interletra: 1,
+          ),
+        ),
+        const SizedBox(height: 2),
+        // La cifra en mono: dos tarjetas de vehiculo una al lado de la otra se
+        // comparan por estas dos cajas.
+        Text(
+          valor,
+          style: Tipos.mono(
+            tamano: 15,
+            peso: FontWeight.w600,
+            color: Colores.tinta,
+          ),
+        ),
       ],
-    ),
-  );
-}
-
-class _Insignia extends StatelessWidget {
-  const _Insignia({required this.texto, required this.color});
-
-  final String texto;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(999),
-    ),
-    child: Text(
-      texto,
-      style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
     ),
   );
 }

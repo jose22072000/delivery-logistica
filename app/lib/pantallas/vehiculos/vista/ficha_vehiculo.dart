@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../../../diseno/colores.dart';
+import '../../../diseno/tema.dart';
 import 'package:flutter/services.dart';
 
 import '../../../diseno/cajon.dart';
@@ -271,10 +274,13 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
             ),
             const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(Aire.md),
               decoration: BoxDecoration(
-                color: const Color(0xFF1D4ED8).withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
+                color: Colores.azulFondo,
+                border: Border.all(
+                  color: Colores.primario.withValues(alpha: 0.2),
+                ),
+                borderRadius: BorderRadius.circular(Radios.md),
               ),
               child: const Text(
                 'Las tarifas de precios se configuran globalmente en '

@@ -1,3 +1,4 @@
+import '../pantallas/acceso/registro.dart';
 import '../pantallas/almacenes/registro.dart';
 import '../pantallas/clientes/registro.dart';
 import '../pantallas/vehiculos/registro.dart';
@@ -18,6 +19,11 @@ import 'pantalla_registrada.dart';
 ///
 /// Ya estan las siete mas el tablero: no queda ninguna por montar.
 List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
+  // LA PUERTA. No sale en el menu y no lleva armazon: se llega a ella porque el
+  // portero manda (`navegacion/portero.dart`) o porque se pulso «Salir». Va la
+  // primera porque es por donde se empieza.
+  registrarAcceso(),
+
   registrarPanel(),
 
   // DECISION A CONFIRMAR CON JOSE: el tablero es una pantalla NUEVA

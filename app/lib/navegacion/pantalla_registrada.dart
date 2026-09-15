@@ -57,6 +57,7 @@ class PantallaRegistrada {
     required this.construir,
     this.icono,
     this.enElMenu = false,
+    this.conArmazon = true,
     this.subrutas = const <RouteBase>[],
   });
 
@@ -75,6 +76,17 @@ class PantallaRegistrada {
   /// dice que la pantalla existe pero NO esta en el menu; se llega por URL y
   /// desde las acciones rapidas del Panel.
   final bool enElMenu;
+
+  /// Si va DENTRO del armazon (barra lateral, barra superior y franja de
+  /// estado). Lo normal es que si, y por eso es el valor por defecto.
+  ///
+  /// La unica que va a `false` hoy es la **pantalla de acceso**: las tres piezas
+  /// del armazon salen de la sesion y de la base local, que es justo lo que no
+  /// hay todavia cuando alguien esta mirando esa pantalla. Una pantalla con
+  /// `conArmazon: false` se monta sola dentro de su propio `Scaffold`, que sigue
+  /// poniendo `rutas.dart` y no ella — la regla de «tu pantalla no lleva
+  /// Scaffold» no cambia.
+  final bool conArmazon;
 
   /// Rutas colgando de esta, si tu pantalla las necesita.
   final List<RouteBase> subrutas;

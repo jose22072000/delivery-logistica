@@ -74,6 +74,33 @@ type Config struct {
 	// otro: sin recuerdo, cotizar un lote de 200 pedidos son 200 llamadas a Accesos.
 	AlmacenesCache time.Duration
 
+	// --- Ventra (el ERP de la casa), que vive detrás de la VPN --------------
+	//
+	// De ahí sale el CATÁLOGO: nombre, peso, precio y existencias, sucursal por sucursal.
+	// No es un MySQL: es una API HTTP de sólo lectura (`docs/API-VENTRA.md`), alcanzable
+	// sólo por la red 10.188.2.0/24. En producción la URL es
+	// `http://10.188.2.2:3001/api/external-api` y el token, uno permanente de Ventra.
+	//
+	// NO SON OBLIGATORIAS, igual que PEDIDO_API_URL: sin ellas el servicio arranca y hace
+	// todo lo demás, y `POST /api/products/sync` contesta 502 DICIENDO que no hay lector.
+	// Eso es lo correcto: un 200 con «0 productos escritos» cuando en realidad no se le ha
+	// preguntado a nadie deja al logístico mirando precios de hace tres semanas sin un
+	// solo aviso. Aquí NO se les pone valor por defecto —ni siquiera la IP conocida— para
+	// que enchufar el lector sea siempre un acto explícito de quien despliega.
+	VentraURL   string
+	VentraToken string
+
+	// VentraPlazo es lo que se espera a cada petición. Treinta segundos: es un ERP al otro
+	// lado de una VPN, no una API de al lado.
+	VentraPlazo time.Duration
+
+	// VentraBases empareja NUESTRO código de sucursal con el slug de la base de Ventra
+	// (`STG=santiago,HOL=holguinmoa`). Normalmente va vacía: el cliente ya trae la tabla
+	// de las diez bases de hoy. Está para el día que Ventra añada o renombre una, que se
+	// arregla con una variable en vez de con un despliegue de código — y lo que hay en
+	// juego es que una sucursal entera se quede sin catálogo sin que salte nada.
+	VentraBases map[string]string
+
 	// Accesos (el login único), que además es de donde salen los almacenes y las tasas.
 	// La llave NO tiene valor por defecto: sin ella no hay firma posible y el cliente lo
 	// dice antes de salir a la red, porque un «401 de auth» es mucho más difícil de
@@ -171,6 +198,9 @@ func Cargar(version string) (*Config, error) {
 		AuthURL:        strings.TrimRight(valor("PROCOVAR_AUTH_URL", "https://auth.procovar.cloud"), "/"),
 		AuthClientID:   valor("PROCOVAR_AUTH_CLIENT_ID", "delivery"),
 		AuthSigningKey: strings.TrimSpace(os.Getenv("PROCOVAR_AUTH_SIGNING_KEY")),
+
+		VentraURL:   strings.TrimRight(valor("WAREHOUSE_API_URL", ""), "/"),
+		VentraToken: strings.TrimSpace(os.Getenv("WAREHOUSE_API_TOKEN")),
 	}
 
 	var errs []error
@@ -223,6 +253,7 @@ func Cargar(version string) (*Config, error) {
 		{"PEDIDO_API_URL", c.PedidoAPIURL},
 		{"DELIVERY_URL", c.DeliveryURL},
 		{"PROCOVAR_AUTH_URL", c.AuthURL},
+		{"WAREHOUSE_API_URL", c.VentraURL},
 	} {
 		if u.valor == "" {
 			continue // vacía es «no configurada», y cada quien sabe qué hacer con eso
@@ -237,6 +268,12 @@ func Cargar(version string) (*Config, error) {
 		errs = append(errs, err)
 	}
 	if c.AlmacenesCache, err = milisegundos("ALMACENES_CACHE_MS", 5*time.Minute); err != nil {
+		errs = append(errs, err)
+	}
+	if c.VentraPlazo, err = milisegundos("WAREHOUSE_TIMEOUT_MS", 30*time.Second); err != nil {
+		errs = append(errs, err)
+	}
+	if c.VentraBases, err = pares("VENTRA_BASES"); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -276,6 +313,34 @@ func lista(nombre string) []string {
 		}
 	}
 	return salida
+}
+
+// pares lee una variable con la forma `CLAVE=valor,CLAVE=valor` y la devuelve como mapa,
+// con las claves en mayúsculas. Vacía es un mapa vacío, no un error.
+//
+// Se valida AQUÍ y no donde se usa por lo de siempre: un `VENTRA_BASES=STG santiago` que
+// se ignora en silencio deja a Santiago sin catálogo, y eso no se ve hasta que alguien
+// busca un producto y no está.
+func pares(nombre string) (map[string]string, error) {
+	crudo := strings.TrimSpace(os.Getenv(nombre))
+	if crudo == "" {
+		return map[string]string{}, nil
+	}
+	salida := map[string]string{}
+	for _, p := range strings.Split(crudo, ",") {
+		if p = strings.TrimSpace(p); p == "" {
+			continue
+		}
+		clave, valor, hay := strings.Cut(p, "=")
+		clave, valor = strings.TrimSpace(clave), strings.TrimSpace(valor)
+		if !hay || clave == "" || valor == "" {
+			return nil, fmt.Errorf(
+				"%s tiene %q, que no es un par CLAVE=valor: se escribe como STG=santiago,HOL=holguinmoa",
+				nombre, p)
+		}
+		salida[strings.ToUpper(clave)] = valor
+	}
+	return salida, nil
 }
 
 func entero32(nombre string, porDefecto int32) (int32, error) {

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../navegacion/portero.dart';
 import 'actualizacion/comprobador.dart';
 import 'base/base.dart';
 import 'cola/cola_salida.dart';
@@ -11,6 +12,7 @@ import 'identidad/renovador.dart';
 import 'red/cliente_api.dart';
 import 'red/entorno.dart';
 import 'reloj.dart';
+import 'sincro/bajada.dart';
 
 /// El cableado de las cinco piezas transversales.
 ///
@@ -79,6 +81,9 @@ ClienteApi _cliente(Ref ref, String baseUrl) => ClienteApi.montar(
   almacen: ref.watch(almacenSesionProvider),
   renovador: ref.watch(renovadorProvider),
   sucursalMirada: () => ref.read(sucursalMiradaProvider),
+  // Un 401 que sigue siendo 401 despues de renovar es lo UNICO que echa a
+  // alguien a la pantalla de acceso. Un fallo de red, no.
+  alMorirLaSesion: () => ref.read(porteroProvider).murio(),
 );
 
 final clienteApiProvider = Provider<ClienteApi>(
@@ -87,6 +92,16 @@ final clienteApiProvider = Provider<ClienteApi>(
 
 final clienteSyncProvider = Provider<ClienteApi>(
   (ref) => _cliente(ref, Entorno.syncUrl),
+);
+
+/// LA BAJADA DEL DIA. Se dispara al entrar y despues de subir la cola.
+final bajadaProvider = Provider<Bajada>(
+  (ref) => Bajada(
+    cliente: ref.watch(clienteApiProvider),
+    base: ref.watch(baseProvider),
+    frescura: ref.watch(frescuraProvider),
+    reloj: ref.watch(relojProvider),
+  ),
 );
 
 final provisionalesProvider = Provider<Provisionales>(

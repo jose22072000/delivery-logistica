@@ -227,7 +227,7 @@ class _Contenido extends StatelessWidget {
             ListTile(
               leading: Icon(
                 a.principal ? Icons.star : Icons.warehouse,
-                color: a.principal ? const Color(0xFFB45309) : null,
+                color: a.principal ? Colores.ambar : Colores.tintaSuave,
               ),
               title: Text(a.titulo),
               subtitle: Text(

@@ -15,6 +15,7 @@ class InterceptorSesion extends Interceptor {
     required Renovador renovador,
     required Dio dio,
     this.sucursalMirada,
+    this.alMorirLaSesion,
   }) : _almacen = almacen,
        _renovador = renovador,
        _dio = dio;
@@ -28,6 +29,15 @@ class InterceptorSesion extends Interceptor {
 
   /// La sucursal que el Super Admin esta mirando. `null` = la suya.
   final String? Function()? sucursalMirada;
+
+  /// Se avisa UNA vez, cuando la sesion muere de verdad: un 401 que sigue siendo
+  /// 401 despues de renovar, o un refresh que el servidor ya no acepta. Es lo
+  /// que lleva a la pantalla de acceso (regla 5).
+  ///
+  /// Va como aviso y no como navegacion desde aqui a proposito: un interceptor
+  /// de red que mueve pantallas es un interceptor que hay que montar entero para
+  /// probar cualquier peticion.
+  final void Function()? alMorirLaSesion;
 
   /// Marca de «esta peticion ya se reintento». Sin ella, un 401 que sigue siendo
   /// 401 entra en un bucle de renovar-reintentar que no acaba.
@@ -108,6 +118,8 @@ class InterceptorSesion extends Interceptor {
     }
   }
 
-  static DioException _comoFallo(DioException original, FalloApi fallo) =>
-      original.copyWith(error: fallo);
+  DioException _comoFallo(DioException original, FalloApi fallo) {
+    if (fallo is SesionMuerta) alMorirLaSesion?.call();
+    return original.copyWith(error: fallo);
+  }
 }

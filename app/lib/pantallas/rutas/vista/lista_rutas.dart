@@ -5,6 +5,8 @@
 // se filtra y se pagina igual que con ella.
 
 import 'package:flutter/material.dart';
+
+import '../../../diseno/tema.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
@@ -105,11 +107,19 @@ class _TarjetaDeRuta extends ConsumerWidget {
     final elegida = ref.watch(rutaElegidaProvider) == ruta.id;
     final sobrepeso = vehiculo != null && ruta.totalWeight > vehiculo!.capacity;
 
+    // La elegida se tine de primario y coge su borde: con el gris de antes, con
+    // ocho rutas seguidas, no se veia cual estaba abierta a la derecha.
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-      color: elegida
-          ? Theme.of(context).colorScheme.surfaceContainerHighest
-          : null,
+      color: elegida ? Colores.primarioTenue : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radios.xl),
+        side: BorderSide(
+          color: elegida
+              ? Colores.primario.withValues(alpha: 0.4)
+              : Colores.linea,
+        ),
+      ),
       child: InkWell(
         onTap: () => ref.read(rutaElegidaProvider.notifier).elegir(ruta.id),
         child: Padding(

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../diseno/colores.dart';
+import '../../../diseno/tema.dart';
+
 /// Una opcion de un selector: etiqueta y una **nota** pequena a la derecha (un
 /// conteo, un codigo).
 class OpcionSelector<T> {
@@ -46,25 +49,68 @@ class SelectorFiltro<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final elegida = opciones.where((o) => o.valor == valor).firstOrNull;
+    // Con algo elegido el borde se tine de primario y la letra se pone en
+    // semibold, igual que en `lib/diseno/selector.dart`: asi se ve de un vistazo
+    // cuales de los seis filtros estan puestos.
+    final filtrando = elegida != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(titulo, style: Theme.of(context).textTheme.labelSmall),
-        const SizedBox(height: 4),
-        OutlinedButton.icon(
+        Text(
+          titulo.toUpperCase(),
+          style: Tipos.texto(
+            tamano: 10,
+            peso: FontWeight.w600,
+            color: Colores.tintaSuave.withValues(alpha: 0.75),
+            interletra: 1,
+          ),
+        ),
+        const SizedBox(height: 5),
+        OutlinedButton(
           onPressed: () => _abrir(context),
-          icon: Icon(icono ?? Icons.filter_list, size: 18),
-          label: Row(
+          style: OutlinedButton.styleFrom(
+            backgroundColor: Colores.blanco,
+            foregroundColor: filtrando ? Colores.tinta : Colores.tintaSuave,
+            side: BorderSide(
+              color: filtrando
+                  ? Colores.primario.withValues(alpha: 0.5)
+                  : Colores.linea,
+            ),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Aire.md,
+              vertical: 9,
+            ),
+            textStyle: Tipos.texto(
+              tamano: 14,
+              peso: filtrando ? FontWeight.w600 : FontWeight.w400,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radios.lg),
+            ),
+          ),
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Icon(
+                icono ?? Icons.filter_list,
+                size: 16,
+                color: Colores.tintaSuave,
+              ),
+              const SizedBox(width: Aire.sm),
               Flexible(
                 child: Text(
                   elegida?.etiqueta ?? textoTodos,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const Icon(Icons.expand_more, size: 18),
+              const SizedBox(width: Aire.xs),
+              const Icon(
+                Icons.keyboard_arrow_down,
+                size: 16,
+                color: Colores.tintaSuave,
+              ),
             ],
           ),
         ),
@@ -144,19 +190,23 @@ class _MenuState<T> extends State<_Menu<T>> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (widget.conBuscador)
+          if (widget.conBuscador) ...[
             Padding(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(Aire.sm),
               child: TextField(
                 autofocus: true,
+                style: Tipos.texto(tamano: 14),
                 decoration: const InputDecoration(
                   isDense: true,
+                  hintText: 'Buscar…',
                   prefixIcon: Icon(Icons.search, size: 18),
-                  border: OutlineInputBorder(),
+                  prefixIconConstraints: BoxConstraints(minWidth: 34),
                 ),
                 onChanged: (t) => setState(() => _busqueda = t),
               ),
             ),
+            const Divider(height: 1, thickness: 1, color: Colores.linea),
+          ],
           Flexible(
             child: ListView(
               shrinkWrap: true,
@@ -165,18 +215,27 @@ class _MenuState<T> extends State<_Menu<T>> {
                 // buscador: es la salida de vuelta.
                 ListTile(
                   dense: true,
-                  title: Text(widget.textoTodos),
+                  title: Text(
+                    widget.textoTodos,
+                    style: Tipos.texto(tamano: 14, color: Colores.tinta),
+                  ),
                   onTap: () => Navigator.pop(context, _Eleccion<T>(null)),
                 ),
                 for (final o in filtradas)
                   ListTile(
                     dense: true,
-                    title: Text(o.etiqueta),
+                    title: Text(
+                      o.etiqueta,
+                      style: Tipos.texto(tamano: 14, color: Colores.tinta),
+                    ),
                     trailing: o.nota == null
                         ? null
                         : Text(
                             o.nota!,
-                            style: Theme.of(context).textTheme.bodySmall,
+                            style: Tipos.texto(
+                              tamano: 11,
+                              color: Colores.tintaSuave,
+                            ),
                           ),
                     onTap: () => Navigator.pop(context, _Eleccion<T>(o.valor)),
                   ),

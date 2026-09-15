@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../diseno/colores.dart';
 import 'armazon.dart';
 import 'pantalla_registrada.dart';
 import 'pantallas.dart';
+import 'portero.dart';
 
 /// La primera pantalla: la de la manana.
 const rutaDeInicio = '/dashboard';
@@ -17,28 +19,66 @@ const rutaDeInicio = '/dashboard';
 ///
 /// [pantallas] se puede pasar en los tests para montar el armazon con dos
 /// pantallas de mentira, sin arrastrar la base local a un test de widget.
+///
+/// [portero] es lo que decide si se entra o se va a la pantalla de acceso. Sin
+/// el —los tests que montan dos pantallas de mentira— no hay puerta y se entra
+/// directo, que es lo que esas pruebas quieren comprobar.
 GoRouter crearEnrutador({
   List<PantallaRegistrada>? pantallas,
   String inicial = rutaDeInicio,
+  Portero? portero,
 }) {
   final lista = pantallas ?? pantallasDeLaAplicacion();
 
+  // Las que van dentro del armazon y las que no. La pantalla de acceso es la
+  // unica de las segundas: no puede llevar barra lateral porque no hay a donde
+  // ir, ni selector de sucursal porque sale de la sesion que aun no existe.
+  final conArmazon = [for (final p in lista) if (p.conArmazon) p];
+  final sueltas = [for (final p in lista) if (!p.conArmazon) p];
+
   return GoRouter(
-    initialLocation: inicial,
+    initialLocation: portero == null ? inicial : rutaDeArranque,
+    // Lo que hace que el portero funcione sin que ninguna pantalla llame a
+    // `context.go`: al cambiar el estado de la sesion, el enrutador vuelve a
+    // pasar por `redirect` y la persona aterriza donde toca.
+    refreshListenable: portero,
+    redirect: portero == null
+        ? null
+        : (contexto, estado) => porteroDeRutas(estado, portero, inicial),
     routes: <RouteBase>[
       // La raiz al panel. En web alguien escribe el dominio a secas y tiene que
       // caer en algun sitio.
       GoRoute(path: '/', redirect: (_, _) => inicial),
+
+      // La espera del arranque. No es una pantalla del registro porque no es una
+      // pantalla: es lo que se ve mientras se mira si la sesion guardada sirve.
+      // Sin ella se veria el formulario de contrasena durante un segundo antes
+      // de entrar, y ese parpadeo ensena a escribir la contrasena por reflejo.
+      GoRoute(
+        path: rutaDeArranque,
+        builder: (contexto, estado) => const _Esperando(),
+      ),
+
+      // Las sueltas, FUERA del armazon pero con su `Scaffold`: la regla de «tu
+      // pantalla no lleva Scaffold» sigue valiendo para todas.
+      for (final p in sueltas)
+        GoRoute(
+          path: p.ruta,
+          builder: (contexto, estado) =>
+              Scaffold(body: p.construir(contexto, estado)),
+          routes: p.subrutas,
+        ),
+
       ShellRoute(
         builder: (contexto, estado, hijo) => Armazon(
-          pantallas: lista,
+          pantallas: conArmazon,
           // `matchedLocation` y no `uri.toString()`: los filtros van en la URL
           // (`/orders?municipio=…`) y la entrada del menu tiene que seguir
           // marcada con el filtro puesto.
           rutaActual: estado.matchedLocation,
           child: hijo,
         ),
-        routes: <RouteBase>[for (final p in lista) p.aGoRoute()],
+        routes: <RouteBase>[for (final p in conArmazon) p.aGoRoute()],
       ),
     ],
     errorBuilder: (contexto, estado) => Scaffold(
@@ -56,6 +96,26 @@ GoRouter crearEnrutador({
               ),
             ],
           ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Lo que se ve mientras se comprueba la sesion guardada. Un segundo, o lo que
+/// tarde la red en rendirse.
+class _Esperando extends StatelessWidget {
+  const _Esperando();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    body: Center(
+      child: SizedBox(
+        width: 26,
+        height: 26,
+        child: CircularProgressIndicator(
+          strokeWidth: 2.5,
+          color: Colores.primario,
         ),
       ),
     ),

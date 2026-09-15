@@ -9,6 +9,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
 import '../datos/estado_reparto.dart';
 import '../datos/formato.dart';
@@ -79,7 +80,7 @@ class TablaPedidos extends StatelessWidget {
             todosMarcados: todosMarcados,
             alMarcarPagina: (marcar) => alMarcarPagina(ids, marcar),
           ),
-          const Divider(height: 1),
+          const Divider(height: 1, thickness: 1, color: Colores.linea),
           for (final pedido in pedidos)
             _Fila(
               pedido: pedido,
@@ -115,10 +116,17 @@ class _Cabecera extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final estilo = Theme.of(context).textTheme.labelSmall
-        ?.copyWith(color: Colores.gris);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+    // `text-[11px] uppercase tracking-…` sobre papel: la cabecera de una tabla
+    // de delivery no es una fila mas, es un rotulo.
+    final estilo = Tipos.texto(
+      tamano: 11,
+      peso: FontWeight.w600,
+      color: Colores.tintaSuave,
+      interletra: 0.9,
+    );
+    return Container(
+      color: Colores.papel,
+      padding: const EdgeInsets.symmetric(horizontal: Aire.sm, vertical: 10),
       child: Row(
         children: [
           Semantics(
@@ -128,26 +136,26 @@ class _Cabecera extends StatelessWidget {
               onChanged: (v) => alMarcarPagina(v ?? false),
             ),
           ),
-          _celda(flex: 2, hijo: Text('Fecha', style: estilo)),
+          _celda(flex: 2, hijo: Text('Fecha'.toUpperCase(), style: estilo)),
           if (columnas.sucursal)
-            _celda(flex: 2, hijo: Text('Sucursal', style: estilo)),
-          _celda(flex: 2, hijo: Text('Pedido', style: estilo)),
-          _celda(flex: 3, hijo: Text('Cliente', style: estilo)),
-          if (columnas.ruta) _celda(flex: 2, hijo: Text('Ruta', style: estilo)),
+            _celda(flex: 2, hijo: Text('Sucursal'.toUpperCase(), style: estilo)),
+          _celda(flex: 2, hijo: Text('Pedido'.toUpperCase(), style: estilo)),
+          _celda(flex: 3, hijo: Text('Cliente'.toUpperCase(), style: estilo)),
+          if (columnas.ruta) _celda(flex: 2, hijo: Text('Ruta'.toUpperCase(), style: estilo)),
           if (columnas.vehiculo)
-            _celda(flex: 2, hijo: Text('Vehículo', style: estilo)),
+            _celda(flex: 2, hijo: Text('Vehículo'.toUpperCase(), style: estilo)),
           if (columnas.articulos)
-            _celda(flex: 2, hijo: Text('Artículos', style: estilo)),
-          _celda(flex: 4, hijo: Text('Dirección', style: estilo)),
+            _celda(flex: 2, hijo: Text('Artículos'.toUpperCase(), style: estilo)),
+          _celda(flex: 4, hijo: Text('Dirección'.toUpperCase(), style: estilo)),
           _celda(
             flex: 2,
             hijo: Text('Peso', style: estilo, textAlign: TextAlign.right),
           ),
-          _celda(flex: 2, hijo: Text('Precio', style: estilo)),
+          _celda(flex: 2, hijo: Text('Precio'.toUpperCase(), style: estilo)),
           if (columnas.factura)
-            _celda(flex: 2, hijo: Text('Factura', style: estilo)),
+            _celda(flex: 2, hijo: Text('Factura'.toUpperCase(), style: estilo)),
           if (columnas.entrega)
-            _celda(flex: 2, hijo: Text('Entrega', style: estilo)),
+            _celda(flex: 2, hijo: Text('Entrega'.toUpperCase(), style: estilo)),
           const SizedBox(width: 32),
         ],
       ),
@@ -188,15 +196,18 @@ class _Fila extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
     final reparto = estadoDeReparto(pedido, estadoDeSuRuta);
     final enPedido = estadoEnPedido(pedido, ahora: ahora);
 
     return InkWell(
       // La fila entera abre el detalle; la casilla no lo abre.
       onTap: alAbrir,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      hoverColor: Colores.papel,
+      child: Container(
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Colores.linea)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: Aire.sm, vertical: 8),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -223,11 +234,14 @@ class _Fila extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(pedido.customerName, overflow: TextOverflow.ellipsis),
+                  // El folio en JetBrains Mono, no en la `monospace` del
+                  // sistema: en Windows esa es Courier New y canta a kilometros
+                  // dentro de una tabla escrita en Hanken.
                   Text(
                     pedido.operationNumber ?? '',
-                    style: tema.textTheme.bodySmall?.copyWith(
-                      fontFamily: 'monospace',
-                      color: Colores.gris,
+                    style: Tipos.mono(
+                      tamano: 11.5,
+                      color: Colores.tintaSuave,
                     ),
                   ),
                 ],
@@ -251,17 +265,26 @@ class _Fila extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            // El peso y el precio, en mono: son las dos columnas que se leen de
+            // arriba abajo para decidir que cabe en el camion.
             _celda(
               flex: 2,
-              hijo: Text(kg(pedido.weight), textAlign: TextAlign.right),
+              hijo: Text(
+                kg(pedido.weight),
+                textAlign: TextAlign.right,
+                style: Tipos.mono(tamano: 13, color: Colores.tinta),
+              ),
             ),
             _celda(
               flex: 2,
               hijo: Text(
                 usd(pedido.pedidoCosto),
-                style: pedido.pedidoCosto == null
-                    ? const TextStyle(color: Colores.gris)
-                    : null,
+                style: Tipos.mono(
+                  tamano: 13,
+                  color: pedido.pedidoCosto == null
+                      ? Colores.tintaSuave
+                      : Colores.tinta,
+                ),
               ),
             ),
             if (columnas.factura)
@@ -277,13 +300,17 @@ class _Fila extends StatelessWidget {
                     EstadoReparto.enDespacho => Colores.primario,
                     EstadoReparto.devuelto ||
                     EstadoReparto.cancelado => Colores.ambar,
-                    EstadoReparto.sinEntregar => Colores.gris,
+                    EstadoReparto.sinEntregar => Colores.tintaSuave,
                   },
                 ),
               ),
             const SizedBox(
               width: 32,
-              child: Icon(Icons.chevron_right, size: 18),
+              child: Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: Colores.tintaSuave,
+              ),
             ),
           ],
         ),
@@ -300,14 +327,22 @@ class _Fecha extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final propia = pedido.orderDate;
-    if (propia != null) return Text(fechaCorta(propia));
+    if (propia != null) {
+      return Text(
+        fechaCorta(propia),
+        style: Tipos.mono(tamano: 12.5, color: Colores.tinta),
+      );
+    }
     // Sin `orderDate` se pinta la del espejo con un `≈`: decirlo a medias es
     // peor que decirlo, porque el dia del pedido es con lo que se cuadra.
     return Tooltip(
       message:
           'Pedido copiado antes de que se guardara su fecha: '
           'ésta es la del espejo.',
-      child: Text('≈ ${fechaCorta(pedido.createdAt)}'),
+      child: Text(
+        '≈ ${fechaCorta(pedido.createdAt)}',
+        style: Tipos.mono(tamano: 12.5, color: Colores.tintaSuave),
+      ),
     );
   }
 }
@@ -360,13 +395,19 @@ class _Factura extends StatelessWidget {
               'No puede ir en una ruta hasta que se corrija.',
         );
       case EstadoFactura.sinFactura:
-        return const Text('sin facturar');
+        return Text(
+          'sin facturar',
+          style: Tipos.texto(tamano: 12.5, color: Colores.tintaSuave),
+        );
       default:
         // NULL no es `sin_factura`: es que el cotejo no ha pasado por aqui.
-        return const Tooltip(
+        return Tooltip(
           message:
               'El cotejo contra Ventra no ha pasado por este pedido todavía.',
-          child: Text('sin cotejar'),
+          child: Text(
+            'sin cotejar',
+            style: Tipos.texto(tamano: 12.5, color: Colores.tintaSuave),
+          ),
         );
     }
   }

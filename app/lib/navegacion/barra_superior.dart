@@ -8,6 +8,7 @@ import '../diseno/tema.dart';
 import '../nucleo/base/base.dart';
 import '../nucleo/proveedores.dart';
 import 'estado_navegacion.dart';
+import 'portero.dart';
 
 /// La barra superior: 64 px, pegajosa arriba (pliego §8.2).
 ///
@@ -251,28 +252,31 @@ class _Moneda extends ConsumerWidget {
   }
 }
 
-/// El avatar. Hoy dice **quien eres y que sucursal te toca**, que es lo que se
-/// puede saber sin red (sale del token guardado).
+/// El avatar. Dice **quien eres y que sucursal te toca** —que es lo que se puede
+/// saber sin red, porque sale del token guardado— y deja salir.
 ///
-/// `Salir` e `Ir a otra aplicación` NO estan todavia: cerrar sesion borra lo
-/// local (regla 8) y tiene que preguntar antes si queda trabajo sin subir (caso
-/// I7), y despues aterrizar en una pantalla de acceso que aun no existe. Un
-/// boton que borra el dia de alguien y lo deja en una pantalla en blanco es peor
-/// que no tener boton. Entra con la pantalla de acceso.
+/// `Salir` **pregunta antes si queda trabajo sin subir** (caso I7). Cerrar
+/// sesion borra lo local (regla 8): en el aparato quedan los clientes con sus
+/// direcciones y los pedidos del dia, y si el telefono cambia de manos eso no
+/// puede seguir ahi. Lo que NO se borra sin avisar es la cola: el dia de alguien
+/// no se tira en silencio.
 class _Avatar extends ConsumerWidget {
   const _Avatar();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return PopupMenuButton<void>(
+    return PopupMenuButton<String>(
       tooltip: 'Cuenta',
       icon: const CircleAvatar(
         radius: 16,
         backgroundColor: Colores.primario,
         child: Icon(Icons.person_outline, size: 18, color: Colors.white),
       ),
-      itemBuilder: (contexto) => <PopupMenuEntry<void>>[
-        PopupMenuItem<void>(
+      onSelected: (que) {
+        if (que == 'salir') _salir(context, ref);
+      },
+      itemBuilder: (contexto) => <PopupMenuEntry<String>>[
+        PopupMenuItem<String>(
           enabled: false,
           child: FutureBuilder<String>(
             future: _quienSoy(ref),
@@ -282,13 +286,59 @@ class _Avatar extends ConsumerWidget {
             ),
           ),
         ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'salir',
+          child: Row(
+            children: [
+              Icon(Icons.logout, size: 18, color: Colores.tintaSuave),
+              SizedBox(width: 8),
+              Text('Salir'),
+            ],
+          ),
+        ),
       ],
     );
   }
 
+  Future<void> _salir(BuildContext context, WidgetRef ref) async {
+    final pendientes = await ref.read(baseProvider).cuantosPendientes();
+    if (!context.mounted) return;
+
+    if (pendientes > 0) {
+      // Trabajo sin subir: se dice CUANTO y se pregunta. Salir lo borraria del
+      // aparato sin que nadie lo hubiera visto nunca en el servidor.
+      final sigue = await showDialog<bool>(
+        context: context,
+        builder: (contexto) => AlertDialog(
+          title: const Text('Queda trabajo sin subir'),
+          content: Text(
+            'Hay $pendientes ${pendientes == 1 ? "apunte" : "apuntes"} sin '
+            'subir al servidor. Si sales ahora se borra lo de este aparato y '
+            'ese trabajo se pierde.\n\nConecta y espera a que suba antes de '
+            'salir.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(contexto).pop(false),
+              child: const Text('Me quedo'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(contexto).pop(true),
+              child: const Text('Salir y perderlo'),
+            ),
+          ],
+        ),
+      );
+      if (sigue != true) return;
+    }
+
+    await ref.read(porteroProvider).salir();
+  }
+
   Future<String> _quienSoy(WidgetRef ref) async {
     final sesion = await ref.read(almacenSesionProvider).leer();
-    if (sesion == null) return 'Sesión en la cookie del navegador';
+    if (sesion == null) return 'Sin sesión guardada en este aparato';
     final roles = sesion.roles.isEmpty ? '—' : sesion.roles.join(', ');
     return '${sesion.sub}\n$roles';
   }

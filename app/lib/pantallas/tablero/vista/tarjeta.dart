@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../datos/modelos.dart';
+import '../../../diseno/tema.dart';
 import 'kit.dart';
 
 /// Lo que viaja mientras se arrastra: el pedido y de donde sale.
@@ -64,14 +65,23 @@ class TarjetaDePedido extends StatelessWidget {
   Widget _contenido(BuildContext context, {bool arrastrando = false}) {
     final tema = Theme.of(context);
     final marcas = pedido.marcas;
+    // Sin elevacion de Material: la tarjeta del tablero es la caja blanca de
+    // delivery —borde fino y sombra calida—, y al arrastrarla se queda plana
+    // para que la que se mueve no sea la que parece pegada al tablero.
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-      elevation: arrastrando ? 0 : 1,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radios.lg),
+        side: BorderSide(
+          color: arrastrando ? Colores.primario : Colores.linea,
+        ),
+      ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(Radios.lg),
         child: Padding(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

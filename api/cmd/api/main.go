@@ -23,6 +23,7 @@ import (
 	"procovar/reparto-api/internal/auth"
 	"procovar/reparto-api/internal/config"
 	"procovar/reparto-api/internal/store"
+	"procovar/reparto-api/internal/ventra"
 )
 
 // version la incrusta el compilador:
@@ -98,14 +99,42 @@ func correr() error {
 		)
 	}
 
+	servicio := api.NuevoServidor(
+		cfg, reg,
+		alcance.NuevaPorteria(almacen, reg),
+		auth.NuevoVerificador(cfg.JWTSecret),
+		almacen.Salud,
+	)
+
+	// EL LECTOR DE VENTRA, sólo si están LAS DOS variables.
+	//
+	// Sin ellas no se enchufa nada y el lector se queda en nil, que es lo que hace que
+	// `POST /api/products/sync` conteste 502 diciendo que no está configurado. Montar el
+	// cliente igualmente daría un lector que falla en cada llamada con un error de red —y
+	// «no llego a Ventra» y «nadie me dijo dónde está Ventra» se arreglan de formas muy
+	// distintas—. El aviso se da al ARRANCAR, que es cuando lo lee quien despliega, y no
+	// la tarde que alguien se pregunte por qué el catálogo es de hace tres semanas.
+	switch {
+	case cfg.VentraURL != "" && cfg.VentraToken != "":
+		servicio.PonerLectorDeVentra(ventra.Nuevo(cfg, reg))
+		reg.Info("lector de Ventra enchufado", "url", cfg.VentraURL, "plazo", cfg.VentraPlazo)
+	case cfg.VentraURL == "" && cfg.VentraToken == "":
+		reg.Warn("WAREHOUSE_API_URL y WAREHOUSE_API_TOKEN vacías: no se podrá bajar el catálogo de " +
+			"Ventra. POST /api/products/sync contestará 502 y los productos se quedarán con el peso, " +
+			"el precio y las existencias de la última bajada buena")
+	default:
+		// Media configuración es la peor de las tres: se ve como si estuviera puesta.
+		falta := "WAREHOUSE_API_TOKEN"
+		if cfg.VentraURL == "" {
+			falta = "WAREHOUSE_API_URL"
+		}
+		reg.Warn("falta la mitad de la configuración de Ventra: el catálogo NO se va a poder bajar",
+			"falta", falta)
+	}
+
 	servidor := &http.Server{
-		Addr: cfg.Direccion(),
-		Handler: api.NuevoServidor(
-			cfg, reg,
-			alcance.NuevaPorteria(almacen, reg),
-			auth.NuevoVerificador(cfg.JWTSecret),
-			almacen.Salud,
-		).Rutas(),
+		Addr:              cfg.Direccion(),
+		Handler:           servicio.Rutas(),
 		ReadHeaderTimeout: cfg.TiempoLectura,
 		ReadTimeout:       cfg.TiempoLectura,
 		WriteTimeout:      cfg.TiempoEscritura,

@@ -254,3 +254,82 @@ func TestLaFechaSeNormaliza(t *testing.T) {
 		t.Fatalf("fecha %q", c.Publicada.PublicadaAt)
 	}
 }
+
+// --------------------------------------------------------------------------- Ventra
+
+// SIN VENTRA SE ARRANCA IGUAL. Es el mismo trato que PEDIDO_API_URL: el servicio hace todo
+// lo demás y `POST /api/products/sync` contesta 502 diciendo que no hay lector. Morir aquí
+// dejaría el reparto entero parado por no poder bajar el catálogo, que es una parte.
+func TestSinLoDeVentraSeArrancaIgual(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("WAREHOUSE_API_URL", "")
+	t.Setenv("WAREHOUSE_API_TOKEN", "")
+
+	c, err := config.Cargar("dev")
+	if err != nil {
+		t.Fatalf("tenía que arrancar sin Ventra: %v", err)
+	}
+	if c.VentraURL != "" || c.VentraToken != "" {
+		t.Fatalf("tenían que quedar vacías: %q %q", c.VentraURL, c.VentraToken)
+	}
+	// Y con el plazo de la casa puesto: es un ERP al otro lado de una VPN.
+	if c.VentraPlazo != 30*time.Second {
+		t.Fatalf("plazo %v", c.VentraPlazo)
+	}
+}
+
+// La barra final se quita AQUÍ y no en cada sitio que concatena: una de más produce
+// `//axis/databases`, que unos servidores toleran y otros contestan con un 404 que nadie
+// sabe explicar.
+func TestLaURLDeVentraPierdeLaBarraFinal(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("WAREHOUSE_API_URL", "http://10.188.2.2:3001/api/external-api/")
+	t.Setenv("WAREHOUSE_API_TOKEN", "  un-token  ")
+
+	c, err := config.Cargar("dev")
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if c.VentraURL != "http://10.188.2.2:3001/api/external-api" {
+		t.Fatalf("url %q", c.VentraURL)
+	}
+	if c.VentraToken != "un-token" {
+		t.Fatalf("el token va recortado, que un espacio de más en un Bearer es un 401: %q", c.VentraToken)
+	}
+}
+
+// Una URL sin esquema no falla al arrancar ni al concatenar: falla al hacer la petición, y
+// lo único que se ve entonces es un catálogo que no baja.
+func TestURLDeVentraSinEsquemaNoArranca(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("WAREHOUSE_API_URL", "10.188.2.2:3001/api/external-api")
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "WAREHOUSE_API_URL") {
+		t.Fatalf("tenía que quejarse al desplegar: %v", err)
+	}
+}
+
+// VENTRA_BASES es lo que empareja nuestras sucursales con las bases de Ventra el día que
+// añadan una. Mal escrita e ignorada en silencio, esa sucursal se queda sin catálogo.
+func TestVentraBasesSeLeeYSeValida(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("VENTRA_BASES", "stg=santiago, HOL = holguinmoa")
+
+	c, err := config.Cargar("dev")
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if c.VentraBases["STG"] != "santiago" || c.VentraBases["HOL"] != "holguinmoa" {
+		t.Fatalf("mapa %v", c.VentraBases)
+	}
+
+	t.Setenv("VENTRA_BASES", "STG santiago")
+	if _, err := config.Cargar("dev"); err == nil || !strings.Contains(err.Error(), "VENTRA_BASES") {
+		t.Fatalf("un par mal escrito tiene que verse al desplegar: %v", err)
+	}
+}

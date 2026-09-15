@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../diseno/anchos.dart';
+import '../../../diseno/cargando.dart';
 import '../../../diseno/tabla_ancha.dart';
 import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
@@ -460,5 +461,4 @@ class _TablaPreDespacho extends StatelessWidget {
     texto,
     style: Tipos.mono(tamano: 13, color: Colores.tinta),
   );
-  }
 }

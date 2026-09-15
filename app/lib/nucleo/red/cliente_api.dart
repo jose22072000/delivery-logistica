@@ -40,6 +40,7 @@ class ClienteApi {
     required AlmacenDeSesion almacen,
     required Renovador renovador,
     String? Function()? sucursalMirada,
+    void Function()? alMorirLaSesion,
     List<Duration> esperas = esperasPorDefecto,
     Future<void> Function(Duration)? esperar,
   }) {
@@ -61,6 +62,7 @@ class ClienteApi {
         renovador: renovador,
         dio: dio,
         sucursalMirada: sucursalMirada,
+        alMorirLaSesion: alMorirLaSesion,
       ),
       const InterceptorFallos(),
     ]);
