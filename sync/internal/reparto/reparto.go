@@ -105,7 +105,23 @@ func (c *Cliente) Aplicar(ctx context.Context, p sincro.Peticion) (*uuid.UUID, e
 	if len(p.Cuerpo) > 0 {
 		cuerpo = bytes.NewReader(p.Cuerpo)
 	}
-	req, err := http.NewRequestWithContext(ctx, p.Metodo, c.base+p.Ruta, cuerpo)
+	// EL `/api` LO PONE ESTE LADO, y aquí estuvo el fallo que lo tiró todo.
+	//
+	// El aparato encola la ruta SIN prefijo —`/board/columns`, `/routes/{id}`— porque es
+	// la que usa contra su propia base. `reparto-api` las sirve todas bajo `/api`, así
+	// que reenviarlas tal cual daba **404 en cada apunte**.
+	//
+	// Lo que eso provocaba no se parecía a un fallo de enrutado. Un 4xx aquí es «rechazo
+	// de negocio», así que el 404 acababa en la bandeja de rechazos como si el reparto
+	// hubiera dicho que no; y como el apunte rechazado era el que CREA la zona del
+	// tablero, los cinco que colocaban pedidos dentro se caían detrás con «el
+	// identificador provisional todavía no corresponde a nada». Visto el 16/09/2026: seis
+	// apuntes de trabajo real, rechazados, por una barra.
+	//
+	// No se arregla poniendo `/api` en `REPARTO_URL`: la bajada de ahí arriba ya lo
+	// escribe a mano en su línea y quedaría `/api/api/sync/cambios`, que es el mismo
+	// fallo del otro lado. Se pone AQUÍ, que es donde se reenvía lo del aparato.
+	req, err := http.NewRequestWithContext(ctx, p.Metodo, c.base+"/api"+p.Ruta, cuerpo)
 	if err != nil {
 		return nil, err
 	}

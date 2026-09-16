@@ -27,7 +27,20 @@ import '../registro/registro.dart';
 /// vez de no salir. Darla en cada subida crearia un aparato nuevo por envio y
 /// llenaria el panel de fantasmas; no darla nunca es el 404 de arriba.
 class IdentidadDelAparato {
-  IdentidadDelAparato(this._base, {ClienteApi? sync}) : _sync = sync;
+  IdentidadDelAparato(
+    this._base, {
+    ClienteApi? sync,
+    String? Function()? sucursalElegida,
+  }) : _sync = sync,
+       _sucursalElegida = sucursalElegida;
+
+  /// LA SUCURSAL QUE SE ESTA MIRANDO ARRIBA, para quien no tiene una propia.
+  ///
+  /// Un aparato PERTENECE a una sucursal, y el alta la exige. Para quien esta
+  /// dado de alta en la suya la pone el servidor con la sesion y aqui no hay
+  /// nada que decidir. Para un SUPER ADMIN —que no tiene sucursal— el servidor
+  /// no puede adivinarla, asi que la tiene que decir el aparato.
+  final String? Function()? _sucursalElegida;
 
   /// La clave en `preferencias`.
   ///
@@ -96,14 +109,22 @@ class IdentidadDelAparato {
       throw StateError('no hay cliente de sync para dar de alta el aparato');
     }
 
-    // La SUCURSAL no se manda: la pone el servidor a partir de la sesion, y
+    // LA SUCURSAL SOLO SE MANDA SI HACE FALTA, y hace falta para el Super Admin.
+    //
+    // Para quien tiene la suya NO se manda: la pone el servidor con la sesion, y
     // mandarla seria ofrecerle a cualquiera darse de alta en otra sucursal y
-    // bajar desde ahi (`aparato.go`). El Super Admin es la excepcion y hoy no la
-    // usa nadie desde aqui.
+    // bajar desde ahi (`aparato.go`). Eso no se toca.
+    //
+    // Aqui ponia «el Super Admin es la excepcion y hoy no la usa nadie desde
+    // aqui». Si que la usa: el 16/09/2026, con el telefono en la mano, el alta
+    // contestaba **400 «Falta la sucursal del aparato»** una y otra vez, y la
+    // pantalla lo enseñaba como «No subio ninguno». Un aparato pertenece a UNA
+    // sucursal y quien no tiene la suya tiene que decir cual.
+    final sucursal = _sucursalElegida?.call();
     final respuesta = await cliente.mandar<Map<String, Object?>>(
       'POST',
       '/aparato',
-      <String, Object?>{'nombre': ?nombre},
+      <String, Object?>{'nombre': ?nombre, 'sucursal': ?sucursal},
     );
 
     final id = respuesta['aparato'];

@@ -262,6 +262,10 @@ final identidadDelAparatoProvider = Provider<IdentidadDelAparato>(
   (ref) => IdentidadDelAparato(
     ref.watch(baseProvider),
     sync: ref.watch(clienteSyncProvider),
+    // Para quien no tiene sucursal propia —el Super Admin—, la del selector de
+    // arriba. Se lee al llamar y no al construir: el alta puede pasar mucho
+    // despues de que se monte esto.
+    sucursalElegida: () => ref.read(sucursalMiradaProvider),
   ),
 );
 
