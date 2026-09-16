@@ -214,12 +214,13 @@ func verificar(token string, secreto []byte) (Identidad, error) {
 		// «sin sucursal no es por el tipo de usuario no hagas eso por q entonces un
 		// usuario sin sucursal ve todas eso esta malisimo».
 		//
-		// Así que se exige el rol, escrito como lo escribe PEDIDO —`SUPER ADMIN`, que es
-		// texto y se compara como texto—. Cualquier otro sin sucursal se queda fuera, que
-		// es el fallo barato: se arregla dándole su sucursal.
-		if !esSuperAdmin(c) {
+		// Así que se exige el rol. Los dos que ven todo están en `rolesQueVenTodo`;
+		// cualquier otro sin sucursal se queda fuera, que es el fallo barato: se arregla
+		// dándole la suya.
+		if !veTodo(c) {
 			return Identidad{}, fmt.Errorf(
-				"%w: sin sucursal y sin ser SUPER ADMIN no hay alcance que aplicar", ErrSinSesion)
+				"%w: sin sucursal y sin un rol que vea todo no hay alcance que aplicar",
+				ErrSinSesion)
 		}
 		id.EsSuperAdmin = true
 		return id, nil
@@ -234,20 +235,30 @@ func verificar(token string, secreto []byte) (Identidad, error) {
 	return id, nil
 }
 
-// esSuperAdmin: el ÚNICO rol que ve las ocho sucursales.
+// LOS DOS ROLES QUE VEN LAS OCHO SUCURSALES, y no hay más.
 //
-// Se compara contra el texto exacto que usa PEDIDO (`SUPER ADMIN`), que es la fuente de
-// los roles. No vale «contiene admin»: `ADMINISTRADOR` es de UNA sucursal, y dejar que
-// pase por aquí sin la suya le daría las ocho.
-func esSuperAdmin(c reclamos) bool {
-	const superAdmin = "SUPER ADMIN"
-	if strings.EqualFold(strings.TrimSpace(c.Role), superAdmin) ||
-		strings.EqualFold(strings.TrimSpace(c.Rol), superAdmin) {
-		return true
-	}
-	for _, r := range c.Roles {
-		if strings.EqualFold(strings.TrimSpace(r), superAdmin) {
-			return true
+// Salen de la tabla `role` de Accesos, leída el 16/09/2026, que tiene SIETE y no los cinco
+// que dice el `CLAUDE.md` de Procovar: ADMINISTRADOR, DESARROLLADOR, GERENTE, GESTOR,
+// OPERADOR, SUPER ADMIN y SUPERVISOR.
+//
+//   - `SUPER ADMIN` administra todo Procovar. Palabras de Jose: «los super
+//     administradores pueden tocar en todos lados».
+//   - `DESARROLLADOR` está por encima todavía: «y el desarrollador mucho mas arriba aun».
+//
+// Los otros cinco pertenecen a UNA sucursal, incluido `ADMINISTRADOR` — y por eso la
+// comparación es contra el texto exacto y no «contiene admin»: un ADMINISTRADOR sin su
+// sucursal se llevaría las ocho, que es justo la fuga que se está tapando.
+//
+// Se compara como texto porque así es como lo compara PEDIDO, que es la fuente.
+var rolesQueVenTodo = []string{"SUPER ADMIN", "DESARROLLADOR"}
+
+func veTodo(c reclamos) bool {
+	candidatos := append([]string{c.Role, c.Rol}, c.Roles...)
+	for _, candidato := range candidatos {
+		for _, permitido := range rolesQueVenTodo {
+			if strings.EqualFold(strings.TrimSpace(candidato), permitido) {
+				return true
+			}
 		}
 	}
 	return false

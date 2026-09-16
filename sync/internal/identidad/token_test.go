@@ -62,18 +62,22 @@ func TestUnTokenBuenoEntraConSuSucursal(t *testing.T) {
 	}
 }
 
-func TestUnSuperAdminSinSucursalVeLasOcho(t *testing.T) {
-	id, err := conToken(t, firmar(t, map[string]any{
-		"sub":      "jefe",
-		"branchId": nil,
-		"role":     "SUPER ADMIN",
-		"exp":      time.Now().Add(time.Hour).Unix(),
-	}, "HS256"))
-	if err != nil {
-		t.Fatalf("no tenía que fallar: %v", err)
-	}
-	if !id.EsSuperAdmin {
-		t.Error("un SUPER ADMIN sin sucursal ve las ocho")
+func TestLosDosRolesQueVenTodoEntranSinSucursal(t *testing.T) {
+	// Jose, 16/09/2026: «los super administradores pueden tocar en todos lados y el
+	// desarrollador mucho mas arriba aun». Los dos, y nadie más.
+	for _, rol := range []string{"SUPER ADMIN", "DESARROLLADOR"} {
+		id, err := conToken(t, firmar(t, map[string]any{
+			"sub":      "jefe",
+			"branchId": nil,
+			"role":     rol,
+			"exp":      time.Now().Add(time.Hour).Unix(),
+		}, "HS256"))
+		if err != nil {
+			t.Fatalf("%s tenía que entrar: %v", rol, err)
+		}
+		if !id.EsSuperAdmin {
+			t.Errorf("%s sin sucursal ve las ocho", rol)
+		}
 	}
 }
 
@@ -85,7 +89,10 @@ func TestSinSucursalYSinSerSuperAdminNoSeVeNada(t *testing.T) {
 	//
 	// Jose, 16/09/2026: «sin sucursal no es por el tipo de usuario no hagas eso por q
 	// entonces un usuario sin sucursal ve todas eso esta malisimo».
-	for _, rol := range []string{"", "OPERADOR", "GESTOR", "SUPERVISOR", "ADMINISTRADOR"} {
+	// Los cinco roles de la tabla `role` de Accesos que pertenecen a UNA sucursal.
+	for _, rol := range []string{
+		"", "OPERADOR", "GESTOR", "SUPERVISOR", "ADMINISTRADOR", "GERENTE",
+	} {
 		cuerpo := map[string]any{
 			"sub":      "alguien",
 			"branchId": nil,
