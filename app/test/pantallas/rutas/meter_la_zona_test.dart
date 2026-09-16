@@ -24,6 +24,7 @@ Pedido _pedido(String id, double kg) => Pedido(
 );
 
 void main() {
+  pruebasDelFiltroDeVehiculos();
   test('una zona entera entra cuando todo está disponible y cabe', () {
     final r = repartirLaZona(
       ids: const ['p1', 'p2', 'p3'],
@@ -75,7 +76,10 @@ void main() {
 
     expect(r.entran.map((p) => p.id), ['p1']);
     expect(r.noCaben, 1);
-    expect(parteDeLaZona('Centro', 2, r), contains('1 no caben en el vehículo'));
+    expect(
+      parteDeLaZona('Centro', 2, r),
+      contains('1 no caben en el vehículo'),
+    );
   });
 
   test('el peso se acumula: no se compara cada uno contra la capacidad', () {
@@ -119,5 +123,49 @@ void main() {
 
     expect(r.entran.length, 1);
     expect(r.noCaben, 0);
+  });
+}
+
+/// Un camión de una sucursal, para la prueba del filtro del paso 3.
+Vehiculo _camion(String id, String nombre, String? sucursal) => Vehiculo(
+  id: id,
+  name: nombre,
+  capacity: 1000,
+  status: 'available',
+  usarParaDomicilio: false,
+  branchId: sucursal,
+);
+
+void pruebasDelFiltroDeVehiculos() {
+  group('los vehículos del paso 3', () {
+    final flota = [
+      _camion('v1', 'Camión Habana', 'B-HAB'),
+      _camion('v2', 'Camión Santiago', 'B-STG'),
+      _camion('v3', 'Otro de Habana', 'B-HAB'),
+      _camion('v4', 'Sin sucursal', null),
+    ];
+
+    test('sólo salen los DE esa sucursal', () {
+      final r = vehiculosDeLaSucursal(flota, 'B-HAB');
+
+      expect(r.map((v) => v.id), ['v1', 'v3']);
+      expect(
+        r.map((v) => v.name),
+        isNot(contains('Camión Santiago')),
+        reason:
+            'un camión de otra sucursal no está donde sale esta ruta, y el '
+            'paso 1 promete que serán los de la elegida',
+      );
+    });
+
+    test('sin sucursal elegida todavía, salen todos', () {
+      // No hay por qué filtrar aún: filtrar por `null` dejaría la lista vacía y
+      // parecería que no hay camiones.
+      expect(vehiculosDeLaSucursal(flota, null).length, flota.length);
+    });
+
+    test('un camión sin sucursal no se cuela en ninguna', () {
+      expect(vehiculosDeLaSucursal(flota, 'B-STG').map((v) => v.id), ['v2']);
+    });
   });
 }

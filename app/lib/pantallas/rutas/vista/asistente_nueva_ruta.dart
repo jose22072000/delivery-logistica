@@ -134,6 +134,12 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   }
 
   void _cambiarSucursal(String id) => setState(() {
+    // EL ATAJO DE ARRANQUE SE DESARMA EN CUANTO LA PERSONA ELIGE.
+    //
+    // A partir de aquí el asistente va paso a paso, porque ya no está
+    // «resuelto por el alcance»: lo está resolviendo alguien, y el siguiente
+    // que le toca decidir es de qué almacén sale el camión.
+    _arranqueResuelto = true;
     _sucursalId = id.isEmpty ? null : id;
     // Cambiar de sucursal invalida la salida: un almacen de Holguin no es
     // punto de partida de una ruta de Camaguey. Y lo elegido tampoco vale,
@@ -163,7 +169,19 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     _salida ??= conUbicacion.firstOrNull;
 
     // «Si la sucursal y la salida ya vienen resueltas, arranca directamente en
-    // el paso 3» (pliego §3).
+    // el paso 3» (pliego §3). ES UN ATAJO DE ARRANQUE, para quien abre el
+    // asistente con todo ya decidido por su alcance.
+    //
+    // Lo que lo desarma es que la persona elija: ver `_cambiarSucursal`. Sin
+    // eso, para un Super Admin —que abre sin sucursal, mirando «todas»— el
+    // atajo se quedaba armado, y en cuanto elegía sucursal en el paso 1 la
+    // salida se rellenaba sola con la primera y el asistente **saltaba el paso
+    // 2**. Visto por Jose el 16/09/2026: «de sucursal pasa directamente a
+    // vehiculo me salta salida».
+    //
+    // Y eso no es una comodidad: es quitarle una decisión. «recuerda q son
+    // varios almacenes», y la salida decide desde dónde se miden los kilómetros
+    // de toda la ruta.
     if (!_arranqueResuelto && _sucursalId != null && _salida != null) {
       _arranqueResuelto = true;
       _paso = 3;
@@ -323,10 +341,22 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   }
 
   Widget _pasoVehiculo() {
-    final vehiculos = ref.watch(vehiculosProvider).value ?? const <Vehiculo>[];
+    final todos = ref.watch(vehiculosProvider).value ?? const <Vehiculo>[];
+
+    // Sólo los de la sucursal del paso 1. El porqué, en `vehiculosDeLaSucursal`.
+    final vehiculos = vehiculosDeLaSucursal(todos, _sucursalId);
+
     if (vehiculos.isEmpty) {
-      return const _SinSalida(
-        texto: AsistenteNuevaRuta.sinVehiculos,
+      // Se distingue «esta sucursal no tiene camiones» de «no hay ninguno»:
+      // lo primero se arregla dando de alta uno EN ESA sucursal, y lo segundo
+      // dando de alta el primero. Decir lo mismo en los dos casos manda a
+      // buscar donde no es.
+      return _SinSalida(
+        texto: todos.isEmpty
+            ? AsistenteNuevaRuta.sinVehiculos
+            : 'Esta sucursal no tiene ningún vehículo dado de alta. Los que '
+                  'hay son de otras sucursales, y un camión de otra sucursal no '
+                  'está donde sale esta ruta.',
         boton: AsistenteNuevaRuta.irAVehiculos,
         adonde: '/vehicles',
       );

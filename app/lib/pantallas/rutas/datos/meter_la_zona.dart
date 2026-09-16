@@ -85,3 +85,29 @@ String parteDeLaZona(String nombre, int total, RepartoDeLaZona r) => <String>[
   if (r.noDisponibles > 0) '${r.noDisponibles} ya no se pueden repartir hoy',
   if (r.noCaben > 0) '${r.noCaben} no caben en el vehículo',
 ].join(' · ');
+
+/// LOS VEHICULOS DE UNA SUCURSAL, y sólo los de esa.
+///
+/// El paso 1 del asistente lo promete con todas las letras —«los pedidos, los
+/// vehiculos y el punto de partida seran los de esta sucursal»— y el paso 3
+/// ofrecia los ocho camiones de las ocho. Visto por Jose el 16/09/2026: «me sale
+/// la seleccion de todos los vehiculos existentes en ves de solo los q estan en
+/// esa sucursal seleccionada».
+///
+/// Por que pasaba: la lista viene acotada por la sucursal de LA BARRA DE ARRIBA,
+/// no por la del asistente. Para quien pertenece a una sucursal son la misma y
+/// no se notaba; para un Super Admin mirando «todas» no hay acotado ninguno, y
+/// la del paso 1 no la miraba nadie.
+///
+/// Un camion de Granma en una ruta de La Habana no es un detalle estetico: es un
+/// camion que no esta donde sale la ruta.
+///
+/// Sin sucursal elegida se devuelven todos, que es lo unico honesto: todavia no
+/// hay por que filtrar.
+List<Vehiculo> vehiculosDeLaSucursal(List<Vehiculo> todos, String? sucursalId) {
+  if (sucursalId == null) return todos;
+  return [
+    for (final v in todos)
+      if (v.branchId == sucursalId) v,
+  ];
+}

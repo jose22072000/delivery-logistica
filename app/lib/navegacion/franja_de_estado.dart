@@ -5,6 +5,7 @@ import '../diseno/colores.dart';
 import '../diseno/tema.dart';
 import '../nucleo/frescura/reloj_de_datos.dart';
 import '../nucleo/proveedores.dart';
+import '../nucleo/sincro/que_se_puede.dart';
 // La UNICA cosa que `navegacion/` importa de `pantallas/`, y con motivo: la
 // franja es la pieza del armazon que esta en las siete pantallas, asi que es la
 // unica desde la que se puede llegar al gesto de traer el dia estando en
@@ -72,6 +73,13 @@ class FranjaDeEstado extends ConsumerWidget {
           // hace un minuto: lo que hay que mirar entonces no es la hora.
           enAmbar: enAmbar || sinConexion,
           sinConexion: sinConexion,
+          // Que se puede hacer ahora mismo. Las reglas viven en
+          // `sincro/que_se_puede.dart`, no aqui: son de negocio y las mira
+          // tambien la tarjeta del Panel.
+          puede: quePuedeHacerse(
+            hayConexion: !sinConexion,
+            hayQueTraer: enAmbar,
+          ),
         ),
       ),
     );
@@ -83,6 +91,7 @@ class FranjaDeEstado extends ConsumerWidget {
     required int pendientes,
     required bool enAmbar,
     required bool sinConexion,
+    required QueSePuede puede,
   }) {
     return Container(
       width: double.infinity,
@@ -169,19 +178,27 @@ class FranjaDeEstado extends ConsumerWidget {
           const SizedBox(width: 4),
           _BotonDeFranja(
             icono: Icons.cloud_download_outlined,
-            tooltip: 'Traer el día',
+            // Apagado, el tooltip dice POR QUE. Un boton apagado y mudo ensena
+            // a desconfiar de todos los botones.
+            tooltip: puede.traer.motivo ?? 'Traer el día',
             enAmbar: enAmbar,
-            alPulsar: () => abrirCajonDeTraerElDia(context),
+            alPulsar: puede.traer.sePuede
+                ? () => abrirCajonDeTraerElDia(context)
+                : null,
           ),
           _BotonDeFranja(
             icono: Icons.cloud_upload_outlined,
-            tooltip: pendientes > 0
-                ? 'Entregar el día · $pendientes sin subir'
-                : 'Entregar el día',
+            tooltip:
+                puede.enviar.motivo ??
+                (pendientes > 0
+                    ? 'Entregar el día · $pendientes sin subir'
+                    : 'Entregar el día'),
             enAmbar: enAmbar,
             insignia: pendientes,
-            alPulsar:
-                alPulsarPendientes ?? () => abrirCajonDeEntregarElDia(context),
+            alPulsar: puede.enviar.sePuede
+                ? (alPulsarPendientes ??
+                      () => abrirCajonDeEntregarElDia(context))
+                : null,
           ),
         ],
       ),
@@ -207,7 +224,9 @@ class _BotonDeFranja extends StatelessWidget {
   final IconData icono;
   final String tooltip;
   final bool enAmbar;
-  final VoidCallback alPulsar;
+
+  /// `null` = apagado. El motivo va en [tooltip].
+  final VoidCallback? alPulsar;
 
   /// Cuantos apuntes esperan. En cero no se pinta nada: un globo con un cero
   /// dentro es ruido que ensena a no mirar los globos.
@@ -215,7 +234,11 @@ class _BotonDeFranja extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = enAmbar ? Colores.ambar : Colores.tintaSuave;
+    // Apagado se pinta en gris, no se esconde: el gesto sigue estando en su
+    // sitio, y asi se aprende que existe y cuando se enciende.
+    final color = alPulsar == null
+        ? Colores.lineaFuerte
+        : (enAmbar ? Colores.ambar : Colores.tintaSuave);
     return Tooltip(
       message: tooltip,
       child: InkWell(

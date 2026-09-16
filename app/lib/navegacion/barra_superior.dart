@@ -36,6 +36,10 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
     // Sobre PAPEL, no sobre blanco: en delivery la barra es `bg-paper/80` y lo
     // blanco son las tarjetas y la barra lateral. Una barra superior blanca
     // sobre un fondo casi blanco hace que la pantalla no tenga arriba.
+    // El umbral es el mismo con el que el pliego (§11) esconde el idioma: por
+    // debajo de esto la barra ya no tiene sitio para todo.
+    final estrecho = MediaQuery.sizeOf(context).width < Anchos.idioma;
+
     return Container(
       height: Anchos.altoBarraSuperior,
       decoration: BoxDecoration(
@@ -65,18 +69,33 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
           //
           // El titulo y el giro van juntos DENTRO del Expanded para que el giro
           // salga pegado al titulo, como en delivery, y no al otro lado.
+          //
+          // EN UN TELEFONO EL TITULO NO SE PINTA, y es una decision, no un
+          // recorte por falta de sitio. En 390 px la barra llevaba el boton de
+          // menu, el titulo, el selector de sucursal (hasta 220 px), la moneda y
+          // el avatar: suman mas que la pantalla, y lo que se salia por la
+          // derecha era el avatar — o sea el menu de la cuenta y «Salir—.
+          // Visto por Jose el 16/09/2026: «el avatar a la derecha no se ve casi
+          // por q tengo el select de las sucursales q oocupa mucho espacio».
+          //
+          // De las cuatro piezas, la que menos falta hace es el titulo: dice el
+          // nombre de la pantalla que se acaba de elegir en el menu. La sucursal
+          // y la moneda, en cambio, CAMBIAN LOS NUMEROS que se estan mirando, y
+          // por eso el pliego (§11) prohibe esconderlas. El avatar tiene que
+          // poder pulsarse.
           Expanded(
             child: Row(
               children: [
-                Flexible(
-                  child: Text(
-                    titulo,
-                    overflow: TextOverflow.ellipsis,
-                    style: tema.textTheme.titleLarge,
+                if (!estrecho)
+                  Flexible(
+                    child: Text(
+                      titulo,
+                      overflow: TextOverflow.ellipsis,
+                      style: tema.textTheme.titleLarge,
+                    ),
                   ),
-                ),
                 if (actualizando) ...[
-                  const SizedBox(width: 10),
+                  if (!estrecho) const SizedBox(width: 10),
                   SizedBox(
                     width: 12,
                     height: 12,
@@ -85,20 +104,36 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
                       color: Colores.tintaSuave,
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'actualizando…',
-                    style: Tipos.texto(
-                      tamano: 11,
-                      peso: FontWeight.w500,
-                      color: Colores.tintaSuave.withValues(alpha: 0.7),
+                  // La palabra «actualizando» tampoco cabe en el telefono; el
+                  // giro solo ya dice lo mismo, y lo que de verdad cuenta el
+                  // estado de los datos es la franja de debajo, con su hora.
+                  if (!estrecho) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      'actualizando…',
+                      style: Tipos.texto(
+                        tamano: 11,
+                        peso: FontWeight.w500,
+                        color: Colores.tintaSuave.withValues(alpha: 0.7),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ],
             ),
           ),
-          const _Sucursal(),
+          // NADA DE `Flexible` AQUI, por mucho que lo pida el cuerpo.
+          //
+          // Se probó y rompió la prueba de «el grupo de la derecha llega al
+          // borde»: un `Flexible` al lado del `Expanded` del título son dos
+          // hijos con el mismo peso, así que Flutter les reparte el sobrante A
+          // MEDIAS y el grupo de la derecha vuelve a quedarse flotando en mitad
+          // de la barra. Es exactamente el fallo que explica el comentario de
+          // arriba, recreado desde el otro lado.
+          //
+          // Lo que hace que quepa en un teléfono es que la caja mida 150 en vez
+          // de 220 (ver `_Sucursal`), no un reparto de espacio.
+          _Sucursal(compacta: estrecho),
           // `Idioma` (ES/EN) va JUSTO AQUI, entre sucursal y moneda, y se oculta
           // por debajo de 640 px (§11). No esta todavia porque no hay ARB ni
           // `flutter_localizations` en el pubspec — es la ola 1-C —, y un
@@ -122,7 +157,12 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
 /// en el sitio. Eso es lo que pide el pliego §0 y es la razon de que la sucursal
 /// viva en un provider y no en la URL.
 class _Sucursal extends ConsumerWidget {
-  const _Sucursal();
+  const _Sucursal({required this.compacta});
+
+  /// En un telefono la etiqueta se acorta y la caja se estrecha. «Todas las
+  /// sucursales (8)» son veintitres caracteres para decir «ninguna elegida»;
+  /// «Todas (8)» son nueve y dice lo mismo.
+  final bool compacta;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -151,9 +191,11 @@ class _Sucursal extends ConsumerWidget {
             Icon(Icons.store_outlined, size: 16, color: Colores.tintaSuave),
             const SizedBox(width: 6),
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 180),
+              constraints: BoxConstraints(maxWidth: compacta ? 110 : 180),
               child: Text(
-                codigo == null ? unica.name : '${unica.name} ($codigo)',
+                codigo == null
+                    ? unica.name
+                    : (compacta ? codigo : '${unica.name} ($codigo)'),
                 overflow: TextOverflow.ellipsis,
                 style: Tipos.texto(tamano: 14, color: Colores.tinta),
               ),
@@ -170,11 +212,15 @@ class _Sucursal extends ConsumerWidget {
     final valor = valida ? mirada : '';
 
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 220),
+      constraints: BoxConstraints(maxWidth: compacta ? 150 : 220),
       child: Selector<String>(
         icono: Icons.store_outlined,
         tooltip: 'Sucursal que se está mirando',
-        etiquetaVacia: 'Todas las sucursales (${sucursales.length})',
+        // La etiqueta de la CAJA se acorta en el telefono; la de la LISTA no,
+        // porque ahi se esta eligiendo y hace falta el nombre entero.
+        etiquetaVacia: compacta
+            ? 'Todas (${sucursales.length})'
+            : 'Todas las sucursales (${sucursales.length})',
         valor: valor,
         opciones: [
           OpcionSelector<String>(
