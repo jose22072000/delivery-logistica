@@ -67,7 +67,14 @@ func arrancar(log *slog.Logger) error {
 	// Todo lo del protocolo exige sesión. La salud no, porque la mira el orquestador y
 	// tiene que poder decir «está vivo» aunque auth esté caído.
 	publico := http.NewServeMux()
-	publico.Handle("/sync/", identidad.Exigir(identidad.DeCabeceras, mux))
+	// DE DÓNDE SALE QUIÉN LLAMA. Con `token` se verifica aquí el de auth, que es lo que
+	// hay que hacer con el servicio publicado en internet; `cabeceras` sólo vale detrás
+	// de un proxy que ya lo haya verificado. El porqué largo, en `internal/identidad`.
+	fuente := identidad.DeCabeceras
+	if cfg.Identidad == "token" {
+		fuente = identidad.DeToken([]byte(cfg.JWTSecreto))
+	}
+	publico.Handle("/sync/", identidad.Exigir(fuente, mux))
 	publico.HandleFunc("GET /salud", func(w http.ResponseWriter, r *http.Request) {
 		if err := base.Ping(r.Context()); err != nil {
 			httpx.Fallo(w, http.StatusServiceUnavailable, "La base no contesta")

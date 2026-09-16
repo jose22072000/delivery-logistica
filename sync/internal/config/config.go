@@ -34,6 +34,9 @@ type Config struct {
 	// De dónde sale quién está llamando. Ver `internal/identidad`.
 	Identidad string
 
+	// El secreto con el que auth firma los tokens. Sólo con `SYNC_IDENTIDAD=token`.
+	JWTSecreto string
+
 	// Cuántas filas como mucho en una tanda de la bajada antes de contestar
 	// `truncado: true`. Existe porque la primera bajada de una sucursal grande no cabe
 	// de una vez en la conexión de allá.
@@ -54,6 +57,7 @@ func Cargar() (Config, error) {
 		RepartoURL:      strings.TrimRight(os.Getenv("REPARTO_URL"), "/"),
 		RepartoClave:    os.Getenv("REPARTO_API_KEY"),
 		Identidad:       os.Getenv("SYNC_IDENTIDAD"),
+		JWTSecreto:      os.Getenv("JWT_SECRET"),
 		MaxConexiones:   entero("SYNC_DB_MAX_CONNS", 10),
 		TopeBajada:      entero("SYNC_TOPE_BAJADA", 500),
 		RepartoTiempo:   espera("SYNC_REPARTO_TIMEOUT", 30*time.Second),
@@ -73,12 +77,31 @@ func Cargar() (Config, error) {
 	if c.RepartoClave == "" {
 		fallos = append(fallos, "falta REPARTO_API_KEY")
 	}
-	// A propósito no hay valor por defecto. Mientras el verificador del token de auth no
-	// esté, la identidad viene en cabeceras que pone el proxy de delante, y eso sólo es
-	// seguro si NADIE más puede llegar a este puerto. Que haya que escribirlo a mano
-	// obliga a mirar esa frase antes de publicar el servicio.
-	if c.Identidad != "cabeceras" {
-		fallos = append(fallos, `falta SYNC_IDENTIDAD=cabeceras (de dónde sale quién llama; ver internal/identidad)`)
+	// DE DÓNDE SALE QUIÉN LLAMA. Dos modos, y `token` es el bueno.
+	//
+	// `cabeceras` confía en `X-Persona`, que debía poner un proxy que verificara el token
+	// delante de este servicio. **Ese proxy nunca existió**: Traefik enruta
+	// `reparto.procovar.cloud/sync` directo al contenedor, así que la cabecera llegaba
+	// vacía y esto contestaba 401 a TODO. Nada se subió nunca, y peor: un 401 que
+	// sobrevive a renovar es, para el cliente, «la sesión murió», así que echaba a la
+	// persona justo cuando volvía la señal.
+	//
+	// El modo se deja escrito a mano y sin valor por defecto a propósito, porque elegir
+	// `cabeceras` es aceptar que nadie más puede llegar a este puerto — y eso es una
+	// decisión de despliegue que alguien tiene que tomar mirándola.
+	switch c.Identidad {
+	case "token":
+		if strings.TrimSpace(c.JWTSecreto) == "" {
+			fallos = append(fallos,
+				"falta JWT_SECRET (el MISMO con el que firma auth.procovar.cloud; sin él no se puede validar a nadie)")
+		} else if len(c.JWTSecreto) < 32 {
+			fallos = append(fallos, "JWT_SECRET tiene menos de 32 caracteres")
+		}
+	case "cabeceras":
+		// Se deja, pero no es lo que hay que usar con el servicio publicado.
+	default:
+		fallos = append(fallos,
+			`falta SYNC_IDENTIDAD=token (o =cabeceras si hay un proxy delante; ver internal/identidad)`)
 	}
 	if c.TopeBajada <= 0 {
 		fallos = append(fallos, "SYNC_TOPE_BAJADA tiene que ser mayor que cero")
