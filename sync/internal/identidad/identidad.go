@@ -33,6 +33,30 @@ type Identidad struct {
 	// El Super Admin ve las diez. Es la única excepción al alcance, y la única fuente de
 	// conflictos de verdad (ver `docs/sincronizacion.md`).
 	EsSuperAdmin bool
+
+	// EL TOKEN TAL CUAL VINO, para poder REENVIARLO al reparto.
+	//
+	// Este servicio no es el dueño de los datos: traduce los apuntes del aparato y se los
+	// manda a `reparto-api`, que es quien escribe. Esa segunda llamada también tiene que
+	// ir firmada por alguien, y ese alguien es **la misma persona**, no este servicio.
+	//
+	// Antes iba con la clave de servicio (`x-api-key`) más `X-Persona` y `X-Sucursal`, y
+	// ahí había dos agujeros. El primero, que **`reparto-api` no lee esas dos cabeceras**:
+	// las ponía este servicio y no las miraba nadie. El segundo, que las rutas del aparato
+	// —`/api/board/columns` y las demás— exigen sesión de persona, así que la clave de
+	// servicio no las abre: contestaban **401 «no viene token»** y el apunte se quedaba en
+	// la cola para siempre. Es lo que dejó la zona «Vista» dentro de un teléfono, con sus
+	// cinco pedidos colocados, sin que la viera nadie más.
+	//
+	// Reenviar el token de la persona arregla las dos cosas a la vez y, sobre todo, deja
+	// el alcance donde tiene que estar: el reparto ve **al que hizo el trabajo**, con su
+	// rol y su sucursal. La alternativa —abrir esas rutas a la clave de servicio— habría
+	// significado colgarle un Super Admin a cada apunte que pasa por aquí, que es
+	// exactamente lo que no puede pasar: «los super administradores pueden tocar en todos
+	// lados», pero un gestor de Camagüey no se convierte en uno al subir su cola.
+	//
+	// Vacío cuando la identidad no salió de un token (`DeCabeceras`, el modo viejo).
+	Token string
 }
 
 // Alcance devuelve la sucursal por la que hay que filtrar, o nil para «todas». Es lo que

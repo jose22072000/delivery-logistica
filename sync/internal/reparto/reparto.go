@@ -129,6 +129,19 @@ func (c *Cliente) Aplicar(ctx context.Context, p sincro.Peticion) (*uuid.UUID, e
 		req.Header.Set("Content-Type", "application/json")
 	}
 	c.cabeceras(req, p.Persona, p.Sucursal, p.Hecho)
+	// EL TOKEN DE LA PERSONA manda sobre la clave de servicio, y la SUSTITUYE.
+	//
+	// Las rutas del aparato (`/api/board/columns`, `/api/routes/…`) exigen sesión de
+	// persona: con la clave a secas contestaban 401 «no viene token» y el apunte se
+	// quedaba en la cola sin que nadie supiera por qué. Y se quita la clave a propósito:
+	// en el reparto hay rutas que, al ver `x-api-key`, se cuelgan un Super Admin sin
+	// sucursal —correcto para su temporizador, inaceptable para el trabajo de una
+	// persona—. Mandar las dos sería dejar que un apunte de Camagüey se ejecutara con
+	// permiso de todas.
+	if p.Token != "" {
+		req.Header.Del("x-api-key")
+		req.Header.Set("Authorization", "Bearer "+p.Token)
+	}
 	req.Header.Set("X-Apunte", p.Clave)
 
 	res, err := c.http.Do(req)

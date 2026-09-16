@@ -70,7 +70,14 @@ func DeToken(secreto []byte) Fuente {
 		if strings.TrimSpace(crudo) == "" {
 			return Identidad{}, ErrSinSesion
 		}
-		return verificar(crudo, secreto)
+		id, err := verificar(crudo, secreto)
+		if err != nil {
+			return Identidad{}, err
+		}
+		// Se guarda DESPUÉS de verificar, nunca antes: lo que se reenvía al reparto tiene
+		// que ser un token que ya pasó por la firma, el `exp` y el alcance de aquí.
+		id.Token = crudo
+		return id, nil
 	}
 }
 

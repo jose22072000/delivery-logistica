@@ -148,3 +148,84 @@ func Test404DelRepartoSigueSiendoRechazo(t *testing.T) {
 		t.Errorf("motivo = %q: se enseña LITERAL lo que dijo el reparto", rechazo.Motivo)
 	}
 }
+
+// EL APUNTE VIAJA FIRMADO POR LA PERSONA QUE LO HIZO, no por este servicio.
+//
+// Segundo acto del mismo día. Con el `/api` ya puesto, la zona creada desde la web seguía
+// sin llegar: `reparto-api` registraba **401 «no viene token» en POST /api/board/columns**.
+// Este servicio reenviaba con la clave de servicio más `X-Persona` y `X-Sucursal`, y ahí
+// había dos agujeros: el reparto **no lee esas dos cabeceras** —las ponía éste y no las
+// miraba nadie— y las rutas del aparato exigen sesión de persona, que la clave no abre.
+//
+// Resultado: el apunte que crea la zona se quedaba en la cola para siempre. Es lo que dejó
+// la zona «Vista» dentro de un teléfono, con sus cinco pedidos colocados, sin que la viera
+// nadie más. Comprobado contra producción el 16/09/2026: `board_columns` estaba a 0.
+func TestElApunteViajaConElTokenDeLaPersona(t *testing.T) {
+	var autorizacion, clave string
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			autorizacion = r.Header.Get("Authorization")
+			clave = r.Header.Get("x-api-key")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"` + uuid.NewString() + `"}`))
+		}))
+	defer servidor.Close()
+
+	c := Nuevo(servidor.URL, "clave-de-prueba", 5*time.Second)
+	_, err := c.Aplicar(context.Background(), sincro.Peticion{
+		Metodo:   http.MethodPost,
+		Ruta:     "/board/columns?branchId=abc",
+		Cuerpo:   json.RawMessage(`{"nombre":"Vista"}`),
+		Hecho:    time.Now(),
+		Sucursal: uuid.New(),
+		Persona:  "u-1",
+		Clave:    "k",
+		Token:    "el.token.de.la.persona",
+	})
+	if err != nil {
+		t.Fatalf("no tenía que fallar: %v", err)
+	}
+
+	if autorizacion != "Bearer el.token.de.la.persona" {
+		t.Errorf("se reenvió con Authorization %q: sin el token de la persona, "+
+			"/api/board/columns contesta 401 «no viene token» y el apunte se queda en la "+
+			"cola para siempre", autorizacion)
+	}
+	// Y la clave de servicio SE QUITA. En el reparto hay rutas que, al ver `x-api-key`,
+	// se cuelgan un Super Admin sin sucursal: correcto para su temporizador, inaceptable
+	// para el trabajo de una persona. Mandar las dos sería dejar que un apunte de
+	// Camagüey se ejecutara con permiso sobre las ocho.
+	if clave != "" {
+		t.Errorf("se reenvió además la clave de servicio (%q): un apunte de una persona "+
+			"no puede llevar con qué convertirse en Super Admin", clave)
+	}
+}
+
+// Sin token —el modo viejo de `SYNC_IDENTIDAD=cabeceras`, donde la identidad viene de una
+// cabecera y no hay token que reenviar— se sigue mandando la clave. Es lo único que queda
+// ahí, y quitarla dejaría ese modo sin ninguna credencial.
+func TestSinTokenSeSigueMandandoLaClave(t *testing.T) {
+	var autorizacion, clave string
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			autorizacion = r.Header.Get("Authorization")
+			clave = r.Header.Get("x-api-key")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		}))
+	defer servidor.Close()
+
+	c := Nuevo(servidor.URL, "clave-de-prueba", 5*time.Second)
+	if _, err := c.Aplicar(context.Background(), sincro.Peticion{
+		Metodo: http.MethodPost, Ruta: "/board/columns", Hecho: time.Now(),
+		Sucursal: uuid.New(), Persona: "u-1", Clave: "k",
+	}); err != nil {
+		t.Fatalf("no tenía que fallar: %v", err)
+	}
+	if clave != "clave-de-prueba" {
+		t.Errorf("sin token hay que mandar la clave, y se mandó %q", clave)
+	}
+	if autorizacion != "" {
+		t.Errorf("sin token no se inventa un Authorization: %q", autorizacion)
+	}
+}

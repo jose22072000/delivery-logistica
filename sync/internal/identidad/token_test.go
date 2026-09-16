@@ -182,3 +182,56 @@ func TestSinCabeceraNoHaySesion(t *testing.T) {
 		t.Fatal("sin Authorization no hay identidad")
 	}
 }
+
+// EL TOKEN SE GUARDA PARA REENVIARLO, y sólo si pasó la verificación.
+//
+// Este servicio no escribe los datos: se los manda a `reparto-api`, y esa llamada la tiene
+// que firmar LA MISMA PERSONA. Con la clave de servicio, `/api/board/columns` contestaba
+// 401 «no viene token» y el apunte se quedaba en la cola para siempre — así se quedó la
+// zona «Vista» dentro de un teléfono. Ver `identidad.Identidad.Token`.
+func TestElTokenVerificadoSeGuardaParaReenviarlo(t *testing.T) {
+	token := firmar(t, map[string]any{
+		"sub":      "persona-1",
+		"branchId": uuid.New().String(),
+		"exp":      time.Now().Add(time.Hour).Unix(),
+	}, "HS256")
+
+	id, err := conToken(t, token)
+	if err != nil {
+		t.Fatalf("un token bueno tenía que entrar: %v", err)
+	}
+	if id.Token != token {
+		t.Errorf("no se guardó el token para reenviarlo: %q", id.Token)
+	}
+}
+
+// Y un token QUE NO PASA no deja nada detrás. Guardarlo antes de comprobar la firma sería
+// reenviarle al reparto un token que aquí se rechazó, que es peor que no comprobarlo.
+func TestUnTokenQueNoPasaNoDejaTokenQueReenviar(t *testing.T) {
+	casos := map[string]string{
+		"firma cambiada": firmar(t, map[string]any{
+			"sub": "x", "branchId": uuid.New().String(),
+			"exp": time.Now().Add(time.Hour).Unix(),
+		}, "HS256") + "roto",
+		"caducado": firmar(t, map[string]any{
+			"sub": "x", "branchId": uuid.New().String(),
+			"exp": time.Now().Add(-2 * time.Hour).Unix(),
+		}, "HS256"),
+		"sin sucursal y sin rol que vea todo": firmar(t, map[string]any{
+			"sub": "x", "role": "GESTOR",
+			"exp": time.Now().Add(time.Hour).Unix(),
+		}, "HS256"),
+	}
+	for nombre, token := range casos {
+		t.Run(nombre, func(t *testing.T) {
+			id, err := conToken(t, token)
+			if err == nil {
+				t.Fatal("tenía que rechazarse")
+			}
+			if id.Token != "" {
+				t.Errorf("un token rechazado no puede salir de aquí para reenviarse: %q",
+					id.Token)
+			}
+		})
+	}
+}

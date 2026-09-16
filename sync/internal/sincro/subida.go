@@ -218,6 +218,7 @@ func (s *Servicio) unApunte(ctx context.Context, aparato sqlc.Aparato, quien ide
 		Sucursal: aparato.BranchID,
 		Persona:  quien.Persona,
 		Clave:    a.Clave,
+		Token:    quien.Token,
 	})
 	var rechazo *Rechazo
 	switch {

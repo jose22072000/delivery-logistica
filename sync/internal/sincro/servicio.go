@@ -70,6 +70,11 @@ type Peticion struct {
 	Sucursal uuid.UUID
 	Persona  string
 	Clave    string
+
+	// EL TOKEN DE LA PERSONA, para firmar la llamada al reparto con SU nombre. Ver
+	// `identidad.Identidad.Token`: sin esto las rutas del aparato contestan 401 y el
+	// apunte se queda en la cola para siempre.
+	Token string
 }
 
 // Aplicador es el dueño de los datos, del lado de la escritura.

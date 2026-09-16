@@ -306,7 +306,21 @@ func (s *Servidor) rutasCotizacion(rt *httpx.Router, sesion, admin []httpx.Medio
 func soloServicioDeCotizacion(siguiente http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del(alcance.CabeceraSucursal)
-		u := &auth.Usuario{ID: "servicio:pedido", Nombre: "servicio"}
+		// EL ROL VA EXPLÍCITO, y sin él esta ruta lleva rechazando desde el 16/09/2026.
+		//
+		// Ese día `VeTodasLasSucursales` dejó de ser «no tiene sucursal» y pasó a mirar el
+		// ROL, que es como tenía que haber sido siempre: «sin sucursal no es por el tipo
+		// de usuario… un usuario sin sucursal ve todas, eso está malísimo». Pero esta
+		// persona sintética se quedó sin rol, así que desde entonces no veía NINGUNA
+		// sucursal y la portería contestaba 403. El lote de PEDIDO dejó de entrar:
+		// **84 rechazos en quince minutos**, todos con 403 y ninguno con una línea que
+		// dijera por qué. Se vio mirando el registro del servidor, no la aplicación.
+		//
+		// Esto NO es «un usuario sin sucursal»: es el propio espejo, que entra por la
+		// puerta de la llave de servicio y por definición trae pedidos de las ocho. La
+		// regla de Jose es sobre PERSONAS, y la puerta que protege a ésta es la llave, no
+		// el alcance. El de `espejo.go` ya lo llevaba puesto; éste se quedó atrás.
+		u := &auth.Usuario{ID: "servicio:pedido", Nombre: "servicio", Rol: "SUPER ADMIN"}
 		siguiente.ServeHTTP(w, r.WithContext(auth.ConUsuario(r.Context(), u)))
 	})
 }
