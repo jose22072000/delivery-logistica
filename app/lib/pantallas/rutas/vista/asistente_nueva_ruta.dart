@@ -19,6 +19,8 @@ import 'package:go_router/go_router.dart';
 import '../../../impresion/hoja.dart' as papel;
 import '../../../impresion/pre_despacho.dart' show pdfPreDespacho;
 import '../../../impresion/vista_previa.dart';
+import '../../../diseno/anchos.dart';
+import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
 import '../../pedidos/datos/formato.dart';
@@ -26,7 +28,9 @@ import '../../pedidos/datos/repositorio_pedidos.dart';
 import '../../pedidos/estado/proveedores_pedidos.dart';
 import '../../pedidos/vista/kit.dart';
 import '../datos/acciones_rutas.dart';
+import '../datos/meter_la_zona.dart';
 import '../datos/repositorio_rutas.dart';
+import '../../tablero/estado/proveedores.dart';
 import '../estado/proveedores_rutas.dart';
 
 class AsistenteNuevaRuta extends ConsumerStatefulWidget {
@@ -400,152 +404,209 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   /// **El cuadre con la factura NO esta aqui a proposito**: siempre es `cuadra`,
   /// que es lo unico que el armado acepta. Ofrecer lo que luego se rechaza es
   /// fabricar rechazos tardios.
+  /// METE UNA ZONA ENTERA del tablero en la seleccion.
+  ///
+  /// No mete lo que no puede: un pedido que ya no esta disponible —porque entro
+  /// en otra ruta, o porque se archivo desde que se armo el tablero— no se
+  /// puede repartir hoy, y meterlo seria fabricar un rechazo al guardar. El que
+  /// no cabe en el camion tampoco entra.
+  ///
+  /// **Lo que se queda fuera se DICE, con el numero y el motivo.** Meter nueve
+  /// de doce en silencio es la peor version de esto: quien pulsa la zona cree
+  /// que lleva la zona entera y se entera en el almacen, cargando.
+  void _meterLaZona(String nombre, List<String> ids, List<Pedido> disponibles) {
+    final reparto = repartirLaZona(
+      ids: ids,
+      disponibles: disponibles,
+      yaElegidos: _elegidos.keys.toSet(),
+      pesoActual: _peso,
+      capacidad: _vehiculo?.capacity,
+    );
+
+    setState(() {
+      for (final pedido in reparto.entran) {
+        _elegidos[pedido.id] = pedido;
+      }
+    });
+
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(content: Text(parteDeLaZona(nombre, ids.length, reparto))),
+      );
+  }
+
   Widget _barraDeFiltros(List<Sucursal> sucursales) {
     final opciones =
         ref.watch(opcionesDeDisponiblesProvider(_filtros)).value ??
         OpcionesDeDisponibles.vacias;
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
+    // EN UN TELEFONO, UN CAMPO POR LINEA.
+    //
+    // Esto era un `Wrap` con anchos fijos —220 px el buscador, y cada selector
+    // lo que ocupara su texto—. En un escritorio se lee como una barra; en 390
+    // px se convierte en un revoltijo de cachos de distinto tamano, con dos
+    // controles apretados en una fila y uno solo en la siguiente, y la altura
+    // saltando cada vez que un texto crece. Palabras de Jose, 16/09/2026:
+    // «esta maldito la organizacion esa de campos ahi para el movil».
+    //
+    // Por debajo del ancho de la tabla de Pedidos (`Anchos.entrega`, §11) cada
+    // control ocupa la linea entera. No es por gusto: un selector a ancho
+    // completo se pulsa con el pulgar sin mirar, y ocho controles alineados a
+    // la izquierda se recorren de un vistazo. Lo que se gasta es sitio
+    // vertical, que en una lista con desplazamiento es lo que sobra.
+    final estrecho = MediaQuery.sizeOf(context).width < Anchos.entrega;
+
+    final controles = <Widget>[
+      SizedBox(
+        width: estrecho ? double.infinity : 220,
+        child: TextField(
+          controller: _buscador,
+          decoration: const InputDecoration(
+            isDense: true,
+            border: OutlineInputBorder(),
+            hintText: 'Buscar pedido...',
+          ),
+          onChanged: _buscar,
+        ),
+      ),
+      Selector<String>(
+        titulo: 'Sucursal de la ruta',
+        valor: _sucursalId ?? '',
+        opciones: [
+          const OpcionSelector('', 'Elige la sucursal…'),
+          for (final s in sucursales)
+            OpcionSelector(s.id, s.name, nota: s.externalId),
+        ],
+        alElegir: _cambiarSucursal,
+      ),
+      OutlinedButton(
+        onPressed: () async {
+          final hoy = DateTime.now();
+          final dia = await showDatePicker(
+            context: context,
+            firstDate: hoy.subtract(const Duration(days: 365)),
+            lastDate: hoy.add(const Duration(days: 365)),
+            initialDate: _filtros.dia ?? hoy,
+          );
+          if (dia != null) _ponerFiltros(_filtros.copiarCon(dia: dia));
+        },
+        child: Text(
+          'Día de los pedidos: ${_filtros.dia == null ? 'todos' : fechaCorta(_filtros.dia)}',
+        ),
+      ),
+      // «Todos los días» es un boton propio y no la opcion vacia del anterior:
+      // un selector de fecha no tiene forma de decir «ninguna».
+      OutlinedButton(
+        onPressed: _filtros.dia == null
+            ? null
+            : () => _ponerFiltros(_filtros.copiarCon(limpiarDia: true)),
+        child: const Text('Todos los días'),
+      ),
+      Selector<String>(
+        titulo: 'Vendedor del pedido',
+        valor: _filtros.vendedor,
+        // Con buscador SIEMPRE: en una sucursal grande son decenas de
+        // vendedores y bajar la lista a mano no es buscar.
+        buscadorSiempre: true,
+        opciones: [
+          const OpcionSelector('', 'Todos los vendedores'),
+          for (final v in opciones.vendedores) OpcionSelector(v, v),
+        ],
+        alElegir: (v) => _ponerFiltros(_filtros.copiarCon(vendedor: v)),
+      ),
+      Selector<String>(
+        titulo: 'Municipio del cliente',
+        valor: _filtros.municipio,
+        opciones: [
+          const OpcionSelector('', 'Todos los municipios'),
+          for (final m in opciones.municipios) OpcionSelector(m, m),
+        ],
+        alElegir: (m) => _ponerFiltros(_filtros.copiarCon(municipio: m)),
+      ),
+      SizedBox(
+        width: 110,
+        child: TextField(
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            isDense: true,
+            border: OutlineInputBorder(),
+            hintText: 'km máx.',
+          ),
+          onSubmitted: (texto) => _ponerFiltros(
+            _filtros.copiarCon(
+              kmMax: double.tryParse(texto.trim()),
+              limpiarKmMax: texto.trim().isEmpty,
+            ),
+          ),
+        ),
+      ),
+      SizedBox(
+        width: 110,
+        child: TextField(
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            isDense: true,
+            border: OutlineInputBorder(),
+            hintText: 'costo mín.',
+          ),
+          onSubmitted: (texto) => _ponerFiltros(
+            _filtros.copiarCon(
+              costoMin: double.tryParse(texto.trim()),
+              limpiarCostoMin: texto.trim().isEmpty,
+            ),
+          ),
+        ),
+      ),
+      Selector<EstadoDelPedido>(
+        titulo: 'Estado del pedido en PEDIDO',
+        valor: _filtros.estado,
+        opciones: [
+          for (final e in EstadoDelPedido.values) OpcionSelector(e, e.etiqueta),
+        ],
+        alElegir: (e) => _ponerFiltros(_filtros.copiarCon(estado: e)),
+      ),
+      Selector<DomicilioFiltro>(
+        titulo: 'Si el pedido lleva entrega a domicilio',
+        valor: _filtros.domicilio,
+        opciones: [
+          for (final d in DomicilioFiltro.values) OpcionSelector(d, d.etiqueta),
+        ],
+        alElegir: (d) => _ponerFiltros(_filtros.copiarCon(domicilio: d)),
+      ),
+      Selector<CotizadoDelDomicilio>(
+        titulo: 'Si Entrega ya le puso costo de domicilio',
+        valor: _filtros.cotizado,
+        opciones: [
+          for (final c in CotizadoDelDomicilio.values)
+            OpcionSelector(c, c.etiqueta),
+        ],
+        alElegir: (c) => _ponerFiltros(_filtros.copiarCon(cotizado: c)),
+      ),
+      TextButton(
+        onPressed: () {
+          _buscador.clear();
+          // **Vuelve a `domicilio = 1`**, no a «sin nada»: una ruta se arma
+          // con lo que hay que llevar a casa, y ese es el arranque del pliego.
+          _ponerFiltros(_filtros.limpios());
+        },
+        child: const Text('Limpiar'),
+      ),
+    ];
+
+    if (!estrecho) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: controles,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 220,
-          child: TextField(
-            controller: _buscador,
-            decoration: const InputDecoration(
-              isDense: true,
-              border: OutlineInputBorder(),
-              hintText: 'Buscar pedido...',
-            ),
-            onChanged: _buscar,
-          ),
-        ),
-        Selector<String>(
-          titulo: 'Sucursal de la ruta',
-          valor: _sucursalId ?? '',
-          opciones: [
-            const OpcionSelector('', 'Elige la sucursal…'),
-            for (final s in sucursales)
-              OpcionSelector(s.id, s.name, nota: s.externalId),
-          ],
-          alElegir: _cambiarSucursal,
-        ),
-        OutlinedButton(
-          onPressed: () async {
-            final hoy = DateTime.now();
-            final dia = await showDatePicker(
-              context: context,
-              firstDate: hoy.subtract(const Duration(days: 365)),
-              lastDate: hoy.add(const Duration(days: 365)),
-              initialDate: _filtros.dia ?? hoy,
-            );
-            if (dia != null) _ponerFiltros(_filtros.copiarCon(dia: dia));
-          },
-          child: Text(
-            'Día de los pedidos: ${_filtros.dia == null ? 'todos' : fechaCorta(_filtros.dia)}',
-          ),
-        ),
-        // «Todos los días» es un boton propio y no la opcion vacia del anterior:
-        // un selector de fecha no tiene forma de decir «ninguna».
-        OutlinedButton(
-          onPressed: _filtros.dia == null
-              ? null
-              : () => _ponerFiltros(_filtros.copiarCon(limpiarDia: true)),
-          child: const Text('Todos los días'),
-        ),
-        Selector<String>(
-          titulo: 'Vendedor del pedido',
-          valor: _filtros.vendedor,
-          // Con buscador SIEMPRE: en una sucursal grande son decenas de
-          // vendedores y bajar la lista a mano no es buscar.
-          buscadorSiempre: true,
-          opciones: [
-            const OpcionSelector('', 'Todos los vendedores'),
-            for (final v in opciones.vendedores) OpcionSelector(v, v),
-          ],
-          alElegir: (v) => _ponerFiltros(_filtros.copiarCon(vendedor: v)),
-        ),
-        Selector<String>(
-          titulo: 'Municipio del cliente',
-          valor: _filtros.municipio,
-          opciones: [
-            const OpcionSelector('', 'Todos los municipios'),
-            for (final m in opciones.municipios) OpcionSelector(m, m),
-          ],
-          alElegir: (m) => _ponerFiltros(_filtros.copiarCon(municipio: m)),
-        ),
-        SizedBox(
-          width: 110,
-          child: TextField(
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              isDense: true,
-              border: OutlineInputBorder(),
-              hintText: 'km máx.',
-            ),
-            onSubmitted: (texto) => _ponerFiltros(
-              _filtros.copiarCon(
-                kmMax: double.tryParse(texto.trim()),
-                limpiarKmMax: texto.trim().isEmpty,
-              ),
-            ),
-          ),
-        ),
-        SizedBox(
-          width: 110,
-          child: TextField(
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              isDense: true,
-              border: OutlineInputBorder(),
-              hintText: 'costo mín.',
-            ),
-            onSubmitted: (texto) => _ponerFiltros(
-              _filtros.copiarCon(
-                costoMin: double.tryParse(texto.trim()),
-                limpiarCostoMin: texto.trim().isEmpty,
-              ),
-            ),
-          ),
-        ),
-        Selector<EstadoDelPedido>(
-          titulo: 'Estado del pedido en PEDIDO',
-          valor: _filtros.estado,
-          opciones: [
-            for (final e in EstadoDelPedido.values)
-              OpcionSelector(e, e.etiqueta),
-          ],
-          alElegir: (e) => _ponerFiltros(_filtros.copiarCon(estado: e)),
-        ),
-        Selector<DomicilioFiltro>(
-          titulo: 'Si el pedido lleva entrega a domicilio',
-          valor: _filtros.domicilio,
-          opciones: [
-            for (final d in DomicilioFiltro.values)
-              OpcionSelector(d, d.etiqueta),
-          ],
-          alElegir: (d) => _ponerFiltros(_filtros.copiarCon(domicilio: d)),
-        ),
-        Selector<CotizadoDelDomicilio>(
-          titulo: 'Si Entrega ya le puso costo de domicilio',
-          valor: _filtros.cotizado,
-          opciones: [
-            for (final c in CotizadoDelDomicilio.values)
-              OpcionSelector(c, c.etiqueta),
-          ],
-          alElegir: (c) => _ponerFiltros(_filtros.copiarCon(cotizado: c)),
-        ),
-        TextButton(
-          onPressed: () {
-            _buscador.clear();
-            // **Vuelve a `domicilio = 1`**, no a «sin nada»: una ruta se arma
-            // con lo que hay que llevar a casa, y ese es el arranque del pliego.
-            _ponerFiltros(_filtros.limpios());
-          },
-          child: const Text('Limpiar'),
-        ),
+        for (final control in controles)
+          Padding(padding: const EdgeInsets.only(bottom: 8), child: control),
       ],
     );
   }
@@ -583,6 +644,24 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
+        // LAS ZONAS DEL TABLERO, ANTES QUE LOS FILTROS.
+        //
+        // Para eso se arma el tablero: el estudio de que va junto con que ya se
+        // hizo alli, con el mapa, los kilometros al almacen y el peso delante.
+        // Volver a elegir los mismos pedidos uno a uno aqui es hacer dos veces
+        // el mismo trabajo, y la segunda vez peor, porque aqui no se ve la
+        // cercania.
+        //
+        // Palabras de Jose, 16/09/2026: «no me deja elegir lo q tengo en el
+        // tablero q para eso es para yo hacer el tablero con los pedidos... sin
+        // necesidad de estar eligiendolos en uno a uno y ya se hizo el estudio
+        // antes».
+        _ZonasDelTablero(
+          sucursalId: _sucursalId,
+          yaElegidos: _elegidos.keys.toSet(),
+          disponibles: disponibles,
+          alElegirZona: _meterLaZona,
+        ),
         _barraDeFiltros(sucursales),
         const SizedBox(height: 8),
         if (capacidad == null)
@@ -959,3 +1038,86 @@ final preDespachoDeLoElegidoEnElAsistenteProvider =
           .watch(consultasPedidosProvider)
           .preDespachoDe(clave.isEmpty ? const [] : clave.split(',')),
     );
+
+/// LAS ZONAS DEL TABLERO, para meterlas de una en la ruta.
+///
+/// El tablero es donde se decide QUE VA JUNTO, con el mapa y los kilometros al
+/// almacen delante. Este atajo es lo que hace que ese trabajo sirva para algo
+/// aqui; sin el, armar la ruta es repetirlo a mano y a ciegas.
+///
+/// Sale SOLO si el tablero cargado es el de la sucursal que se eligio en el
+/// paso 1. Ensenar las zonas de Santiago mientras se arma una ruta de La Habana
+/// seria ofrecer pedidos que no son de esta ruta, y aceptarlos es un rechazo al
+/// guardar.
+class _ZonasDelTablero extends ConsumerWidget {
+  const _ZonasDelTablero({
+    required this.sucursalId,
+    required this.yaElegidos,
+    required this.disponibles,
+    required this.alElegirZona,
+  });
+
+  final String? sucursalId;
+  final Set<String> yaElegidos;
+  final List<Pedido> disponibles;
+  final void Function(String nombre, List<String> ids, List<Pedido> disponibles)
+  alElegirZona;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tablero = ref.watch(tableroProvider).value;
+    if (tablero == null ||
+        tablero.problema != null ||
+        tablero.columnas.isEmpty ||
+        sucursalId == null ||
+        tablero.sucursalId != sucursalId) {
+      return const SizedBox.shrink();
+    }
+
+    final hayDisponible = {for (final p in disponibles) p.id};
+
+    final fichas = <Widget>[];
+    for (final zona in tablero.columnas) {
+      final ids = [
+        for (final t in tablero.deColumna(zona.id)) t.pedido.pedidoId,
+      ];
+      if (ids.isEmpty) continue;
+      // El numero es «cuantos de esta zona se pueden meter AHORA», no cuantos
+      // tiene: los que ya no estan disponibles no van a entrar, y ensenar el
+      // total prometeria de mas.
+      final entran = ids
+          .where((id) => hayDisponible.contains(id) && !yaElegidos.contains(id))
+          .length;
+      fichas.add(
+        ActionChip(
+          avatar: const Icon(Icons.dashboard_customize_outlined, size: 16),
+          label: Text(
+            '${zona.nombre} · $entran/${ids.length}'
+            '  ${zona.pesoKg.toStringAsFixed(0)} kg',
+          ),
+          onPressed: () => alElegirZona(zona.nombre, ids, disponibles),
+        ),
+      );
+    }
+    if (fichas.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Aire.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Zonas del tablero',
+            style: Tipos.texto(tamano: 12, peso: FontWeight.w700),
+          ),
+          Text(
+            'Lo que ya organizaste. Pulsa una y entran sus pedidos de una vez.',
+            style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
+          ),
+          const SizedBox(height: 6),
+          Wrap(spacing: 6, runSpacing: 6, children: fichas),
+        ],
+      ),
+    );
+  }
+}
