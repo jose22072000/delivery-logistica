@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../datos/modelos.dart';
 import 'kit.dart';
@@ -130,7 +131,7 @@ class ColumnaDelTablero extends StatelessWidget {
   }
 }
 
-class _Cabecera extends StatelessWidget {
+class _Cabecera extends ConsumerWidget {
   const _Cabecera({
     required this.columna,
     required this.alAbrirMenu,
@@ -142,7 +143,7 @@ class _Cabecera extends StatelessWidget {
   final void Function(TarjetaArrastrada datos, int? posicion) alSoltar;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final tema = Theme.of(context);
     final excede = columna.excedeCamion;
     return DragTarget<TarjetaArrastrada>(
@@ -181,7 +182,7 @@ class _Cabecera extends StatelessWidget {
               children: [
                 Text(
                   '${pesoBonito(columna.pesoKg)} · '
-                  '${dineroBonito(columna.costoUsd)}',
+                  '${dineroBonito(ref, columna.costoUsd)}',
                   style: tema.textTheme.bodySmall,
                 ),
                 // El exceso AVISA y no impide: el tablero es un borrador y el

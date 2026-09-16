@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../datos/modelos.dart';
 import '../../../diseno/tema.dart';
@@ -36,7 +37,7 @@ class TarjetaArrastrada {
 /// En escritorio se queda el arrastre, con **pulsacion larga** y no arrastre
 /// directo, por lo mismo de la lista. Ahi las dos mitades SI se ven a la vez,
 /// que es lo que hace que arrastrar tenga sentido.
-class TarjetaDePedido extends StatelessWidget {
+class TarjetaDePedido extends ConsumerWidget {
   const TarjetaDePedido({
     required this.pedido,
     this.columnaId,
@@ -57,8 +58,8 @@ class TarjetaDePedido extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final tarjeta = _contenido(context);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tarjeta = _contenido(context, ref);
 
     // El umbral es el MISMO que decide si el tablero se parte en dos mitades
     // (`pantalla_tablero.dart`, `_anchoDeDosMitades`). No es casualidad: se
@@ -77,7 +78,7 @@ class TarjetaDePedido extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         child: SizedBox(
           width: 280,
-          child: _contenido(context, arrastrando: true),
+          child: _contenido(context, ref, arrastrando: true),
         ),
       ),
       childWhenDragging: Opacity(opacity: 0.35, child: tarjeta),
@@ -85,7 +86,11 @@ class TarjetaDePedido extends StatelessWidget {
     );
   }
 
-  Widget _contenido(BuildContext context, {bool arrastrando = false}) {
+  Widget _contenido(
+    BuildContext context,
+    WidgetRef ref, {
+    bool arrastrando = false,
+  }) {
     final tema = Theme.of(context);
     final marcas = pedido.marcas;
     // Sin elevacion de Material: la tarjeta del tablero es la caja blanca de
@@ -155,7 +160,7 @@ class TarjetaDePedido extends StatelessWidget {
                 [
                   pesoBonito(pedido.weight),
                   if (pedido.pedidoCosto != null)
-                    dineroBonito(pedido.pedidoCosto!),
+                    dineroBonito(ref, pedido.pedidoCosto!),
                   if (pedido.municipio != null) pedido.municipio!,
                   if (posicion != null && pedido.kmAlAlmacen.isFinite)
                     kmBonito(pedido.kmAlAlmacen),

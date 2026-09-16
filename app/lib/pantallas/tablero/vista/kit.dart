@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../diseno/cajon.dart';
 import '../../../diseno/colores.dart';
 import '../../../diseno/insignia.dart';
 import '../../../diseno/numeros.dart';
+import '../../../navegacion/estado_navegacion.dart';
 import '../datos/modelos.dart';
 
 export '../../../diseno/colores.dart' show Colores;
@@ -29,7 +31,22 @@ String kmBonito(double km) => km.isFinite ? Numeros.km(km) : 'sin ubicar';
 /// factura.
 String pesoBonito(double kg) => Numeros.kgRedondeado(kg);
 
-String dineroBonito(double usd) => '${Numeros.importe(usd)} \$';
+/// UN IMPORTE DEL TABLERO, en la moneda que se este mirando.
+///
+/// Pasa por la MISMA tasa que el resto de la aplicacion
+/// (`TasaDeLaMirada.importe`), y por eso pide `ref` en vez de formatear a mano.
+/// Antes era `'${Numeros.importe(usd)} \$'` a pelo: el tablero se saltaba el
+/// selector de moneda entero, asi que con CUP puesto en la barra las tarjetas
+/// y las cabeceras de columna seguian diciendo «0,04 \$». No era un numero
+/// equivocado —decia «\$», que es lo que era—, pero si la unica pantalla donde
+/// el selector no hacia nada, y en la que mas se mira el dinero.
+///
+/// La regla de la casa sigue intacta: si la sucursal que se mira no tiene tasa,
+/// `monedaEfectivaProvider` se cae a USD sola y aqui no se convierte nada. **No
+/// se cae a la tasa de otra sucursal.**
+String dineroBonito(WidgetRef ref, double usd) => ref
+    .watch(tasaDeLaMiradaProvider)
+    .importe(usd, ref.watch(monedaEfectivaProvider));
 
 String horaBonita(DateTime cuando) => DateFormat('H:mm').format(cuando);
 
