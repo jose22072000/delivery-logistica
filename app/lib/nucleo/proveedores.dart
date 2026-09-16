@@ -312,6 +312,28 @@ final marchaDelCicloProvider = NotifierProvider<MarchaDelCiclo, Marcha>(
   MarchaDelCiclo.new,
 );
 
+/// EL LATIDO DEL INTENTO: un tic mientras hay un ciclo en vuelo, y nada cuando
+/// no lo hay.
+///
+/// Existe por un motivo concreto. La tarjeta del Panel deja de decir «Enviando
+/// datos...» cuando el intento pasa de medio minuto (`pacienciaDelIntento`),
+/// pero eso es una comparacion contra el reloj: **sin nada que redibuje, la
+/// pantalla no se entera de que el tiempo paso**. Y justo en ese caso no hay
+/// nada que la redibuje, porque un ciclo atascado contra una red muerta no
+/// avanza de coleccion ni de tanda.
+///
+/// Cinco segundos: bastante fino para que el aviso salga a los 30 s y no a los
+/// 60, y bastante grueso para no repintar por gusto. **No corre cuando no hay
+/// ciclo**: un temporizador eterno en una aplicacion que vive todo el dia
+/// abierta en el patio de un almacen se nota en la bateria.
+final latidoDelIntentoProvider = StreamProvider<DateTime>((ref) {
+  if (!ref.watch(marchaDelCicloProvider).enVuelo) {
+    return const Stream<DateTime>.empty();
+  }
+  final reloj = ref.watch(relojProvider);
+  return Stream<DateTime>.periodic(const Duration(seconds: 5), (_) => reloj());
+});
+
 /// EL CICLO: renovar → subir → bajar. Uno solo en toda la aplicacion, porque el
 /// candado de «un solo ciclo en vuelo» vive dentro: dos instancias son dos
 /// candados, y dos candados no son ninguno.

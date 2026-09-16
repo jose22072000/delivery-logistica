@@ -47,11 +47,18 @@ class EstadoDelDia extends ConsumerWidget {
     // (`red/salud.dart`).
     final salud = ref.watch(saludDeLaRedProvider);
 
+    // El latido, sólo para que esto se redibuje mientras el intento corre. Ver
+    // `latidoDelIntentoProvider`.
+    ref.watch(latidoDelIntentoProvider);
+    final empezadoA = marcha.empezadoA;
     final toca = queTocaAhora(
       enVuelo: marcha.enVuelo,
       paso: marcha.avance?.paso,
       vaMal: salud.vaMal,
       pendientes: pendientes,
+      llevaEnVuelo: empezadoA == null
+          ? null
+          : ref.watch(relojProvider)().difference(empezadoA),
     );
 
     return BannerDeGesto(

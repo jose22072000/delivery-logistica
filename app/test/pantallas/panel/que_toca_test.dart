@@ -92,25 +92,52 @@ void main() {
 
     test('parado y con trabajo dentro: hay que enviar', () {
       expect(
-        queTocaAhora(
-          enVuelo: false,
-          paso: null,
-          vaMal: false,
-          pendientes: 6,
-        ),
+        queTocaAhora(enVuelo: false, paso: null, vaMal: false, pendientes: 6),
         QueToca.hayQueEnviar,
       );
     });
 
     test('parado y sin nada pendiente: lo que toca es traer el día', () {
       expect(
-        queTocaAhora(
-          enVuelo: false,
-          paso: null,
-          vaMal: false,
-          pendientes: 0,
-        ),
+        queTocaAhora(enVuelo: false, paso: null, vaMal: false, pendientes: 0),
         QueToca.alDia,
+      );
+    });
+  });
+
+  group('un intento que se eterniza', () {
+    test('pasados 30 s deja de decir «enviando», aunque vaMal sea false', () {
+      expect(
+        queTocaAhora(
+          enVuelo: true,
+          paso: PasoDelCiclo.subir,
+          // `vaMal` tarda TRES ciclos: al abrir la aplicación sin red el
+          // contador empieza en cero, así que durante todo el primer ciclo
+          // —unos 55 s de reintentos— no ayuda nada. Ése es el hueco.
+          vaMal: false,
+          pendientes: 6,
+          llevaEnVuelo: pacienciaDelIntento,
+        ),
+        QueToca.sinConexion,
+        reason:
+            'es el caso del A16 recién abierto: medio minuto diciendo '
+            '«Enviando datos...» sin que salga un paquete',
+      );
+    });
+
+    test('antes de los 30 s se sigue diciendo «enviando», que es verdad', () {
+      expect(
+        queTocaAhora(
+          enVuelo: true,
+          paso: PasoDelCiclo.subir,
+          vaMal: false,
+          pendientes: 6,
+          llevaEnVuelo: const Duration(seconds: 5),
+        ),
+        QueToca.enviando,
+        reason:
+            'un envío que acaba de empezar SÍ está enviando: adelantar el '
+            'aviso lo convertiría en ruido',
       );
     });
   });

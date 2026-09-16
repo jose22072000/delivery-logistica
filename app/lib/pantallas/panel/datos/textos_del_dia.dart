@@ -120,12 +120,37 @@ abstract final class TextosDelDia {
 ///
 /// [vaMal] no es «el aparato cree que no hay wifi»: es que las peticiones no
 /// estan llegando, medido (`nucleo/red/salud.dart`).
+/// CUANTO PUEDE TARDAR UN INTENTO ANTES DE QUE «ENVIANDO» DEJE DE SER VERDAD.
+///
+/// `vaMal` tarda TRES ciclos en encenderse, y con razon: es el aviso persistente
+/// y tiene que ser lento en ponerse para no parpadear (`red/salud.dart`). Pero
+/// eso deja un hueco que se ve a la primera, y se vio: al abrir la aplicacion
+/// sin red, el contador de fallos empieza en cero, asi que durante todo el
+/// primer ciclo —unos 55 s de reintentos— la pantalla dice «Enviando datos...»
+/// sin enviar nada. El aviso persistente llega tarde para ESE momento.
+///
+/// Treinta segundos es el corte, y sale de los numeros de `cliente_api.dart`:
+/// una peticion que llega tarda menos de eso incluso con la conexion de alla, y
+/// una que no llega se come 10 s de plazo de conexion en el primer intento y ya
+/// va por el segundo. O sea: pasados 30 s, o no hay conexion o da igual que la
+/// haya, porque quien mira lleva medio minuto esperando sin saberlo.
+///
+/// No sustituye a `vaMal`: lo acompana. Este mira ESTE intento; aquel mira si la
+/// conexion lleva minutos sin servir.
+const Duration pacienciaDelIntento = Duration(seconds: 30);
+
 QueToca queTocaAhora({
   required bool enVuelo,
   required PasoDelCiclo? paso,
   required bool vaMal,
   required int pendientes,
+  Duration? llevaEnVuelo,
 }) {
+  // Un intento que lleva mas de medio minuto no se anuncia como si estuviera
+  // saliendo bien. Ver `pacienciaDelIntento`.
+  if (enVuelo && llevaEnVuelo != null && llevaEnVuelo >= pacienciaDelIntento) {
+    return QueToca.sinConexion;
+  }
   // SIN CONEXION MANDA, TAMBIEN MIENTRAS SE INTENTA. Y este orden es el
   // arreglo, no un detalle.
   //
