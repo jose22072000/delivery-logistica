@@ -8,6 +8,7 @@ import '../nucleo/plataforma.dart';
 import '../nucleo/proveedores.dart';
 import '../nucleo/registro/registro.dart';
 import '../pantallas/acceso/estado/estado_acceso.dart';
+import 'estado_navegacion.dart';
 
 /// Las situaciones en las que puede estar alguien delante de la aplicación.
 enum EstadoDeAcceso {
@@ -214,6 +215,12 @@ class Portero extends ChangeNotifier {
     // olvidar a alguien diga «Yasmani» en vez del `sub` del token, que a quien
     // lo lee no le dice nada (`nucleo/base/personas.dart`).
     await _anotarQuienEs();
+    // LO QUE SE ESTABA MIRANDO LA ULTIMA VEZ. Va aqui, con la base de esta
+    // persona ya abierta y ANTES de dejar entrar, para que el Panel se pinte
+    // directamente con su sucursal y su moneda. Pintarlo primero con «Todas» y
+    // corregirlo despues es ensenar durante un segundo «Falta configurar esta
+    // sucursal» a quien la tiene completa.
+    await _recordarLoElegido();
     // El orden de la condición no es casual: en web se corta ANTES de contar lo
     // que hay, que son dieciocho consultas para decidir algo ya decidido.
     final prepararseParaNoTenerSenal = _ref.read(trabajaSinConexionProvider);
@@ -259,6 +266,13 @@ class Portero extends ChangeNotifier {
 
     _configuracion = null;
     _poner(EstadoDeAcceso.dentro);
+  }
+
+  /// La sucursal y la moneda de la ultima vez. Ninguna de las dos puede impedir
+  /// entrar: si no se pueden leer, se entra con lo de siempre.
+  Future<void> _recordarLoElegido() async {
+    await _ref.read(sucursalMiradaProvider.notifier).restaurar();
+    await _ref.read(monedaMiradaProvider.notifier).restaurar();
   }
 
   Future<void> _anotarQuienEs() async {

@@ -402,43 +402,63 @@ WHERE
     AND ($4::text IS NULL OR c.municipio = $4::text)
     AND ($5::text      IS NULL OR c.zona      = $5::text)
     AND ($6::text  IS NULL OR c.vendedor  = $6::text)
+    -- LO QUE CAMBIÓ DESDE LA ÚLTIMA VEZ, y aquí y no en Go — 16/09/2026.
+    --
+    -- La bajada del aparato traía el padrón ENTERO en cada arranque y descartaba después,
+    -- al recorrerlo, lo que no había cambiado. Con 8.103 clientes eso son cinco idas y
+    -- vueltas de 2.000 filas para no aplicar ninguna, cada vez que alguien abre la
+    -- aplicación, y es lo que se ve en el teléfono como «Trayendo datos… Clientes…»
+    -- durante varios segundos con la red de Cuba. Jose, 16/09/2026: «cada ves q inicie la
+    -- aplicacion no me traigas todo es comprobar no traer todo, para eso es el sync».
+    --
+    -- Filtrando aquí, un padrón sin cambios devuelve CERO filas: no llega al tope, no se
+    -- marca ` + "`" + `truncado` + "`" + ` y la cadena se acaba en una sola tanda.
+    --
+    -- ` + "`" + `synced_at` + "`" + ` NULL cuenta como cambiado, igual que en ` + "`" + `cambioDesde` + "`" + ` (` + "`" + `espejo.go` + "`" + `): un
+    -- cliente sin marca no se puede fechar, y dejarlo fuera sería no mandarlo nunca.
+    AND (
+        $7::timestamptz IS NULL
+        OR c.synced_at IS NULL
+        OR c.synced_at > $7::timestamptz
+    )
     -- ` + "`" + `origen` + "`" + `: 'pedido' = vino del espejo; 'manual' = alta a mano, que es ` + "`" + `source` + "`" + ` NULL.
     -- NULL no se compara con ` + "`" + `=` + "`" + `, así que la rama del manual se nombra a mano o no sale.
     AND (
-        $7::text IS NULL
-        OR ($7::text = 'pedido' AND c.source = 'pedido')
-        OR ($7::text = 'manual' AND c.source IS NULL)
+        $8::text IS NULL
+        OR ($8::text = 'pedido' AND c.source = 'pedido')
+        OR ($8::text = 'manual' AND c.source IS NULL)
     )
     -- «Sin teléfono» incluye la cadena vacía: un campo en blanco no es un teléfono.
     AND (
-        $8::boolean IS NULL
-        OR ($8::boolean AND c.phone IS NOT NULL AND c.phone <> '')
-        OR (NOT $8::boolean AND (c.phone IS NULL OR c.phone = ''))
+        $9::boolean IS NULL
+        OR ($9::boolean AND c.phone IS NOT NULL AND c.phone <> '')
+        OR (NOT $9::boolean AND (c.phone IS NULL OR c.phone = ''))
     )
     -- caja previa del filtro por kilómetros (el haversine exacto va después, en Go)
-    AND ($9::double precision IS NULL OR c.lat >= $9::double precision)
-    AND ($10::double precision IS NULL OR c.lat <= $10::double precision)
-    AND ($11::double precision IS NULL OR c.lng >= $11::double precision)
-    AND ($12::double precision IS NULL OR c.lng <= $12::double precision)
+    AND ($10::double precision IS NULL OR c.lat >= $10::double precision)
+    AND ($11::double precision IS NULL OR c.lat <= $11::double precision)
+    AND ($12::double precision IS NULL OR c.lng >= $12::double precision)
+    AND ($13::double precision IS NULL OR c.lng <= $13::double precision)
 ORDER BY c.name ASC
-LIMIT $14 OFFSET $13
+LIMIT $15 OFFSET $14
 `
 
 type ListarClientesParams struct {
-	SucursalDelAlcance *string  `json:"sucursal_del_alcance"`
-	SucursalCodigo     *string  `json:"sucursal_codigo"`
-	Q                  *string  `json:"q"`
-	Municipio          *string  `json:"municipio"`
-	Zona               *string  `json:"zona"`
-	Vendedor           *string  `json:"vendedor"`
-	Origen             *string  `json:"origen"`
-	ConTelefono        *bool    `json:"con_telefono"`
-	LatMin             *float64 `json:"lat_min"`
-	LatMax             *float64 `json:"lat_max"`
-	LngMin             *float64 `json:"lng_min"`
-	LngMax             *float64 `json:"lng_max"`
-	Desplazamiento     int32    `json:"desplazamiento"`
-	Limite             int32    `json:"limite"`
+	SucursalDelAlcance *string            `json:"sucursal_del_alcance"`
+	SucursalCodigo     *string            `json:"sucursal_codigo"`
+	Q                  *string            `json:"q"`
+	Municipio          *string            `json:"municipio"`
+	Zona               *string            `json:"zona"`
+	Vendedor           *string            `json:"vendedor"`
+	CambiadoDesde      pgtype.Timestamptz `json:"cambiado_desde"`
+	Origen             *string            `json:"origen"`
+	ConTelefono        *bool              `json:"con_telefono"`
+	LatMin             *float64           `json:"lat_min"`
+	LatMax             *float64           `json:"lat_max"`
+	LngMin             *float64           `json:"lng_min"`
+	LngMax             *float64           `json:"lng_max"`
+	Desplazamiento     int32              `json:"desplazamiento"`
+	Limite             int32              `json:"limite"`
 }
 
 type ListarClientesRow struct {
@@ -490,6 +510,7 @@ func (q *Queries) ListarClientes(ctx context.Context, arg ListarClientesParams) 
 		arg.Municipio,
 		arg.Zona,
 		arg.Vendedor,
+		arg.CambiadoDesde,
 		arg.Origen,
 		arg.ConTelefono,
 		arg.LatMin,

@@ -229,23 +229,40 @@ func (a *Acotado) EspejoMarcarCatalogoTraido(ctx context.Context) error {
 // marca útil para eso: el orden es por nombre, y `synced_at` lo comparten a miles las
 // filas que PEDIDO trae de una vez —una sola transacción, una sola hora—, así que un corte
 // por marca o no avanza o parte el grupo.
-func (a *Acotado) EspejoListarProductos(ctx context.Context, limite, desplazamiento int32) ([]sqlc.Product, error) {
+//
+// `cambiadoDesde` es lo que hace que un arranque con el padrón al día NO cueste cinco
+// idas y vueltas. Va EN EL SQL y no en un `if` al recorrer las filas: filtrando después,
+// la tanda llega al tope igual, se marca `truncado` igual y el aparato encadena las cinco
+// para no aplicar ni una fila. Nil = todo, que es la carga inicial.
+func (a *Acotado) EspejoListarProductos(ctx context.Context, limite, desplazamiento int32, cambiadoDesde *time.Time) ([]sqlc.Product, error) {
 	return a.q.ListarProductos(ctx, sqlc.ListarProductosParams{
 		Sucursal:       a.Codigo(), // el catálogo se acota por CÓDIGO, no por uuid
 		Limite:         limite,
 		Desplazamiento: desplazamiento,
+		CambiadoDesde:  marcaOpcional(cambiadoDesde),
 	})
+}
+
+// marcaOpcional traduce el `desde` de la bajada a lo que espera sqlc. Nil es «sin filtro»,
+// no «el principio de los tiempos»: un cero se compararía y dejaría fuera las filas sin
+// marca.
+func marcaOpcional(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
 }
 
 func (a *Acotado) EspejoListarRutas(ctx context.Context) ([]sqlc.ListarRutasRow, error) {
 	return a.q.ListarRutas(ctx, sqlc.ListarRutasParams{Sucursal: a.sucursalPg()})
 }
 
-func (a *Acotado) EspejoListarClientes(ctx context.Context, limite, desplazamiento int32) ([]sqlc.ListarClientesRow, error) {
+func (a *Acotado) EspejoListarClientes(ctx context.Context, limite, desplazamiento int32, cambiadoDesde *time.Time) ([]sqlc.ListarClientesRow, error) {
 	return a.q.ListarClientes(ctx, sqlc.ListarClientesParams{
 		SucursalDelAlcance: a.Codigo(), // clientes también van por código
 		Limite:             limite,
 		Desplazamiento:     desplazamiento,
+		CambiadoDesde:      marcaOpcional(cambiadoDesde),
 	})
 }
 

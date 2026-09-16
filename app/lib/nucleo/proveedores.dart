@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -194,11 +196,52 @@ final renovadorProvider = Provider<Renovador>(
 ///
 /// Cambiarla **no recarga la pagina**: los providers de pantalla la miran, asi
 /// que se reconstruyen solos y los numeros cambian en el sitio.
+///
+/// ## Y SE RECUERDA AL CERRAR LA APLICACION — 16/09/2026
+///
+/// Antes no. Arrancaba en `null` y se perdia en cada arranque, asi que quien ve
+/// las ocho volvia siempre a «Todas». Eso no es solo una molestia: con «Todas»
+/// puesto, el Panel dice «Falta configurar esta sucursal, 3 de 4» y los
+/// importes no se convierten —la tasa es POR SUCURSAL—, de modo que la
+/// aplicacion se abre pareciendo a medio configurar cuando no lo esta. Jose lo
+/// vio en su telefono ese dia, con La Habana ya elegida y completa.
+///
+/// Se guarda en `preferencias`, que es del APARATO: la sucursal que se mira es
+/// donde uno esta, no quien uno es.
 class SucursalMirada extends Notifier<String?> {
   @override
   String? build() => null;
 
-  void mirar(String? sucursalId) => state = sucursalId;
+  void mirar(String? sucursalId) {
+    state = sucursalId;
+    // Sin esperarlo: quien acaba de tocar el selector ya esta viendo los
+    // numeros de la otra sucursal, y una escritura en disco no puede meterse
+    // por medio. Si falla, lo peor que pasa es que el proximo arranque abra
+    // donde abria antes.
+    unawaited(
+      _guardar(ClaveDePreferencia.sucursalMirada, sucursalId),
+    );
+  }
+
+  /// Vuelve a poner lo ultimo que se eligio. Se llama al entrar, con la base de
+  /// esa persona ya abierta.
+  Future<void> restaurar() async {
+    try {
+      state = await ref
+          .read(baseProvider)
+          .preferencia(ClaveDePreferencia.sucursalMirada);
+    } on Object catch (e) {
+      Registro.aviso('no se pudo recordar la sucursal mirada: $e');
+    }
+  }
+
+  Future<void> _guardar(String clave, String? valor) async {
+    try {
+      await ref.read(baseProvider).anotarPreferencia(clave, valor);
+    } on Object catch (e) {
+      Registro.aviso('no se pudo anotar la sucursal mirada: $e');
+    }
+  }
 }
 
 final sucursalMiradaProvider = NotifierProvider<SucursalMirada, String?>(

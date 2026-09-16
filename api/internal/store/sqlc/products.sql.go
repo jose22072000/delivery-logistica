@@ -246,15 +246,24 @@ WHERE
     AND lower(btrim(coalesce(p.category, ''))) NOT IN ('serv', 'servicio', 'servicios')
     AND lower(coalesce(p.name, '')) NOT LIKE '%entrega a domicilio%'
     AND lower(coalesce(p.name, '')) NOT LIKE '%servicio de entrega%'
+    -- LO QUE CAMBIÓ DESDE LA ÚLTIMA VEZ. Ver el comentario largo de ` + "`" + `ListarClientes` + "`" + `:
+    -- el catálogo se traía entero en cada arranque para descartarlo después en Go.
+    -- ` + "`" + `updated_at` + "`" + ` NULL cuenta como cambiado, igual que en ` + "`" + `cambioDesde` + "`" + `.
+    AND (
+        $3::timestamptz IS NULL
+        OR p.updated_at IS NULL
+        OR p.updated_at > $3::timestamptz
+    )
 ORDER BY p.name ASC
-LIMIT $4 OFFSET $3
+LIMIT $5 OFFSET $4
 `
 
 type ListarProductosParams struct {
-	Sucursal       *string `json:"sucursal"`
-	Q              *string `json:"q"`
-	Desplazamiento int32   `json:"desplazamiento"`
-	Limite         int32   `json:"limite"`
+	Sucursal       *string            `json:"sucursal"`
+	Q              *string            `json:"q"`
+	CambiadoDesde  pgtype.Timestamptz `json:"cambiado_desde"`
+	Desplazamiento int32              `json:"desplazamiento"`
+	Limite         int32              `json:"limite"`
 }
 
 // Catálogo. Se llena solo: PEDIDO sondea Ventra y aquí se copia lo que él ya tiene.
@@ -290,6 +299,7 @@ func (q *Queries) ListarProductos(ctx context.Context, arg ListarProductosParams
 	rows, err := q.db.Query(ctx, listarProductos,
 		arg.Sucursal,
 		arg.Q,
+		arg.CambiadoDesde,
 		arg.Desplazamiento,
 		arg.Limite,
 	)

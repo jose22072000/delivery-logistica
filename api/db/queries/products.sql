@@ -43,6 +43,14 @@ WHERE
     AND lower(btrim(coalesce(p.category, ''))) NOT IN ('serv', 'servicio', 'servicios')
     AND lower(coalesce(p.name, '')) NOT LIKE '%entrega a domicilio%'
     AND lower(coalesce(p.name, '')) NOT LIKE '%servicio de entrega%'
+    -- LO QUE CAMBIÓ DESDE LA ÚLTIMA VEZ. Ver el comentario largo de `ListarClientes`:
+    -- el catálogo se traía entero en cada arranque para descartarlo después en Go.
+    -- `updated_at` NULL cuenta como cambiado, igual que en `cambioDesde`.
+    AND (
+        sqlc.narg('cambiado_desde')::timestamptz IS NULL
+        OR p.updated_at IS NULL
+        OR p.updated_at > sqlc.narg('cambiado_desde')::timestamptz
+    )
 ORDER BY p.name ASC
 -- El OFFSET es para la bajada del aparato: el catálogo se sirve por tandas y la
 -- siguiente tiene que empezar donde acabó la anterior. Sin él, `truncado` sería una

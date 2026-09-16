@@ -77,19 +77,38 @@ abstract final class Paleta {
   /// que no se confunden aunque compartan familia.
   static final aviso = _familiaDelOro(42);
 
-  /// EN CURSO: la ruta que va por la calle, el vehiculo fuera. Petroleo.
+  /// EN CURSO: la ruta que va por la calle, el vehiculo fuera, el dia bajando.
+  /// CIRUELA.
+  ///
+  /// ## Las dos vueltas que costo, para que no se de una tercera
   ///
   /// Se probo primero con el COMPLEMENTARIO exacto del oro (su tono mas 180, o
   /// sea 220 grados) porque sobre el papel es lo mas correcto: el tono que mas
-  /// se separa de la marca. Salia `#1F5BD6`, que es casi clavado al `#1F4FE0`
-  /// de delivery — o sea, el azul que se acababa de quitar, volviendo por la
-  /// puerta de atras con otro nombre.
+  /// se separa de la marca. Salia `#1F5BD6`, casi clavado al `#1F4FE0` de
+  /// delivery — el azul que se acababa de quitar, volviendo por la puerta de
+  /// atras con otro nombre.
   ///
-  /// Asi que se queda a 196: petroleo, frio como hace falta para decir «esto se
-  /// esta moviendo» pero sin ser el azul de Material. Va mas oscuro que la
-  /// familia por lo mismo que [impide]: a la luz del oro se confundia con el
-  /// verde de «entregado», que le queda a 40 grados.
-  static final enCurso = _oscurecer(_familiaDelOro(196), 0.14);
+  /// Se movio entonces a 196: petroleo, frio pero sin ser el azul de Material.
+  /// **Tampoco.** El 16/09/2026 Jose lo vio en el telefono, en la tarjeta de
+  /// «Trayendo datos... Clientes...», y sigue siendo azul para quien lo mira:
+  /// «sigo con los azules». Y tiene razon — `#1983AA` es azul, por mucho que en
+  /// la rueda se llame petroleo. **El logo no tiene ni una gota de azul y la
+  /// aplicacion tampoco puede tenerla.**
+  ///
+  /// Asi que CIRUELA, a 292. Y no por gusto: **es el unico tono que queda**.
+  ///
+  /// La mitad calida esta llena —155 verde, 42 ambar, 358 rojo— y lo que hay
+  /// entre medias se confunde con ellos. El cobre de 22 parecia lo natural y lo
+  /// tumbo la prueba de «las cuatro senales se distinguen entre si»: 20 grados
+  /// del ambar, que es la mitad del minimo. El grafito, por el otro lado, acaba
+  /// siendo el mismo gris de los subtextos. Y la mitad fria entera esta
+  /// prohibida, que es de donde venimos.
+  ///
+  /// La ciruela queda a 66 grados del rojo, 110 del ambar y 137 del verde: la
+  /// unica que se separa de las tres. Oscurecida para que no grite —al
+  /// 0,16 es una ciruela sobria, no un magenta— y con la saturacion y la luz de
+  /// la familia, que es lo que la hace de esta casa y no un color pegado.
+  static final enCurso = _oscurecer(_familiaDelOro(292), 0.16);
 }
 
 /// El oro con otro tono, pero con SU saturacion y SU luminosidad.

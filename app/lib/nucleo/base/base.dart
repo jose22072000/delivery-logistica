@@ -61,6 +61,21 @@ abstract final class ClaveDePreferencia {
   /// que es sacar la base de auth a la cara. Se escribe al entrar, porque es el
   /// unico momento en el que se tiene el token delante.
   static const nombreDelDueno = 'nombreDelDueno';
+
+  /// LA SUCURSAL QUE SE ESTA MIRANDO, y la MONEDA en la que se leen los
+  /// importes. Las dos son del aparato y las dos se recuerdan.
+  ///
+  /// Hasta el 16/09/2026 no se guardaban: vivian en un `Notifier` que arrancaba
+  /// en `null` y se perdian al cerrar la aplicacion. Un Super Admin que elegia
+  /// La Habana volvia a «Todas (8)» en cada arranque, y con «Todas» puesto el
+  /// Panel dice «Falta configurar esta sucursal 3 de 4» y no convierte a CUP
+  /// —la tasa es POR SUCURSAL—, asi que la aplicacion se abria pareciendo rota
+  /// sin estarlo. Jose lo vio en su telefono ese mismo dia.
+  ///
+  /// `null` guardado NO existe: para decir «todas» se borra la fila. Guardar la
+  /// cadena «null» seria una sucursal llamada null.
+  static const sucursalMirada = 'sucursalMirada';
+  static const monedaMirada = 'monedaMirada';
 }
 
 @DriftDatabase(
@@ -255,6 +270,29 @@ class BaseLocal extends _$BaseLocal {
         clave: ClaveDePreferencia.nombreDelDueno,
         valor: nombre,
       ),
+    );
+  }
+
+  /// Lo ultimo que se eligio, para volver a ponerlo al abrir. `null` cuando no
+  /// hay nada elegido: en la sucursal eso es «todas».
+  Future<String?> preferencia(String clave) async {
+    final fila = await (select(
+      preferencias,
+    )..where((p) => p.clave.equals(clave))).getSingleOrNull();
+    final valor = fila?.valor;
+    return (valor == null || valor.isEmpty) ? null : valor;
+  }
+
+  /// Anota lo elegido. **`null` borra la fila** en vez de escribir una cadena
+  /// vacia: leer luego «» y tratarlo como una sucursal es el fallo que esto
+  /// evita.
+  Future<void> anotarPreferencia(String clave, String? valor) async {
+    if (valor == null || valor.isEmpty) {
+      await (delete(preferencias)..where((p) => p.clave.equals(clave))).go();
+      return;
+    }
+    await into(preferencias).insertOnConflictUpdate(
+      PreferenciasCompanion.insert(clave: clave, valor: valor),
     );
   }
 

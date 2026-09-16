@@ -371,14 +371,22 @@ WHERE c.branch_id = ?1''',
     if (vendedor != null && vendedor.isNotEmpty) {
       consulta.where((t) => t.vendedor.equals(vendedor));
     }
-    // EL COBRO DEL DOMICILIO. Un costo NULO es «todavia no se lo han puesto»;
-    // un cero no lo es, y por eso se pregunta por nulo y no por «> 0»: un
-    // domicilio de cero es una decision de alguien, no un hueco.
+    // EL COBRO DEL DOMICILIO es `pedidoCosto`, el que puso el repartidor desde
+    // Entrega, y es el MISMO numero que la tarjeta ensena al lado del peso.
+    // **No es `deliveryPrice`**: ese es el viaje dedicado, otra cosa, y hoy
+    // esta vacio en los 3.313 pedidos del servidor. Preguntando por el, «Con
+    // cobro» daba 0 mientras la lista de al lado ensenaba «0,04 $» en una
+    // tarjeta — 16/09/2026, Jose: «tiene q haber hay uno por q no me sale q
+    // tiene precio de domicilio». Confundir los dos es cobrar uno por el otro,
+    // que es lo que ya avisa la consulta de las columnas del tablero.
+    //
+    // Un costo NULO es «todavia no se lo han puesto»; un cero no lo es, y por
+    // eso se pregunta por nulo y no por «> 0»: un domicilio de cero es una
+    // decision de alguien, no un hueco.
     final conCobro = filtros.conCobroDeDomicilio;
     if (conCobro != null) {
       consulta.where(
-        (t) =>
-            conCobro ? t.deliveryPrice.isNotNull() : t.deliveryPrice.isNull(),
+        (t) => conCobro ? t.pedidoCosto.isNotNull() : t.pedidoCosto.isNull(),
       );
     }
     final dia = filtros.dia;

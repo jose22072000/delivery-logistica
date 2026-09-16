@@ -75,6 +75,10 @@ Future<void> sembrarPedido(
   String direccion = 'Calle 1',
   double aGrados = 0.01,
   double peso = 100,
+  /// EL COBRO DEL DOMICILIO, que es este y no `deliveryPrice`: lo pone el
+  /// repartidor desde Entrega y es el que ensena la tarjeta al lado del peso.
+  /// `null` es «todavia no se lo han puesto», que NO es lo mismo que cero: un
+  /// domicilio de cero es una decision de alguien.
   double? costo = 5,
   String? operacion,
   String? municipio = 'Santiago de Cuba',
@@ -86,9 +90,6 @@ Future<void> sembrarPedido(
   String sucursal = sucursalStg,
   DateTime? fecha,
   bool conCoordenadas = true,
-  /// El cobro del domicilio. `null` es «todavia no se lo han puesto», que NO es
-  /// lo mismo que cero: un domicilio de cero es una decision de alguien.
-  double? cobroDomicilio,
 }) => base
     .into(base.orders)
     .insert(
@@ -109,7 +110,6 @@ Future<void> sembrarPedido(
         routeId: Value(rutaId),
         source: Value(fuente),
         branchId: Value(sucursal),
-        deliveryPrice: Value(cobroDomicilio),
         orderDate: Value(fecha ?? DateTime(2026, 9, 14, 8)),
         createdAt: Value(fecha ?? DateTime(2026, 9, 14, 8)),
       ),

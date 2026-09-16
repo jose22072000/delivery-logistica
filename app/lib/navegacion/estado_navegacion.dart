@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../diseno/numeros.dart';
 import '../nucleo/base/base.dart';
 import '../nucleo/proveedores.dart';
+import '../nucleo/registro/registro.dart';
 
 /// Lo que necesita el armazon y no tiene por que saber ninguna pantalla.
 
@@ -196,7 +199,37 @@ class MonedaMirada extends Notifier<String> {
   @override
   String build() => 'USD';
 
-  void mirar(String codigo) => state = codigo;
+  void mirar(String codigo) {
+    state = codigo;
+    // Se recuerda igual que la sucursal, y por lo mismo: quien trabaja en CUP
+    // trabaja en CUP todos los dias, y volver a USD en cada arranque es hacerle
+    // tocar el selector cada manana. Sin esperarlo — ver `SucursalMirada`.
+    unawaited(_guardar(codigo));
+  }
+
+  /// Vuelve a poner la moneda de la ultima vez. Si la sucursal de ahora no tiene
+  /// tasa, [monedaEfectivaProvider] la cae a USD sola: esto recuerda la
+  /// ELECCION, no fuerza la conversion.
+  Future<void> restaurar() async {
+    try {
+      final guardada = await ref
+          .read(baseProvider)
+          .preferencia(ClaveDePreferencia.monedaMirada);
+      if (guardada != null) state = guardada;
+    } on Object catch (e) {
+      Registro.aviso('no se pudo recordar la moneda: $e');
+    }
+  }
+
+  Future<void> _guardar(String codigo) async {
+    try {
+      await ref
+          .read(baseProvider)
+          .anotarPreferencia(ClaveDePreferencia.monedaMirada, codigo);
+    } on Object catch (e) {
+      Registro.aviso('no se pudo anotar la moneda: $e');
+    }
+  }
 }
 
 final monedaMiradaProvider = NotifierProvider<MonedaMirada, String>(

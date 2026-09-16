@@ -39,6 +39,10 @@ type espejoFalso struct {
 	// respetando `Limite` y `Desplazamiento`, como el SQL: lo que se comprueba es que el
 	// manejador sepa pedir la tanda siguiente.
 	padron []sqlc.ListarClientesRow
+
+	// El catálogo de la bajada, servido igual que el padrón: por tandas y respetando el
+	// `cambiado_desde`.
+	catalogoDelEspejo []sqlc.Product
 }
 
 func nuevoEspejo() *espejoFalso {
@@ -240,22 +244,59 @@ func (q *espejoFalso) ListarVehiculos(context.Context, pgtype.UUID) ([]sqlc.List
 func (q *espejoFalso) ListarRutas(context.Context, sqlc.ListarRutasParams) ([]sqlc.ListarRutasRow, error) {
 	return nil, nil
 }
-func (q *espejoFalso) ListarProductos(context.Context, sqlc.ListarProductosParams) ([]sqlc.Product, error) {
-	return nil, nil
-}
-
-// ListarClientes REPITE EL `LIMIT … OFFSET …` del SQL. Es la parte que importa: con un
-// doble que devolviera siempre la lista entera, el fallo de los 2.000 clientes no se ve.
-func (q *espejoFalso) ListarClientes(_ context.Context, arg sqlc.ListarClientesParams) ([]sqlc.ListarClientesRow, error) {
+func (q *espejoFalso) ListarProductos(_ context.Context, arg sqlc.ListarProductosParams) ([]sqlc.Product, error) {
+	var cuadran []sqlc.Product
+	for _, p := range q.catalogoDelEspejo {
+		if !cambiadoDesdeEnElSQL(p.UpdatedAt, arg.CambiadoDesde) {
+			continue
+		}
+		cuadran = append(cuadran, p)
+	}
 	desde := int(arg.Desplazamiento)
-	if desde >= len(q.padron) {
+	if desde >= len(cuadran) {
 		return nil, nil
 	}
 	hasta := desde + int(arg.Limite)
-	if hasta > len(q.padron) {
-		hasta = len(q.padron)
+	if hasta > len(cuadran) {
+		hasta = len(cuadran)
 	}
-	return q.padron[desde:hasta], nil
+	return cuadran[desde:hasta], nil
+}
+
+// ListarClientes REPITE EL `WHERE … LIMIT … OFFSET …` del SQL, y las dos partes importan.
+//
+// El `LIMIT/OFFSET`, porque con un doble que devolviera siempre la lista entera el fallo
+// de los 2.000 clientes no se ve. Y el `cambiado_desde`, porque desde el 16/09/2026 el
+// filtro por marca vive EN LA CONSULTA y no en un `if` al recorrer: un doble que lo
+// ignorara seguiría sirviendo el padrón entero, la cadena seguiría dando cinco vueltas y
+// la prueba del arranque barato saldría verde con el fallo puesto.
+func (q *espejoFalso) ListarClientes(_ context.Context, arg sqlc.ListarClientesParams) ([]sqlc.ListarClientesRow, error) {
+	var cuadran []sqlc.ListarClientesRow
+	for _, c := range q.padron {
+		if !cambiadoDesdeEnElSQL(c.SyncedAt, arg.CambiadoDesde) {
+			continue
+		}
+		cuadran = append(cuadran, c)
+	}
+	desde := int(arg.Desplazamiento)
+	if desde >= len(cuadran) {
+		return nil, nil
+	}
+	hasta := desde + int(arg.Limite)
+	if hasta > len(cuadran) {
+		hasta = len(cuadran)
+	}
+	return cuadran[desde:hasta], nil
+}
+
+// cambiadoDesdeEnElSQL es el `AND (cambiado_desde IS NULL OR marca IS NULL OR marca >
+// cambiado_desde)` de las dos consultas, escrito en Go. Una fila SIN marca cuenta como
+// cambiada: no se puede fechar, y dejarla fuera sería no mandarla nunca.
+func cambiadoDesdeEnElSQL(marca, desde pgtype.Timestamptz) bool {
+	if !desde.Valid || !marca.Valid {
+		return true
+	}
+	return marca.Time.After(desde.Time)
 }
 
 // --------------------------------------------------------------------------- Ventra de mentira
@@ -1010,6 +1051,160 @@ func TestLaBajadaTraeLaTasaDeCadaSucursal(t *testing.T) {
 		}
 		if valor != nil {
 			t.Errorf("Holguín no tiene tasa y %q vino con %v: se le metió la de otra sucursal", campo, valor)
+		}
+	}
+}
+
+// ABRIR LA APLICACIÓN CON TODO AL DÍA CUESTA UNA IDA Y VUELTA, NO CINCO.
+//
+// Jose, 16/09/2026, mirando el teléfono arrancar: «cada ves q inicie la aplicacion no me
+// traigas todo es comprobar no traer todo ok y ver si esta todo, para eso es el sync».
+//
+// Lo que veía era «Trayendo datos… Clientes…» varios segundos en CADA arranque, con el
+// padrón ya bajado y sin un solo cambio. El motivo: el padrón y el catálogo se leían
+// enteros de la base —`LIMIT/OFFSET` sin más— y el `desde` se aplicaba después, en Go, al
+// recorrer las filas. Así la tanda llega al tope igual, se marca `truncado` igual, y el
+// aparato encadena las cinco vueltas que hacen falta para recorrer 8.103 clientes… y no
+// aplica ni una fila. Cinco peticiones y cinco barridos de tabla para no hacer nada, cada
+// vez, con la red de Cuba por delante.
+//
+// La prueba es sobre el NÚMERO DE TANDAS porque es lo único que se nota desde fuera: las
+// filas servidas ya eran cero antes del arreglo. Rompe si el filtro se sale del SQL.
+func TestUnArranqueSinCambiosNoEncadenaTandas(t *testing.T) {
+	q := nuevoEspejo()
+	stg := "STG"
+	// Bajado AYER y sin tocar desde entonces: es el aparato de quien abre la aplicación
+	// por la mañana con el día de ayer dentro.
+	ayer := time.Now().UTC().Add(-24 * time.Hour)
+	for i := 0; i < 7; i++ {
+		q.padron = append(q.padron, sqlc.ListarClientesRow{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("Cliente %02d", i),
+			Lat:            20.0,
+			Lng:            -75.0,
+			SucursalCodigo: &stg,
+			SyncedAt:       pgtype.Timestamptz{Time: ayer, Valid: true},
+		})
+		q.catalogoDelEspejo = append(q.catalogoDelEspejo, sqlc.Product{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("Producto %02d", i),
+			SucursalCodigo: &stg,
+			UpdatedAt:      pgtype.Timestamptz{Time: ayer, Valid: true},
+		})
+	}
+	h := montarTab(t, q)
+	jwt := tokenTab(t, sucStg.String())
+
+	// El aparato pregunta desde DESPUÉS de lo último que se trajo. No ha cambiado nada.
+	desde := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+
+	tandas := 0
+	continuar := ""
+	for {
+		tandas++
+		if tandas > 10 {
+			t.Fatal("la cadena de tandas no termina")
+		}
+		url := "/api/sync/cambios?tope=3&desde=" + desde
+		if continuar != "" {
+			url += "&continuar=" + continuar
+		}
+		w := pedirTab(t, h, http.MethodGet, url, jwt, "")
+		m := leerTab(t, w)
+
+		clientes, _, _ := conjuntoDe(t, m, "customers")
+		productos, _, _ := conjuntoDe(t, m, "products")
+		if len(clientes) != 0 || len(productos) != 0 {
+			t.Fatalf("tanda %d: nada cambió y sirvió %d clientes y %d productos",
+				tandas, len(clientes), len(productos))
+		}
+		if truncado, _ := m["truncado"].(bool); !truncado {
+			break
+		}
+		continuar, _ = m["continuar"].(string)
+	}
+
+	if tandas != 1 {
+		t.Fatalf("abrir la aplicación con todo al día costó %d idas y vueltas: tiene que "+
+			"costar UNA. El filtro por marca se salió del SQL y el padrón se está "+
+			"recorriendo entero otra vez", tandas)
+	}
+}
+
+// Y LO QUE SÍ CAMBIÓ SIGUE BAJANDO ENTERO, en tandas, sin repetir ni perder.
+//
+// Es la otra mitad y hace falta las dos: un filtro que se pase de listo —por ejemplo con
+// `>=` mal puesto, o dejando fuera las filas sin marca— apagaría «Trayendo datos…» y
+// dejaría al aparato sin los clientes nuevos, que es mucho peor que la espera.
+func TestLoQueCambioBajaEnteroAunqueElFiltroVayaEnElSQL(t *testing.T) {
+	q := nuevoEspejo()
+	stg := "STG"
+	ayer := time.Now().UTC().Add(-24 * time.Hour)
+	hace10m := time.Now().UTC().Add(-10 * time.Minute)
+	// Cuatro viejos, cuatro tocados hace diez minutos y uno SIN MARCA, que cuenta como
+	// cambiado: no se puede fechar, y dejarlo fuera sería no mandarlo nunca.
+	for i := 0; i < 4; i++ {
+		q.padron = append(q.padron, sqlc.ListarClientesRow{
+			ID: uuid.New(), Name: fmt.Sprintf("Viejo %02d", i),
+			Lat: 20.0, Lng: -75.0, SucursalCodigo: &stg,
+			SyncedAt: pgtype.Timestamptz{Time: ayer, Valid: true},
+		})
+	}
+	nuevos := map[string]bool{}
+	for i := 0; i < 4; i++ {
+		id := uuid.New()
+		nuevos[id.String()] = true
+		q.padron = append(q.padron, sqlc.ListarClientesRow{
+			ID: id, Name: fmt.Sprintf("Nuevo %02d", i),
+			Lat: 20.0, Lng: -75.0, SucursalCodigo: &stg,
+			SyncedAt: pgtype.Timestamptz{Time: hace10m, Valid: true},
+		})
+	}
+	sinMarca := uuid.New()
+	nuevos[sinMarca.String()] = true
+	q.padron = append(q.padron, sqlc.ListarClientesRow{
+		ID: sinMarca, Name: "Sin marca",
+		Lat: 20.0, Lng: -75.0, SucursalCodigo: &stg,
+	})
+
+	h := montarTab(t, q)
+	jwt := tokenTab(t, sucStg.String())
+	desde := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+
+	vistos := map[string]bool{}
+	continuar := ""
+	for tandas := 1; ; tandas++ {
+		if tandas > 10 {
+			t.Fatal("la cadena de tandas no termina")
+		}
+		url := "/api/sync/cambios?tope=2&desde=" + desde
+		if continuar != "" {
+			url += "&continuar=" + continuar
+		}
+		w := pedirTab(t, h, http.MethodGet, url, jwt, "")
+		m := leerTab(t, w)
+		clientes, _, _ := conjuntoDe(t, m, "customers")
+		for id := range clientes {
+			if vistos[id] {
+				t.Fatalf("tanda %d repitió al cliente %s", tandas, id)
+			}
+			vistos[id] = true
+		}
+		if truncado, _ := m["truncado"].(bool); !truncado {
+			break
+		}
+		continuar, _ = m["continuar"].(string)
+		if continuar == "" {
+			t.Fatalf("tanda %d dijo «truncado» y no dijo por dónde seguir", tandas)
+		}
+	}
+
+	if len(vistos) != len(nuevos) {
+		t.Fatalf("bajaron %d clientes de los %d que cambiaron", len(vistos), len(nuevos))
+	}
+	for id := range nuevos {
+		if !vistos[id] {
+			t.Errorf("no bajó el cliente %s, que sí había cambiado", id)
 		}
 	}
 }

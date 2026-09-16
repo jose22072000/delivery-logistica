@@ -50,6 +50,25 @@ WHERE
     AND (sqlc.narg('municipio')::text IS NULL OR c.municipio = sqlc.narg('municipio')::text)
     AND (sqlc.narg('zona')::text      IS NULL OR c.zona      = sqlc.narg('zona')::text)
     AND (sqlc.narg('vendedor')::text  IS NULL OR c.vendedor  = sqlc.narg('vendedor')::text)
+    -- LO QUE CAMBIÓ DESDE LA ÚLTIMA VEZ, y aquí y no en Go — 16/09/2026.
+    --
+    -- La bajada del aparato traía el padrón ENTERO en cada arranque y descartaba después,
+    -- al recorrerlo, lo que no había cambiado. Con 8.103 clientes eso son cinco idas y
+    -- vueltas de 2.000 filas para no aplicar ninguna, cada vez que alguien abre la
+    -- aplicación, y es lo que se ve en el teléfono como «Trayendo datos… Clientes…»
+    -- durante varios segundos con la red de Cuba. Jose, 16/09/2026: «cada ves q inicie la
+    -- aplicacion no me traigas todo es comprobar no traer todo, para eso es el sync».
+    --
+    -- Filtrando aquí, un padrón sin cambios devuelve CERO filas: no llega al tope, no se
+    -- marca `truncado` y la cadena se acaba en una sola tanda.
+    --
+    -- `synced_at` NULL cuenta como cambiado, igual que en `cambioDesde` (`espejo.go`): un
+    -- cliente sin marca no se puede fechar, y dejarlo fuera sería no mandarlo nunca.
+    AND (
+        sqlc.narg('cambiado_desde')::timestamptz IS NULL
+        OR c.synced_at IS NULL
+        OR c.synced_at > sqlc.narg('cambiado_desde')::timestamptz
+    )
     -- `origen`: 'pedido' = vino del espejo; 'manual' = alta a mano, que es `source` NULL.
     -- NULL no se compara con `=`, así que la rama del manual se nombra a mano o no sale.
     AND (

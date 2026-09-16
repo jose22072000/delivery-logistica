@@ -159,22 +159,50 @@ void main() {
     );
   });
 
-  test('no vuelve a colarse el azul de delivery', () {
-    // `#1F4FE0` era el primario de la de Next. Se quito entero el 16/09 porque
-    // los botones salian azules con letras blancas, y el complementario exacto
-    // del oro lo devolvia casi igual (`#1F5BD6`) con otro nombre.
-    for (final c in [
-      Paleta.oro,
-      Paleta.enCurso,
-      Colores.marca,
-      Colores.primario,
-      Colores.enCurso,
-    ]) {
-      final h = HSLColor.fromColor(c).hue;
+  test('no queda un solo azul en toda la paleta', () {
+    // ## Esta prueba ya fallo una vez por ser demasiado estrecha
+    //
+    // Nacio mirando solo de 210 a 250 grados, que es donde vive el `#1F4FE0` de
+    // la de Next y el `#1F5BD6` del complementario exacto del oro. Con esa
+    // ventana, el `#1983AA` de «en curso» —tono 195— pasaba tan campante, y el
+    // 16/09/2026 Jose lo vio en el telefono en la tarjeta de «Trayendo
+    // datos...»: «sigo con los azules». Tenia razon: 195 grados es azul para
+    // quien lo mira, se llame petroleo en la rueda o se llame como sea.
+    //
+    // Asi que la ventana pasa a ser LA MITAD FRIA ENTERA, de 170 a 290. El logo
+    // no tiene una gota de azul —ni verdoso, ni petroleo, ni cian, ni indigo— y
+    // ninguna senal derivada puede tenerla. El verde de «hecho» queda a 155 y el
+    // cobre de «en curso» a 22, los dos fuera por un margen amplio.
+    //
+    // Se miran TODAS las senales, no un puñado escogido a mano: la de la vez
+    // pasada estaba en la lista y aun asi paso.
+    for (final MapEntry(key: nombre, value: c) in <String, Color>{
+      'Paleta.oro': Paleta.oro,
+      'Paleta.tinta': Paleta.tinta,
+      'Paleta.hecho': Paleta.hecho,
+      'Paleta.aviso': Paleta.aviso,
+      'Paleta.impide': Paleta.impide,
+      'Paleta.enCurso': Paleta.enCurso,
+      'Colores.marca': Colores.marca,
+      'Colores.primario': Colores.primario,
+      'Colores.secundario': Colores.secundario,
+      'Colores.acento': Colores.acento,
+      'Colores.verde': Colores.verde,
+      'Colores.ambar': Colores.ambar,
+      'Colores.rojo': Colores.rojo,
+      'Colores.enCurso': Colores.enCurso,
+      'Colores.gris': Colores.gris,
+    }.entries) {
+      final hsl = HSLColor.fromColor(c);
+      // La saturacion baja se perdona: un gris con un matiz frio no se lee como
+      // azul. Lo que no se perdona es un color con fuerza en esa mitad.
+      if (hsl.saturation <= 0.15) continue;
       expect(
-        h > 210 && h < 250 && HSLColor.fromColor(c).saturation > 0.5,
+        hsl.hue > 170 && hsl.hue < 290,
         isFalse,
-        reason: '${_hex(c)} es otra vez el azul de delivery',
+        reason:
+            '$nombre es ${_hex(c)}, tono ${hsl.hue.round()}: cae en la mitad '
+            'fria y se ve azul. El logo no tiene ninguno',
       );
     }
   });

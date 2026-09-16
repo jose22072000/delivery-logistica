@@ -738,7 +738,7 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	salida.Cambios["routes"] = conjunto(puestos)
 
 	// --- Catálogo -----------------------------------------------------------
-	productos, err := a.EspejoListarProductos(r.Context(), tope, seguir.Productos)
+	productos, err := a.EspejoListarProductos(r.Context(), tope, seguir.Productos, desdeDelPadron)
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return
@@ -768,7 +768,7 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	// OJO: los clientes se filtran por `synced_at` y no por `updated_at`, porque es lo
 	// único que trae la consulta. Significan cosas parecidas pero no iguales —`synced_at`
 	// es «cuándo lo trajo PEDIDO»—, y mientras sea eso lo que hay, es lo que se usa.
-	clientes, err := a.EspejoListarClientes(r.Context(), tope, seguir.Clientes)
+	clientes, err := a.EspejoListarClientes(r.Context(), tope, seguir.Clientes, desdeDelPadron)
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return

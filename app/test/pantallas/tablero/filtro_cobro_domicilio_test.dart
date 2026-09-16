@@ -13,7 +13,15 @@ import 'apoyo.dart';
 /// pedidos con cobro de domicilio».
 ///
 /// El costo lo pone el repartidor desde Entrega, y es lo que decide si un pedido
-/// se puede meter en una ruta: sin él no se sabe lo que cuesta llevarlo. Las dos
+/// se puede meter en una ruta: sin él no se sabe lo que cuesta llevarlo.
+///
+/// **El número es `pedidoCosto`, no `deliveryPrice`.** Esta prueba nació
+/// sembrando `deliveryPrice` —la misma columna que preguntaba la consulta—, así
+/// que salía verde mientras en el teléfono «Con cobro» daba 0 de 307 y la
+/// tarjeta de al lado enseñaba «0,04 $». `deliveryPrice` es el viaje dedicado y
+/// está vacío en los 3.313 pedidos del servidor; el del domicilio son los 58 de
+/// `pedido_costo`. Sembrar por el mismo sitio por el que se pregunta no
+/// comprueba nada: por eso el sembrador ya no deja escribir esa columna. Las dos
 /// preguntas hacen falta —«qué puedo repartir ya» y «qué está esperando a que le
 /// pongan el costo»— y la segunda es una lista de trabajo para otra persona.
 void main() {
@@ -26,9 +34,9 @@ void main() {
     consultas = ConsultasTablero(base);
     await sembrarSucursal(base);
     await sembrarAlmacen(base);
-    await sembrarPedido(base, id: 'con-cobro', cobroDomicilio: 12.5);
-    await sembrarPedido(base, id: 'de-cero', cobroDomicilio: 0);
-    await sembrarPedido(base, id: 'sin-poner');
+    await sembrarPedido(base, id: 'con-cobro', costo: 12.5);
+    await sembrarPedido(base, id: 'de-cero', costo: 0);
+    await sembrarPedido(base, id: 'sin-poner', costo: null);
     origen = await consultas.almacenDe(sucursalStg);
   });
 
