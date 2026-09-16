@@ -121,16 +121,99 @@ class FranjaDeEstado extends ConsumerWidget {
                     ),
                   ),
           ),
-          // La senal de que esto se pulsa. Un icono y nada de texto: en 390 px
-          // la franja ya lleva la hora y «<n> sin subir», y una palabra mas se
-          // comeria la que importa.
-          const SizedBox(width: 6),
-          Icon(
-            Icons.cloud_download_outlined,
-            size: 15,
-            color: enAmbar ? Colores.ambar : Colores.tintaSuave,
+          // LOS DOS GESTOS, A LA VISTA Y SEPARADOS.
+          //
+          // Antes aqui habia UN icono de 15 px y nada mas: traer el dia se
+          // pulsaba tocando la franja entera, y entregarlo tocando el numero de
+          // «<n> sin subir». Las dos cosas funcionaban y ninguna se veia. Jose,
+          // el 16/09/2026: «necesito tambien via rapida para enviar los datos y
+          // los recibirlos q tengo q ir a panel y revisarlos por ahi».
+          //
+          // Y habia un hueco de verdad: **sin nada pendiente no habia forma de
+          // subir**. El numero era la unica puerta a entregar el dia, y cuando
+          // marcaba cero desaparecia. Quien acaba de cerrar una ruta y quiere
+          // asegurarse de que subio no tenia donde darle.
+          //
+          // Dos botones con su tooltip y su area de dedo. Caben en 390 px
+          // porque sustituyen al icono suelto, y el numero de pendientes va
+          // ENCIMA del de subir, que es donde significa algo.
+          const SizedBox(width: 4),
+          _BotonDeFranja(
+            icono: Icons.cloud_download_outlined,
+            tooltip: 'Traer el día',
+            enAmbar: enAmbar,
+            alPulsar: () => abrirCajonDeTraerElDia(context),
+          ),
+          _BotonDeFranja(
+            icono: Icons.cloud_upload_outlined,
+            tooltip: pendientes > 0
+                ? 'Entregar el día · $pendientes sin subir'
+                : 'Entregar el día',
+            enAmbar: enAmbar,
+            insignia: pendientes,
+            alPulsar:
+                alPulsarPendientes ?? () => abrirCajonDeEntregarElDia(context),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Un boton de la franja: icono, tooltip y area de dedo, sin robarle alto.
+///
+/// `IconButton` a secas mide 48 px y doblaria la altura de la franja, que vive
+/// en las siete pantallas y no puede engordar. Se le quita el relleno y se le
+/// pone un area propia de 40x32: suficiente para un dedo, sin que la franja deje
+/// de ser una franja.
+class _BotonDeFranja extends StatelessWidget {
+  const _BotonDeFranja({
+    required this.icono,
+    required this.tooltip,
+    required this.enAmbar,
+    required this.alPulsar,
+    this.insignia = 0,
+  });
+
+  final IconData icono;
+  final String tooltip;
+  final bool enAmbar;
+  final VoidCallback alPulsar;
+
+  /// Cuantos apuntes esperan. En cero no se pinta nada: un globo con un cero
+  /// dentro es ruido que ensena a no mirar los globos.
+  final int insignia;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = enAmbar ? Colores.ambar : Colores.tintaSuave;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: alPulsar,
+        borderRadius: BorderRadius.circular(Radios.sm),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 40, minHeight: 32),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(width: 8),
+              Icon(icono, size: 17, color: color),
+              if (insignia > 0) ...[
+                const SizedBox(width: 3),
+                Text(
+                  '$insignia',
+                  style: Tipos.texto(
+                    tamano: 11,
+                    peso: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+              ],
+              const SizedBox(width: 8),
+            ],
+          ),
+        ),
       ),
     );
   }
