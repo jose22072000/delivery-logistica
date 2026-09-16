@@ -76,8 +76,22 @@ func correr() error {
 	// pasada. Aun así se pasa por la portería y no por el `Querier` pelado — la regla del
 	// sistema es que a la base se llega por `alcance`, y una excepción «porque esto es un
 	// proceso de fondo» es exactamente como se acaban colando las consultas sin sucursal.
+	//
+	// EL ROL VA EXPLÍCITO. Ésta es la CUARTA puerta de servicio, y la última en enterarse.
+	//
+	// El 16/09/2026 `VeTodasLasSucursales` dejó de ser «no tiene sucursal» y pasó a mirar
+	// el ROL. Se actualizaron las tres de `internal/api` y ésta se quedó atrás: sin rol,
+	// la portería devuelve `ErrSinAlcance` y **este proceso no arranca**. Sin espejo no
+	// entran ni clientes, ni catálogo, ni los pedidos de PEDIDO.
+	//
+	// No se vio ese día porque la imagen desplegada era anterior al cambio: el binario en
+	// marcha no tenía la regla nueva. Habría muerto en el siguiente despliegue del espejo,
+	// que es la peor forma de encontrarlo — un despliegue que no cambia nada y rompe algo.
+	//
+	// Y como en las otras tres: esto NO es «un usuario sin sucursal». La regla de Jose es
+	// sobre personas; esto es el propio espejo, que por definición recorre las ocho.
 	acotado, err := alcance.NuevaPorteria(almacen, reg).Resolver(ctx,
-		&auth.Usuario{ID: "servicio:espejo", Nombre: "espejo"}, "")
+		&auth.Usuario{ID: "servicio:espejo", Nombre: "espejo", Rol: "SUPER ADMIN"}, "")
 	if err != nil {
 		return fmt.Errorf("no se pudo resolver el alcance del espejo: %w", err)
 	}

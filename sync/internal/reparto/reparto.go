@@ -61,7 +61,7 @@ func (c *Cliente) Diferencias(ctx context.Context, v sincro.Ventana) (sincro.Cam
 	if err != nil {
 		return nil, false, err
 	}
-	c.cabeceras(req, "", uuid.Nil, time.Time{})
+	c.cabeceras(req, time.Time{})
 
 	res, err := c.http.Do(req)
 	if err != nil {
@@ -128,7 +128,7 @@ func (c *Cliente) Aplicar(ctx context.Context, p sincro.Peticion) (*uuid.UUID, e
 	if len(p.Cuerpo) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	c.cabeceras(req, p.Persona, p.Sucursal, p.Hecho)
+	c.cabeceras(req, p.Hecho)
 	// EL TOKEN DE LA PERSONA manda sobre la clave de servicio, y la SUSTITUYE.
 	//
 	// Las rutas del aparato (`/api/board/columns`, `/api/routes/…`) exigen sesión de
@@ -210,17 +210,28 @@ func (c *Cliente) Aplicar(ctx context.Context, p sincro.Peticion) (*uuid.UUID, e
 	}
 }
 
-func (c *Cliente) cabeceras(req *http.Request, persona string, sucursal uuid.UUID, hecho time.Time) {
-	// Las rutas de servicio del reparto van con `x-api-key`; la persona y la sucursal van
-	// aparte porque el alcance lo sigue aplicando el reparto, no este servicio.
+// cabeceras pone lo COMÚN de cualquier llamada al reparto. Quién firma se decide arriba,
+// en `Aplicar`: con el token de la persona cuando lo hay, y sólo entonces se quita esta
+// clave.
+//
+// ## Aquí vivían `X-Persona` y `X-Sucursal`, y no las leía nadie
+//
+// Se escribían en cada apunte desde el primer día y **el reparto nunca las miró**: un
+// `grep` de las dos en `api/` no devuelve un solo lector. Medio protocolo, escrito con
+// nadie al otro lado, dando la impresión de que la identidad viajaba cuando no viajaba —
+// que es justo lo que hizo tardar en ver por qué `/api/board/columns` contestaba 401.
+//
+// (Ojo: `X-Sucursal-Id` de `alcance.go` es OTRA cabecera, de la web al reparto. Se parecen
+// en el nombre y no tienen nada que ver.)
+//
+// Ahora la identidad viaja donde tiene que viajar, en el token. Y estas dos se van enteras,
+// que es la regla de la casa: quitar algo es quitarlo con sus tipos, sus llamadas y su
+// firma.
+//
+// `X-Hecho-At` se queda porque SÍ tiene lector: `api/internal/api/rutas.go:168`.
+func (c *Cliente) cabeceras(req *http.Request, hecho time.Time) {
 	req.Header.Set("x-api-key", c.clave)
 	req.Header.Set("Accept", "application/json")
-	if persona != "" {
-		req.Header.Set("X-Persona", persona)
-	}
-	if sucursal != uuid.Nil {
-		req.Header.Set("X-Sucursal", sucursal.String())
-	}
 	if !hecho.IsZero() {
 		// La hora del APARATO, para que el reparto guarde cuándo se hizo y no cuándo
 		// llegó. Lo que se marcó a las cuatro tiene que constar como las cuatro.

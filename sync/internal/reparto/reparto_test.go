@@ -283,3 +283,50 @@ func TestUn401EsCaidaYUn403EsRechazo(t *testing.T) {
 			"y salió %v: reintentarlo para siempre es un bucle", err)
 	}
 }
+
+// NO SE MANDA NINGUNA CABECERA QUE NADIE LEA.
+//
+// `X-Persona` y `X-Sucursal` se escribieron en cada apunte desde el primer día y el
+// reparto **nunca las miró** — cero lectores en `api/`. Medio protocolo, con nadie al otro
+// lado, dando la impresión de que la identidad viajaba cuando no viajaba: es lo que hizo
+// tardar en ver por qué `/api/board/columns` contestaba 401 «no viene token».
+//
+// Se quedan las que sí tienen lector, y la prueba las nombra para que quitar una de ellas
+// por descuido se vea aquí.
+func TestNoSeMandanCabecerasQueNadieLee(t *testing.T) {
+	var vistas http.Header
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			vistas = r.Header.Clone()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		}))
+	defer servidor.Close()
+
+	hecho := time.Now().Add(-3 * time.Hour)
+	c := Nuevo(servidor.URL, "clave-de-prueba", 5*time.Second)
+	if _, err := c.Aplicar(context.Background(), sincro.Peticion{
+		Metodo: http.MethodPost, Ruta: "/board/columns", Hecho: hecho,
+		Sucursal: uuid.New(), Persona: "u-1", Clave: "k", Token: "t",
+	}); err != nil {
+		t.Fatalf("no tenía que fallar: %v", err)
+	}
+
+	for _, muerta := range []string{"X-Persona", "X-Sucursal", "X-Super-Admin"} {
+		if v := vistas.Get(muerta); v != "" {
+			t.Errorf("se sigue mandando %s (%q) y el reparto no la lee: es medio "+
+				"protocolo escrito, y hace creer que la identidad viaja por ahí",
+				muerta, v)
+		}
+	}
+	// Y las que SÍ se leen siguen yendo. `X-Hecho-At` la lee `api/internal/api/rutas.go`
+	// para guardar cuándo se hizo el trabajo y no cuándo llegó: lo que se marcó a las
+	// cuatro tiene que constar como las cuatro.
+	if vistas.Get("X-Hecho-At") == "" {
+		t.Error("falta X-Hecho-At: sin ella el reparto fecha el trabajo cuando llega, " +
+			"no cuando se hizo")
+	}
+	if vistas.Get("X-Apunte") != "k" {
+		t.Errorf("falta X-Apunte: %q", vistas.Get("X-Apunte"))
+	}
+}

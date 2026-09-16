@@ -1208,3 +1208,78 @@ func TestLoQueCambioBajaEnteroAunqueElFiltroVayaEnElSQL(t *testing.T) {
 		}
 	}
 }
+
+// LA CARGA INICIAL BAJA EL PADRÓN ENTERO, encadenando COMO ENCADENA EL APARATO.
+//
+// Ésta es la prueba que faltaba, y su forma es lo que importa: **el `desde` avanza en cada
+// vuelta**. El aparato relee su marca de frescura antes de cada tanda (`bajada.dart`) y ya
+// se apuntó el `hasta` que devolvió la anterior, así que la tanda 2 NO pide lo mismo que
+// la 1. Las dos pruebas que había mandaban un `desde` fijo, y con `desde` fijo la fijación
+// del cursor es un no-op: no comprobaban nada de esto.
+//
+// Sin `porDondeSeguir.Empezada`, la tanda 2 de una carga inicial confundía «la cadena
+// empezó sin desde» con «todavía no se ha fijado», se quedaba con el `hasta` de la primera
+// como filtro, no emitía ni una fila y daba la bajada por terminada: **2.000 clientes de
+// 8.103, con cara de completa**. El mismo número y el mismo silencio del 15/09.
+//
+// Y lo peor: como la cadena acaba «bien», la guarda del aparato que avisa de una bajada
+// cortada tampoco salta. No hay a quién preguntarle qué pasó.
+func TestLaCargaInicialBajaElPadronEnteroEncadenandoComoElAparato(t *testing.T) {
+	q := nuevoEspejo()
+	stg := "STG"
+	const total = 7
+	ayer := time.Now().UTC().Add(-24 * time.Hour)
+	for i := 0; i < total; i++ {
+		q.padron = append(q.padron, sqlc.ListarClientesRow{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("Cliente %02d", i),
+			Lat:            20.0,
+			Lng:            -75.0,
+			SucursalCodigo: &stg,
+			SyncedAt:       pgtype.Timestamptz{Time: ayer, Valid: true},
+		})
+	}
+	h := montarTab(t, q)
+	jwt := tokenTab(t, sucStg.String())
+
+	vistos := map[string]bool{}
+	continuar, desde := "", "" // la primera tanda va SIN `desde`: aparato vacío
+	for tandas := 1; ; tandas++ {
+		if tandas > 10 {
+			t.Fatal("la cadena de tandas no termina")
+		}
+		url := "/api/sync/cambios?tope=3"
+		if desde != "" {
+			url += "&desde=" + desde
+		}
+		if continuar != "" {
+			url += "&continuar=" + continuar
+		}
+		w := pedirTab(t, h, http.MethodGet, url, jwt, "")
+		m := leerTab(t, w)
+
+		clientes, _, _ := conjuntoDe(t, m, "customers")
+		for id := range clientes {
+			if vistos[id] {
+				t.Fatalf("tanda %d repitió al cliente %s", tandas, id)
+			}
+			vistos[id] = true
+		}
+		if truncado, _ := m["truncado"].(bool); !truncado {
+			break
+		}
+		continuar, _ = m["continuar"].(string)
+		if continuar == "" {
+			t.Fatalf("tanda %d dijo «truncado» y no dijo por dónde seguir", tandas)
+		}
+		// AQUÍ ESTÁ LA GRACIA: el aparato se apunta el `hasta` y lo manda como `desde` en
+		// la vuelta siguiente. Es lo que hace `bajada.dart`, y lo que ninguna prueba hacía.
+		desde, _ = m["hasta"].(string)
+	}
+
+	if len(vistos) != total {
+		t.Fatalf("la carga inicial dejó %d clientes de %d y dio la bajada por terminada: "+
+			"el aparato se va al almacén con el padrón a medias y nadie se entera",
+			len(vistos), total)
+	}
+}

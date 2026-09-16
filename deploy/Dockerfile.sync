@@ -27,6 +27,17 @@ RUN go mod download
 COPY sync/ .
 
 ENV CGO_ENABLED=0
+# LAS PRUEBAS, ANTES DE CONSTRUIR. No es celo: es lo que faltaba el 16/09/2026.
+#
+# Ese día se subió a `main`, sin querer, una mutación de prueba —una guarda invertida a
+# propósito para comprobar que hay un test que la caza— y Dokploy reconstruyó esta imagen
+# 29 segundos después. Como aquí sólo se compilaba, la mutación compiló, se desplegó, y
+# producción estuvo media hora corriéndola: el reenvío del token de la persona quedaba
+# anulado y la cola del tablero volvía a contestar 401.
+#
+# Las pruebas SÍ la cazaban. Nadie se lo preguntó a nadie. Costaba diez segundos aquí.
+RUN go vet ./... && go test ./...
+
 RUN go build -trimpath -ldflags="-s -w" -o /out/sync ./cmd/sync
 
 FROM gcr.io/distroless/static-debian12:nonroot

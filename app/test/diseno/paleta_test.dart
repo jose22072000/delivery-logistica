@@ -171,8 +171,16 @@ void main() {
     //
     // Asi que la ventana pasa a ser LA MITAD FRIA ENTERA, de 170 a 290. El logo
     // no tiene una gota de azul —ni verdoso, ni petroleo, ni cian, ni indigo— y
-    // ninguna senal derivada puede tenerla. El verde de «hecho» queda a 155 y el
-    // cobre de «en curso» a 22, los dos fuera por un margen amplio.
+    // ninguna senal derivada puede tenerla. El verde de «hecho» queda a 155, muy
+    // por debajo; la ciruela de «en curso», a 292, y ESA SÓLO POR DOS GRADOS.
+    //
+    // Los dos grados son a proposito y hay que saberlo antes de tocar el tono:
+    // «en curso» esta pegado al borde de arriba porque **es el unico hueco que
+    // queda**. La mitad calida esta llena —155 verde, 42 ambar, 358 rojo— y la
+    // prueba de «las cuatro senales se distinguen entre si» tumba cualquier
+    // intento de meterlo ahi. Bajar la ciruela por debajo de 290 la mete en la
+    // mitad fria; subirla mucho la acerca al rojo. Si mañana hay que moverla,
+    // hay que mover algo mas con ella.
     //
     // Se miran TODAS las senales, no un puñado escogido a mano: la de la vez
     // pasada estaba en la lista y aun asi paso.

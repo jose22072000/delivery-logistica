@@ -37,6 +37,18 @@ COPY api/ .
 # actualizarse. En Dokploy va como Build Arg; en local la pone docker-compose.
 ARG VERSION=dev
 ENV CGO_ENABLED=0
+# LAS PRUEBAS, ANTES DE CONSTRUIR. No es celo: es lo que faltaba el 16/09/2026.
+#
+# Ese día se subió a `main`, sin querer, una mutación de prueba —una guarda invertida a
+# propósito para comprobar que hay un test que la caza— y Dokploy reconstruyó la imagen de `sync`
+# 29 segundos después. Como aquí sólo se compilaba, la mutación compiló, se desplegó, y
+# producción estuvo media hora corriéndola: el reenvío del token de la persona quedaba
+# anulado y la cola del tablero volvía a contestar 401. Aquí no pasó, pero la puerta
+# estaba igual de abierta.
+#
+# Las pruebas SÍ la cazaban. Nadie se lo preguntó a nadie. Costaba diez segundos aquí.
+RUN go vet ./... && go test ./...
+
 RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/api ./cmd/api
 
 # Imagen final: sólo el binario. `static-debian12` trae los certificados CA, que hacen

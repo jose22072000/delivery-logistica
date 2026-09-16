@@ -520,7 +520,24 @@ type CambiosSalida struct {
 // segunda tanda ese `desde` ya es el `hasta` de la primera. Sin conservar el original, la
 // tanda dos pagina hasta el final del padrón sin emitir una sola fila.
 type porDondeSeguir struct {
-	// Desde es el de la PRIMERA tanda de la cadena. Vacío = carga inicial.
+	// Empezada dice que este cursor viene de una cadena YA EN MARCHA, y es lo único que
+	// separa las dos cosas que `Desde` vacío significaba a la vez.
+	//
+	// Sin él, «la cadena empezó SIN desde» —una carga inicial— y «todavía no se ha fijado
+	// el desde» —la primera tanda— eran el mismo valor. La tanda 2 de una carga inicial
+	// caía en la rama de «fíjalo ahora» y se quedaba con el `desde` de ESA tanda, que es
+	// el `hasta` que devolvió la primera. Contra ese filtro no pasa ni un cliente: 0
+	// filas, `truncado` a false y la cadena se acaba.
+	//
+	// El aparato se quedaba con **2.000 de los 8.103 clientes y la bajada dada por
+	// completa** — el mismo número y el mismo silencio del incidente del 15/09, que es el
+	// fallo que más caro sale en este proyecto (`CLAUDE.md` §3). Y peor todavía: como la
+	// cadena termina «bien», la guarda del aparato que avisa de una bajada cortada
+	// (`bajada.dart`) tampoco salta. Nadie se entera.
+	Empezada bool `json:"i,omitempty"`
+
+	// Desde es el de la PRIMERA tanda de la cadena. Vacío CON `Empezada` = carga inicial:
+	// sin filtro de marca, que es lo que hace falta para que bajen los 8.103.
 	Desde string `json:"d,omitempty"`
 	// Clientes y Productos son cuántas filas ya se sirvieron de cada uno.
 	Clientes  int32 `json:"c,omitempty"`
@@ -605,15 +622,33 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	// POR DÓNDE VA LA CADENA. En la primera tanda viene vacío.
 	seguir := leerPorDondeSeguir(q.Get("continuar"))
 
-	// El `desde` con el que se filtran el catálogo y los clientes es el de la PRIMERA
-	// tanda, no el de ésta: ver `porDondeSeguir`.
+	// EL `desde` DEL PADRÓN ES EL DE LA PRIMERA TANDA, no el de ésta.
+	//
+	// El aparato relee su marca de frescura en cada vuelta y ya se apuntó el `hasta` de la
+	// anterior, así que el `desde` que manda AVANZA entre tandas. El catálogo y el padrón
+	// se trocean por desplazamiento —van ordenados por nombre—, de modo que si el filtro
+	// de marca se moviera con él, la tanda 2 pediría «lo que cambió desde hace un
+	// segundo» sobre las filas 2.000 a 4.000 y no emitiría ninguna.
+	//
+	// Por eso se fija en la primera tanda y viaja dentro del cursor. Y por eso hay que
+	// distinguir «la cadena empezó sin `desde`» de «todavía no se ha fijado»: ver
+	// `porDondeSeguir.Empezada`.
 	desdeDelPadron := desde
-	if seguir.Desde != "" {
+	switch {
+	case seguir.Empezada && seguir.Desde == "":
+		// Carga inicial ya en marcha: SIN filtro de marca. Es lo que deja que bajen los
+		// 8.103 clientes y no los 2.000 primeros.
+		desdeDelPadron = nil
+	case seguir.Empezada:
 		if t, err := time.Parse(time.RFC3339Nano, seguir.Desde); err == nil {
 			desdeDelPadron = &t
 		}
-	} else if desde != nil {
-		seguir.Desde = desde.Format(time.RFC3339Nano)
+	default:
+		// Primera tanda: se fija lo que vale para toda la cadena.
+		seguir.Empezada = true
+		if desde != nil {
+			seguir.Desde = desde.Format(time.RFC3339Nano)
+		}
 	}
 
 	salida := CambiosSalida{

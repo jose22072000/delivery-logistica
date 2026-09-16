@@ -1,7 +1,9 @@
 package api
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -26,16 +28,26 @@ import (
 // registro del servidor.
 //
 // Esta prueba mira el CÓDIGO y no una petición, a propósito: lo que hay que impedir es que
-// alguien añada una cuarta puerta y se le olvide el rol. Montar las tres rutas no cazaría
-// la cuarta.
+// alguien añada una puerta más y se le olvide el rol. Montar las rutas conocidas no cazaría
+// la siguiente.
+//
+// ## Y BARRE TODO `api/`, que es la corrección de su primera versión
+//
+// Nació con una lista de tres ficheros escrita a mano —`cotizacion.go`, `espejo.go`,
+// `pedidos.go`— y un suelo de `encontradas < 3`. Su propio comentario decía «lo que hay
+// que impedir es que alguien añada una cuarta puerta y se le olvide el rol»… y **la cuarta
+// ya existía, ya estaba sin rol, y la prueba estaba verde**: `cmd/espejo/main.go`, el
+// proceso del espejo, que no vive bajo `internal/api` y por eso no lo miraba nadie.
+//
+// Habría muerto en su siguiente despliegue: sin rol la portería devuelve `ErrSinAlcance` y
+// el proceso no arranca. Sin espejo no entran clientes, ni catálogo, ni pedidos de PEDIDO.
+//
+// Una prueba que lee una lista escrita a mano comprueba esa lista, no la regla. Ahora
+// recorre el árbol entero desde la raíz del módulo.
 func TestLasPersonasSinteticasDeServicioLlevanSuRol(t *testing.T) {
 	// `ID: "servicio…"` es la marca: sólo las inventadas se llaman así.
 	patron := regexp.MustCompile(`auth\.Usuario\{[^}]*\}`)
-	ficheros := []string{
-		"cotizacion.go",
-		"espejo.go",
-		"pedidos.go",
-	}
+	ficheros := ficherosGoDe(t, "..", "..")
 	encontradas := 0
 	for _, nombre := range ficheros {
 		crudo, err := os.ReadFile(nombre)
@@ -60,11 +72,49 @@ func TestLasPersonasSinteticasDeServicioLlevanSuRol(t *testing.T) {
 			}
 		}
 	}
-	if encontradas < 3 {
-		t.Fatalf("se encontraron %d puertas de servicio y hay 3: o se borró una sin "+
-			"quitar su ruta, o cambió la forma de escribirlas y esta prueba dejó de "+
-			"mirar lo que cree", encontradas)
+	// EL SUELO. Sin él, un cambio en cómo se escriben estas personas —otro nombre, otra
+	// forma de construirlas— dejaría la prueba recorriendo el árbol sin encontrar nada y
+	// pasando en verde para siempre. Son cuatro hoy: las tres de `internal/api` y la de
+	// `cmd/espejo`. Si añades una, sube el número; si quitas una, bájalo.
+	const hay = 4
+	if encontradas != hay {
+		t.Fatalf("se encontraron %d puertas de servicio y hay %d: o se añadió una (sube "+
+			"el número), o se borró una sin quitar su ruta, o cambió la forma de "+
+			"escribirlas y esta prueba dejó de mirar lo que cree", encontradas, hay)
 	}
+}
+
+// ficherosGoDe recorre el árbol y devuelve los `.go` que NO son pruebas.
+//
+// Se excluyen las pruebas a propósito: ahí sí se construyen usuarios de mentira llamados
+// «servicio» para comprobar justo estas reglas, y contarlos haría fallar el suelo por una
+// razón que no es la de verdad.
+func ficherosGoDe(t *testing.T, partes ...string) []string {
+	t.Helper()
+	raiz := filepath.Join(partes...)
+	var salida []string
+	err := filepath.WalkDir(raiz, func(ruta string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.IsDir() && (d.Name() == "sqlc" || d.Name() == "vendor"):
+			// Generado. No se escribe a mano, así que no hay nada que se pueda olvidar.
+			return fs.SkipDir
+		case d.IsDir(), !strings.HasSuffix(ruta, ".go"),
+			strings.HasSuffix(ruta, "_test.go"):
+			return nil
+		}
+		salida = append(salida, ruta)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("no se pudo recorrer %s: %v", raiz, err)
+	}
+	if len(salida) == 0 {
+		t.Fatalf("no se encontró ni un fichero .go bajo %s: la prueba no está mirando "+
+			"donde cree", raiz)
+	}
+	return salida
 }
 
 // Y la otra mitad: que el rol que llevan puesto SIRVA de verdad. Una prueba que sólo mire

@@ -156,10 +156,28 @@ services:
       SYNC_ADDR: ":8081"
       REPARTO_URL: http://api:8080
       REPARTO_API_KEY: ${SERVICE_API_KEY:-clave-de-servicio-local}
-      # No tiene valor por defecto a propósito: confiar en las cabeceras `X-Persona` /
-      # `X-Sucursal` sólo es seguro si nadie más puede llegar a este puerto. En local, a
-      # 127.0.0.1; en el VPS, detrás del proxy que las pone. Ver sync/internal/identidad.
-      SYNC_IDENTIDAD: cabeceras
+      # `token`, igual que producción. **No vuelvas a poner `cabeceras` aquí.**
+      #
+      # Ese modo saca la identidad de unas cabeceras que «pone el proxy que verifica el
+      # token delante de este servicio», y ese proxy NO EXISTE: Traefik enruta directo al
+      # contenedor. Así que `X-Persona` llegaba siempre vacía y el servicio contestaba 401
+      # a todo — y el cliente trata un 401 que sobrevive a renovar como «la sesión murió»,
+      # o sea que echaba a la persona a la pantalla de acceso justo cuando volvía la señal,
+      # con el día del almacén dentro del teléfono. Visto el 16/09/2026.
+      #
+      # Y hay una segunda razón desde ese mismo día: en `cabeceras` la identidad no trae
+      # token, así que `reparto-sync` no tiene qué reenviarle al reparto y la cola del
+      # tablero vuelve a recibir 401 «no viene token». El modo viejo no es sólo peor: es el
+      # camino roto, y dejarlo en el compose hacía que el entorno local se comportara
+      # distinto del servidor sin decir una palabra.
+      #
+      # Con `token` este servicio verifica el JWT de auth él mismo: misma firma, mismo
+      # secreto y mismas reglas de alcance que `reparto-api`. Ver sync/internal/identidad.
+      SYNC_IDENTIDAD: ${SYNC_IDENTIDAD:-token}
+      # EL MISMO que el de `api` de aquí arriba, y no es un detalle: `reparto-sync`
+      # verifica el token que firmó auth, así que dos secretos distintos en el mismo
+      # compose dan 401 en todo sin decir por qué.
+      JWT_SECRET: ${JWT_SECRET:-secreto-de-desarrollo-de-mas-de-32-caracteres}
       SYNC_TOPE_BAJADA: ${SYNC_TOPE_BAJADA:-500}
     ports:
       - "127.0.0.1:8081:8081"
