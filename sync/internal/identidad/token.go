@@ -76,7 +76,7 @@ func DeToken(secreto []byte) Fuente {
 		}
 		// Se guarda DESPUÉS de verificar, nunca antes: lo que se reenvía al reparto tiene
 		// que ser un token que ya pasó por la firma, el `exp` y el alcance de aquí.
-		id.Token = crudo
+		_ = crudo
 		return id, nil
 	}
 }

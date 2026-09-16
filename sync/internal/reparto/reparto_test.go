@@ -229,3 +229,57 @@ func TestSinTokenSeSigueMandandoLaClave(t *testing.T) {
 		t.Errorf("sin token no se inventa un Authorization: %q", autorizacion)
 	}
 }
+
+// UN 401 ES CAÍDA, NO RECHAZO. Y un 403 sí es rechazo.
+//
+// Tercer acto del 16/09/2026, y el que explica por qué los dos arreglos anteriores no
+// rescataron nada por sí solos. `POST /api/board/columns` contestaba 401; este servicio
+// metía todo 4xx en el mismo saco («el reparto dijo que no»), así que el apunte que CREA
+// la zona se marcó RECHAZADO y detrás se cayeron los cinco que colocaban pedidos dentro.
+// Seis apuntes de trabajo real esperando a que «una persona decida» sobre una credencial
+// que no viajó — que es algo que ninguna persona delante de un teléfono puede decidir.
+//
+// Y un rechazo no se reintenta solo: arreglado el reenvío del token, los seis SEGUÍAN
+// muertos en la bandeja. El segundo fallo tapaba al primero.
+//
+// La línea es si el reparto entendió QUIÉN preguntaba. Con 401 no lo sabía: es nuestro y
+// se reintenta. Con 403 sí lo sabía y dijo que no puede: eso lo decide una persona, y
+// reintentarlo para siempre sería un bucle.
+func TestUn401EsCaidaYUn403EsRechazo(t *testing.T) {
+	var codigo int
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(codigo)
+			_, _ = w.Write([]byte(`{"error":"Unauthorized"}`))
+		}))
+	defer servidor.Close()
+
+	c := Nuevo(servidor.URL, "clave-de-prueba", 5*time.Second)
+	aplicar := func() error {
+		_, err := c.Aplicar(context.Background(), sincro.Peticion{
+			Metodo: http.MethodPost, Ruta: "/board/columns", Hecho: time.Now(),
+			Sucursal: uuid.New(), Persona: "u-1", Clave: "k", Token: "t",
+		})
+		return err
+	}
+
+	codigo = http.StatusUnauthorized
+	err := aplicar()
+	var rechazo *sincro.Rechazo
+	if errors.As(err, &rechazo) {
+		t.Errorf("un 401 se trató como rechazo (%q): el apunte se queda muerto en la "+
+			"bandeja pidiendo que alguien decida sobre una credencial que no viajó, y "+
+			"detrás se caen todos los que dependen de lo que iba a crear",
+			rechazo.Motivo)
+	}
+	if err == nil {
+		t.Error("un 401 tampoco es un éxito: el apunte no se escribió")
+	}
+
+	codigo = http.StatusForbidden
+	if err := aplicar(); !errors.As(err, &rechazo) {
+		t.Errorf("un 403 SÍ es rechazo —el reparto supo quién preguntaba y dijo que no—, "+
+			"y salió %v: reintentarlo para siempre es un bucle", err)
+	}
+}
