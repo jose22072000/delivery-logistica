@@ -3,6 +3,7 @@ package reparto
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -90,5 +91,60 @@ func TestNoSeDuplicaElApi(t *testing.T) {
 	}
 	if vista != "/api/board/columns" {
 		t.Errorf("ruta = %q, se esperaba /api/board/columns", vista)
+	}
+}
+
+// UN 404 DE PUERTA EQUIVOCADA NO ES UN RECHAZO, y la diferencia se paga cara.
+//
+// El reparto contesta sus «no encontrado» con un JSON suyo. Un 404 con otra cosa dentro
+// —el `404 page not found` del enrutador de Go— dice que se llamó a una puerta que no
+// existe: un fallo de despliegue. Tratarlo como rechazo deja el apunte muerto en la
+// bandeja pidiendo que una persona decida sobre algo que ninguna persona puede arreglar,
+// y arrastra a todos los que dependían de lo que iba a crear.
+func Test404DeRutaEsCaidaYNoRechazo(t *testing.T) {
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			// Exactamente lo que escribe el enrutador de Go.
+			http.NotFound(w, r)
+		}))
+	defer servidor.Close()
+
+	_, err := Nuevo(servidor.URL, "k", 5*time.Second).Aplicar(
+		context.Background(), sincro.Peticion{
+			Metodo: http.MethodPost, Ruta: "/board/columns",
+			Hecho: time.Now(), Sucursal: uuid.New(), Persona: "x", Clave: "k",
+		})
+	if err == nil {
+		t.Fatal("tenía que fallar")
+	}
+	var rechazo *sincro.Rechazo
+	if errors.As(err, &rechazo) {
+		t.Fatalf("un 404 de ruta NO puede ser un rechazo: se queda muerto en la bandeja "+
+			"y arrastra a los que dependen de él. Salió: %v", err)
+	}
+}
+
+// Y un 404 QUE SÍ VIENE DEL REPARTO sigue siendo un rechazo: «ese pedido ya no está» es
+// una respuesta de negocio y la tiene que mirar una persona.
+func Test404DelRepartoSigueSiendoRechazo(t *testing.T) {
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"Ese pedido ya no existe"}`))
+		}))
+	defer servidor.Close()
+
+	_, err := Nuevo(servidor.URL, "k", 5*time.Second).Aplicar(
+		context.Background(), sincro.Peticion{
+			Metodo: http.MethodPut, Ruta: "/board/placements/p-1",
+			Hecho: time.Now(), Sucursal: uuid.New(), Persona: "x", Clave: "k",
+		})
+	var rechazo *sincro.Rechazo
+	if !errors.As(err, &rechazo) {
+		t.Fatalf("tenía que ser un rechazo con su motivo: %v", err)
+	}
+	if rechazo.Motivo != "Ese pedido ya no existe" {
+		t.Errorf("motivo = %q: se enseña LITERAL lo que dijo el reparto", rechazo.Motivo)
 	}
 }

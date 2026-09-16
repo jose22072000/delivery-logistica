@@ -149,6 +149,23 @@ func (c *Cliente) Aplicar(ctx context.Context, p sincro.Peticion) (*uuid.UUID, e
 		// corregirla). Por eso un cuerpo que no se entiende no tira el apunte.
 		_ = json.Unmarshal(datos, &creado)
 		return creado.ID, nil
+	case res.StatusCode == http.StatusNotFound && !esRespuestaDelReparto(datos):
+		// UN 404 QUE NO VIENE DEL REPARTO ES NUESTRO, NO UN RECHAZO.
+		//
+		// El reparto contesta sus «no encontrado» con un JSON suyo (`{"error": …}`).
+		// Un 404 con otra cosa dentro —el `404 page not found` del enrutador de Go— dice
+		// que se llamó a una puerta que no existe, o sea un fallo de despliegue o de
+		// ruta. Eso NO es «el reparto dijo que no»: es que no llegó a preguntárselo.
+		//
+		// La diferencia no es teórica. Tratarlo como rechazo dejaba el apunte muerto en
+		// la bandeja, pidiendo que una persona decidiera sobre algo que ninguna persona
+		// puede arreglar; y con él se caían todos los que dependían de lo que iba a
+		// crear. Así se perdieron seis apuntes el 16/09/2026 por un `/api` que faltaba.
+		//
+		// Como caída, el apunte SE QUEDA EN LA COLA del aparato y sube solo en cuanto la
+		// puerta exista. Que es lo que tiene que pasar cuando el fallo es nuestro.
+		return nil, fmt.Errorf("el reparto contestó 404 sin decir por qué: la ruta %q no "+
+			"existe en el reparto (fallo de despliegue, no rechazo)", p.Ruta)
 	case res.StatusCode >= 400 && res.StatusCode < 500:
 		return nil, &sincro.Rechazo{Motivo: motivoDe(datos)}
 	default:
@@ -177,6 +194,17 @@ func (c *Cliente) cabeceras(req *http.Request, persona string, sucursal uuid.UUI
 // motivoDe saca la frase de `{"error": "..."}`. Es el mensaje literal en español que va a
 // leer la persona que tenga que arreglarlo, así que se conserva entero; si la respuesta no
 // tiene esa forma, se devuelve lo que vino, recortado.
+// esRespuestaDelReparto: si el cuerpo es un `{"error": …}` de los nuestros.
+//
+// Es lo que separa «el reparto dijo que no» de «se llamó a una puerta que no existe». Lo
+// primero lo decide una persona; lo segundo lo arregla un despliegue.
+func esRespuestaDelReparto(datos []byte) bool {
+	var sobre struct {
+		Error string `json:"error"`
+	}
+	return json.Unmarshal(datos, &sobre) == nil && sobre.Error != ""
+}
+
 func motivoDe(datos []byte) string {
 	var sobre struct {
 		Error string `json:"error"`

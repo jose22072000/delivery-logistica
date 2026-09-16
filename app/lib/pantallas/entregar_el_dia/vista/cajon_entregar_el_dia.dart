@@ -399,13 +399,13 @@ class _EnCalma extends StatelessWidget {
 }
 
 /// LA BANDEJA de este aparato: lo que el servidor rechazo, con su motivo.
-class _Bandeja extends StatelessWidget {
+class _Bandeja extends ConsumerWidget {
   const _Bandeja({required this.rechazados});
 
   final List<Apunte> rechazados;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final tema = Theme.of(context);
     final formato = DateFormat('d/M/y, H:mm', 'es');
 
@@ -454,6 +454,13 @@ class _Bandeja extends StatelessWidget {
                   'rechazado ${formato.format(a.resueltoAt!)}',
               ].join(' · '),
               peticion: '${a.metodo} ${a.ruta}',
+              // LAS DOS DECISIONES. Aqui SI se pueden tomar: es la bandeja de
+              // ESTE aparato, o sea la de quien esta mirando. En la pantalla de
+              // Sincronizacion, que ensena la de los diez, no se ofrecen.
+              alReintentar: () =>
+                  unawaited(ref.read(colaProvider).reintentar(a.clave)),
+              alDescartar: () =>
+                  unawaited(ref.read(colaProvider).descartar(a.clave)),
             ),
       ],
     );

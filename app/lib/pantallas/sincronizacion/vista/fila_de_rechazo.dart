@@ -10,14 +10,26 @@ import '../../../diseno/colores.dart';
 /// ESTE. Si cada una la pintara a su manera, quien mira las dos tendria que
 /// aprender dos veces a leer lo mismo.
 ///
-/// `rechazado` no se reintenta y no se borra. Un apunte que desaparece solo es
-/// trabajo perdido que nadie sabe que perdio, y esto es donde se ve.
+/// `rechazado` no se reintenta NI SE BORRA SOLO. Un apunte que desaparece solo
+/// es trabajo perdido que nadie sabe que perdio, y esto es donde se ve.
+///
+/// Pero **una persona si puede decidir**, y eso faltaba. El pliego dice que el
+/// rechazo se queda «hasta que una persona decida» y no habia con que decidir:
+/// ni descartar ni reintentar. Jose, 16/09/2026: «no puedo borrar esas
+/// notificaciones». Con diez repartidores y varios turnos por aparato, una
+/// bandeja que solo crece deja de leerse, y entonces el rechazo que SI importaba
+/// se pierde entre los viejos.
+///
+/// Los dos gestos van aqui, en la propia fila, porque es donde esta el motivo:
+/// la decision se toma leyendolo, no en otra pantalla.
 class FilaDeRechazo extends StatelessWidget {
   const FilaDeRechazo({
     required this.motivo,
     required this.quien,
     required this.horas,
     required this.peticion,
+    this.alDescartar,
+    this.alReintentar,
     super.key,
   });
 
@@ -37,6 +49,14 @@ class FilaDeRechazo extends StatelessWidget {
 
   /// `POST /api/routes/…/results`. Es lo que deja saber QUE se perdio.
   final String peticion;
+
+  /// Quitarlo de en medio. `null` donde no se puede decidir: en la pantalla de
+  /// Sincronizacion se ven los rechazos de LOS DIEZ aparatos, y el de otro no se
+  /// toca desde aqui.
+  final VoidCallback? alDescartar;
+
+  /// Devolverlo a la cola. Se usa cuando lo que lo tumbaba ya no esta.
+  final VoidCallback? alReintentar;
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +104,30 @@ class FilaDeRechazo extends StatelessWidget {
             style: tema.textTheme.bodySmall?.copyWith(color: Colores.gris),
             overflow: TextOverflow.ellipsis,
           ),
+          if (alDescartar != null || alReintentar != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (alReintentar != null)
+                  TextButton.icon(
+                    onPressed: alReintentar,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Reintentar'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colores.primario,
+                    ),
+                  ),
+                if (alDescartar != null)
+                  TextButton.icon(
+                    onPressed: alDescartar,
+                    icon: const Icon(Icons.close, size: 16),
+                    label: const Text('Descartar'),
+                    style: TextButton.styleFrom(foregroundColor: Colores.rojo),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );

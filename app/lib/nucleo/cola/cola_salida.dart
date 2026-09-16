@@ -183,6 +183,63 @@ class ColaDeSalida {
     return quedan > 0 ? quedan : 0;
   }
 
+  /// LO QUE DECIDE UNA PERSONA SOBRE UN RECHAZADO: descartarlo o reintentarlo.
+  ///
+  /// El pliego dice que un apunte rechazado «se queda a la vista con su motivo
+  /// **hasta que una persona decida**», y hasta hoy faltaba justo eso: la
+  /// decision. No habia forma de quitarlos ni de volver a intentarlos, asi que
+  /// se quedaban en la pantalla para siempre. Jose, 16/09/2026: «no puedo borrar
+  /// esas notificaciones».
+  ///
+  /// Un aparato lo usan VARIAS personas y hay diez repartiendo: una bandeja que
+  /// solo crece deja de leerse a la tercera semana, y entonces el rechazo que SI
+  /// importaba se pierde entre los viejos.
+  ///
+  /// Las dos decisiones son distintas a proposito:
+  ///
+  ///  * **Descartar** borra el apunte. Se usa cuando ya no aplica —el pedido
+  ///    entro en otra ruta, la zona se hizo a mano en la web— o cuando el
+  ///    rechazo fue culpa nuestra y ya esta arreglado.
+  ///  * **Reintentar** lo devuelve a la cola. Se usa cuando lo que lo tumbaba ya
+  ///    no esta: un despliegue que faltaba, un permiso que se dio.
+  ///
+  /// Ninguna de las dos pasa sola. Eso es lo que no se toca del pliego.
+  Future<void> descartar(String clave) async {
+    final borradas =
+        await (_base.delete(_base.apuntes)..where(
+              (a) =>
+                  a.clave.equals(clave) &
+                  a.estado.equalsValue(EstadoApunte.rechazado),
+            ))
+            .go();
+    if (borradas > 0) {
+      // Queda dicho: si manana alguien pregunta por que no llego un cierre,
+      // esto es lo unico que lo explica.
+      Registro.aviso('rechazo descartado a mano: $clave');
+    }
+  }
+
+  /// Devuelve un rechazado a la cola. Vuelve a salir en el proximo envio.
+  Future<void> reintentar(String clave) async {
+    final tocadas =
+        await (_base.update(_base.apuntes)..where(
+              (a) =>
+                  a.clave.equals(clave) &
+                  a.estado.equalsValue(EstadoApunte.rechazado),
+            ))
+            .write(
+              ApuntesCompanion(
+                estado: const Value(EstadoApunte.pendiente),
+                motivo: const Value(null),
+                resueltoAt: const Value(null),
+                intentos: const Value(0),
+              ),
+            );
+    if (tocadas > 0) {
+      Registro.aviso('rechazo devuelto a la cola a mano: $clave');
+    }
+  }
+
   /// Poda los aplicados viejos. Los rechazados NO se podan nunca: son la unica
   /// constancia de algo que no llego a pasar.
   Future<int> podar() {
