@@ -20,6 +20,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -105,11 +106,48 @@ var Tasas ClienteTasas = &tasasDeAccesos{}
 // suelta en una cabecera: cada aplicación firma con SU llave sobre método, ruta, hora,
 // nonce y hash del cuerpo. Aquí no se vuelve a escribir esa firma —una segunda copia es
 // una segunda forma de que deje de cuadrar—, se usa la que ya hay.
-type tasasDeAccesos struct{ firmante accesosHTTP }
+//
+// # No guarda un `accesosHTTP` suyo, y esa es la corrección del 16/09/2026
+//
+// Antes esto era `struct{ firmante accesosHTTP }`: un cliente PROPIO, con su `cfg` a nil.
+// La configuración se le pone al cliente en `accesosDelServidor(cfg)`, que rellena **el
+// del paquete** (`Accesos`), no éste. Así que este segundo cliente nunca tuvo llave ni
+// URL, y todas las llamadas morían antes de salir a la red con:
+//
+//	Accesos no dio la tasa: se deja la guardada
+//	err="el cliente de Accesos no tiene configuración"
+//
+// O sea: la tasa de cambio NUNCA se pudo leer, de ninguna sucursal, desde que existe el
+// refresco. Y no se vio por lo de siempre: el refresco trata «Accesos no contesta» como un
+// tropiezo pasajero —no toca lo guardado, que es lo correcto—, y la pantalla acababa
+// diciendo «esta sucursal no tiene tasa todavía», que puede ser verdad. Es el MISMO fallo
+// que ya se arregló una vez unas líneas más abajo, con la lectura de `tasa: null`, y por
+// el mismo motivo se coló: dos sitios distintos, la misma frase creíble al final.
+//
+// Ahora se pide el cliente YA CONFIGURADO en el momento de usarlo. Dos clientes, uno con
+// configuración y otro sin ella, era un fallo esperando a que alguien lo mirara.
+type tasasDeAccesos struct{}
+
+// firmante devuelve el cliente de Accesos del paquete, que es el que tiene la
+// configuración puesta. Se resuelve AL LLAMAR y no al construir porque cuando se construye
+// —una variable de paquete— todavía no se ha leído el entorno.
+func (t *tasasDeAccesos) firmante() (*accesosHTTP, error) {
+	h, ok := Accesos.(*accesosHTTP)
+	if !ok || h == nil {
+		// Alguien cambió `Accesos` por un doble pero dejó `Tasas` de verdad. Se dice, en
+		// vez de intentarlo con un cliente sin configurar.
+		return nil, errors.New("las tasas necesitan el cliente de Accesos del paquete")
+	}
+	return h, nil
+}
 
 func (t *tasasDeAccesos) TasaDeSucursal(ctx context.Context, codigo string) (*cotizar.Tasa, error) {
+	firmante, err := t.firmante()
+	if err != nil {
+		return nil, err
+	}
 	ruta := RutaTasasDeAccesos + "?codigo=" + url.QueryEscape(codigo)
-	crudo, err := t.firmante.pedirFirmado(ctx, http.MethodGet, ruta, nil, 10*time.Second)
+	crudo, err := firmante.pedirFirmado(ctx, http.MethodGet, ruta, nil, 10*time.Second)
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"procovar/reparto-api/internal/config"
@@ -22,6 +23,19 @@ import (
 // accesosDePrueba levanta un Accesos de mentira que contesta lo que se le diga, y devuelve
 // el cliente de tasas apuntando a él. La firma se calcula de verdad; el servidor no la
 // mira, que aquí lo que se prueba es cómo se LEE la respuesta.
+//
+// # CONFIGURA EL CLIENTE DEL PAQUETE, y eso no es un detalle
+//
+// Antes esto hacía `&tasasDeAccesos{firmante: accesosHTTP{cfg: ...}}`, o sea le ponía la
+// configuración a un cliente PRIVADO del objeto de tasas. Y así era el código: cada
+// `tasasDeAccesos` se fabricaba el suyo. Las pruebas pasaban en verde mientras en
+// producción ese cliente nunca recibía configuración —al de verdad se la pone
+// `accesosDelServidor`, al del paquete— y la tasa no se pudo leer NUNCA, de ninguna
+// sucursal.
+//
+// Es exactamente el fallo de las pruebas del Tablero, que repetían `/api/api/board` y
+// salían verdes mientras las diez llamadas daban 404: **una prueba que copia el montaje
+// del código no comprueba el montaje.** Ahora se monta como lo monta el servidor.
 func accesosDePrueba(t *testing.T, cuerpo string) *tasasDeAccesos {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -30,11 +44,15 @@ func accesosDePrueba(t *testing.T, cuerpo string) *tasasDeAccesos {
 	}))
 	t.Cleanup(srv.Close)
 
-	return &tasasDeAccesos{firmante: accesosHTTP{cfg: &config.Config{
+	anterior := Accesos
+	t.Cleanup(func() { Accesos = anterior })
+	Accesos = &accesosHTTP{cfg: &config.Config{
 		AuthURL:        srv.URL,
 		AuthClientID:   "reparto",
 		AuthSigningKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
-	}}}
+	}}
+
+	return &tasasDeAccesos{}
 }
 
 // EL CASO DEL FALLO. Así contesta Accesos cuando la sucursal SÍ tiene tasa: los campos
@@ -128,5 +146,56 @@ func TestElCuerpoDePruebaEsJSONValido(t *testing.T) {
 	}
 	if _, hay := x["tasa"]; hay {
 		t.Fatal("la respuesta buena de Accesos NO lleva campo `tasa`: ese es el punto")
+	}
+}
+
+// LA TASA SE PIDE CON EL CLIENTE QUE TIENE LA CONFIGURACIÓN.
+//
+// El 16/09/2026 se descubrió que `tasasDeAccesos` guardaba un `accesosHTTP` PROPIO, con su
+// `cfg` a nil. La configuración se le pone al del paquete (`accesosDelServidor`), así que
+// el de las tasas nunca tuvo llave y todas las llamadas morían antes de salir a la red:
+//
+//	Accesos no dio la tasa: se deja la guardada
+//	err="el cliente de Accesos no tiene configuración"
+//
+// La tasa NUNCA se pudo leer, de ninguna sucursal. Y no se vio porque el refresco trata
+// eso como un tropiezo pasajero y la pantalla acaba diciendo «esta sucursal no tiene tasa
+// todavía», que puede ser verdad.
+//
+// Esta prueba es la que lo caza: configura el cliente del paquete y comprueba que el de
+// las tasas SALE A LA RED con esa configuración. Con el fallo puesto, ni siquiera llega a
+// llamar al servidor de mentira.
+func TestLasTasasUsanElClienteConfigurado(t *testing.T) {
+	llamadas := 0
+	falso := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		llamadas++
+		if !strings.HasPrefix(r.URL.Path, RutaTasasDeAccesos) {
+			t.Errorf("ruta inesperada: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"codigo":"HAB","cupPorUsd":700,"tarifaBase":1,` +
+			`"fuente":"entrega","traidoAt":"2026-09-16T10:00:00Z","fresca":true}`))
+	}))
+	defer falso.Close()
+
+	// Se configura EL CLIENTE DEL PAQUETE, que es exactamente lo que hace el servidor de
+	// verdad al montarse. Nadie toca el de las tasas.
+	anterior := Accesos
+	t.Cleanup(func() { Accesos = anterior })
+	Accesos = &accesosHTTP{cfg: &config.Config{
+		AuthURL:        falso.URL,
+		AuthSigningKey: "una-llave-de-pruebas-suficientemente-larga",
+	}}
+
+	tasa, err := (&tasasDeAccesos{}).TasaDeSucursal(context.Background(), "HAB")
+	if err != nil {
+		t.Fatalf("no se pudo leer la tasa: %v", err)
+	}
+	if llamadas != 1 {
+		t.Fatalf("se esperaba 1 llamada a Accesos, hubo %d: el cliente de las tasas "+
+			"no está usando la configuración del paquete", llamadas)
+	}
+	if tasa == nil || tasa.CupPorUsd != 700 {
+		t.Fatalf("tasa mal leída: %+v", tasa)
 	}
 }

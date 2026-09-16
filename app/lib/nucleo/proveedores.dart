@@ -66,9 +66,44 @@ final duenoDeLaBaseProvider = NotifierProvider<DuenoDeLaBase, String?>(
 /// el ciclo— se rehace apuntando a la copia nueva.
 final baseProvider = Provider<BaseLocal>((ref) {
   final base = BaseLocal(dueno: ref.watch(duenoDeLaBaseProvider));
-  ref.onDispose(base.close);
+  ref.onDispose(() => cerrarLaBaseSinRuido(base));
   return base;
 });
+
+/// CERRAR LA BASE SIN QUE UN FALLO DE DRIFT DEJE A NADIE EN LA PUERTA.
+///
+/// Esto se llama en el momento exacto en el que alguien ENTRA: el portero pone
+/// el nuevo dueno (`duenoDeLaBaseProvider.es(sesion.sub)`), Riverpod tira el
+/// `baseProvider` anterior y este `onDispose` cierra la base de antes.
+///
+/// `GeneratedDatabase.close()` recorre sus consultas vivas para cerrarlas. En
+/// ese mismo instante las pantallas se estan rehaciendo contra la copia nueva y
+/// alguna se apunta mientras el cierre recorre, asi que revienta con:
+///
+/// ```
+/// Unhandled Exception: Concurrent modification during iteration: _Map len:4.
+///   StreamQueryStore.close   GeneratedDatabase.close
+/// ```
+///
+/// **Y eso tiraba a la persona de vuelta a la pantalla de acceso.** Visto el
+/// 16/09/2026 en un Galaxy A16, y lo peor era como se veia: el registro de
+/// Accesos decia `auth.apk.login` —la contrasena estaba bien y el par de tokens
+/// se habia entregado— y en el telefono el formulario se vaciaba SIN UN SOLO
+/// MENSAJE. Desde fuera parecia una contrasena mal escrita; era un fallo
+/// nuestro al cambiar de base.
+///
+/// Se traga a proposito. Aqui no hay ningun dato en juego: lo que se estaba
+/// cerrando es la copia ANTERIOR, ya escrita en disco y con sus transacciones
+/// cerradas —lo pendiente de subir vive en su tabla, no en memoria—. El sistema
+/// suelta el fichero igual. Dejar que el fallo suba, en cambio, rompe
+/// justamente el gesto de entrar.
+Future<void> cerrarLaBaseSinRuido(BaseLocal base) async {
+  try {
+    await base.close();
+  } on Object catch (e) {
+    Registro.aviso('la base anterior no cerro limpia: $e');
+  }
+}
 
 /// El reloj del APARATO. Como provider para poder moverlo en los tests.
 final relojProvider = Provider<Reloj>((ref) => relojDelAparato);
