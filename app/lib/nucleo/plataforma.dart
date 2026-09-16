@@ -41,7 +41,28 @@ abstract final class Destino {
   /// **Este es el unico `kIsWeb` de todo lo que cuelga de aqui**, y es a
   /// proposito: la prueba de mutacion consiste en cambiar esta linea por `true`
   /// o por `false` y ver caer el par de pruebas del otro lado.
-  static bool get trabajaSinConexion => !kIsWeb;
+  static bool get trabajaSinConexion => _comoSiFueraWeb ? false : !kIsWeb;
+
+  /// SOLO PARA PRUEBAS: correr algo como si se estuviera en un navegador.
+  ///
+  /// Las reglas de la web —no guardar copia, no proteger trabajo que no existe,
+  /// no enseñar el aparato de prepararse para no tener senal— son la mitad de
+  /// este proyecto, y hasta hoy no habia forma de ejercitarlas sin compilar para
+  /// web. El resultado es que se escribian y nadie las comprobaba: la web estuvo
+  /// sin poder subir un solo apunte desde que existe y no habia ni una prueba
+  /// que lo dijera.
+  ///
+  /// Se restaura SIEMPRE, tambien si lo de dentro lanza.
+  static Future<T> comoSiFueraWeb<T>(Future<T> Function() que) async {
+    _comoSiFueraWeb = true;
+    try {
+      return await que();
+    } finally {
+      _comoSiFueraWeb = false;
+    }
+  }
+
+  static bool _comoSiFueraWeb = false;
 }
 
 /// La capacidad, por Riverpod.

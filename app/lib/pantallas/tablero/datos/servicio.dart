@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/frescura/frescura.dart';
 import '../../../nucleo/red/cliente_api.dart';
+import '../../../nucleo/plataforma.dart';
 import '../../../nucleo/registro/registro.dart';
 import '../../../nucleo/reloj.dart';
 import 'esquema.dart';
@@ -57,6 +58,24 @@ class ServicioTablero {
   Future<ResultadoDeBajarElTablero> descargar(String sucursalId) async {
     await EsquemaTablero.asegurar(_base);
 
+    // EN LA WEB NO HAY NADA QUE PROTEGER, y por eso no se protege.
+    //
+    // Toda la guarda de aqui abajo existe para una razon: que la foto del
+    // servidor no borre el trabajo que se hizo sin senal y todavia no ha subido.
+    // **En un navegador ese trabajo no existe.** La web esta en el servidor y
+    // siempre tiene conexion; lo que se hace ahi sale en el momento.
+    //
+    // Dejarle la guarda no la protegia de nada y si la rompia: un solo apunte
+    // atascado congelaba el tablero indefinidamente, enseñando una foto vieja
+    // mientras el telefono subia sin problema. Hora y media el 16/09/2026.
+    //
+    // Es la regla 1 de la casa, la que Jose ha repetido cinco veces: «el desktop
+    // y las apks tienen su propia base de datos para trabajar sin conexion; la
+    // web siempre esta con conexion porque esta en el servidor».
+    if (!Destino.trabajaSinConexion) {
+      return _traerLaFoto(sucursalId);
+    }
+
     final pendientes = await _base.cuantosPendientes();
     if (pendientes > 0) {
       Registro.info(
@@ -88,6 +107,12 @@ class ServicioTablero {
       );
     }
 
+    return _traerLaFoto(sucursalId);
+  }
+
+  /// La foto del servidor, escrita encima de lo que haya. Sin preguntar nada:
+  /// quien llama ya decidio que se puede.
+  Future<ResultadoDeBajarElTablero> _traerLaFoto(String sucursalId) async {
     final datos = await _cliente.pedir<Map<String, Object?>>(
       '/board',
       params: <String, Object?>{'branchId': sucursalId},

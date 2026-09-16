@@ -1,8 +1,8 @@
 import 'package:drift/drift.dart';
 import 'package:drift/wasm.dart';
+import 'package:sqlite3/common.dart' show InMemoryFileSystem;
+import 'package:sqlite3/wasm.dart' show WasmSqlite3;
 
-import '../../registro/registro.dart';
-import 'nombre.dart';
 
 bool _fragil = false;
 
@@ -14,32 +14,49 @@ bool _fragil = false;
 /// que saberlo antes, no despues.
 bool get almacenamientoFragil => _fragil;
 
-/// Web: SQLite de verdad, compilado a WebAssembly, en un worker y guardado en
-/// OPFS. Si el navegador no da OPFS cae a IndexedDB, que tambien persiste.
+/// Web: SQLite de verdad, compilado a WebAssembly, **y en memoria a proposito**.
 ///
-/// `sqlite3.wasm` y `drift_worker.js` son FICHEROS DEL DESPLIEGUE: si falta uno,
-/// la aplicacion arranca y la base no. Va en la lista de comprobacion.
-/// [dueno] es el `sub` del token. **Una base por persona**, igual que en la APK:
-/// el porque, entero, en `nombre.dart`.
+/// ## La web NO guarda copia. Lee del servidor — 16/09/2026
+///
+/// Hasta hoy esto abria la base en OPFS —o en IndexedDB— y por tanto guardaba
+/// una copia que sobrevivia a cerrar la pestana. Esa copia es lo que rompio el
+/// tablero de la web: guardo una cola de salida, la cola se atasco, el tablero
+/// **se nego a bajar durante hora y media** para no pisar lo que no habia
+/// subido, y la pantalla enseñaba una foto de las 16:13 mientras el telefono
+/// subia zonas que no aparecian. Refrescar no hacia nada.
+///
+/// Palabras de Jose, que lo dijo cinco veces:
+///
+/// > «el desktop y las apks tienen su propia base de datos para trabajar sin
+/// > conexion; la web siempre esta con conexion porque esta en el servidor»
+/// > «la web debe leer todo desde el servidor, desde la base de datos, no desde
+/// > su base de datos copia»
+///
+/// Asi que en memoria. Cada carga de la pagina arranca vacia y se llena de lo
+/// que diga el servidor, que es la unica verdad que hay. No queda nada entre
+/// visitas: ni cola que se atasque, ni foto vieja que enseñar, ni dos versiones
+/// de lo mismo.
+///
+/// **Drift se queda como el MOTOR DE CONSULTAS, no como almacen.** Las siete
+/// pantallas filtran, ordenan y agrupan con las mismas reglas en las tres formas
+/// de la aplicacion, y tener dos caminos de lectura seria tener dos verdades —que
+/// es exactamente el fallo que se esta quitando, por el otro lado.
+///
+/// `sqlite3.wasm` sigue siendo un FICHERO DEL DESPLIEGUE: si falta, la
+/// aplicacion arranca y la base no. `drift_worker.js` ya no hace falta: sin
+/// almacenamiento que compartir entre pestanas, no hay worker que coordinar.
+///
+/// [dueno] se ignora aqui. Una base por persona tiene sentido donde la copia
+/// PERSISTE y dos personas comparten el aparato (`nombre.dart`); en una pestana
+/// que se vacia al cerrarse no hay nada de la anterior que separar.
 QueryExecutor abrirConexion({String? dueno}) => LazyDatabase(() async {
-  final resultado = await WasmDatabase.open(
-    databaseName: nombreDeLaBase(dueno),
-    sqlite3Uri: Uri.parse('sqlite3.wasm'),
-    driftWorkerUri: Uri.parse('drift_worker.js'),
-  );
-
-  if (resultado.missingFeatures.isNotEmpty) {
-    Registro.aviso('almacenamiento degradado: ${resultado.missingFeatures}');
-  }
-  _fragil =
-      resultado.chosenImplementation == WasmStorageImplementation.inMemory;
-  if (_fragil) {
-    Registro.aviso(
-      'la base cayo a memoria: al cerrar la pestana se pierde lo que no se haya subido',
-    );
-  }
-
-  return resultado.resolvedExecutor;
+  final sqlite3 = await WasmSqlite3.loadFromUrl(Uri.parse('sqlite3.wasm'));
+  sqlite3.registerVirtualFileSystem(InMemoryFileSystem(), makeDefault: true);
+  // `false`: aqui la memoria es la DECISION, no una degradacion. El aviso de
+  // «se pierde lo que no se haya subido» era para la APK, y en la web no hay
+  // nada que perder porque nada espera a subir.
+  _fragil = false;
+  return WasmDatabase.inMemory(sqlite3);
 });
 
 /// En web NO se borra el fichero, porque no hay fichero: la base vive en OPFS o

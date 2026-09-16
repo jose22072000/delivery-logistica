@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
+import '../../../nucleo/plataforma.dart';
 import '../../../nucleo/red/fallos.dart';
 import '../../../nucleo/registro/registro.dart';
 import '../datos/consultas.dart';
@@ -124,6 +125,31 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
   }
 
   Future<Tablero> _leer(String sucursalId, FiltrosSinColocar filtros) async {
+    // EN LA WEB, DEL SERVIDOR. Siempre, y antes de pintar nada.
+    //
+    // La web esta en el servidor y siempre tiene conexion: lo que tiene que
+    // enseñar es lo que hay en la nube, no una copia suya. La copia local existe
+    // **para la APK y el escritorio**, que son los que se van sin señal; en un
+    // navegador solo puede mentir, y mintio: el tablero se quedo hora y media
+    // enseñando una foto de las 16:13 mientras el telefono subia zonas que no
+    // aparecian.
+    //
+    // Sigue escribiendose en Drift y leyendose de ahi —las consultas de abajo
+    // son las mismas para las tres formas, y tener dos caminos de lectura seria
+    // tener dos verdades—, pero en web la copia se refresca ANTES de cada
+    // lectura, asi que lo que se pinta es lo del servidor.
+    //
+    // Sin señal en la web no es un caso que haya que resolver: `descargar` lanza
+    // `FalloDeRed`, se sigue con lo que hubiera y la barra de arriba ya dice que
+    // no hay conexion.
+    if (!Destino.trabajaSinConexion) {
+      try {
+        await ref.read(servicioTableroProvider).descargar(sucursalId);
+      } on FalloDeRed catch (e) {
+        Registro.info('tablero web: sin conexion al abrir ($e)');
+      }
+    }
+
     final consultas = ref.read(consultasTableroProvider);
     // Antes de leer, los `local-…` que ya tengan id de verdad. Si no, la
     // pantalla sigue ensenando el provisional hasta la proxima bajada.
