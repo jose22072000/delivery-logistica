@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show TableUpdateQuery;
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -505,6 +506,15 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
 final vigiaProvider = Provider<VigiaDeSincronizacion>((ref) {
   final vigia = VigiaDeSincronizacion(
     ciclo: (motivo) => ref.read(cicloProvider).ahora(motivo: motivo),
+    // LO QUE ENTRA EN LA COLA SE INTENTA SUBIR YA, sin esperar al reloj. Se
+    // escucha la tabla y no se avisa desde quien encola: asi entra cualquier
+    // gesto, lo escriba quien lo escriba, y la cola no tiene que saber nada del
+    // ciclo —que ademas seria un ciclo de dependencias, porque el ciclo necesita
+    // la cola—.
+    avisosDeLaCola: () =>
+        ref.read(baseProvider).tableUpdates(TableUpdateQuery.onTable(
+          ref.read(baseProvider).apuntes,
+        )),
     // EL RITMO, segun el destino. En web es lo UNICO que trae los cambios —alli
     // no queda ni un gesto para traer el dia a mano—, asi que va mas seguido; en
     // la APK cada tic se paga en bateria y datos por la conexion de alla. El

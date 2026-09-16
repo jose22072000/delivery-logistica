@@ -108,12 +108,14 @@ class VigiaDeSincronizacion {
   VigiaDeSincronizacion({
     required Future<void> Function(String motivo) ciclo,
     Stream<bool> Function() avisosDeRed = avisosDeConnectivityPlus,
+    Stream<void> Function()? avisosDeLaCola,
     Duration periodo = periodoPorDefecto,
     CrearTemporizador crearTemporizador = Timer.periodic,
     LoQueHayAhora loQueHay = noSeSabeLoQueHay,
     Reloj reloj = relojDelAparato,
   }) : _ciclo = ciclo,
        _avisosDeRed = avisosDeRed,
+       _avisosDeLaCola = avisosDeLaCola,
        _periodo = periodo,
        _crearTemporizador = crearTemporizador,
        _loQueHay = loQueHay,
@@ -155,12 +157,17 @@ class VigiaDeSincronizacion {
 
   final Future<void> Function(String motivo) _ciclo;
   final Stream<bool> Function() _avisosDeRed;
+
+  /// Avisa cuando ENTRA algo en la cola, para intentar subirlo ya. `null` en las
+  /// pruebas que no van de esto.
+  final Stream<void> Function()? _avisosDeLaCola;
   final Duration _periodo;
   final CrearTemporizador _crearTemporizador;
   final LoQueHayAhora _loQueHay;
   final Reloj _reloj;
 
   StreamSubscription<bool>? _suscripcion;
+  StreamSubscription<void>? _suscripcionCola;
   Timer? _temporizador;
   bool _andando = false;
   bool _delante = true;
@@ -189,14 +196,45 @@ class VigiaDeSincronizacion {
       cancelOnError: false,
     );
 
+    // LO QUE SE ACABA DE HACER SE INTENTA SUBIR YA, sin esperar al reloj.
+    //
+    // La cola es el aparato de **no tener** senal. Con senal no hay ninguna razon
+    // para que arrastrar una tarjeta se quede cinco minutos esperando a que pase
+    // el temporizador, ni para que alguien tenga que pulsar nada. Jose:
+    // «cuando hay conexion trabajaria sin estar dandole a subir todo el tiempo y
+    // hiciera todo solo».
+    //
+    // Se escucha LA TABLA y no se avisa desde quien encola, a proposito: asi
+    // entra cualquier gesto, lo escriba quien lo escriba, y no hace falta que la
+    // cola sepa nada del ciclo —que ademas es un ciclo de dependencias, porque el
+    // ciclo necesita la cola—.
+    //
+    // Si no hay red el ciclo falla, la cola se queda entera y el temporizador lo
+    // reintenta: exactamente lo de antes, sin nada que perder. Y el candado de
+    // «un solo ciclo en vuelo» vive dentro del ciclo, asi que arrastrar doce
+    // tarjetas seguidas no lanza doce.
+    _suscripcionCola = _avisosDeLaCola?.call().listen(
+      (_) => _disparar('se hizo algo'),
+      onError: (Object e) =>
+          Registro.aviso('vigia: no se pudo escuchar la cola: $e'),
+      cancelOnError: false,
+    );
+
     _ponerTemporizador();
     Registro.info('vigia: en marcha (cada ${_periodo.inMinutes} min)');
   }
 
   /// Se cerro la sesion, o se para la aplicacion. **No queda nada vivo.**
   void parar() {
-    if (!_andando && _temporizador == null && _suscripcion == null) return;
+    if (!_andando &&
+        _temporizador == null &&
+        _suscripcion == null &&
+        _suscripcionCola == null) {
+      return;
+    }
     _andando = false;
+    unawaited(_suscripcionCola?.cancel());
+    _suscripcionCola = null;
     _quitarTemporizador();
     unawaited(_suscripcion?.cancel());
     _suscripcion = null;
