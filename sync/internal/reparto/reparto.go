@@ -179,6 +179,30 @@ func (c *Cliente) Aplicar(ctx context.Context, p sincro.Peticion) (*uuid.UUID, e
 		// puerta exista. Que es lo que tiene que pasar cuando el fallo es nuestro.
 		return nil, fmt.Errorf("el reparto contestó 404 sin decir por qué: la ruta %q no "+
 			"existe en el reparto (fallo de despliegue, no rechazo)", p.Ruta)
+	case res.StatusCode == http.StatusUnauthorized:
+		// UN 401 NO ES UN RECHAZO DE NEGOCIO. NUNCA.
+		//
+		// Es el mismo error que el 404 de aquí arriba, con otro número: «el reparto dijo
+		// que no» exige que el reparto haya entendido la pregunta, y un 401 dice que ni
+		// siquiera supo quién la hacía. Eso es nuestro —una credencial que no viajó, un
+		// despliegue a medias—, y **ninguna persona delante de un teléfono puede
+		// decidir nada sobre ello**.
+		//
+		// Tratarlo como rechazo es lo que dejó seis apuntes muertos en la bandeja el
+		// 16/09/2026: `POST /api/board/columns` contestaba 401 «no viene token» porque
+		// este servicio reenviaba con la clave de servicio en vez de con el token de la
+		// persona. El apunte que CREA la zona se marcó rechazado, y detrás se cayeron los
+		// cinco que colocaban pedidos dentro. Arreglado el reenvío, los seis seguían en
+		// la bandeja: un rechazo no se reintenta solo, así que el arreglo no los
+		// rescataba. Dos fallos, y el segundo tapaba al primero.
+		//
+		// Como caída, el apunte SE QUEDA EN LA COLA y sube solo en cuanto la credencial
+		// vuelva a valer. Que es lo que tiene que pasar cuando el fallo es nuestro.
+		//
+		// El 403 sí se queda como rechazo: ahí el reparto SÍ entendió quién preguntaba y
+		// dijo que no puede. Reintentar eso para siempre es un bucle, no una defensa.
+		return nil, fmt.Errorf("el reparto no reconoció la sesión al subir %q (401): la "+
+			"credencial no llegó o no vale — es fallo nuestro, no un rechazo", p.Ruta)
 	case res.StatusCode >= 400 && res.StatusCode < 500:
 		return nil, &sincro.Rechazo{Motivo: motivoDe(datos)}
 	default:
