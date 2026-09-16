@@ -1,4 +1,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- LOS PERMISOS DE RED VAN AQUI, Y AQUI ES LO IMPORTANTE.
+
+         Flutter crea el proyecto con `INTERNET` declarado SOLO en
+         `src/debug/AndroidManifest.xml` y `src/profile/`, porque lo que necesita
+         red en esos dos modos es la recarga en caliente, no la aplicacion. El de
+         `main` —el unico que entra en una compilacion de release— se queda
+         sin el.
+
+         El 16/09/2026 se instalo la release en un Galaxy A16 con wifi de cinco
+         rayas y no se podia entrar: la pantalla decia «Sin conexión con el
+         servidor. Comprueba la señal». Era verdad que no habia conexion, pero no
+         por la señal: la aplicacion no tenia permiso para abrir un socket. Con
+         los tres modos se prueba en debug —donde el permiso SI esta— eso no se
+         ve nunca, y la APK de las diez tabletas habria salido muerta.
+
+         Es el fallo tipico de esta casa: se degrada a un estado que puede ser
+         verdad —«aqui no hay cobertura»— y por eso nadie lo pone en duda.
+
+         `ACCESS_NETWORK_STATE` va con el: la franja de estado y el sincronizador
+         preguntan si hay red antes de intentar subir nada. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
     <application
         android:label="Reparto"
         android:name="${applicationName}"

@@ -70,36 +70,55 @@ class Armazon extends ConsumerWidget {
                 dentroDeCajon: true,
               ),
             ),
-      // El `Builder` no es adorno: `Scaffold.of` necesita un contexto POR DEBAJO
-      // del Scaffold. Con el contexto de `build` el boton de menu no encuentra
-      // ningun cajon y revienta al pulsarlo.
-      body: Builder(
-        builder: (contexto) {
-          final columna = Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              BarraSuperior(
-                titulo: titulo,
-                // En escritorio no hay boton de menu: la barra lateral esta
-                // fija y un boton que no abre nada ensena a desconfiar.
-                alAbrirMenu: esEscritorio
-                    ? null
-                    : () => Scaffold.of(contexto).openDrawer(),
-              ),
-              if (hayDiaQueTraer) const FranjaDeEstado(),
-              Expanded(child: child),
-            ],
-          );
+      // SAFEAREA. LA BARRA DE ARRIBA NO PUEDE METERSE DEBAJO DEL RELOJ.
+      //
+      // Este `Scaffold` no lleva `appBar` —la barra la pinta [BarraSuperior]
+      // dentro del cuerpo—, y sin `appBar` el cuerpo empieza en el pixel cero
+      // de la pantalla: por debajo del reloj, del wifi y de la bateria.
+      //
+      // En un navegador no se nota, porque ahi el cero es el borde de la
+      // pestana. En un telefono se nota mucho: el 16/09/2026, en un Galaxy A16,
+      // el selector de sucursal y el conmutador de moneda quedaron TAPADOS por
+      // la hora y los iconos del sistema, y no habia forma de pulsarlos. No es
+      // que se viera feo — es que la mitad de la barra no se podia tocar.
+      //
+      // Por eso va aqui y no dentro de [BarraSuperior]: lo que hay que apartar
+      // es el cuerpo entero, incluida la franja de estado y las pantallas, no
+      // solo la barra. El cajon lateral tiene el suyo propio
+      // (`barra_lateral.dart`) porque vive fuera de este arbol.
+      //
+      // El `Builder` de dentro no es adorno: `Scaffold.of` necesita un contexto
+      // POR DEBAJO del Scaffold. Con el contexto de `build` el boton de menu no
+      // encuentra ningun cajon y revienta al pulsarlo.
+      body: SafeArea(
+        child: Builder(
+          builder: (contexto) {
+            final columna = Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                BarraSuperior(
+                  titulo: titulo,
+                  // En escritorio no hay boton de menu: la barra lateral esta
+                  // fija y un boton que no abre nada ensena a desconfiar.
+                  alAbrirMenu: esEscritorio
+                      ? null
+                      : () => Scaffold.of(contexto).openDrawer(),
+                ),
+                if (hayDiaQueTraer) const FranjaDeEstado(),
+                Expanded(child: child),
+              ],
+            );
 
-          if (!esEscritorio) return columna;
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              BarraLateral(pantallas: pantallas, rutaActual: rutaActual),
-              Expanded(child: columna),
-            ],
-          );
-        },
+            if (!esEscritorio) return columna;
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                BarraLateral(pantallas: pantallas, rutaActual: rutaActual),
+                Expanded(child: columna),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

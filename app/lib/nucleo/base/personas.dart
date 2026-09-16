@@ -88,7 +88,7 @@ class Personas {
         );
       }
     } finally {
-      await base.close();
+      await _cerrarSinRuido(base);
     }
     await borrarLaCopia(sub);
     Registro.info('copia olvidada: $sub');
@@ -111,8 +111,39 @@ class Personas {
       Registro.aviso('no se pudo mirar la copia $fichero: $e');
       return null;
     } finally {
-      await base.close();
+      await _cerrarSinRuido(base);
     }
+  }
+}
+
+/// CERRAR UNA COPIA SIN QUE UN FALLO DE DRIFT SE LLEVE LA PANTALLA POR DELANTE.
+///
+/// `GeneratedDatabase.close()` recorre sus consultas vivas para cerrarlas, y si
+/// alguna se apunta mientras recorre, revienta con «Concurrent modification
+/// during iteration» (`drift/src/runtime/executor/stream_queries.dart:180`).
+/// Aquí pasa de verdad y a diario: estas copias se abren **sólo para preguntar
+/// quién es el dueño** en la propia pantalla de acceso, o sea mientras el resto
+/// de la aplicación está montándose y pidiendo cosas.
+///
+/// Visto el 16/09/2026 en un Galaxy A16, en el log del teléfono:
+///
+/// ```
+/// Unhandled Exception: Concurrent modification during iteration: _Map len:4.
+///   StreamQueryStore.close   GeneratedDatabase.close
+/// ```
+///
+/// Sin este `try`, eso sale como excepción NO CAPTURADA: no la ve nadie, no
+/// aparece en pantalla, y lo que deja detrás es el `finally` a medias.
+///
+/// Se traga a propósito y se anota. Esto es cerrar un fichero del que ya se sacó
+/// lo que se quería: si el cierre falla, no hay ningún dato en juego —el sistema
+/// suelta el descriptor igual cuando muera el proceso—, y en cambio dejar que el
+/// fallo suba sí rompe el gesto de quien está entrando.
+Future<void> _cerrarSinRuido(BaseLocal base) async {
+  try {
+    await base.close();
+  } on Object catch (e) {
+    Registro.aviso('no se pudo cerrar una copia mirada de paso: $e');
   }
 }
 
