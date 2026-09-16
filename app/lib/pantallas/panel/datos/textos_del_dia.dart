@@ -53,9 +53,12 @@ abstract final class TextosDelDia {
   static String explicacion(QueToca toca) => switch (toca) {
     QueToca.trayendo ||
     QueToca.enviando => 'No cierres la pantalla hasta que acabe.',
+    // Se nombra la falta de conexión Y lo que pasa con lo que ya está hecho. Lo
+    // segundo es lo que de verdad quita el miedo: quien ve «6 sin subir» lo que
+    // quiere saber es si eso se va a perder.
     QueToca.sinConexion =>
-      'Puedes seguir trabajando: todo se guarda aquí y sube cuando vuelva la '
-          'señal.',
+      'No hay conexión con el servidor. Puedes seguir trabajando: todo se '
+          'guarda aquí y sube solo cuando vuelva la señal.',
     QueToca.hayQueEnviar =>
       'Hasta que no suba, sólo está en este aparato. Es lo único que se puede '
           'perder.',
@@ -105,4 +108,52 @@ abstract final class TextosDelDia {
     'settings' => 'Ajustes',
     _ => clave,
   };
+}
+
+/// QUE TOCA AHORA MISMO, en una funcion suelta y probable.
+///
+/// Esta fuera del widget a proposito: es **una regla**, no pintura. La misma
+/// razon por la que `haySesionParaSincronizar` vive suelta en el portero. Una
+/// regla metida en un `build` sólo se puede comprobar montando media
+/// aplicacion, y lo que hay que comprobar aqui es el ORDEN de cuatro
+/// condiciones — que es justo donde estuvo el fallo.
+///
+/// [vaMal] no es «el aparato cree que no hay wifi»: es que las peticiones no
+/// estan llegando, medido (`nucleo/red/salud.dart`).
+QueToca queTocaAhora({
+  required bool enVuelo,
+  required PasoDelCiclo? paso,
+  required bool vaMal,
+  required int pendientes,
+}) {
+  // SIN CONEXION MANDA, TAMBIEN MIENTRAS SE INTENTA. Y este orden es el
+  // arreglo, no un detalle.
+  //
+  // Antes `enVuelo` iba primero, asi que la comprobacion de la red **no se
+  // llegaba a mirar nunca** mientras habia un intento en marcha. Visto en un
+  // Galaxy A16 el 16/09/2026, con el wifi puesto y sin salida a internet: la
+  // tarjeta se quedo mas de un minuto diciendo «Enviando datos... Subiendo lo
+  // que hiciste...» sin subir absolutamente nada, y sin nombrar la conexion ni
+  // una vez. Palabras de Jose: «tienes q notificar q estas sin conexion ok la
+  // aplicacion tiene q informar eso».
+  //
+  // No es que se viera raro: es que la pantalla estaba diciendo una cosa que
+  // no era verdad, en el unico sitio donde alguien mira para saber si su
+  // trabajo salio del telefono. Y dura mucho, porque el cliente reintenta con
+  // esperas crecientes antes de rendirse — o sea que el minuto de mentira es
+  // el caso NORMAL, no el raro.
+  //
+  // `vaMal` no es «el aparato cree que no hay wifi»: es que las peticiones no
+  // estan llegando, medido (`red/salud.dart`). Un ciclo en vuelo con la red
+  // caida no es progreso, es un reintento condenado, y decirlo es lo unico
+  // honesto. Al empezar `vaMal` todavia es false y se dice «Enviando datos»,
+  // que entonces SI es verdad; en cuanto empieza a fallar, cambia.
+  if (vaMal) return QueToca.sinConexion;
+  if (enVuelo) {
+    // Mientras el ciclo esta en el paso de subir se dice «enviando», porque es
+    // lo que esta pasando. Los tres pasos son el mismo ciclo.
+    return paso == PasoDelCiclo.subir ? QueToca.enviando : QueToca.trayendo;
+  }
+  if (pendientes > 0) return QueToca.hayQueEnviar;
+  return QueToca.alDia;
 }

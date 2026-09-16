@@ -47,8 +47,9 @@ class EstadoDelDia extends ConsumerWidget {
     // (`red/salud.dart`).
     final salud = ref.watch(saludDeLaRedProvider);
 
-    final toca = _queToca(
-      marcha: marcha,
+    final toca = queTocaAhora(
+      enVuelo: marcha.enVuelo,
+      paso: marcha.avance?.paso,
       vaMal: salud.vaMal,
       pendientes: pendientes,
     );
@@ -98,23 +99,6 @@ class EstadoDelDia extends ConsumerWidget {
           ? () => abrirCajonDeEntregarElDia(context)
           : () => abrirCajonDeTraerElDia(context),
     );
-  }
-
-  QueToca _queToca({
-    required Marcha marcha,
-    required bool vaMal,
-    required int pendientes,
-  }) {
-    if (marcha.enVuelo) {
-      // Mientras el ciclo esta en el paso de subir se dice «enviando», porque es
-      // lo que esta pasando. Los tres pasos son el mismo ciclo.
-      return marcha.avance?.paso == PasoDelCiclo.subir
-          ? QueToca.enviando
-          : QueToca.trayendo;
-    }
-    if (vaMal) return QueToca.sinConexion;
-    if (pendientes > 0) return QueToca.hayQueEnviar;
-    return QueToca.alDia;
   }
 
   String _lineaFuerte({

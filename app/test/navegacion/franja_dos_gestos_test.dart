@@ -5,6 +5,7 @@ import 'package:reparto/diseno/tema.dart';
 import 'package:reparto/navegacion/franja_de_estado.dart';
 import 'package:reparto/navegacion/estado_navegacion.dart';
 import 'package:reparto/nucleo/proveedores.dart';
+import 'package:reparto/nucleo/red/salud.dart';
 
 /// LOS DOS GESTOS DEL DÍA SE VEN, Y SUBIR NO DEPENDE DE QUE HAYA PENDIENTES.
 ///
@@ -12,12 +13,16 @@ import 'package:reparto/nucleo/proveedores.dart';
 /// recibirlos q tengo q ir a panel y revisarlos por ahi».
 ///
 /// Los dos gestos ya existían y ninguno se veía: traer el día se pulsaba tocando
-/// la franja entera, y entregarlo tocando el número de «<n> sin subir». Y ahí
+/// la franja entera, y entregarlo tocando el número de «`<n>` sin subir». Y ahí
 /// había un hueco de verdad: **cuando el número era cero, desaparecía la única
 /// puerta a entregar el día**. Quien acaba de cerrar una ruta y quiere
 /// asegurarse de que subió no tenía dónde darle.
 void main() {
-  Future<void> montar(WidgetTester tester, {required int pendientes}) async {
+  Future<void> montar(
+    WidgetTester tester, {
+    required int pendientes,
+    bool sinConexion = false,
+  }) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -27,6 +32,7 @@ void main() {
             ),
           ),
           sinSubirProvider.overrideWith((ref) => Stream<int>.value(pendientes)),
+          if (sinConexion) saludDeLaRedProvider.overrideWith(_SaludMala.new),
         ],
         child: MaterialApp(
           theme: temaDeReparto(),
@@ -69,4 +75,37 @@ void main() {
       reason: 'el número y el botón que lo baja a cero van juntos',
     );
   });
+
+  testWidgets('SIN CONEXIÓN la franja lo dice, en las siete pantallas', (
+    tester,
+  ) async {
+    await montar(tester, pendientes: 6, sinConexion: true);
+
+    expect(
+      find.text('Sin conexión'),
+      findsOneWidget,
+      reason:
+          'palabras de Jose: «tienes q notificar q estas sin conexion ok la '
+          'aplicacion tiene q informar eso». La tarjeta del Panel sólo se ve '
+          'en una pantalla; esta franja está en las siete',
+    );
+    expect(find.byIcon(Icons.cloud_off_outlined), findsOneWidget);
+  });
+
+  testWidgets('CON conexión no se nombra: no hay nada que avisar', (
+    tester,
+  ) async {
+    await montar(tester, pendientes: 6);
+
+    expect(find.text('Sin conexión'), findsNothing);
+    expect(find.byIcon(Icons.cloud_off_outlined), findsNothing);
+  });
+}
+
+/// Una salud de red que siempre dice que va mal, para la mitad de «sin
+/// conexión» de la pareja.
+class _SaludMala extends LaSalud {
+  @override
+  SaludDeLaRed build() =>
+      const SaludDeLaRed(fallosSeguidos: SaludDeLaRed.fallosParaDarlaPorMala);
 }

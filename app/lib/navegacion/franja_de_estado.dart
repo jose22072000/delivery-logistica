@@ -34,6 +34,14 @@ class FranjaDeEstado extends ConsumerWidget {
     final bajada = ref.watch(frescuraGlobalProvider);
     final sinSubir = ref.watch(sinSubirProvider);
     final ahora = ref.watch(relojProvider)();
+    // SI NO HAY CONEXION, SE DICE AQUI. Esta franja esta en las siete pantallas;
+    // la tarjeta del Panel solo en una, y quien esta armando una ruta no la ve.
+    //
+    // No sale de si el aparato cree que hay wifi, sino de si las peticiones
+    // llegan (`nucleo/red/salud.dart`): en Cuba el telefono ensena el wifi
+    // conectado y no sale un paquete, que es exactamente lo que pasaba en el
+    // Galaxy A16 del 16/09.
+    final sinConexion = ref.watch(saludDeLaRedProvider).vaMal;
 
     // Mientras la consulta de frescura no ha contestado NO se dice «sin
     // descargar»: seria acusar de vacio a algo que aun no se ha mirado. Se
@@ -60,7 +68,10 @@ class FranjaDeEstado extends ConsumerWidget {
           context,
           estado: estado,
           pendientes: pendientes,
-          enAmbar: enAmbar,
+          // Sin conexion la franja se pone en ambar aunque los datos sean de
+          // hace un minuto: lo que hay que mirar entonces no es la hora.
+          enAmbar: enAmbar || sinConexion,
+          sinConexion: sinConexion,
         ),
       ),
     );
@@ -71,6 +82,7 @@ class FranjaDeEstado extends ConsumerWidget {
     required EstadoFrescura? estado,
     required int pendientes,
     required bool enAmbar,
+    required bool sinConexion,
   }) {
     return Container(
       width: double.infinity,
@@ -91,11 +103,28 @@ class FranjaDeEstado extends ConsumerWidget {
       child: Row(
         children: [
           Icon(
-            enAmbar ? Icons.schedule : Icons.schedule_outlined,
+            sinConexion
+                ? Icons.cloud_off_outlined
+                : (enAmbar ? Icons.schedule : Icons.schedule_outlined),
             size: 14,
             color: enAmbar ? Colores.ambar : Colores.tintaSuave,
           ),
           const SizedBox(width: 6),
+          // «Sin conexión» va DELANTE de la hora y no detrás: es lo que cambia
+          // lo que se puede hacer ahora mismo. La hora sigue estando porque las
+          // dos cosas importan, y el `FittedBox` de al lado encoge la letra en
+          // vez de recortar por la derecha.
+          if (sinConexion) ...[
+            Text(
+              'Sin conexión',
+              style: Tipos.texto(
+                tamano: 12,
+                peso: FontWeight.w700,
+                color: Colores.ambar,
+              ),
+            ),
+            Text('  ·  ', style: Tipos.texto(tamano: 12, color: Colores.ambar)),
+          ],
           Expanded(
             child: estado == null
                 ? const SizedBox.shrink()
