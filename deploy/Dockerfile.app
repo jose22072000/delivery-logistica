@@ -102,6 +102,12 @@ RUN flutter build web --release \
 # `index.html` se queda sin cachear (`deploy/nginx.conf`) y es el único sitio donde vive
 # la huella: se pide siempre, y de él sale la dirección buena de todo lo demás.
 #
+# EL FAVICON ENTRA TAMBIÉN, y no por simetría. El 16/09 se cambió el icono de Flutter por
+# el de Procovar, el servidor servía el nuevo —mismo md5 que el del repo, comprobado— y en
+# la pestaña seguía saliendo el de Flutter. El favicon es la caché más terca de un
+# navegador: se lo guarda casi ignorando las cabeceras y ni una recarga forzada lo tira
+# siempre. Con la huella en la dirección no hay nada que tirar: es otro fichero.
+#
 # Es md5 del contenido y no la fecha ni el commit a propósito: dos compilaciones del mismo
 # código dan la MISMA huella, así que un redespliegue que no cambia nada no obliga a nadie
 # a volver a bajarse cinco megas.
@@ -109,9 +115,13 @@ RUN set -eu; \
     H=$(md5sum build/web/main.dart.js | cut -c1-12); \
     sed -i "s#flutter_bootstrap\.js#flutter_bootstrap.js?v=$H#g" build/web/index.html; \
     sed -i "s#main\.dart\.js#main.dart.js?v=$H#g" build/web/flutter_bootstrap.js; \
+    sed -i "s#href=\"favicon\.png\"#href=\"favicon.png?v=$H\"#g" build/web/index.html; \
+    sed -i "s#href=\"icons/Icon-192\.png\"#href=\"icons/Icon-192.png?v=$H\"#g" build/web/index.html; \
     echo "huella de esta compilacion: $H"; \
-    grep -q "flutter_bootstrap.js?v=$H" build/web/index.html \
-      || (echo "NO se pudo poner la huella en index.html" && exit 1); \
+    for marca in "flutter_bootstrap.js?v=$H" "favicon.png?v=$H"; do \
+      grep -q "$marca" build/web/index.html \
+        || (echo "NO se pudo poner la huella de $marca en index.html" && exit 1); \
+    done; \
     grep -q "main.dart.js?v=$H" build/web/flutter_bootstrap.js \
       || (echo "NO se pudo poner la huella en flutter_bootstrap.js" && exit 1)
 
