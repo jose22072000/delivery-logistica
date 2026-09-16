@@ -49,10 +49,28 @@ func (a *Acotado) ObtenerColumna(ctx context.Context, id uuid.UUID) (sqlc.BoardC
 // CrearColumna deja constancia de quién la creó. `creado_por` NO filtra nada: aquí nada
 // pertenece a una persona, y el día que aparezca un `WHERE creado_por = actor` es el
 // fallo de delivery otra vez.
+//
+// Devuelve `BoardColumn` y no el tipo de la consulta porque la consulta pasó a tener dos
+// ramas —la que inserta y la que devuelve la que ya estaba, para que subir dos veces el
+// mismo id no cree dos zonas— y sqlc le da un tipo propio. Lo que sale por arriba es la
+// columna, como siempre.
 func (a *Acotado) CrearColumna(ctx context.Context, arg sqlc.CrearColumnaParams) (sqlc.BoardColumn, error) {
 	arg.Sucursal = a.sucursalPg()
 	arg.CreadoPor = a.ActorRef()
-	return a.q.CrearColumna(ctx, arg)
+	fila, err := a.q.CrearColumna(ctx, arg)
+	if err != nil {
+		return sqlc.BoardColumn{}, err
+	}
+	return sqlc.BoardColumn{
+		ID:        fila.ID,
+		BranchID:  fila.BranchID,
+		Nombre:    fila.Nombre,
+		Posicion:  fila.Posicion,
+		VehicleID: fila.VehicleID,
+		CreadoPor: fila.CreadoPor,
+		CreatedAt: fila.CreatedAt,
+		UpdatedAt: fila.UpdatedAt,
+	}, nil
 }
 
 func (a *Acotado) ActualizarColumna(ctx context.Context, arg sqlc.ActualizarColumnaParams) (sqlc.BoardColumn, error) {

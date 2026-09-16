@@ -85,3 +85,22 @@ func esClaveRepetida(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
+
+// esEstaClaveRepetida es lo mismo, pero mirando CUÁL de las únicas saltó.
+//
+// El 23505 a secas no basta cuando una tabla tiene dos. `board_columns` tiene la del
+// nombre —«dos “Vista Alegre” en el mismo tablero»— y la de la posición, que además es
+// `DEFERRABLE INITIALLY DEFERRED` y por tanto revienta AL CERRAR la transacción. Dos
+// aparatos que suben a la vez calculan el mismo `max(posicion)+1`, y el segundo se
+// llevaba el mensaje del nombre: «Ya hay una columna “Reparto Norte” en este tablero»,
+// que es falso, y el apunte quedaba rechazado con un motivo que no explica nada ni le
+// dice a nadie qué hacer.
+//
+// Se vuelve más probable, no menos, según se usa el aparato sin señal: las colas se
+// vacían de golpe cuando vuelve la red.
+func esEstaClaveRepetida(err error, restriccion string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == "23505" &&
+		pgErr.ConstraintName == restriccion
+}

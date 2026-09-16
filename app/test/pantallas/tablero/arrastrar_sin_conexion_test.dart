@@ -95,7 +95,16 @@ void main() {
       // ---- Por la tarde, en el patio y sin señal. -----------------------
       final mando = contenedor.read(tableroProvider.notifier);
       final columnaId = await mando.crearColumna('Centro');
-      expect(columnaId, startsWith('local-'));
+      // El id lo pone el APARATO, aquí mismo y sin señal: un UUIDv7 definitivo.
+      // No hay nada que sustituir después, y subirlo dos veces no crea dos zonas.
+      expect(
+        columnaId,
+        matches(
+          RegExp(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+          ),
+        ),
+      );
 
       await mando.colocar(pedidoId: 'p-cerca', columnaId: columnaId);
       await mando.colocar(pedidoId: 'p-medio', columnaId: columnaId);
@@ -197,7 +206,15 @@ void main() {
     await contenedor.read(tableroProvider.notifier).refrescar();
     final tablero = contenedor.read(tableroProvider).value!;
     expect(tablero.columnas.single.id, 'col-de-verdad');
-    expect(tablero.columnas.single.esProvisional, isFalse);
+    // La ZONA subió, pero su pedido no: sigue «sin subir», y eso es lo correcto.
+    // El prefijo `local-…` de antes no sabía contar esto —con el id de verdad ya
+    // puesto daba la zona por entregada con cinco pedidos todavía en la cola—, y
+    // por eso la marca pasó a salir de la cola y no del id.
+    expect(
+      tablero.columnas.single.faltaPorSubir,
+      isTrue,
+      reason: 'le queda la colocación de p1 por subir',
+    );
     expect(tablero.deColumna('col-de-verdad').single.pedido.pedidoId, 'p1');
 
     await base.close();

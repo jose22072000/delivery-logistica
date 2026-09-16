@@ -1,0 +1,320 @@
+import 'package:drift/drift.dart';
+
+import '../base/base.dart';
+import '../cola/cola_salida.dart';
+import '../registro/registro.dart';
+
+/// LO QUE EL APARATO HIZO SIN CONEXION Y **NO VA A SUBIR SOLO**.
+///
+/// ## El agujero que tapa, en una frase
+///
+/// La subida es una COLA, no una comprobacion. Reenvia apuntes; nunca compara lo
+/// que este aparato tiene contra lo que hay arriba. Asi que en cuanto un apunte
+/// desaparece —se descarto a mano, o se perdio por un fallo— **el dato local se
+/// queda huerfano: existe aqui, no existe en ningun otro sitio, y nada lo va a
+/// volver a intentar nunca.**
+///
+/// Palabras de Jose, 16/09/2026, mirandolo en su telefono: «entonces ahi el sync
+/// no esta haciendo su trabajo, ahi el movil esta adelante por q tiene cosas q
+/// el web no tiene, o sea q no esta funcionando para comprobar lo q hay arriba
+/// contra lo q esta offline».
+///
+/// ## Como se veia
+///
+/// Tres pantallas diciendo cosas distintas del mismo aparato, todas de buena fe:
+///
+///  * el Tablero: la zona «Vista», con sus cinco pedidos y su marca «sin subir»;
+///  * entregar el dia: «Todo entregado. No queda nada por subir»;
+///  * el Panel: «Todo al dia. No queda nada sin enviar».
+///
+/// Y el servidor, que es el unico que tenia razon: «Galaxy A16 de Jose — nunca
+/// ha subido». Las tres primeras miran LA COLA, y la cola estaba vacia porque el
+/// apunte que creaba la zona se habia descartado. El trabajo seguia ahi, a la
+/// vista, y ya no tenia forma de salir del telefono.
+///
+/// ## Como se detecta
+///
+/// Por el id. Lo que se crea sin conexion lleva un id `local-…` hasta que el
+/// servidor devuelve el suyo (`nucleo/cola/provisionales.dart`), asi que **una
+/// fila con id provisional es, por definicion, algo que todavia no existe
+/// arriba**. Si ademas no le queda ningun apunte vivo en la cola, nadie la va a
+/// subir: eso es un huerfano.
+///
+/// No hace falta preguntarle nada al servidor, y es a proposito: esto tiene que
+/// poder contestarse **sin conexion**, que es justo cuando se acumula el
+/// trabajo.
+class Huerfanos {
+  const Huerfanos(this._base);
+
+  final BaseLocal _base;
+
+  /// Donde puede quedar trabajo huerfano, y como se llama para una persona.
+  ///
+  /// Va como lista y no a mano en la consulta por lo mismo que `Provisionales.
+  /// _dondeMirar`: el dia que se pueda crear otra cosa sin conexion, esto es lo
+  /// unico que hay que tocar.
+  ///
+  /// `board_columns` estaba fuera de aquella lista —las zonas no sustituyen id
+  /// por esa via, lo hace el propio apunte— y es justo la que se quedo colgada.
+  static const _dondeMirar = <Sitio>[
+    // EL TABLERO SE PREGUNTA POR `nacio_aqui`, NO POR EL PREFIJO DEL ID.
+    //
+    // Y ese detalle deshace un atasco que si no no tiene salida. Desde que el
+    // aparato pone el id definitivo —un UUIDv7— `local-…` no distingue nada, asi
+    // que esto devolvia 0: una zona creada sin senal cuyo apunte se descarto
+    // quedaba **protegida para siempre y sin nada que la subiera**. La bajada se
+    // negaba a borrarla (bien), pero lo unico que limpia la marca es una bajada,
+    // y el ciclo no la reencolaba porque no la veia. El tablero de ese aparato no
+    // se actualizaba nunca mas y el cartel decia «se sube primero» cuando no
+    // habia nada que subiera.
+    //
+    // Mirando la marca, el ciclo la reencola, sube, la bajada la pone a 0 y el
+    // atasco se deshace solo.
+    Sitio('board_columns', 'zona del tablero', 'zonas del tablero',
+        condicion: 'nacio_aqui = 1'),
+    // Las demas siguen con el provisional: ahi el servidor todavia no deja que
+    // el aparato ponga el id, asi que `local-…` sigue siendo la senal buena.
+    Sitio('routes', 'ruta', 'rutas'),
+    Sitio('vehicles', 'vehículo', 'vehículos'),
+    Sitio('warehouses', 'almacén', 'almacenes'),
+  ];
+
+  /// ¿Existe esa tabla en esta base?
+  ///
+  /// Las del Tablero no son de Drift: las crea la propia pantalla la primera vez
+  /// que se abre (`pantallas/tablero/datos/esquema.dart`). En un aparato recien
+  /// estrenado, o en el de alguien que nunca entra ahi, sencillamente no estan.
+  Future<bool> _hayTabla(String tabla) async {
+    final fila = await _base
+        .customSelect(
+          "SELECT count(*) AS hay FROM sqlite_master "
+          "WHERE type = 'table' AND name = ?1",
+          variables: [Variable<String>(tabla)],
+        )
+        .getSingle();
+    return fila.read<int>('hay') > 0;
+  }
+
+  /// QUE ES ESTAR HUERFANO, escrito UNA vez.
+  ///
+  /// Vive en una constante y no copiado en las dos consultas a proposito: son la
+  /// misma pregunta —«¿que hay que volver a encolar?» y «¿cuanto hay?»— y dos
+  /// copias que se separen darian un aviso que no cuadra con lo que se encola.
+  ///
+  /// Son TRES condiciones, y las tres hicieron falta:
+  ///
+  ///  1. **Id provisional.** Lo que se crea sin conexion lleva `local-…` hasta
+  ///     que el servidor devuelve el suyo.
+  ///
+  ///  2. **Sin equivalencia.** Esta es la que faltaba y la que convertia esto en
+  ///     un bucle. Un `local-…` con equivalencia YA SUBIO: el servidor contesto
+  ///     y se anoto su id de verdad. Que la fila local siga con el provisional
+  ///     no quiere decir nada — hasta hoy las zonas del tablero no se sustituian
+  ///     hasta que alguien volviera a abrir esa pantalla. Sin esta condicion, una
+  ///     zona subida y bien subida se volvia a encolar cada pocos minutos, y lo
+  ///     unico que evitaba una zona repetida arriba era el nombre repetido: un
+  ///     rechazo falso en la bandeja por un trabajo que SI habia llegado.
+  ///
+  ///  3. **Sin apunte vivo que la cree.** `pendiente` va a subir sola.
+  ///     `rechazado` esta esperando a que una persona decida y se puede
+  ///     reintentar a mano: volver a encolarla por detras seria insistirle a un
+  ///     servidor que ya dijo que no.
+  static String _esHuerfana(Sitio sitio) =>
+      '${sitio.condicion} '
+      'AND NOT EXISTS (SELECT 1 FROM equivalencias e WHERE e.provisional = t.id) '
+      'AND NOT EXISTS ('
+      '  SELECT 1 FROM apuntes a WHERE a.provisional = t.id '
+      "  AND a.estado IN ('pendiente', 'rechazado')"
+      ')';
+
+  /// Cuenta lo huerfano, por tipo. Vacio = no hay nada colgado.
+  Future<List<TrabajoHuerfano>> mirar() async {
+    final salida = <TrabajoHuerfano>[];
+    for (final sitio in _dondeMirar) {
+      try {
+        final fila = await _base
+            .customSelect(
+              'SELECT count(*) AS cuantos FROM ${sitio.tabla} t '
+              'WHERE ${_esHuerfana(sitio)}',
+            )
+            .getSingle();
+        final cuantos = fila.read<int>('cuantos');
+        if (cuantos > 0) salida.add(TrabajoHuerfano(sitio, cuantos));
+      } on Object catch (e) {
+        // Una tabla que no existe todavia —una version anterior del esquema— no
+        // puede impedir mirar las demas. Lo peor que pasa es no contar esa.
+        Registro.aviso('no se pudo mirar ${sitio.tabla} en busca de huérfanos: $e');
+      }
+    }
+    return salida;
+  }
+
+  /// Los ids huerfanos de una tabla, para poder volver a encolarlos.
+  Future<List<String>> idsDe(Sitio sitio) async {
+    final filas = await _base
+        .customSelect(
+          'SELECT t.id AS id FROM ${sitio.tabla} t WHERE ${_esHuerfana(sitio)}',
+        )
+        .get();
+    return filas.map((f) => f.read<String>('id')).toList();
+  }
+
+  /// La zona del tablero, que es la unica que hoy se sabe reconstruir.
+  static const zonasDelTablero = Sitio(
+    'board_columns',
+    'zona del tablero',
+    'zonas del tablero',
+    condicion: 'nacio_aqui = 1',
+  );
+
+  /// VUELVE A ENCOLAR lo que se quedo colgado, reconstruyendo el apunte **desde
+  /// la fila local**. Devuelve cuantos apuntes se pusieron.
+  ///
+  /// Lo llama el ciclo, no una pantalla: comprobar la diferencia entre lo de
+  /// aqui y lo de arriba es el trabajo del sincronizador, y tiene que pasar solo
+  /// —en cuanto haya senal— sin que nadie se acuerde de pulsar nada.
+  ///
+  /// **No hace bucle.** Si el servidor vuelve a decir que no, el apunte queda en
+  /// `rechazado`, que cuenta como vivo: la vuelta siguiente ya no lo ve huerfano
+  /// y no lo encola otra vez. Se queda a la vista con su motivo, esperando a que
+  /// una persona decida, que es la regla de la casa.
+  ///
+  /// Hoy reconstruye **el tablero**, que es el caso que se dio y el unico cuyo
+  /// cuerpo se puede rehacer entero desde la base. Los demas se cuentan y se
+  /// dicen: es mejor un aviso que nombra lo que hay que mirar que un apunte
+  /// inventado a medias.
+  /// **Esto no puede tumbar el ciclo NUNCA.** Comprobar la diferencia es una
+  /// ayuda; subir y bajar es la razon de ser. Un aparato que todavia no ha
+  /// abierto el Tablero no tiene siquiera esas tablas —las crea la pantalla la
+  /// primera vez que se abre—, y sin esta guarda el ciclo entero moria con un
+  /// «no such table: board_columns» en cuanto alguien entraba y no pasaba por
+  /// ahi: ni subia su cola, ni bajaba el dia. Lo cazo `ciclo_test` antes de
+  /// salir de aqui, y es exactamente el fallo que este fichero venia a evitar,
+  /// del reves.
+  Future<int> volverAEncolar(ColaDeSalida cola) async {
+    try {
+      return await _volverAEncolar(cola);
+    } on Object catch (e, pila) {
+      Registro.fallo('no se pudo volver a encolar lo huérfano: $e', e, pila);
+      return 0;
+    }
+  }
+
+  Future<int> _volverAEncolar(ColaDeSalida cola) async {
+    if (!await _hayTabla('board_columns')) return 0;
+    var puestos = 0;
+    for (final id in await idsDe(zonasDelTablero)) {
+      final columna = await _base
+          .customSelect(
+            'SELECT branch_id, nombre, vehicle_id FROM board_columns '
+            'WHERE id = ?1',
+            variables: [Variable<String>(id)],
+          )
+          .getSingleOrNull();
+      if (columna == null) continue;
+
+      final sucursal = columna.read<String>('branch_id');
+      // LA ZONA PRIMERO. Lleva su `local-…` como provisional, que es la bisagra:
+      // cuando suba y el servidor devuelva el id de verdad, las colocaciones de
+      // detras lo llevan sustituido en su cuerpo y no acaban en una columna que
+      // no existe en ningun sitio.
+      await cola.encolar(
+        metodo: 'POST',
+        ruta: '/board/columns?branchId=$sucursal',
+        cuerpo: <String, Object?>{
+          // EL ID VA EN EL CUERPO. Sin el, el servidor pone uno nuevo y esto
+          // crea una SEGUNDA zona con el mismo nombre: el indice unico la
+          // rechaza, y un rechazo no se reintenta. El desatasco acababa en un
+          // rechazo falso y en un atasco permanente.
+          'id': id,
+          'nombre': columna.read<String>('nombre'),
+          'vehiculoId': ?columna.read<String?>('vehicle_id'),
+        },
+        provisional: id,
+      );
+      puestos++;
+
+      // Y DETRAS SUS PEDIDOS, en su orden. Sin esto subiria una zona vacia, que
+      // es peor que no subir nada: parece que el trabajo llego.
+      final dentro = await _base
+          .customSelect(
+            'SELECT order_id, posicion FROM board_placements '
+            'WHERE column_id = ?1 ORDER BY posicion ASC',
+            variables: [Variable<String>(id)],
+          )
+          .get();
+      for (final fila in dentro) {
+        await cola.encolar(
+          metodo: 'PUT',
+          ruta: '/board/placements/${fila.read<String>('order_id')}',
+          cuerpo: <String, Object?>{
+            'columnaId': id,
+            'posicion': fila.read<int>('posicion'),
+          },
+        );
+        puestos++;
+      }
+
+      Registro.aviso(
+        'zona del tablero $id: estaba en el aparato y no en el servidor, y no le '
+        'quedaba ningún apunte que la subiera. Se vuelve a encolar con sus '
+        '${dentro.length} pedidos',
+      );
+    }
+    return puestos;
+  }
+}
+
+/// Un sitio donde puede quedar trabajo sin subir.
+class Sitio {
+  const Sitio(
+    this.tabla,
+    this.uno,
+    this.varios, {
+    this.condicion = "t.id LIKE 'local-%'",
+  });
+
+  final String tabla;
+
+  /// Que significa, EN ESTA TABLA, «esto todavia no esta arriba».
+  ///
+  /// No es igual en todas y por eso se dice aqui en vez de darlo por hecho. El
+  /// tablero tiene su marca propia (`nacio_aqui`) desde que el aparato pone el
+  /// id definitivo; las demas siguen con el `local-…` provisional, porque ahi el
+  /// servidor todavia no deja que el aparato nombre nada.
+  final String condicion;
+
+  /// Como se llama en singular y en plural, para poder DECIRLO. «1 zona del
+  /// tablero», «3 vehículos». Un mensaje que diga «3 filas de board_columns» no
+  /// se lo puede leer nadie.
+  final String uno;
+  final String varios;
+}
+
+/// Cuanto trabajo colgado hay de un tipo.
+class TrabajoHuerfano {
+  const TrabajoHuerfano(this._sitio, this.cuantos);
+
+  final Sitio _sitio;
+  final int cuantos;
+
+  String get tabla => _sitio.tabla;
+
+  /// «1 zona del tablero» · «3 vehículos».
+  String get texto => '$cuantos ${cuantos == 1 ? _sitio.uno : _sitio.varios}';
+}
+
+/// Lo de todos los tipos junto, ya escrito para pintarlo.
+extension ResumenDeHuerfanos on List<TrabajoHuerfano> {
+  bool get hayAlguno => isNotEmpty;
+
+  int get total => fold(0, (a, h) => a + h.cuantos);
+
+  /// «1 zona del tablero y 2 vehículos». Se nombra CADA tipo: «3 cosas sin
+  /// subir» no le dice a nadie que ir a mirar.
+  String get texto {
+    final partes = map((h) => h.texto).toList();
+    if (partes.length == 1) return partes.first;
+    return '${partes.sublist(0, partes.length - 1).join(', ')} y ${partes.last}';
+  }
+}

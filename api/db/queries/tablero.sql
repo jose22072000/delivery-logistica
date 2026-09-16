@@ -74,18 +74,56 @@ WHERE c.id = sqlc.arg('id')
 -- El `FROM branches` no es decorativo: valida que la sucursal EXISTA. Sin él, un
 -- `branch_id` viejo —los tokens duran siete días y las sucursales se recrearon— crearía
 -- columnas en un tablero al que no llega nadie.
+-- EL ID LO PUEDE PONER EL APARATO, y con eso la creación pasa a ser IDEMPOTENTE.
+--
+-- Hasta el 16/09/2026 el id lo ponía siempre la base, así que el aparato creaba la zona
+-- con un `local-…` suyo y había que sustituirlo cuando el servidor contestaba. Toda esa
+-- maquinaria existía por esto, y con ella una familia entera de fallos: si la respuesta no
+-- llegaba —se cayó la red justo después de escribir—, el aparato no sabía si la zona
+-- existía arriba, y el reintento creaba otra.
+--
+-- Con un UUIDv7 puesto por el aparato no hay nada que sustituir y el reintento es seguro:
+-- el mismo id entra una sola vez. `ON CONFLICT (id) DO NOTHING` más el `SELECT` de abajo
+-- devuelven la fila que ya estaba, así que subir dos veces da el mismo resultado que subir
+-- una. Es lo único que convierte «¿llegó o no llegó?» en una pregunta que no hace falta.
+--
+-- v7 y no v4 porque lleva la hora dentro: las zonas quedan ordenadas por cuándo se
+-- crearon aunque se hayan creado en cuatro teléfonos distintos sin señal.
+--
+-- `id` nulo sigue valiendo: lo pone la base, como siempre. La web vieja y cualquier cosa
+-- que no lo mande siguen funcionando igual.
 -- name: CrearColumna :one
-INSERT INTO board_columns (branch_id, nombre, posicion, vehicle_id, creado_por)
-SELECT
-    b.id,
-    sqlc.arg('nombre'),
-    coalesce((SELECT max(c.posicion) + 1 FROM board_columns c WHERE c.branch_id = b.id), 1),
-    sqlc.narg('vehicle_id'),
-    sqlc.narg('creado_por')
-FROM branches b
-WHERE b.id = sqlc.arg('branch_id')
-  AND (sqlc.narg('sucursal')::uuid IS NULL OR b.id = sqlc.narg('sucursal')::uuid)
-RETURNING id, branch_id, nombre, posicion, vehicle_id, creado_por, created_at, updated_at;
+WITH nueva AS (
+    INSERT INTO board_columns (id, branch_id, nombre, posicion, vehicle_id, creado_por)
+    SELECT
+        coalesce(sqlc.narg('id')::uuid, gen_random_uuid()),
+        b.id,
+        sqlc.arg('nombre'),
+        coalesce((SELECT max(c.posicion) + 1 FROM board_columns c WHERE c.branch_id = b.id), 1),
+        sqlc.narg('vehicle_id'),
+        sqlc.narg('creado_por')
+    FROM branches b
+    WHERE b.id = sqlc.arg('branch_id')
+      AND (sqlc.narg('sucursal')::uuid IS NULL OR b.id = sqlc.narg('sucursal')::uuid)
+    ON CONFLICT (id) DO NOTHING
+    RETURNING id, branch_id, nombre, posicion, vehicle_id, creado_por, created_at, updated_at
+)
+SELECT id, branch_id, nombre, posicion, vehicle_id, creado_por, created_at, updated_at
+FROM nueva
+UNION ALL
+-- LA QUE YA ESTABA. Es la rama del reintento: el aparato mandó dos veces el mismo id
+-- porque no supo si la primera llegó. Se le devuelve la zona que ya existe y en paz.
+--
+-- Va acotada igual que el `INSERT`: sin el `branch_id` aquí, mandar el id de la zona de
+-- otra sucursal la devolvería, y eso es enseñar lo que no es de uno.
+SELECT c.id, c.branch_id, c.nombre, c.posicion, c.vehicle_id, c.creado_por,
+       c.created_at, c.updated_at
+FROM board_columns c
+WHERE sqlc.narg('id')::uuid IS NOT NULL
+  AND c.id = sqlc.narg('id')::uuid
+  AND c.branch_id = sqlc.arg('branch_id')
+  AND (sqlc.narg('sucursal')::uuid IS NULL OR c.branch_id = sqlc.narg('sucursal')::uuid)
+LIMIT 1;
 
 -- Renombrar y elegir camión. `tocar_vehiculo` existe porque «no me lo toques» y «quítamelo»
 -- son dos órdenes distintas y las dos llegan con el campo vacío: sin la bandera, dejar el

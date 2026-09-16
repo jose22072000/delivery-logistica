@@ -231,7 +231,30 @@ type Querier interface {
 	// El `FROM branches` no es decorativo: valida que la sucursal EXISTA. Sin él, un
 	// `branch_id` viejo —los tokens duran siete días y las sucursales se recrearon— crearía
 	// columnas en un tablero al que no llega nadie.
-	CrearColumna(ctx context.Context, arg CrearColumnaParams) (BoardColumn, error)
+	// EL ID LO PUEDE PONER EL APARATO, y con eso la creación pasa a ser IDEMPOTENTE.
+	//
+	// Hasta el 16/09/2026 el id lo ponía siempre la base, así que el aparato creaba la zona
+	// con un `local-…` suyo y había que sustituirlo cuando el servidor contestaba. Toda esa
+	// maquinaria existía por esto, y con ella una familia entera de fallos: si la respuesta no
+	// llegaba —se cayó la red justo después de escribir—, el aparato no sabía si la zona
+	// existía arriba, y el reintento creaba otra.
+	//
+	// Con un UUIDv7 puesto por el aparato no hay nada que sustituir y el reintento es seguro:
+	// el mismo id entra una sola vez. `ON CONFLICT (id) DO NOTHING` más el `SELECT` de abajo
+	// devuelven la fila que ya estaba, así que subir dos veces da el mismo resultado que subir
+	// una. Es lo único que convierte «¿llegó o no llegó?» en una pregunta que no hace falta.
+	//
+	// v7 y no v4 porque lleva la hora dentro: las zonas quedan ordenadas por cuándo se
+	// crearon aunque se hayan creado en cuatro teléfonos distintos sin señal.
+	//
+	// `id` nulo sigue valiendo: lo pone la base, como siempre. La web vieja y cualquier cosa
+	// que no lo mande siguen funcionando igual.
+	// LA QUE YA ESTABA. Es la rama del reintento: el aparato mandó dos veces el mismo id
+	// porque no supo si la primera llegó. Se le devuelve la zona que ya existe y en paz.
+	//
+	// Va acotada igual que el `INSERT`: sin el `branch_id` aquí, mandar el id de la zona de
+	// otra sucursal la devolvería, y eso es enseñar lo que no es de uno.
+	CrearColumna(ctx context.Context, arg CrearColumnaParams) (CrearColumnaRow, error)
 	CrearOrigen(ctx context.Context, arg CrearOrigenParams) (SavedOrigin, error)
 	CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePedidoParams) (CrearRenglonDePedidoRow, error)
 	// La ruta nace `planned` y `optimized` en false: los totales y el orden de visita se

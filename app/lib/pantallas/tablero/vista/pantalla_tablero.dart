@@ -349,17 +349,37 @@ class _BarraDeArriba extends ConsumerWidget {
                 ),
                 // Un tablero que parece vivo y lleva seis horas congelado es
                 // peor que uno que avisa.
-                Text(
-                  tablero.vistoAt == null
-                      ? 'Sin descargar todavía'
-                      : 'Visto por última vez a las '
-                            '${horaBonita(tablero.vistoAt!)}',
-                  style: tema.textTheme.labelMedium?.copyWith(
-                    color: tablero.vistoAt == null
-                        ? ColoresTablero.ambar
-                        : tema.colorScheme.onSurfaceVariant,
+                //
+                // Y si hay algo aqui que no esta arriba, eso manda sobre la
+                // hora: refrescar borraria la foto de aqui y se lo llevaria por
+                // delante, asi que la aplicacion se niega — y lo DICE, que es la
+                // mitad que faltaba. Callarselo dejaba a quien pulsaba sin saber
+                // si es que no habia cambios o que se estaba protegiendo su
+                // trabajo.
+                if (ref
+                        .read(tableroProvider.notifier)
+                        .porQueNoSeRefresca
+                    case final pendiente?)
+                  Text(
+                    'No se actualiza: hay $pendiente. Se sube primero y '
+                    'después se trae — así no se pierde nada.',
+                    style: tema.textTheme.labelMedium?.copyWith(
+                      color: ColoresTablero.ambar,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                else
+                  Text(
+                    tablero.vistoAt == null
+                        ? 'Sin descargar todavía'
+                        : 'Visto por última vez a las '
+                              '${horaBonita(tablero.vistoAt!)}',
+                    style: tema.textTheme.labelMedium?.copyWith(
+                      color: tablero.vistoAt == null
+                          ? ColoresTablero.ambar
+                          : tema.colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
                 // Tres contadores y no uno: se arreglan de tres maneras
                 // distintas, y un numero unico obligaria a abrir las doce
                 // columnas para saber cual es.

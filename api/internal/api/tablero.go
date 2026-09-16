@@ -450,6 +450,17 @@ func (s *Servidor) mitadIzquierda(w http.ResponseWriter, r *http.Request, a *alc
 type cuerpoColumna struct {
 	Nombre     httpx.Opcional[string] `json:"nombre"`
 	VehiculoID httpx.Opcional[string] `json:"vehiculoId"`
+
+	// EL ID QUE PONE EL APARATO. Opcional: sin él lo pone la base, como siempre.
+	//
+	// Es lo que hace que subir dos veces la misma zona no cree dos. El aparato lo genera
+	// como UUIDv7 al crearla —aunque esté sin señal— y lo manda; si la respuesta no llega
+	// y reintenta, el mismo id entra una sola vez y se le devuelve la que ya estaba.
+	//
+	// Sin esto, «¿llegó o no llegó?» era una pregunta sin respuesta: el aparato se
+	// inventaba un `local-…`, había que sustituirlo cuando el servidor contestaba, y si no
+	// contestaba, el reintento creaba otra zona.
+	ID httpx.Opcional[string] `json:"id"`
 }
 
 // POST /api/board/columns — va al final; la posición la calcula la base.
@@ -479,15 +490,45 @@ func (s *Servidor) crearColumna(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// EL ID DEL APARATO, si lo trae. Se exige que sea un uuid: uno que no lo sea es un
+	// `local-…` de una versión anterior, y aceptarlo a ciegas metería en la base un id que
+	// ningún otro aparato podría volver a nombrar.
+	var id pgtype.UUID
+	if crudo := strings.TrimSpace(c.ID.Con("")); crudo != "" {
+		u, err := uuid.Parse(crudo)
+		if err != nil {
+			httpx.Error(w, r, http.StatusBadRequest,
+				"«id» tiene que ser un uuid: lo pone el aparato al crear la zona, y es "+
+					"lo que permite subirla dos veces sin que se creen dos")
+			return
+		}
+		id = pgtype.UUID{Bytes: u, Valid: true}
+	}
+
 	fila, err := a.CrearColumna(r.Context(), sqlc.CrearColumnaParams{
-		Nombre: nombre, VehicleID: veh, BranchID: t.sucursal,
+		ID: id, Nombre: nombre, VehicleID: veh, BranchID: t.sucursal,
 	})
 	// Dos «Vista Alegre» en el mismo tablero es colocar la mitad de los pedidos en la
 	// equivocada y no enterarse hasta que salen dos camiones al mismo barrio. Lo impide
 	// el índice único; aquí se traduce a algo que se entiende.
-	if esClaveRepetida(err) {
+	//
+	// SE MIRA CUÁL DE LAS DOS ÚNICAS SALTÓ, y no un 23505 a secas. `board_columns` tiene
+	// otra —`board_columns_posicion_unica`, `DEFERRABLE INITIALLY DEFERRED`— que revienta
+	// al cerrar la transacción cuando dos aparatos suben a la vez: los dos calcularon el
+	// mismo `max(posicion)+1`. Con el 23505 a secas, ese choque se contestaba «Ya hay una
+	// columna “X” en este tablero», que es FALSO, y el apunte quedaba rechazado en la
+	// bandeja con un motivo que no explica nada ni dice qué hacer.
+	if esEstaClaveRepetida(err, "board_columns_nombre_idx") {
 		httpx.Error(w, r, http.StatusConflict,
 			fmt.Sprintf("Ya hay una columna «%s» en este tablero", nombre))
+		return
+	}
+	// El choque de posición SÍ se reintenta: no es un rechazo de negocio, es que dos
+	// aparatos llegaron a la vez. Un 409 lo mataría en la bandeja; un 409 con este texto
+	// deja claro que se vuelva a intentar.
+	if esEstaClaveRepetida(err, "board_columns_posicion_unica") {
+		httpx.Error(w, r, http.StatusConflict,
+			"Otro aparato creó una zona en el mismo momento. Vuelve a intentarlo.")
 		return
 	}
 	if errors.Is(err, pgx.ErrNoRows) {

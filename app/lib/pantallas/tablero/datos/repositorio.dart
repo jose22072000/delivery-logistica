@@ -103,9 +103,12 @@ class RepositorioTablero {
         [columnaId, donde],
       );
       await _base.customStatement(
+        // Igual que la zona: esta tarjeta se arrastro aqui y todavia no esta
+        // arriba. Sin esto, «actualizar» borraba las colocaciones aunque la zona
+        // estuviera protegida.
         'INSERT INTO $_tablaColocaciones '
-        '(order_id, column_id, posicion, colocado_at, updated_at) '
-        'VALUES (?1, ?2, ?3, ?4, ?4)',
+        '(order_id, column_id, posicion, colocado_at, updated_at, nacio_aqui) '
+        'VALUES (?1, ?2, ?3, ?4, ?4, 1)',
         [pedidoId, columnaId, donde, _ahora],
       );
 
@@ -180,7 +183,9 @@ class RepositorioTablero {
     if (limpio.isEmpty) {
       throw const RechazoDelTablero('La columna necesita un nombre');
     }
-    final id = Provisionales.nuevoId();
+    // El id DEFINITIVO, puesto aqui: el servidor lo acepta y lo usa tal cual, asi
+    // que reintentar la subida no crea una segunda zona. Ver `nuevoIdReal`.
+    final id = Provisionales.nuevoIdReal();
     try {
       await _base.transaction(() async {
         final fila = await _base
@@ -191,9 +196,14 @@ class RepositorioTablero {
             )
             .getSingle();
         await _base.customStatement(
+          // `nacio_aqui = 1`: esta zona existe SOLO en este aparato hasta que
+          // suba. Es lo que impide que «actualizar» se la lleve por delante, y
+          // se pone aqui porque es el unico sitio que sabe con seguridad que la
+          // fila nacio de este lado.
           'INSERT INTO $_tablaColumnas '
-          '(id, branch_id, nombre, posicion, vehicle_id, created_at, updated_at) '
-          'VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)',
+          '(id, branch_id, nombre, posicion, vehicle_id, created_at, updated_at, '
+          ' nacio_aqui) '
+          'VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1)',
           [
             id,
             sucursalId,
@@ -207,9 +217,24 @@ class RepositorioTablero {
           metodo: 'POST',
           ruta: '/board/columns?branchId=$sucursalId',
           cuerpo: <String, Object?>{
+            // EL ID VIAJA EN EL CUERPO, y con eso subir dos veces deja de crear
+            // dos zonas. Lo pone el aparato al crearla —un UUIDv7, aunque este
+            // sin senal— y el servidor lo usa tal cual; si la respuesta no llega
+            // y se reintenta, el mismo id entra una sola vez.
+            //
+            // Antes el id lo ponia la base y el aparato se inventaba un
+            // `local-…` que habia que sustituir despues. Toda esa maquinaria
+            // existia por esto, y con ella una pregunta sin respuesta: si la red
+            // se caia justo despues de escribir, el aparato no sabia si la zona
+            // existia arriba, y el reintento creaba otra.
+            'id': id,
             'nombre': limpio,
             'vehiculoId': ?vehiculoId,
           },
+          // Se sigue anotando como `provisional` aunque ya no haya nada que
+          // sustituir: es lo que ata este apunte a su fila, y lo que deja saber
+          // que a esta zona le falta subir. `sustituir` con los dos ids iguales
+          // no hace nada, asi que no estorba.
           provisional: id,
         );
       });
@@ -230,7 +255,18 @@ class RepositorioTablero {
     try {
       await _base.transaction(() async {
         await _base.customStatement(
-          'UPDATE $_tablaColumnas SET nombre = ?1, updated_at = ?2 '
+          // `nacio_aqui = 1` TAMBIEN al cambiar algo, no solo al crear.
+          //
+          // La marca dice «esto de aqui no esta arriba», y un renombrado sin
+          // senal es exactamente eso: la zona esta arriba, pero con el nombre
+          // viejo. Sin marcarlo, «actualizar» traia la foto del servidor y
+          // deshacia el renombrado en silencio.
+          // MARCA SOLO SI CAMBIA ALGO. Renombrar a lo mismo —o abrir el
+          // desplegable del camion y elegir «ninguno» sobre una zona que ya no
+          // tenia— no es trabajo sin subir, y marcarlo congela el tablero por
+          // nada. Los gestos marcaban por ejecutarse, no por cambiar.
+          'UPDATE $_tablaColumnas SET nombre = ?1, updated_at = ?2, '
+          'nacio_aqui = CASE WHEN nombre <> ?1 THEN 1 ELSE nacio_aqui END '
           'WHERE id = ?3',
           [limpio, _ahora, columnaId],
         );
@@ -255,7 +291,10 @@ class RepositorioTablero {
     await _listo();
     await _base.transaction(() async {
       await _base.customStatement(
-        'UPDATE $_tablaColumnas SET vehicle_id = ?1, updated_at = ?2 '
+        // Igual que el renombrado: elegir camion sin senal es un cambio de
+        // aqui que arriba todavia no esta.
+        'UPDATE $_tablaColumnas SET vehicle_id = ?1, updated_at = ?2, '
+        'nacio_aqui = CASE WHEN vehicle_id IS NOT ?1 THEN 1 ELSE nacio_aqui END '
         'WHERE id = ?3',
         [vehiculoId, _ahora, columnaId],
       );
@@ -286,7 +325,9 @@ class RepositorioTablero {
     await _base.transaction(() async {
       for (var i = 0; i < idsEnOrden.length; i++) {
         await _base.customStatement(
-          'UPDATE $_tablaColumnas SET posicion = ?1, updated_at = ?2 '
+          // Y el orden. Es lo que decide por donde empieza el camion.
+          'UPDATE $_tablaColumnas SET posicion = ?1, updated_at = ?2, '
+          'nacio_aqui = CASE WHEN posicion <> ?1 THEN 1 ELSE nacio_aqui END '
           'WHERE id = ?3 AND branch_id = ?4',
           [i + 1, _ahora, idsEnOrden[i], sucursalId],
         );
@@ -339,7 +380,14 @@ class RepositorioTablero {
       for (var i = 0; i < dentro.length; i++) {
         final donde = base + i + 1;
         await _base.customStatement(
+          // MOVER TODO es un UPDATE, no un INSERT, asi que las tarjetas que
+          // vinieron de arriba se quedaban a 0 y el traslado se deshacia solo al
+          // actualizar. Es el flujo de «esta columna no cabe en el camion, creo
+          // otra y mando lo que sobra» (§7.3), y por aqui pasa tambien borrar una
+          // columna mandando sus tarjetas a otra.
           'UPDATE $_tablaColocaciones SET column_id = ?1, posicion = ?2, '
+          'nacio_aqui = CASE WHEN column_id <> ?1 OR posicion <> ?2 '
+          '              THEN 1 ELSE nacio_aqui END, '
           'updated_at = ?3 WHERE order_id = ?4',
           [destinoId, donde, _ahora, dentro[i]],
         );

@@ -11,6 +11,7 @@ import 'package:reparto/nucleo/red/fallos.dart';
 import 'package:reparto/nucleo/sincro/bajada.dart';
 import 'package:reparto/nucleo/sincro/ciclo.dart';
 import 'package:reparto/nucleo/sincro/identidad_del_aparato.dart';
+import 'package:reparto/nucleo/sincro/huerfanos.dart';
 import 'package:reparto/nucleo/sincro/subida.dart';
 
 import '../../apoyo/base_de_prueba.dart';
@@ -134,6 +135,8 @@ void main() {
           frescura: RegistroDeFrescura(base, reloj: reloj.leer),
           reloj: reloj.leer,
         ),
+        huerfanos: Huerfanos(base),
+        cola: cola,
         haySesion: () => haySesion,
         alMorirLaSesion: () => muertes.add('murio'),
       ),

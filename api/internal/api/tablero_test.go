@@ -78,14 +78,19 @@ type colocacion struct {
 type tableroFalso struct {
 	sqlc.Querier
 
-	origenes    []sqlc.ListarOrigenesRow
-	columnas    map[uuid.UUID]sqlc.BoardColumn
-	pedidos     map[uuid.UUID]pedidoFalso
-	colocadas   map[uuid.UUID]colocacion
-	creadas     []string
-	sinOrigen   bool
-	borrarFalla bool
-	capacidad   float64
+	origenes  []sqlc.ListarOrigenesRow
+	columnas  map[uuid.UUID]sqlc.BoardColumn
+	pedidos   map[uuid.UUID]pedidoFalso
+	colocadas map[uuid.UUID]colocacion
+	creadas   []string
+
+	// `true` para que `CrearColumna` choque por POSICIÓN en vez de por nombre. En
+	// Postgres esa única es diferida y salta al CERRAR la transacción, cuando dos
+	// aparatos suben a la vez y los dos calcularon el mismo `max(posicion)+1`.
+	choquePosicion bool
+	sinOrigen      bool
+	borrarFalla    bool
+	capacidad      float64
 
 	// Lo que se vio pasar al armar la ruta: es lo que se comprueba.
 	rutaCreada  *sqlc.CrearRutaParams
@@ -199,12 +204,45 @@ func (q *tableroFalso) ObtenerColumna(_ context.Context, arg sqlc.ObtenerColumna
 	return c, nil
 }
 
-func (q *tableroFalso) CrearColumna(_ context.Context, arg sqlc.CrearColumnaParams) (sqlc.BoardColumn, error) {
+// CrearColumna repite las DOS ramas del SQL, y la segunda es la que importa.
+//
+// El aparato puede mandar el id —un UUIDv7 que genera él, aunque esté sin señal— y
+// entonces la creación es IDEMPOTENTE: `ON CONFLICT (id) DO NOTHING` más el `SELECT` de
+// la que ya estaba. Es lo que hace que un reintento, cuando la red se cayó justo después
+// de escribir y nadie sabe si llegó, entre una sola vez.
+//
+// Un doble que sólo insertara no vería esa rama, y con ella se cae la razón entera del
+// cambio.
+func (q *tableroFalso) CrearColumna(_ context.Context, arg sqlc.CrearColumnaParams) (sqlc.CrearColumnaRow, error) {
+	// El choque de la ÚNICA DE POSICIÓN, que en Postgres es diferida y salta al cerrar la
+	// transacción cuando dos aparatos suben a la vez.
+	if q.choquePosicion {
+		return sqlc.CrearColumnaRow{}, &pgconn.PgError{
+			Code: "23505", ConstraintName: "board_columns_posicion_unica",
+		}
+	}
+	// RAMA 2: ese id ya está. Se devuelve la que hay, acotada por sucursal — sin el
+	// `branch_id`, mandar el id de la zona de otra sucursal la devolvería.
+	if arg.ID.Valid {
+		if c, hay := q.columnas[uuid.UUID(arg.ID.Bytes)]; hay {
+			if c.BranchID != arg.BranchID {
+				return sqlc.CrearColumnaRow{}, pgx.ErrNoRows
+			}
+			return filaDeColumna(c), nil
+		}
+	}
 	for _, c := range q.columnas {
 		// El índice único es `(branch_id, lower(nombre))`: «centro» y «Centro» son la
 		// misma zona para quien las escribe.
 		if c.BranchID == arg.BranchID && strings.EqualFold(c.Nombre, arg.Nombre) {
-			return sqlc.BoardColumn{}, &pgconn.PgError{Code: "23505"}
+			// CON EL NOMBRE DE LA RESTRICCIÓN, como lo manda Postgres. La tabla tiene
+			// DOS únicas —ésta y la de la posición, que es diferida y salta al cerrar la
+			// transacción cuando dos aparatos suben a la vez—, y el manejador las
+			// distingue para no contestar «ya hay una columna X» a un choque que no va
+			// del nombre.
+			return sqlc.CrearColumnaRow{}, &pgconn.PgError{
+				Code: "23505", ConstraintName: "board_columns_nombre_idx",
+			}
 		}
 	}
 	pos := int32(1)
@@ -213,10 +251,23 @@ func (q *tableroFalso) CrearColumna(_ context.Context, arg sqlc.CrearColumnaPara
 			pos = c.Posicion + 1
 		}
 	}
-	nueva := sqlc.BoardColumn{ID: uuid.New(), BranchID: arg.BranchID, Nombre: arg.Nombre, Posicion: pos}
+	// El id del aparato si lo trae; si no, lo pone la base.
+	id := uuid.New()
+	if arg.ID.Valid {
+		id = uuid.UUID(arg.ID.Bytes)
+	}
+	nueva := sqlc.BoardColumn{ID: id, BranchID: arg.BranchID, Nombre: arg.Nombre, Posicion: pos}
 	q.columnas[nueva.ID] = nueva
 	q.creadas = append(q.creadas, arg.Nombre)
-	return nueva, nil
+	return filaDeColumna(nueva), nil
+}
+
+func filaDeColumna(c sqlc.BoardColumn) sqlc.CrearColumnaRow {
+	return sqlc.CrearColumnaRow{
+		ID: c.ID, BranchID: c.BranchID, Nombre: c.Nombre, Posicion: c.Posicion,
+		VehicleID: c.VehicleID, CreadoPor: c.CreadoPor,
+		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+	}
 }
 
 // ReordenarColumnas repite el `array_position`: la posición de cada una es su sitio en la
@@ -1072,5 +1123,134 @@ func TestPutAUnaColumnaSueltaEs405(t *testing.T) {
 		tokenTab(t, sucStg.String()), `{"nombre":"Otro"}`)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// SUBIR DOS VECES LA MISMA ZONA NO CREA DOS. El aparato pone el id.
+//
+// Es lo que convierte «¿llegó o no llegó?» —la pregunta que no tiene respuesta cuando la
+// red se cae justo después de que el servidor escriba— en una pregunta que no hace falta
+// hacer. El teléfono genera un UUIDv7 al crear la zona, aunque esté sin señal, y lo manda;
+// si no le llega la respuesta, reintenta con el mismo id y entra una sola vez.
+//
+// Jose, 16/09/2026: «así no tendríamos problema nunca poniéndonos offline y online, los id
+// nunca chocarían».
+func TestSubirDosVecesLaMismaZonaNoCreaDos(t *testing.T) {
+	q := nuevoTablero()
+	h := montarTab(t, q)
+	jwt := tokenTab(t, sucStg.String())
+
+	// El id que pone el aparato. v7: la versión va en el tercer grupo.
+	id := "018f2c7e-0000-7000-8000-000000000001"
+	cuerpo := `{"id":"` + id + `","nombre":"Reparto Norte"}`
+
+	primera := pedirTab(t, h, http.MethodPost, "/api/board/columns", jwt, cuerpo)
+	if primera.Code != http.StatusCreated {
+		t.Fatalf("la primera vez: código %d — %s", primera.Code, primera.Body.String())
+	}
+
+	// La segunda es el REINTENTO: la misma petición, palabra por palabra.
+	segunda := pedirTab(t, h, http.MethodPost, "/api/board/columns", jwt, cuerpo)
+	if segunda.Code == http.StatusConflict {
+		t.Fatalf("el reintento chocó consigo mismo (409): el aparato no puede saber si "+
+			"la primera llegó, así que reintentar TIENE que ser seguro — %s",
+			segunda.Body.String())
+	}
+	if segunda.Code >= 400 {
+		t.Fatalf("el reintento falló con %d: %s", segunda.Code, segunda.Body.String())
+	}
+
+	if len(q.creadas) != 1 {
+		t.Errorf("se crearon %d zonas y tenía que ser UNA: %v", len(q.creadas), q.creadas)
+	}
+	// Y devuelve la misma, no otra: las colocaciones que van detrás nombran ese id.
+	var a, b ColumnaSalida
+	if err := json.Unmarshal(primera.Body.Bytes(), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(segunda.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if a.ID.String() != id || b.ID != a.ID {
+		t.Errorf("los ids no cuadran: pedido %s, primera %s, segunda %s", id, a.ID, b.ID)
+	}
+}
+
+// Y un id que NO es un uuid se rechaza, en vez de entrar a ciegas.
+//
+// Un `local-…` de una versión anterior del aparato acabaría metiendo en la base un id que
+// ningún otro aparato podría volver a nombrar.
+func TestUnIdQueNoEsUuidSeRechaza(t *testing.T) {
+	h := montarTab(t, nuevoTablero())
+	jwt := tokenTab(t, sucStg.String())
+
+	w := pedirTab(t, h, http.MethodPost, "/api/board/columns", jwt,
+		`{"id":"local-abc123","nombre":"Vista"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("código %d, se esperaba 400: %s", w.Code, w.Body.String())
+	}
+}
+
+// El id de la zona de OTRA sucursal no la devuelve: la rama del reintento va acotada.
+//
+// Sin el `branch_id` en esa rama, mandar un id ajeno sería una forma de leer lo que no es
+// de uno — la regla 1 de la casa, por la puerta de atrás.
+func TestElIdDeOtraSucursalNoDevuelveSuZona(t *testing.T) {
+	q := nuevoTablero()
+	ajena := uuid.New()
+	q.columnas[ajena] = sqlc.BoardColumn{
+		ID: ajena, BranchID: holDePanel, Nombre: "La de Holguín", Posicion: 1,
+	}
+	h := montarTab(t, q)
+	jwt := tokenTab(t, sucStg.String())
+
+	w := pedirTab(t, h, http.MethodPost, "/api/board/columns", jwt,
+		`{"id":"`+ajena.String()+`","nombre":"Vista"}`)
+
+	var salida ColumnaSalida
+	if w.Code < 400 {
+		if err := json.Unmarshal(w.Body.Bytes(), &salida); err == nil &&
+			salida.Nombre == "La de Holguín" {
+			t.Fatalf("devolvió la zona de otra sucursal: %s", w.Body.String())
+		}
+	}
+	if salida.BranchID == holDePanel {
+		t.Fatalf("la zona devuelta es de Holguín: %s", w.Body.String())
+	}
+}
+
+// EL CHOQUE DE POSICIÓN NO SE CONTESTA COMO SI FUERA EL DEL NOMBRE.
+//
+// `board_columns` tiene DOS únicas. La del nombre dice algo que una persona puede
+// arreglar: «ya hay una columna “Vista Alegre”». La de la posición
+// —`board_columns_posicion_unica`, `DEFERRABLE INITIALLY DEFERRED`— salta al CERRAR la
+// transacción cuando dos aparatos suben a la vez: los dos calcularon el mismo
+// `max(posicion)+1`. Eso no va del nombre y no lo arregla nadie renombrando.
+//
+// Con un `23505` a secas, ese choque se contestaba «Ya hay una columna “X” en este
+// tablero» —falso— y el apunte quedaba muerto en la bandeja de rechazos con un motivo que
+// no explica nada. Se vuelve más probable según más se trabaje sin señal: las colas se
+// vacían de golpe cuando vuelve la red.
+func TestElChoqueDePosicionNoSeConfundeConElDelNombre(t *testing.T) {
+	q := nuevoTablero()
+	q.choquePosicion = true
+	h := montarTab(t, q)
+	jwt := tokenTab(t, sucStg.String())
+
+	w := pedirTab(t, h, http.MethodPost, "/api/board/columns", jwt,
+		`{"nombre":"Reparto Norte"}`)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("código %d, se esperaba 409: %s", w.Code, w.Body.String())
+	}
+	cuerpo := w.Body.String()
+	if contieneDeInforme(cuerpo, "Ya hay una columna") {
+		t.Errorf("un choque de POSICIÓN se contestó como si fuera de nombre: %s\n"+
+			"nadie lo arregla renombrando, y el apunte queda muerto en la bandeja "+
+			"con un motivo que no explica nada", cuerpo)
+	}
+	if !contieneDeInforme(cuerpo, "Vuelve a intentarlo") {
+		t.Errorf("no se dice que se reintente, que es lo único que hay que hacer: %s",
+			cuerpo)
 	}
 }

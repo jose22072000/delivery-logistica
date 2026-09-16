@@ -353,25 +353,52 @@ func (q *Queries) ContarPedidosSinColocar(ctx context.Context, arg ContarPedidos
 }
 
 const crearColumna = `-- name: CrearColumna :one
-INSERT INTO board_columns (branch_id, nombre, posicion, vehicle_id, creado_por)
-SELECT
-    b.id,
-    $1,
-    coalesce((SELECT max(c.posicion) + 1 FROM board_columns c WHERE c.branch_id = b.id), 1),
-    $2,
-    $3
-FROM branches b
-WHERE b.id = $4
-  AND ($5::uuid IS NULL OR b.id = $5::uuid)
-RETURNING id, branch_id, nombre, posicion, vehicle_id, creado_por, created_at, updated_at
+WITH nueva AS (
+    INSERT INTO board_columns (id, branch_id, nombre, posicion, vehicle_id, creado_por)
+    SELECT
+        coalesce($1::uuid, gen_random_uuid()),
+        b.id,
+        $2,
+        coalesce((SELECT max(c.posicion) + 1 FROM board_columns c WHERE c.branch_id = b.id), 1),
+        $3,
+        $4
+    FROM branches b
+    WHERE b.id = $5
+      AND ($6::uuid IS NULL OR b.id = $6::uuid)
+    ON CONFLICT (id) DO NOTHING
+    RETURNING id, branch_id, nombre, posicion, vehicle_id, creado_por, created_at, updated_at
+)
+SELECT id, branch_id, nombre, posicion, vehicle_id, creado_por, created_at, updated_at
+FROM nueva
+UNION ALL
+SELECT c.id, c.branch_id, c.nombre, c.posicion, c.vehicle_id, c.creado_por,
+       c.created_at, c.updated_at
+FROM board_columns c
+WHERE $1::uuid IS NOT NULL
+  AND c.id = $1::uuid
+  AND c.branch_id = $5
+  AND ($6::uuid IS NULL OR c.branch_id = $6::uuid)
+LIMIT 1
 `
 
 type CrearColumnaParams struct {
+	ID        pgtype.UUID `json:"id"`
 	Nombre    string      `json:"nombre"`
 	VehicleID pgtype.UUID `json:"vehicle_id"`
 	CreadoPor *string     `json:"creado_por"`
 	BranchID  uuid.UUID   `json:"branch_id"`
 	Sucursal  pgtype.UUID `json:"sucursal"`
+}
+
+type CrearColumnaRow struct {
+	ID        uuid.UUID          `json:"id"`
+	BranchID  uuid.UUID          `json:"branch_id"`
+	Nombre    string             `json:"nombre"`
+	Posicion  int32              `json:"posicion"`
+	VehicleID pgtype.UUID        `json:"vehicle_id"`
+	CreadoPor *string            `json:"creado_por"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 // La posición se calcula aquí y no la manda la pantalla: una columna nueva va al final,
@@ -381,15 +408,39 @@ type CrearColumnaParams struct {
 // El `FROM branches` no es decorativo: valida que la sucursal EXISTA. Sin él, un
 // `branch_id` viejo —los tokens duran siete días y las sucursales se recrearon— crearía
 // columnas en un tablero al que no llega nadie.
-func (q *Queries) CrearColumna(ctx context.Context, arg CrearColumnaParams) (BoardColumn, error) {
+// EL ID LO PUEDE PONER EL APARATO, y con eso la creación pasa a ser IDEMPOTENTE.
+//
+// Hasta el 16/09/2026 el id lo ponía siempre la base, así que el aparato creaba la zona
+// con un `local-…` suyo y había que sustituirlo cuando el servidor contestaba. Toda esa
+// maquinaria existía por esto, y con ella una familia entera de fallos: si la respuesta no
+// llegaba —se cayó la red justo después de escribir—, el aparato no sabía si la zona
+// existía arriba, y el reintento creaba otra.
+//
+// Con un UUIDv7 puesto por el aparato no hay nada que sustituir y el reintento es seguro:
+// el mismo id entra una sola vez. `ON CONFLICT (id) DO NOTHING` más el `SELECT` de abajo
+// devuelven la fila que ya estaba, así que subir dos veces da el mismo resultado que subir
+// una. Es lo único que convierte «¿llegó o no llegó?» en una pregunta que no hace falta.
+//
+// v7 y no v4 porque lleva la hora dentro: las zonas quedan ordenadas por cuándo se
+// crearon aunque se hayan creado en cuatro teléfonos distintos sin señal.
+//
+// `id` nulo sigue valiendo: lo pone la base, como siempre. La web vieja y cualquier cosa
+// que no lo mande siguen funcionando igual.
+// LA QUE YA ESTABA. Es la rama del reintento: el aparato mandó dos veces el mismo id
+// porque no supo si la primera llegó. Se le devuelve la zona que ya existe y en paz.
+//
+// Va acotada igual que el `INSERT`: sin el `branch_id` aquí, mandar el id de la zona de
+// otra sucursal la devolvería, y eso es enseñar lo que no es de uno.
+func (q *Queries) CrearColumna(ctx context.Context, arg CrearColumnaParams) (CrearColumnaRow, error) {
 	row := q.db.QueryRow(ctx, crearColumna,
+		arg.ID,
 		arg.Nombre,
 		arg.VehicleID,
 		arg.CreadoPor,
 		arg.BranchID,
 		arg.Sucursal,
 	)
-	var i BoardColumn
+	var i CrearColumnaRow
 	err := row.Scan(
 		&i.ID,
 		&i.BranchID,

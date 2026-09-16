@@ -21,6 +21,7 @@ import 'red/salud.dart';
 import 'reloj.dart';
 import 'sincro/bajada.dart';
 import 'sincro/ciclo.dart';
+import 'sincro/huerfanos.dart';
 import 'sincro/identidad_del_aparato.dart';
 import 'sincro/recuento.dart';
 import 'sincro/subida.dart';
@@ -448,7 +449,16 @@ final latidoDelIntentoProvider = StreamProvider<DateTime>((ref) {
   return Stream<DateTime>.periodic(const Duration(seconds: 5), (_) => reloj());
 });
 
-/// EL CICLO: renovar → subir → bajar. Uno solo en toda la aplicacion, porque el
+/// LO QUE ESTE APARATO TIENE Y ARRIBA NO, sin preguntarle nada al servidor.
+///
+/// Se lee de la base local a proposito: la pregunta hay que poder contestarla
+/// **sin conexion**, que es justo cuando se acumula el trabajo. Ver
+/// `nucleo/sincro/huerfanos.dart`.
+final huerfanosProvider = Provider<Huerfanos>(
+  (ref) => Huerfanos(ref.watch(baseProvider)),
+);
+
+/// EL CICLO: comprobar la diferencia → renovar → subir → bajar. Uno solo en toda la aplicacion, porque el
 /// candado de «un solo ciclo en vuelo» vive dentro: dos instancias son dos
 /// candados, y dos candados no son ninguno.
 final cicloProvider = Provider<CicloDeSincronizacion>(
@@ -457,6 +467,11 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
     renovador: ref.watch(renovadorProvider),
     subida: ref.watch(subidaProvider),
     bajada: ref.watch(bajadaProvider),
+    // Quien comprueba la DIFERENCIA entre lo que este aparato tiene y lo que hay
+    // arriba. Va dentro del ciclo porque es trabajo del sincronizador, no de una
+    // pantalla: tiene que pasar solo en cuanto haya señal.
+    huerfanos: ref.watch(huerfanosProvider),
+    cola: ref.watch(colaProvider),
     // Quien sabe si hay sesion es el portero, y no el almacen: en web el almacen
     // devuelve `null` SIEMPRE porque alli la sesion es la cookie. Preguntarle a
     // el dejaria la web sin sincronizar nunca.

@@ -244,13 +244,39 @@ void main() {
       );
     });
 
-    test('sin nadie dentro tampoco sale', () async {
+    test('SIN SABER quién está, sube: la web no guarda sesión', () async {
+      // ## Esta prueba exigía justo el fallo, y lo sostuvo hasta el 16/09/2026
+      //
+      // Decía «sin nadie dentro tampoco sale» y esperaba `ColaDeOtraPersona`. Pero
+      // `null` no significa «hay otra persona delante»: significa **que no se sabe
+      // quién está**, que no es lo mismo. Es la ausencia del dato, no un dato
+      // distinto.
+      //
+      // En la web `quienEsta` es `null` SIEMPRE, porque allí la sesión es la
+      // cookie del acceso único y no se guarda ningún token en el aparato. Y
+      // `duenoGuardado()` sí devuelve el `sub`, que se anota al entrar. Así que
+      // esto lanzaba en cada ciclo: **la web no ha subido ni un apunte desde que
+      // existe**.
+      //
+      // Y lo que encadena detrás es lo que se veía en la pantalla: la cola se
+      // queda llena para siempre, el tablero se niega a bajar mientras haya cola
+      // —con razón, para no pisar lo que no ha subido— y la pantalla se congela a
+      // la hora del primer gesto. Refrescar no hacía nada. El tablero de la web
+      // llevaba hora y media parado mientras el teléfono subía sin problema.
+      //
+      // La guarda sigue entera donde importa: se bloquea con una CONTRADICCIÓN
+      // —se sabe quién está y no es el dueño de la cola—, que es el caso del
+      // móvil, donde dos personas comparten un aparato. En un navegador no las
+      // hay.
       final montaje = conSesionDe(null);
-      await expectLater(
-        montaje.subida.ciclo(),
-        throwsA(isA<ColaDeOtraPersona>()),
+
+      await montaje.subida.ciclo();
+
+      expect(
+        montaje.servidor.cuantas('POST', '/subida'),
+        1,
+        reason: 'sin esto, la web no sube nada y su tablero no se actualiza nunca',
       );
-      expect(montaje.servidor.vistas, isEmpty);
     });
 
     test('con A delante sube, que es de lo que va todo esto', () async {

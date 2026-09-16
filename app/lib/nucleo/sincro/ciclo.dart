@@ -5,7 +5,9 @@ import '../identidad/renovador.dart';
 import '../identidad/sesion.dart';
 import '../red/fallos.dart';
 import '../registro/registro.dart';
+import '../cola/cola_salida.dart';
 import 'bajada.dart';
+import 'huerfanos.dart';
 import 'subida.dart';
 
 /// Los tres pasos, en el orden en que TIENEN que ir.
@@ -139,6 +141,8 @@ class CicloDeSincronizacion {
     required Renovador renovador,
     required Subida subida,
     required Bajada bajada,
+    required Huerfanos huerfanos,
+    required ColaDeSalida cola,
     required bool Function() haySesion,
     void Function()? alMorirLaSesion,
     void Function()? alEmpezar,
@@ -151,6 +155,8 @@ class CicloDeSincronizacion {
        _renovador = renovador,
        _subida = subida,
        _bajada = bajada,
+       _huerfanos = huerfanos,
+       _cola = cola,
        _haySesion = haySesion,
        _alMorirLaSesion = alMorirLaSesion,
        _alEmpezar = alEmpezar,
@@ -160,6 +166,10 @@ class CicloDeSincronizacion {
   final Renovador _renovador;
   final Subida _subida;
   final Bajada _bajada;
+
+  /// Quien mira lo que este aparato tiene y arriba no. Ver `huerfanos.dart`.
+  final Huerfanos _huerfanos;
+  final ColaDeSalida _cola;
   final bool Function() _haySesion;
   final void Function()? _alMorirLaSesion;
   final void Function()? _alEmpezar;
@@ -260,12 +270,33 @@ class CicloDeSincronizacion {
         pasos.add(PasoDelCiclo.renovar);
       }
 
-      // 2 · SUBIR la cola, con el token ya fresco.
+      // 2 · COMPROBAR LA DIFERENCIA antes de subir: lo que este aparato tiene y
+      // arriba no existe, y que no le queda ningun apunte que lo suba.
+      //
+      // El sincronizador no es un reenviador de cola: **es el que controla la
+      // diferencia entre los dos lados**. Sin esto, un apunte que desaparece
+      // —descartado a mano, o perdido— deja el dato local huerfano para siempre,
+      // a la vista en su pantalla y en ningun otro sitio, mientras el Panel dice
+      // «Todo al dia». Pasó con la zona «Vista» y sus cinco pedidos.
+      //
+      // Va ANTES de subir a proposito: lo que se vuelva a encolar aqui sale en
+      // esta misma vuelta, no en la siguiente. Y no hace bucle: si el servidor
+      // dice que no, el apunte queda `rechazado` —que cuenta como vivo— y la
+      // vuelta de despues ya no lo ve huerfano.
+      final reencolados = await _huerfanos.volverAEncolar(_cola);
+      if (reencolados > 0) {
+        Registro.aviso(
+          'el aparato tenía trabajo que no iba a subir solo: se volvieron a '
+          'encolar $reencolados apuntes',
+        );
+      }
+
+      // 3 · SUBIR la cola, con el token ya fresco.
       _alAvanzar?.call(const AvanceDelCiclo(PasoDelCiclo.subir));
       subidos = await _subida.ciclo();
       pasos.add(PasoDelCiclo.subir);
 
-      // 3 · BAJAR las diferencias, ya sin nada del aparato pendiente que pisar.
+      // 4 · BAJAR las diferencias, ya sin nada del aparato pendiente que pisar.
       _alAvanzar?.call(const AvanceDelCiclo(PasoDelCiclo.bajar));
       final avisar = _alAvanzar == null
           ? null

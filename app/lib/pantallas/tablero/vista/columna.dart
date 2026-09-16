@@ -220,7 +220,10 @@ class _Cabecera extends ConsumerWidget {
                 ),
                 // Una columna creada sin senal se puede usar igual; lo unico
                 // que se dice es que todavia no ha subido.
-                if (columna.esProvisional) insigniaAviso('sin subir'),
+                if (columna.rechazada)
+                  insigniaAviso('rechazada')
+                else if (columna.sinSubir)
+                  insigniaAviso('sin subir'),
               ],
             ),
           ],

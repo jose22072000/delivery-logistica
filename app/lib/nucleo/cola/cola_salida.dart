@@ -128,6 +128,24 @@ class ColaDeSalida {
             'el servidor aplico $clave pero no devolvio id para $provisional',
           );
         }
+        // LO QUE ACABA DE SUBIR YA NO «NACIO AQUI».
+        //
+        // `nacio_aqui` es lo que impide que «actualizar» borre trabajo que solo
+        // existe en este aparato. Pero era un pestillo de UN SOLO SENTIDO: lo
+        // ponia quien creaba, y lo unico que lo quitaba era la bajada del
+        // tablero… que se niega a bajar mientras haya un 1. **Una zona que subia
+        // perfectamente dejaba el tablero congelado para siempre**, con un cartel
+        // diciendo «no esta en el servidor» sobre algo que si estaba.
+        //
+        // Peor todavia: el ciclo la veia huerfana, la reencolaba, se creaba una
+        // segunda zona con el mismo nombre, el indice unico la rechazaba, y un
+        // rechazo no se reintenta — atasco permanente y un rechazo falso en la
+        // bandeja. Es un fallo mas grave que el que `nacio_aqui` vino a arreglar:
+        // aquel perdia datos en un caso de esquina, este rompia el camino normal.
+        //
+        // Aqui es donde se sabe la verdad: el servidor acaba de decir que si.
+        await _yaNoNacioAqui(apunte);
+
         await (_base.update(
           _base.apuntes,
         )..where((a) => a.clave.equals(clave))).write(
@@ -216,6 +234,40 @@ class ColaDeSalida {
       // Queda dicho: si manana alguien pregunta por que no llego un cierre,
       // esto es lo unico que lo explica.
       Registro.aviso('rechazo descartado a mano: $clave');
+    }
+  }
+
+  /// Quita la marca de «solo existe aqui» a lo que este apunte acaba de subir.
+  ///
+  /// Se identifica por donde el apunte lo nombra, que son dos sitios y nada mas:
+  ///
+  ///  * `provisional` — la zona que el apunte CREA.
+  ///  * la ruta `/board/placements/{pedido}` — la tarjeta que coloca.
+  ///
+  /// Silencioso a proposito si las tablas no existen: un aparato que nunca abrio
+  /// el Tablero no las tiene, y eso no puede tumbar la subida del dia.
+  Future<void> _yaNoNacioAqui(Apunte apunte) async {
+    try {
+      final provisional = apunte.provisional;
+      if (provisional != null) {
+        await _base.customStatement(
+          'UPDATE board_columns SET nacio_aqui = 0 WHERE id = ?1',
+          [provisional],
+        );
+      }
+      const prefijo = '/board/placements/';
+      if (apunte.ruta.startsWith(prefijo)) {
+        // Sin la query, si algun dia la lleva.
+        final pedido = apunte.ruta.substring(prefijo.length).split('?').first;
+        if (pedido.isNotEmpty) {
+          await _base.customStatement(
+            'UPDATE board_placements SET nacio_aqui = 0 WHERE order_id = ?1',
+            [pedido],
+          );
+        }
+      }
+    } on Object catch (e) {
+      Registro.info('no se pudo limpiar «nacio aqui» de ${apunte.clave}: $e');
     }
   }
 

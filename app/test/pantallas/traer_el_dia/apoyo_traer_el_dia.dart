@@ -192,6 +192,8 @@ ProviderContainer montarTraerElDia({
           renovador: ref.watch(renovadorProvider),
           subida: ref.watch(subidaProvider),
           bajada: ref.watch(bajadaProvider),
+          huerfanos: ref.watch(huerfanosProvider),
+          cola: ref.watch(colaProvider),
           haySesion: () => haySesion,
           alEmpezar: () {
             ref.read(enVueloProvider.notifier).empieza();

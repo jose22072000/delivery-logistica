@@ -134,11 +134,38 @@ class Subida {
   /// Una base **sin dueno anotado** pasa: es la de las pruebas y la de un
   /// aparato que viene de antes de que esto existiera, y ahi no hay nada que
   /// comparar. Lo que no pasa es un dueno anotado que no sea el de la sesion.
+  /// ## «No sé quién está» NO es «está otro» — 16/09/2026
+  ///
+  /// Esta guarda impide que la cola de A suba firmada con el token de B. Bien.
+  /// Pero comparaba `null` con un `sub` y trataba la diferencia como una prueba
+  /// de que hay otra persona delante, y `null` no prueba nada: **es la ausencia
+  /// del dato, no un dato distinto.**
+  ///
+  /// En la web `_quienEsta()` devuelve `null` SIEMPRE, porque alli la sesion es
+  /// la cookie del acceso unico y no se guarda ningun token en el aparato. Y
+  /// `duenoGuardado()` si devuelve el `sub`, que se anota al entrar. Asi que la
+  /// comparacion no cuadraba nunca y esto **lanzaba en cada ciclo**: la web no ha
+  /// podido subir ni un apunte desde que existe.
+  ///
+  /// Lo que encadenaba detras es lo que se veia: la cola se quedaba llena para
+  /// siempre, y el tablero se niega a bajar mientras haya cola —con razon, para
+  /// no pisar lo que no ha subido—, asi que **la pantalla se congelaba a la hora
+  /// en que alguien hizo el primer gesto** y refrescar no hacia nada. Visto el
+  /// 16/09/2026: el tablero de la web llevaba hora y media parado y lo que subia
+  /// el telefono no aparecia nunca.
+  ///
+  /// El comentario de `proveedores.dart` decia que «en web el almacen devuelve
+  /// null siempre: ahi no hay con que comparar y la guarda deja pasar, que es lo
+  /// correcto». Describia lo que tenia que pasar, no lo que pasaba.
+  ///
+  /// Se bloquea solo con una CONTRADICCION de verdad: se sabe quien esta, y no es
+  /// el dueno de la cola. En el movil eso sigue intacto, que es donde hay dos
+  /// personas compartiendo un aparato. En un navegador no las hay.
   Future<void> _laColaEsDeQuienEsta() async {
     final deQuienEs = await _base.duenoGuardado();
     if (deQuienEs == null) return;
     final quienEsta = await _quienEsta();
-    if (quienEsta == deQuienEs) return;
+    if (quienEsta == null || quienEsta == deQuienEs) return;
     final fallo = ColaDeOtraPersona(
       duenoDeLaCola: deQuienEs,
       quienEsta: quienEsta,

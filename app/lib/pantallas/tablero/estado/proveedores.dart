@@ -93,6 +93,11 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
 
   @override
   Future<Tablero> build() async {
+    // AL CAMBIAR DE SUCURSAL, el aviso de la anterior se va. `build` se rehace
+    // cuando cambia `sucursalDelTableroProvider`, así que éste es el sitio.
+    // Arrastrar «hay 1 zona sin subir» de Holguín al tablero de La Habana es
+    // decir algo que ahí no es verdad.
+    _porQueNoSeRefresca = null;
     final sucursalId = await ref.watch(sucursalDelTableroProvider.future);
     if (sucursalId == null) {
       return const Tablero.imposible('Elige una sucursal para ver su tablero');
@@ -206,13 +211,33 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
 
   /// Pide el tablero al servidor. Sin senal **no es un fallo**: se sigue con lo
   /// que hay en el aparato, que es justo para lo que esta.
+  /// Lo ultimo que impidio refrescar, para poder DECIRLO. `null` = nada lo
+  /// impide.
+  ///
+  /// Sin esto, pulsar «actualizar» con trabajo sin subir no hacia nada visible:
+  /// la negativa se escribia en el registro. Quien estaba delante no sabia si es
+  /// que no habia cambios o que la aplicacion se estaba protegiendo, y volvia a
+  /// pulsar.
+  String? get porQueNoSeRefresca => _porQueNoSeRefresca;
+  String? _porQueNoSeRefresca;
+
   Future<void> bajarDelServidor() async {
     final sucursalId = state.value?.sucursalId;
     if (sucursalId == null || sucursalId.isEmpty) return;
     try {
-      await ref.read(servicioTableroProvider).descargar(sucursalId);
+      final r = await ref
+          .read(servicioTableroProvider)
+          .descargar(sucursalId);
+      _porQueNoSeRefresca = r.porQue;
       await refrescar();
     } on FalloDeRed catch (e) {
+      // SIN SEÑAL NO HAY NADA QUE AVISAR, y el cartel viejo se va.
+      //
+      // Sin esto se quedaba pegado: la aplicación se negaba una vez con trabajo
+      // sin subir, se subía la cola, se volvía a pulsar sin señal, y el cartel
+      // seguía en pantalla diciendo algo que ya no era verdad. Un aviso que no
+      // se retira deja de ser un aviso.
+      _porQueNoSeRefresca = null;
       Registro.info('tablero: sin conexion, se sigue con lo de aqui ($e)');
     }
   }

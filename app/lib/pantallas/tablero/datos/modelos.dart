@@ -85,6 +85,8 @@ class ColumnaTablero {
     this.vehiculoNombre,
     this.vehiculoMatricula,
     this.vehiculoCapacidad,
+    this.sinSubir = false,
+    this.rechazada = false,
   });
 
   final String id;
@@ -99,6 +101,12 @@ class ColumnaTablero {
   final double pesoKg;
   final double costoUsd;
 
+  /// Le queda algo por subir: la propia zona, o un cambio suyo.
+  final bool sinSubir;
+
+  /// El servidor dijo que no a algo de esta zona y espera a que alguien decida.
+  final bool rechazada;
+
   /// `null` **no es `false`**: sin camion previsto todavia no se sabe si cabe, y
   /// pintar «cabe» cuando nadie ha dicho en que va es peor que no pintar nada
   /// (§7.3).
@@ -108,8 +116,17 @@ class ColumnaTablero {
     return pesoKg > capacidad;
   }
 
-  /// Es una columna que se creo sin conexion y todavia no ha subido.
-  bool get esProvisional => id.startsWith('local-');
+  /// ¿Le falta llegar arriba?
+  ///
+  /// **Sale de la cola, no del id**, y ese cambio es del 16/09/2026. Antes era
+  /// `id.startsWith('local-')`, que dejo de significar nada el dia que el aparato
+  /// empezo a poner el id definitivo —un UUIDv7— al crear la zona, este o no
+  /// este arriba.
+  ///
+  /// Y el prefijo nunca supo contar la otra mitad: una zona que subio y que
+  /// despues se renombro sin senal tambien tiene trabajo sin subir, y con el id
+  /// de verdad puesto se daba por entregada.
+  bool get faltaPorSubir => sinSubir || rechazada;
 }
 
 /// Por que una tarjeta dejo de servir. **Se marca, no se esconde** (§7.2).

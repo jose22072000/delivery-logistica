@@ -32,12 +32,29 @@ class ServicioTablero {
 
   /// Baja el tablero de una sucursal y lo deja en la base local.
   ///
-  /// **Si queda trabajo sin subir, no se baja nada.** Es la regla que impide el
-  /// peor fallo posible de esta pantalla: la foto del servidor, que todavia no
-  /// sabe nada de las cuarenta tarjetas que se movieron esta tarde, borraria
-  /// las cuarenta de golpe y en silencio. Primero sube la cola; despues se
-  /// refresca.
-  Future<bool> descargar(String sucursalId) async {
+  /// **Si queda trabajo que no esta arriba, no se baja nada, y se DICE.** Es la
+  /// regla que impide el peor fallo posible de esta pantalla: la foto del
+  /// servidor, que todavia no sabe nada de las cuarenta tarjetas que se movieron
+  /// esta tarde, borraria las cuarenta de golpe y en silencio.
+  ///
+  /// ## La guarda preguntaba lo que no era — 16/09/2026
+  ///
+  /// Miraba `cuantosPendientes()`: «¿queda algo EN LA COLA?». Y eso no es lo
+  /// mismo que «¿hay algo aqui que no este arriba?». La zona «Vista» de Jose,
+  /// con sus cinco pedidos, ya no tenia apunte —se habia descartado—, asi que la
+  /// cola estaba a cero, la guarda dejo pasar y el `DELETE` de aqui abajo se la
+  /// llevo entera. Sus palabras: «si le doy al boton de actualizar me borra todo
+  /// lo sin conexion y deberia de informarme o algo para decirme lo q voy a
+  /// perder si le doy al boton».
+  ///
+  /// Ahora se pregunta por las dos cosas: lo que esta en la cola **y** lo que
+  /// quedo huerfano (`nucleo/sincro/huerfanos.dart`). Y se devuelve POR QUE no
+  /// se bajo, para poder ponerlo en la pantalla en vez de en un registro que no
+  /// lee nadie.
+  ///
+  /// **El trabajo sin conexion no se pierde por ninguna circunstancia.** Es la
+  /// unica regla que no se negocia aqui.
+  Future<ResultadoDeBajarElTablero> descargar(String sucursalId) async {
     await EsquemaTablero.asegurar(_base);
 
     final pendientes = await _base.cuantosPendientes();
@@ -45,7 +62,30 @@ class ServicioTablero {
       Registro.info(
         'tablero: $pendientes apuntes sin subir, no se baja para no pisarlos',
       );
-      return false;
+      return ResultadoDeBajarElTablero.esperando(
+        '$pendientes ${pendientes == 1 ? 'cambio' : 'cambios'} sin subir',
+      );
+    }
+
+    // Y LO QUE NACIO AQUI Y NO ESTA ARRIBA.
+    //
+    // Un apunte descartado —o rechazado, que tampoco cuenta como pendiente—
+    // deja su fila local ahi, a la vista y sin nada que la suba: para la cola no
+    // existe, pero el `DELETE` de abajo se la llevaria igual.
+    //
+    // **No se pregunta por el prefijo del id.** Se probo y no vale: desde que el
+    // aparato pone el id definitivo (UUIDv7), `local-…` no distingue nada. Lo
+    // unico que lo sabe de verdad es `nacio_aqui`, que pone quien crea la fila
+    // de este lado y limpia la propia bajada.
+    final propias = await _loQueNacioAqui(sucursalId);
+    if (propias.$1 > 0 || propias.$2 > 0) {
+      Registro.aviso(
+        'tablero: hay ${_enPalabras(propias)} que no está en el servidor; no se '
+        'baja para no borrarlo',
+      );
+      return ResultadoDeBajarElTablero.esperando(
+        '${_enPalabras(propias)} que no está en el servidor',
+      );
     }
 
     final datos = await _cliente.pedir<Map<String, Object?>>(
@@ -77,8 +117,12 @@ class ServicioTablero {
       for (final c in columnas) {
         await _base.customStatement(
           'INSERT INTO ${EsquemaTablero.columnas} '
+          // `nacio_aqui = 0`: esto viene del servidor, asi que por definicion
+          // ya esta arriba. Es lo que hace que una zona creada aqui se limpie
+          // sola en cuanto sube, sin que nadie tenga que acordarse.
           '(id, branch_id, nombre, posicion, vehicle_id, creado_por, '
-          ' created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)',
+          ' created_at, updated_at, nacio_aqui) '
+          'VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0)',
           [
             c['id'] as String,
             (c['branchId'] as String?) ?? sucursalId,
@@ -99,8 +143,9 @@ class ServicioTablero {
         // y se dice, que es distinto de callarselo.
         await _base.customStatement(
           'INSERT INTO ${EsquemaTablero.colocaciones} '
-          '(order_id, column_id, posicion, colocado_por, colocado_at, updated_at) '
-          'SELECT ?1, ?2, ?3, ?4, ?5, ?5 '
+          '(order_id, column_id, posicion, colocado_por, colocado_at, updated_at, '
+          ' nacio_aqui) '
+          'SELECT ?1, ?2, ?3, ?4, ?5, ?5, 0 '
           'WHERE EXISTS (SELECT 1 FROM orders WHERE id = ?1)',
           [
             t['pedidoId'] as String,
@@ -141,7 +186,7 @@ class ServicioTablero {
       );
     }
     EsquemaTablero.avisarDeCambio(_base);
-    return true;
+    return const ResultadoDeBajarElTablero.bajado();
   }
 
   /// La marca del servidor, pasada al formato en el que guarda las fechas el
@@ -151,4 +196,58 @@ class ServicioTablero {
     final fecha = DateTime.tryParse(iso);
     return fecha == null ? null : _base.typeMapping.mapToSqlVariable(fecha);
   }
+
+  /// Cuantas zonas y cuantas tarjetas de esta sucursal existen SOLO aqui.
+  ///
+  /// Dos numeros y no uno: se arreglan igual —subiendo— pero se leen distinto, y
+  /// «3 cosas sin subir» no le dice a nadie que ir a mirar.
+  Future<(int zonas, int tarjetas)> _loQueNacioAqui(String sucursalId) async {
+    final z = await _base
+        .customSelect(
+          'SELECT count(*) AS n FROM ${EsquemaTablero.columnas} '
+          'WHERE branch_id = ?1 AND nacio_aqui = 1',
+          variables: [Variable<String>(sucursalId)],
+        )
+        .getSingle();
+    final t = await _base
+        .customSelect(
+          'SELECT count(*) AS n FROM ${EsquemaTablero.colocaciones} p '
+          'JOIN ${EsquemaTablero.columnas} c ON c.id = p.column_id '
+          'WHERE c.branch_id = ?1 AND p.nacio_aqui = 1',
+          variables: [Variable<String>(sucursalId)],
+        )
+        .getSingle();
+    return (z.read<int>('n'), t.read<int>('n'));
+  }
+
+  /// «1 zona del tablero», «2 tarjetas», «1 zona del tablero y 2 tarjetas».
+  static String _enPalabras((int, int) cuenta) {
+    final (zonas, tarjetas) = cuenta;
+    final partes = <String>[
+      if (zonas > 0) '$zonas ${zonas == 1 ? 'zona del tablero' : 'zonas del tablero'}',
+      if (tarjetas > 0) '$tarjetas ${tarjetas == 1 ? 'tarjeta' : 'tarjetas'}',
+    ];
+    return partes.join(' y ');
+  }
+}
+
+/// COMO QUEDO el intento de bajar el tablero. Tres cosas distintas, y las tres
+/// hay que poder decirlas:
+///
+///  * **bajado** — se reemplazo la foto con la del servidor.
+///  * **esperando** — NO se bajo a proposito, porque aqui hay trabajo que arriba
+///    no esta. Lleva [porQue] para poder ponerlo en la pantalla.
+///
+/// Antes esto era un `bool` y el «no» se escribia en el registro. Quien estaba
+/// delante pulsaba actualizar, no pasaba nada, y no habia forma de saber si era
+/// que no habia cambios o que la aplicacion se estaba negando.
+class ResultadoDeBajarElTablero {
+  const ResultadoDeBajarElTablero.bajado() : porQue = null;
+
+  const ResultadoDeBajarElTablero.esperando(String this.porQue);
+
+  /// `null` cuando se bajo. Con texto, lo que hay aqui y no esta arriba.
+  final String? porQue;
+
+  bool get seBajo => porQue == null;
 }

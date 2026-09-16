@@ -44,11 +44,34 @@ void main() {
         'Vista Alegre',
       ]);
       expect(columnas.map((c) => c.posicion).toList(), [1, 2]);
-      expect(centro, startsWith('local-'));
-      expect(vista, startsWith('local-'));
-      // La posicion NO viaja en el cuerpo: dos aparatos sin conexion
+
+      // EL ID LO PONE EL APARATO Y ES DEFINITIVO: un UUIDv7, no un `local-…`.
+      //
+      // Es lo que hace que subir dos veces la misma zona no cree dos: el servidor
+      // lo usa tal cual, así que un reintento entra una sola vez. Antes el id lo
+      // ponía la base y el aparato se inventaba un provisional que había que
+      // sustituir después; si la red se caía justo tras escribir, nadie sabía si
+      // la zona existía arriba y el reintento creaba otra.
+      final uuidv7 = RegExp(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+      );
+      expect(centro, matches(uuidv7), reason: 'la versión tiene que ser la 7');
+      expect(vista, matches(uuidv7));
+      // Y v7 ORDENA, que es la otra mitad: lleva la hora dentro, así que cuatro
+      // teléfonos sin señal creando zonas toda la mañana producen ids que al
+      // juntarse quedan en el orden en que se crearon de verdad. Con v4 quedarían
+      // barajados, y el orden de creación es lo único que deshace un empate entre
+      // dos aparatos que no se vieron.
+      expect(
+        centro.compareTo(vista) < 0,
+        isTrue,
+        reason: '«Centro» se creó antes, así que su id tiene que ordenar antes',
+      );
+
+      // EL ID VIAJA EN EL CUERPO. La posicion NO: dos aparatos sin conexion
       // propondrian el mismo numero.
       expect(jsonDecode((await cola.lote()).first.cuerpo), {
+        'id': centro,
         'nombre': 'Centro',
       });
     });

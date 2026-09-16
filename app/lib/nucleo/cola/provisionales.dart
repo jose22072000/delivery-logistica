@@ -36,12 +36,52 @@ class Provisionales {
     ('orders', 'vehicle_id'),
     ('vehicles', 'id'),
     ('warehouses', 'id'),
+    // EL TABLERO, que faltaba y costo caro. Sus dos tablas NO son de Drift —las
+    // crea la propia pantalla la primera vez que se abre— y por eso se quedaron
+    // fuera de esta lista.
+    //
+    // La consecuencia no era cosmetica: una zona que SUBIA BIEN se quedaba con
+    // su `local-…` en la base hasta que alguien volviera a abrir el Tablero, que
+    // es lo unico que llamaba a `asentarProvisionales()`. Para todo lo demas
+    // —incluida la comprobacion de lo que no ha subido— esa zona parecia no
+    // haber subido nunca. Quien la creo sin senal, llego al almacen, subio el
+    // dia y se fue a Rutas, se quedaba con la marca «sin subir» puesta sobre un
+    // trabajo que estaba arriba.
+    //
+    // Aqui la sustitucion la hace el SINCRONIZADOR, en cuanto el servidor
+    // contesta, sin depender de que nadie entre en ninguna pantalla.
+    ('board_columns', 'id'),
+    ('board_placements', 'column_id'),
   ];
+
+  /// Las tablas que NO son de Drift. Se actualizan igual, pero hay que avisar a
+  /// mano de que cambiaron y hay que saltarlas si todavia no existen.
+  static const _fueraDeDrift = {'board_columns', 'board_placements'};
 
   /// Un id provisional nuevo. `local-` delante para que se reconozca de un
   /// vistazo en un registro, en la barra de direcciones o en un cuerpo JSON.
+  ///
+  /// **Para lo que el servidor todavia no deja nombrar.** Donde el servidor
+  /// acepta el id del aparato —hoy las zonas del tablero— se usa [nuevoIdReal],
+  /// que es mejor en todo.
   static String nuevoId() =>
       'local-${_uuid.v4().replaceAll('-', '').substring(0, 8)}';
+
+  /// UN ID DEFINITIVO, PUESTO POR EL APARATO. UUIDv7.
+  ///
+  /// Es la forma de quitarse de encima toda la maquinaria de arriba, y no un
+  /// adorno: con un id que el aparato ya sabe, **subir dos veces no crea dos
+  /// cosas**. El servidor lo usa tal cual y una segunda subida con el mismo id
+  /// devuelve lo que ya habia. Eso convierte «¿llego o no llego?» —la pregunta
+  /// que no tiene respuesta cuando la red se cae justo despues de escribir— en
+  /// una pregunta que no hace falta hacer.
+  ///
+  /// **v7 y no v4** porque lleva la hora dentro y por eso ORDENA. Cuatro
+  /// telefonos sin senal creando zonas toda la manana producen ids que, al
+  /// juntarse, quedan en el orden en que se crearon de verdad. Con v4 quedarian
+  /// barajados, y el orden de creacion es lo unico que hay para deshacer un
+  /// empate entre dos aparatos que no se vieron.
+  static String nuevoIdReal() => _uuid.v7();
 
   static bool esProvisional(String? id) =>
       id != null && id.startsWith('local-');
@@ -55,6 +95,19 @@ class Provisionales {
     if (provisional == real) return;
 
     await _base.transaction(() async {
+      // LAS CLAVES FORANEAS, APLAZADAS HASTA EL COMMIT.
+      //
+      // Cambiar el id de una zona del tablero deja por un instante a sus
+      // colocaciones apuntando a un padre que ya no esta, y al reves si se
+      // empieza por las hijas: en los dos ordenes hay un momento intermedio que
+      // no cuadra, y SQLite lo rechaza al vuelo. Con esto la comprobacion se hace
+      // AL CERRAR la transaccion, cuando ya cuadra.
+      //
+      // Es `defer_foreign_keys` y no `foreign_keys = OFF`: la diferencia importa.
+      // Apagarlas dejaria pasar tambien lo que de verdad no cuadre; esto solo
+      // mueve la comprobacion al final. Y se apaga sola al cerrar.
+      await _base.customStatement('PRAGMA defer_foreign_keys = ON');
+
       // 1. El rastro. Sirve para leer un registro viejo y para no repetir.
       await _base
           .into(_base.equivalencias)
@@ -84,6 +137,18 @@ class Provisionales {
       // 3. Las filas locales, para que la pantalla deje de ensenar el `local-…`
       //    sin esperar a la proxima bajada.
       for (final (tabla, columna) in _dondeMirar) {
+        if (_fueraDeDrift.contains(tabla)) {
+          // Puede no existir: son las del Tablero, que crea su pantalla. En un
+          // aparato que nunca ha entrado ahi no hay nada que sustituir, y eso no
+          // puede tumbar la sustitucion de todo lo demas.
+          if (!await _hayTabla(tabla)) continue;
+          await _base.customStatement(
+            'UPDATE $tabla SET $columna = ?1 WHERE $columna = ?2',
+            [real, provisional],
+          );
+          _base.notifyUpdates({TableUpdate(tabla)});
+          continue;
+        }
         await _base.customUpdate(
           'UPDATE $tabla SET $columna = ?1 WHERE $columna = ?2',
           variables: [Variable<String>(real), Variable<String>(provisional)],
@@ -91,6 +156,17 @@ class Provisionales {
         );
       }
     });
+  }
+
+  Future<bool> _hayTabla(String tabla) async {
+    final fila = await _base
+        .customSelect(
+          "SELECT count(*) AS hay FROM sqlite_master "
+          "WHERE type = 'table' AND name = ?1",
+          variables: [Variable<String>(tabla)],
+        )
+        .getSingle();
+    return fila.read<int>('hay') > 0;
   }
 
   /// El id de verdad de un provisional, si ya se resolvio.

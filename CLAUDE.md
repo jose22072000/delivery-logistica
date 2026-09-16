@@ -24,9 +24,31 @@ Reparto», ni el botón de traer o entregar el día, ni la franja de «trabajand
 conexión», ni el aviso de que el aparato no guarda la sesión. Se entra y ya se
 está dentro.
 
-La base local y la sincronización **siguen ahí por dentro** —las siete pantallas
-leen de Drift, no del servidor, así que quitarlas dejaría la web en blanco— pero
-son una caché de la que nadie habla. Se sincroniza sola y callada.
+### Y NO TIENE BASE LOCAL. Eso también es la regla, no un detalle
+
+Esto estuvo escrito a medias y costó caro. Decía que la base local «sigue ahí por
+dentro, como una caché de la que nadie habla». **Mal.** Jose, 16/09/2026:
+
+> «la web es para eso, el desktop y las apks tienen su propia base de datos para
+> trabajar sin conexión; la web siempre está con conexión porque está en el
+> servidor»
+> «la web siempre está en vivo porque saca de la base de datos de la nube, no de
+> una extra»
+
+La base local existe **para la APK y el escritorio**, que son los que se van sin
+señal. El sincronizador está para eso: subir lo que se hizo sin conexión y dejar
+el aparato al día para el siguiente día sin señal. **La web no necesita nada de
+eso y no debe tenerlo.**
+
+Lo que pasa si se le deja una caché, y pasó: la web guardó su cola, la cola se
+atascó, el tablero **se negó a bajar durante hora y media para no pisar lo que no
+había subido**, y la pantalla enseñaba una foto vieja mientras el teléfono subía
+sin problema. Refrescar no hacía nada. Una caché en un navegador sólo puede
+mentir: no hay ningún caso en el que gane algo.
+
+**La prueba de si algo sobra en la web:** ¿sirve de algo a alguien que tiene
+internet ahora mismo? Si la respuesta es «le guarda lo que hizo por si se cae la
+red», fuera de la web.
 
 Lo que sí se dice en la web es que **ahora mismo** no hay conexión, si la pierde
 a mitad. Lo que se quita es el aparato de **prepararse** para no tenerla.
@@ -119,6 +141,26 @@ error.
   proyecto el 05/09/2026). Sin emojis en la interfaz.
 
 ---
+
+## 4-bis. El auditor NO es opcional
+
+Hay un auditor en `.claude/agents/auditor-del-reparto.md` con su skill
+`auditar-el-reparto`. **Se lanza antes de cada commit y antes de cada
+despliegue**, sin excepción, y se le va contando lo que se hace según se hace —
+no se le entrega el código al final.
+
+No es celo. El 16/09/2026 se metieron en producción, todos con «Todo en verde»:
+la cola del tablero contestando 401 y sin subir nada; 84 lotes de PEDIDO
+rechazados con 403; una mutación de prueba desplegada por un `git add -A`; y una
+carga inicial que dejaba 2.000 de 8.103 clientes dándose por completa. Ninguna la
+habría visto leer el diff. Todas se cazan ejecutando y rompiendo guardas.
+
+Dos reglas que salieron de ese día:
+
+- **Nunca `git add -A` mientras un agente está mutando el árbol.** Se le lleva la
+  mutación al commit. Pasó, y se desplegó.
+- **Los Dockerfile corren `go test`** (`deploy/Dockerfile.api` y `.sync`). El de
+  sync sólo compilaba, y por eso la mutación llegó al servidor.
 
 ## 5. Cómo se comprueba
 

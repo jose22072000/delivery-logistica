@@ -171,7 +171,34 @@ SELECT c.id, c.branch_id, c.nombre, c.posicion, c.vehicle_id,
          WHERE p.column_id = c.id) AS peso_kg,
        (SELECT coalesce(sum(o.pedido_costo), 0) FROM ${EsquemaTablero.colocaciones} p
           JOIN orders o ON o.id = p.order_id
-         WHERE p.column_id = c.id) AS costo_usd
+         WHERE p.column_id = c.id) AS costo_usd,
+       -- «SIN SUBIR» SALE DE LA COLA, no del id.
+       --
+       -- Antes se leia del prefijo `local-…`, y eso dejo de valer el 16/09/2026:
+       -- ahora el aparato pone el id definitivo (un UUIDv7) al crear la zona,
+       -- este o no este arriba. El id ya no dice nada de si subio.
+       --
+       -- Lo que de verdad lo dice es si le queda algun apunte por resolver. Y de
+       -- paso arregla lo que el prefijo nunca supo contar: una zona que subio y
+       -- que despues se renombro sin senal tambien esta «sin subir», y con el id
+       -- de verdad puesto el prefijo la daba por entregada.
+       --
+       -- Se mira en los TRES sitios donde puede aparecer el id de la zona, y los
+       -- tres hacen falta: `provisional` la ata a su creacion, `ruta` a lo que se
+       -- hace sobre ella —renombrar, borrar, armar su ruta— y `cuerpo` a las
+       -- COLOCACIONES, que la nombran ahi dentro y en ningun otro sitio. Sin el
+       -- cuerpo, una zona ya subida con cinco pedidos todavia en la cola se
+       -- pintaria como entregada.
+       EXISTS (SELECT 1 FROM apuntes a
+                WHERE (a.provisional = c.id
+                       OR a.ruta LIKE '%' || c.id || '%'
+                       OR a.cuerpo LIKE '%' || c.id || '%')
+                  AND a.estado = 'pendiente') AS sin_subir,
+       EXISTS (SELECT 1 FROM apuntes a
+                WHERE (a.provisional = c.id
+                       OR a.ruta LIKE '%' || c.id || '%'
+                       OR a.cuerpo LIKE '%' || c.id || '%')
+                  AND a.estado = 'rechazado') AS rechazada
 FROM ${EsquemaTablero.columnas} c
 LEFT JOIN vehicles v ON v.id = c.vehicle_id
 WHERE c.branch_id = ?1
@@ -194,6 +221,8 @@ ORDER BY c.posicion ASC, c.created_at ASC''',
             pedidos: f.read<int>('pedidos'),
             pesoKg: f.read<double>('peso_kg'),
             costoUsd: f.read<double>('costo_usd'),
+            sinSubir: f.read<bool>('sin_subir'),
+            rechazada: f.read<bool>('rechazada'),
           ),
         )
         .toList(growable: false);
