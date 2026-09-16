@@ -69,3 +69,16 @@ Future<T?> mostrarCajon<T>({
   required String titulo,
   required WidgetBuilder contenido,
 }) => abrirCajon<T>(context, titulo: titulo, cuerpo: contenido);
+
+/// EL ANCHO A PARTIR DEL CUAL EL TABLERO SE VE ENTERO.
+///
+/// Por encima caben la mitad de «sin colocar» y las columnas A LA VEZ, que es lo
+/// que hace que arrastrar una tarjeta tenga sentido. Por debajo son dos
+/// pestanas, no se ve el destino, y el gesto es tocar la tarjeta para elegir a
+/// donde va (`AccionesTablero.moverTarjeta`).
+///
+/// Vive aqui y no dentro de una pantalla porque lo leen DOS sitios —el que parte
+/// la pantalla y el que decide si la tarjeta se arrastra— y tienen que decir lo
+/// mismo siempre. Con el numero repetido, mover uno y olvidar el otro deja un
+/// telefono donde se puede levantar una tarjeta que no se puede soltar.
+const double anchoDeDosMitades = 900.0;

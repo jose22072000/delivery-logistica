@@ -43,7 +43,7 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
   bool _verColumnas = false;
 
   /// Por debajo de esto, las dos mitades no caben una al lado de la otra.
-  static const _anchoDeDosMitades = 900.0;
+  static const _anchoDeDosMitades = anchoDeDosMitades;
 
   @override
   void initState() {

@@ -18,10 +18,24 @@ class TarjetaArrastrada {
 
 /// Una tarjeta de pedido, la misma en las dos mitades.
 ///
-/// Se arrastra con **pulsacion larga** y no con un arrastre directo, y eso es
-/// para el dedo: en un movil, el arrastre directo se come el desplazamiento de
-/// la lista y no se puede bajar a ver la tarjeta numero treinta. Con el raton
-/// funciona igual, manteniendo pulsado.
+/// # EN EL MOVIL NO SE ARRASTRA. Se toca y se elige a donde va.
+///
+/// Palabras de Jose, 16/09/2026: «el drag and drop en el movil no... eso lo
+/// puedes quitar de ahi». Y antes, el 14: «recuerda q para movil es con boton
+/// para mover entre tablas».
+///
+/// El motivo es fisico y no de gusto. En un telefono la mitad de «sin colocar»
+/// y las columnas **no caben a la vez**: son dos pestanas, y no se puede
+/// arrastrar algo a un sitio que no esta en pantalla. Lo unico que conseguia el
+/// arrastre ahi era comerse el desplazamiento de la lista: quien intentaba
+/// bajar a ver la tarjeta numero treinta levantaba una tarjeta sin querer.
+///
+/// El gesto que sirve ya existe y hace exactamente lo mismo, llamando al mismo
+/// sitio: tocar la tarjeta abre «moverla a» (`AccionesTablero.moverTarjeta`).
+///
+/// En escritorio se queda el arrastre, con **pulsacion larga** y no arrastre
+/// directo, por lo mismo de la lista. Ahi las dos mitades SI se ven a la vez,
+/// que es lo que hace que arrastrar tenga sentido.
 class TarjetaDePedido extends StatelessWidget {
   const TarjetaDePedido({
     required this.pedido,
@@ -45,6 +59,15 @@ class TarjetaDePedido extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tarjeta = _contenido(context);
+
+    // El umbral es el MISMO que decide si el tablero se parte en dos mitades
+    // (`pantalla_tablero.dart`, `_anchoDeDosMitades`). No es casualidad: se
+    // arrastra exactamente cuando hay un sitio visible al que soltar. Si
+    // manana se mueve ese numero, los dos se mueven juntos.
+    final cabenLasDosMitades =
+        MediaQuery.sizeOf(context).width >= anchoDeDosMitades;
+    if (!cabenLasDosMitades) return tarjeta;
+
     final datos = TarjetaArrastrada(pedido.pedidoId, desdeColumnaId: columnaId);
     return LongPressDraggable<TarjetaArrastrada>(
       data: datos,
