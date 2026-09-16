@@ -32,6 +32,7 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final tema = Theme.of(context);
     final actualizando = ref.watch(actualizandoProvider);
+    final sinConexion = ref.watch(saludDeLaRedProvider).vaMal;
 
     // Sobre PAPEL, no sobre blanco: en delivery la barra es `bg-paper/80` y lo
     // blanco son las tarjetas y la barra lateral. Una barra superior blanca
@@ -106,7 +107,9 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
                 // Y tiene un sitio mejor: la franja de estado de debajo, que es
                 // donde se mira si los datos estan al dia. Ahi va, con la hora
                 // al lado, que es lo que de verdad hace falta saber.
-                if (actualizando && !estrecho) ...[
+                // Sin conexion tampoco se gira aqui: el ciclo reintenta por
+                // detras, pero no hay progreso que ensenar. Ver la franja.
+                if (actualizando && !estrecho && !sinConexion) ...[
                   const SizedBox(width: 10),
                   SizedBox(
                     width: 12,
@@ -163,6 +166,12 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
 /// `sucursalMiradaProvider`, asi que se reconstruyen solos y los numeros cambian
 /// en el sitio. Eso es lo que pide el pliego §0 y es la razon de que la sucursal
 /// viva en un provider y no en la URL.
+/// «Todas las sucursales (8)» son veintitres caracteres para decir «ninguna
+/// elegida»; «Todas (8)» son nueve y dice lo mismo. En un telefono esos catorce
+/// caracteres son el avatar cabiendo o no cabiendo.
+String _todas(int cuantas, bool compacta) =>
+    compacta ? 'Todas ($cuantas)' : 'Todas las sucursales ($cuantas)';
+
 class _Sucursal extends ConsumerWidget {
   const _Sucursal({required this.compacta});
 
@@ -223,16 +232,17 @@ class _Sucursal extends ConsumerWidget {
       child: Selector<String>(
         icono: Icons.store_outlined,
         tooltip: 'Sucursal que se está mirando',
-        // La etiqueta de la CAJA se acorta en el telefono; la de la LISTA no,
-        // porque ahi se esta eligiendo y hace falta el nombre entero.
-        etiquetaVacia: compacta
-            ? 'Todas (${sucursales.length})'
-            : 'Todas las sucursales (${sucursales.length})',
+        // `etiquetaVacia` NO basta, y esto costo una vuelta: el selector pinta
+        // `elegida?.etiqueta ?? etiquetaVacia`, y aqui SI hay una opcion con
+        // valor vacio —la de «todas»—, asi que la que manda es SU etiqueta. Con
+        // solo cambiar esta linea el telefono seguia diciendo «Todas las s…».
+        // Se acortan las dos, abajo tambien.
+        etiquetaVacia: _todas(sucursales.length, compacta),
         valor: valor,
         opciones: [
           OpcionSelector<String>(
             valor: '',
-            etiqueta: 'Todas las sucursales (${sucursales.length})',
+            etiqueta: _todas(sucursales.length, compacta),
           ),
           for (final s in sucursales)
             OpcionSelector<String>(

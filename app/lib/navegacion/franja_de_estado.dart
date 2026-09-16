@@ -118,9 +118,20 @@ class FranjaDeEstado extends ConsumerWidget {
       ),
       child: Row(
         children: [
+          // EL GIRO NO SALE SI YA SABEMOS QUE NO HAY CONEXION.
+          //
+          // El ciclo sigue reintentando por detras —y eso esta bien, es lo que
+          // hace que suba solo en cuanto vuelva la senal—, pero un giro al lado
+          // de «Sin conexion» se contradice: uno dice «esto avanza» y el otro
+          // dice «no hay por donde». Jose, el 16/09/2026: «ya dice sin conexion
+          // el cartel pero el loading sigue funcionando por q razon sigue
+          // saliendo ahi eso esta bien???». No lo estaba.
+          //
+          // Manda la nube tachada, que es lo cierto.
+          //
           // El giro SUSTITUYE al reloj mientras dura: son lo mismo —de cuando
           // son los datos— y dos iconos a la vez en 390 px es ruido.
-          if (actualizando)
+          if (actualizando && !sinConexion)
             SizedBox(
               width: 14,
               height: 14,

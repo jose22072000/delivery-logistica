@@ -120,20 +120,68 @@ final almacenSesionProvider = Provider<AlmacenDeSesion>(
 /// (repo `procovar-auth`). `Entorno.authUrl` es el dominio a secas porque auth
 /// es de toda Procovar y puede mudarse sin las otras dos.
 final dioAuthProvider = Provider<Dio>(
-  (ref) => Dio(
-    BaseOptions(
-      baseUrl: '${Entorno.authUrl}/api/auth',
-      // Los mismos plazos que el resto (`red/cliente_api.dart`), y aqui aprieta
-      // mas que en ningun sitio: esta es la peticion del ARRANQUE, la que se
-      // hace antes de pintar nada. Con los 30 s de antes, abrir la aplicacion
-      // con senal mala eran 30 s de pantalla de espera antes de entrar con lo
-      // guardado. Renovar no reintenta, asi que este numero ES el peor caso.
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 15),
-      contentType: Headers.jsonContentType,
-    ),
-  ),
+  (ref) =>
+      Dio(
+          BaseOptions(
+            baseUrl: '${Entorno.authUrl}/api/auth',
+            // Los mismos plazos que el resto (`red/cliente_api.dart`), y aqui aprieta
+            // mas que en ningun sitio: esta es la peticion del ARRANQUE, la que se
+            // hace antes de pintar nada. Con los 30 s de antes, abrir la aplicacion
+            // con senal mala eran 30 s de pantalla de espera antes de entrar con lo
+            // guardado. Renovar no reintenta, asi que este numero ES el peor caso.
+            connectTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 15),
+            contentType: Headers.jsonContentType,
+          ),
+        )
+        ..interceptors.add(
+          // ESTE CLIENTE TAMBIEN CUENTA PARA LA SALUD DE LA RED, y es el que mas.
+          //
+          // Renovar es el PRIMER paso del ciclo, antes de subir y de bajar. Sin
+          // conexion el ciclo muere aqui, asi que las peticiones de `ClienteApi` —las
+          // unicas que contaban intentos— **no llegan a hacerse nunca**. El resultado
+          // era el de siempre: la franja tardaba minutos en decir «sin conexion»,
+          // porque volvia a depender de contar ciclos enteros.
+          //
+          // Visto en el Galaxy A16 el 16/09/2026, con el telefono sin salida a
+          // internet comprobada: 35 s despues de abrir, la franja seguia callada.
+          //
+          // Va como interceptor y no envolviendo el cliente porque este Dio es crudo
+          // a proposito —renovar no se renueva a si mismo— y eso no se toca.
+          InterceptorDeSalud(
+            alIntentar: ({required bool llego}) => ref
+                .read(saludDeLaRedProvider.notifier)
+                .anotarIntento(llego: llego),
+          ),
+        ),
 );
+
+/// Cuenta cada intento de un Dio crudo para la salud de la red.
+///
+/// Un error de red cuenta como «no llego». Cualquier respuesta del servidor
+/// —incluido un 401 o un 404— cuenta como que SI llego: el servidor contesto.
+class InterceptorDeSalud extends Interceptor {
+  InterceptorDeSalud({required this.alIntentar});
+
+  final void Function({required bool llego}) alIntentar;
+
+  @override
+  void onResponse(
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
+    alIntentar(llego: true);
+    handler.next(response);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    // Con respuesta, el servidor contesto: la red esta bien aunque el codigo
+    // sea malo. Sin respuesta, la peticion no salio.
+    alIntentar(llego: err.response != null);
+    handler.next(err);
+  }
+}
 
 /// EL CANDADO. Uno solo en toda la aplicacion — dos instancias son dos candados
 /// distintos, y dos candados no son ningun candado.

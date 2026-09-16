@@ -100,6 +100,22 @@ void main() {
     expect(find.text('Sin conexión'), findsNothing);
     expect(find.byIcon(Icons.cloud_off_outlined), findsNothing);
   });
+
+  testWidgets('sin conexión NO se gira: el giro diría que algo avanza', (
+    tester,
+  ) async {
+    await montar(tester, pendientes: 6, sinConexion: true);
+
+    expect(
+      find.byType(CircularProgressIndicator),
+      findsNothing,
+      reason:
+          'el ciclo sigue reintentando por detrás —y eso está bien—, pero un '
+          'giro al lado de «Sin conexión» se contradice: uno dice que avanza y '
+          'el otro que no hay por dónde',
+    );
+    expect(find.byIcon(Icons.cloud_off_outlined), findsOneWidget);
+  });
 }
 
 /// Una salud de red que siempre dice que va mal, para la mitad de «sin
