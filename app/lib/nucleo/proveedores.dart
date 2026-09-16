@@ -162,6 +162,9 @@ ClienteApi _cliente(Ref ref, String baseUrl) => ClienteApi.montar(
   almacen: ref.watch(almacenSesionProvider),
   renovador: ref.watch(renovadorProvider),
   sucursalMirada: () => ref.read(sucursalMiradaProvider),
+  // Cada intento cuenta para la salud de la red. Ver `anotarIntento`.
+  alIntentar: ({required bool llego}) =>
+      ref.read(saludDeLaRedProvider.notifier).anotarIntento(llego: llego),
   // Un 401 que sigue siendo 401 despues de renovar es lo UNICO que echa a
   // alguien a la pantalla de acceso. Un fallo de red, no.
   alMorirLaSesion: () => ref.read(porteroProvider).murio(),
@@ -277,6 +280,22 @@ class LaSalud extends Notifier<SaludDeLaRed> {
     state = resumen.fallo is FalloDeRed
         ? state.conUnaMala()
         : state.conUnaBuena(ref.read(relojProvider)());
+  }
+
+  /// UN INTENTO SUELTO, no un ciclo entero.
+  ///
+  /// Lo llama `ClienteApi` en cada peticion. Contando ciclos hacian falta
+  /// minutos para decir «sin conexion»; contando intentos, los tres que hacen
+  /// falta caben dentro de UN ciclo, porque cada peticion reintenta a 1 s, 4 s
+  /// y 10 s. El aviso pasa de varios minutos a menos de medio.
+  ///
+  /// El motivo por el que hacen falta tres y no uno sigue en pie y esta escrito
+  /// en `SaludDeLaRed.fallosParaDarlaPorMala`: un aviso que parpadea con cada
+  /// paquete perdido deja de leerse.
+  void anotarIntento({required bool llego}) {
+    state = llego
+        ? state.conUnaBuena(ref.read(relojProvider)())
+        : state.conUnaMala();
   }
 }
 

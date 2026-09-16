@@ -43,6 +43,11 @@ class FranjaDeEstado extends ConsumerWidget {
     // conectado y no sale un paquete, que es exactamente lo que pasaba en el
     // Galaxy A16 del 16/09.
     final sinConexion = ref.watch(saludDeLaRedProvider).vaMal;
+    // El giro de «actualizando» vive AQUI en el telefono: arriba no cabe y se
+    // pintaba debajo del selector de sucursal. Y este es su sitio natural —la
+    // franja es la pieza que habla del estado de los datos—, con la hora al
+    // lado, que es lo que hace falta saber.
+    final actualizando = ref.watch(actualizandoProvider);
 
     // Mientras la consulta de frescura no ha contestado NO se dice «sin
     // descargar»: seria acusar de vacio a algo que aun no se ha mirado. Se
@@ -73,6 +78,7 @@ class FranjaDeEstado extends ConsumerWidget {
           // hace un minuto: lo que hay que mirar entonces no es la hora.
           enAmbar: enAmbar || sinConexion,
           sinConexion: sinConexion,
+          actualizando: actualizando,
           // Que se puede hacer ahora mismo. Las reglas viven en
           // `sincro/que_se_puede.dart`, no aqui: son de negocio y las mira
           // tambien la tarjeta del Panel.
@@ -91,6 +97,7 @@ class FranjaDeEstado extends ConsumerWidget {
     required int pendientes,
     required bool enAmbar,
     required bool sinConexion,
+    required bool actualizando,
     required QueSePuede puede,
   }) {
     return Container(
@@ -111,13 +118,25 @@ class FranjaDeEstado extends ConsumerWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            sinConexion
-                ? Icons.cloud_off_outlined
-                : (enAmbar ? Icons.schedule : Icons.schedule_outlined),
-            size: 14,
-            color: enAmbar ? Colores.ambar : Colores.tintaSuave,
-          ),
+          // El giro SUSTITUYE al reloj mientras dura: son lo mismo —de cuando
+          // son los datos— y dos iconos a la vez en 390 px es ruido.
+          if (actualizando)
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: enAmbar ? Colores.ambar : Colores.tintaSuave,
+              ),
+            )
+          else
+            Icon(
+              sinConexion
+                  ? Icons.cloud_off_outlined
+                  : (enAmbar ? Icons.schedule : Icons.schedule_outlined),
+              size: 14,
+              color: enAmbar ? Colores.ambar : Colores.tintaSuave,
+            ),
           const SizedBox(width: 6),
           // «Sin conexión» va DELANTE de la hora y no detrás: es lo que cambia
           // lo que se puede hacer ahora mismo. La hora sigue estando porque las

@@ -56,9 +56,11 @@ class ClienteApi {
     required Dio dio,
     List<Duration> esperas = esperasPorDefecto,
     Future<void> Function(Duration)? esperar,
+    void Function({required bool llego})? alIntentar,
   }) : _dio = dio,
        _esperas = esperas,
-       _esperar = esperar ?? Future<void>.delayed;
+       _esperar = esperar ?? Future<void>.delayed,
+       _alIntentar = alIntentar;
 
   /// El montaje de verdad: crea el Dio, le pone los interceptores EN ORDEN y
   /// devuelve el cliente.
@@ -70,6 +72,7 @@ class ClienteApi {
     void Function()? alMorirLaSesion,
     List<Duration> esperas = esperasPorDefecto,
     Future<void> Function(Duration)? esperar,
+    void Function({required bool llego})? alIntentar,
   }) {
     final dio = Dio(
       BaseOptions(
@@ -97,12 +100,32 @@ class ClienteApi {
       ),
       const InterceptorFallos(),
     ]);
-    return ClienteApi(dio: dio, esperas: esperas, esperar: esperar);
+    return ClienteApi(
+      dio: dio,
+      esperas: esperas,
+      esperar: esperar,
+      alIntentar: alIntentar,
+    );
   }
 
   final Dio _dio;
   final List<Duration> _esperas;
   final Future<void> Function(Duration) _esperar;
+
+  /// SE AVISA DE CADA INTENTO, no de cada ciclo. `llego` dice si la peticion
+  /// llego al servidor (aunque contestara un 4xx: eso significa que llego).
+  ///
+  /// Existe porque la salud de la red se contaba POR CICLO, y un ciclo tarda:
+  /// hacian falta tres seguidos para decir «sin conexion», o sea minutos. El
+  /// 16/09/2026, con el telefono sin salida a internet —comprobado, 100 % de
+  /// paquetes perdidos y ni siquiera resolvia el nombre del servidor—, la
+  /// aplicacion seguia sin decirlo. Palabras de Jose: «ahora mismo estoy sin
+  /// conexion y el movil me dice q tengo internet por q razon».
+  ///
+  /// Contando intentos, los tres fallos que hacen falta caben dentro de UN
+  /// ciclo —cada peticion reintenta a 1 s, 4 s y 10 s—, asi que el aviso sale
+  /// en menos de medio minuto en vez de en varios.
+  final void Function({required bool llego})? _alIntentar;
 
   Dio get dio => _dio;
 
@@ -135,11 +158,19 @@ class ClienteApi {
     while (true) {
       try {
         final respuesta = await intento();
+        // Llego. Una sola buena basta para dar la red por sana otra vez: dejar
+        // el aviso puesto delante de alguien que ya tiene senal es mentir en la
+        // otra direccion.
+        _alIntentar?.call(llego: true);
         return respuesta.data as T;
       } on DioException catch (e) {
         final fallo = e.error is FalloApi
             ? e.error! as FalloApi
             : InterceptorFallos.traducir(e);
+
+        // Un `Rechazo` o una `SesionMuerta` significan que la peticion SI
+        // llego: el servidor contesto. Eso no dice nada malo de la red.
+        _alIntentar?.call(llego: fallo is! FalloDeRed);
 
         if (fallo is! FalloDeRed || vuelta >= _esperas.length) throw fallo;
 

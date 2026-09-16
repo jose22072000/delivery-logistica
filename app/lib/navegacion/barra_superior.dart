@@ -94,8 +94,20 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
                       style: tema.textTheme.titleLarge,
                     ),
                   ),
-                if (actualizando) ...[
-                  if (!estrecho) const SizedBox(width: 10),
+                // EL GIRO DE «actualizando…» NO SALE EN UN TELEFONO.
+                //
+                // No cabe, y lo que hacia al no caber era peor que faltar: con
+                // el titulo ya fuera, este hueco se queda en unos pocos pixeles
+                // —el menu, la sucursal, la moneda y el avatar se llevan los
+                // 390—, asi que el giro se salia y se pintaba DEBAJO del
+                // selector de sucursal. Visto por Jose el 16/09/2026: «el
+                // actualizando me sale atras de el selector de sucursales».
+                //
+                // Y tiene un sitio mejor: la franja de estado de debajo, que es
+                // donde se mira si los datos estan al dia. Ahi va, con la hora
+                // al lado, que es lo que de verdad hace falta saber.
+                if (actualizando && !estrecho) ...[
+                  const SizedBox(width: 10),
                   SizedBox(
                     width: 12,
                     height: 12,
@@ -104,20 +116,15 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
                       color: Colores.tintaSuave,
                     ),
                   ),
-                  // La palabra «actualizando» tampoco cabe en el telefono; el
-                  // giro solo ya dice lo mismo, y lo que de verdad cuenta el
-                  // estado de los datos es la franja de debajo, con su hora.
-                  if (!estrecho) ...[
-                    const SizedBox(width: 6),
-                    Text(
-                      'actualizando…',
-                      style: Tipos.texto(
-                        tamano: 11,
-                        peso: FontWeight.w500,
-                        color: Colores.tintaSuave.withValues(alpha: 0.7),
-                      ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'actualizando…',
+                    style: Tipos.texto(
+                      tamano: 11,
+                      peso: FontWeight.w500,
+                      color: Colores.tintaSuave.withValues(alpha: 0.7),
                     ),
-                  ],
+                  ),
                 ],
               ],
             ),
