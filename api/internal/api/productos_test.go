@@ -202,7 +202,9 @@ func TestProductosSoloElSuperAdminToca(t *testing.T) {
 	h := montarDeDatos(t, datosDePrueba())
 
 	// Un ADMINISTRADOR de sucursal tampoco: es admin, pero de una sola.
-	adminDeSucursal := tokenDeDatos(t, map[string]any{"sub": "p-adm", "role": "admin", "branchId": datSucStg.String()})
+	adminDeSucursal := tokenDeDatos(t, map[string]any{
+		"sub": "p-adm", "role": "ADMINISTRADOR", "branchId": datSucStg.String(),
+	})
 
 	for _, quien := range []string{operadorDeSantiago(t), adminDeSucursal} {
 		for _, metodo := range []string{http.MethodPatch, http.MethodDelete} {

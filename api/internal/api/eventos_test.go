@@ -117,7 +117,7 @@ func TestEventosMandaListoCambioYLatido(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.Header.Set("Authorization", "Bearer "+tokenDePanel(t, map[string]any{"sub": "u1"}))
+	r.Header.Set("Authorization", "Bearer "+tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func TestEventosSeCierranAlCortarElClienteYNoDejanNadaVivo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.Header.Set("Authorization", "Bearer "+tokenDePanel(t, map[string]any{"sub": "u1"}))
+	r.Header.Set("Authorization", "Bearer "+tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +232,7 @@ func TestEventosAbiertosNoDejanColgadoElApagado(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.Header.Set("Authorization", "Bearer "+tokenDePanel(t, map[string]any{"sub": "u1"}))
+	r.Header.Set("Authorization", "Bearer "+tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +263,7 @@ func TestEventosConElBusCerradoDiceSinVivo(t *testing.T) {
 
 	h := manejadorDeEventos(t, bus)
 	r := httptest.NewRequest(http.MethodGet, "/api/eventos", nil)
-	r.Header.Set("Authorization", "Bearer "+tokenDePanel(t, map[string]any{"sub": "u1"}))
+	r.Header.Set("Authorization", "Bearer "+tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 

@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../diseno/banner_de_gesto.dart';
 import '../../../diseno/colores.dart';
 import '../../../nucleo/proveedores.dart';
+import '../../../navegacion/estado_navegacion.dart';
+import '../../../nucleo/frescura/reloj_de_datos.dart';
 import '../../../nucleo/sincro/ciclo.dart';
 import '../../../nucleo/sincro/recuento.dart';
 import '../../entregar_el_dia/datos/textos.dart';
@@ -59,6 +61,12 @@ class EstadoDelDia extends ConsumerWidget {
       llevaEnVuelo: empezadoA == null
           ? null
           : ref.watch(relojProvider)().difference(empezadoA),
+      // La MISMA pregunta que apaga el boton de la franja, para que las dos
+      // piezas digan lo mismo: si los datos son de ahora, no hay que traerlos.
+      hayQueTraer: EstadoFrescura.de(
+        ref.watch(frescuraGlobalProvider).value,
+        ahora: ref.watch(relojProvider)(),
+      ).enAmbar,
     );
 
     return BannerDeGesto(
@@ -85,6 +93,7 @@ class EstadoDelDia extends ConsumerWidget {
         QueToca.sinConexion => Icons.cloud_off_outlined,
         QueToca.hayQueEnviar => Icons.cloud_upload_outlined,
         QueToca.alDia => Icons.cloud_download_outlined,
+        QueToca.todoAlDia => Icons.check_circle_outline,
       },
       textoDelBoton: TextosDelDia.boton(toca, sinSubir: pendientes),
       alPulsarBoton: switch (toca) {
@@ -97,6 +106,8 @@ class EstadoDelDia extends ConsumerWidget {
           empezarYa: true,
         ),
         QueToca.alDia => () => abrirCajonDeTraerElDia(context, empezarYa: true),
+        // Nada que hacer: no hay boton. Ver `QueToca.todoAlDia`.
+        QueToca.todoAlDia => null,
       },
       // Pulsar la pieza abre el cajon SIN disparar nada: es para mirar que se
       // tiene. Sin senal es la unica forma de llegar, y ahi dentro el boton
@@ -129,6 +140,7 @@ class EstadoDelDia extends ConsumerWidget {
             ? TextosDeEntregarElDia.comoQuedo(entrego)
             : TextosDelDia.sinSubir(pendientes);
       case QueToca.alDia:
+      case QueToca.todoAlDia:
         if (entrego != null && entrego.completo) {
           return TextosDeEntregarElDia.comoQuedo(entrego);
         }
@@ -155,6 +167,7 @@ class EstadoDelDia extends ConsumerWidget {
             ? TextosDeEntregarElDia.subieron(entrego.subidos)
             : TextosDelDia.datosDeLas(hay?.laMasVieja);
       case QueToca.alDia:
+      case QueToca.todoAlDia:
         if (entrego != null && entrego.completo) {
           return TextosDeEntregarElDia.subieron(entrego.subidos);
         }
@@ -182,6 +195,10 @@ class EstadoDelDia extends ConsumerWidget {
         // intentado. El ambar dice «mira esto»; el rojo, «esto ya es un
         // problema».
         return entrego != null ? Colores.rojo : Colores.ambar;
+      // Todo al dia es el unico estado que se puede pintar VERDE sin mas: no
+      // queda nada por hacer y los datos son de ahora.
+      case QueToca.todoAlDia:
+        return Colores.verde;
       case QueToca.alDia:
         if (entrego != null && !entrego.completo) return Colores.rojo;
         if (trajo == null) return Colores.primario;

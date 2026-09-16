@@ -85,16 +85,22 @@ func (s *Servidor) rutasPedidos(rt *httpx.Router, sesion, admin []httpx.Medio) {
 // alcance.
 //
 // Las consultas sólo se alcanzan por `alcance.Acotado`, y el alcance exige una persona.
-// Así que se le cuelga una de servicio —sin sucursal, que es «todas»— y se BORRA la
-// cabecera `X-Sucursal-Id` antes de resolverlo: si no, quien llamara con esa cabecera
-// puesta acotaría una faena que tiene que ir sobre el espejo entero, y siete sucursales
-// se quedarían con el peso viejo sin una sola traza.
+// Así que se le cuelga una de servicio y se BORRA la cabecera `X-Sucursal-Id` antes de
+// resolverlo: si no, quien llamara con esa cabecera puesta acotaría una faena que tiene
+// que ir sobre el espejo entero, y siete sucursales se quedarían con el peso viejo sin una
+// sola traza.
+//
+// LA PERSONA DE SERVICIO LLEVA SU ROL ESCRITO, y eso es nuevo. Antes se apoyaba en «sin
+// sucursal = todas», que era justo el hueco por el que cualquiera a quien le faltara la
+// suya veía las ocho. Al taparlo (16/09/2026), quedarse sin rol dejaba esta faena en un
+// 403. Se dice lo que es: quien entra con la llave de servicio no es una persona a la que
+// le falte la sucursal, es el propio sistema. El espejo ya lo hacía así.
 func (s *Servidor) mediosDeServicio() []httpx.Medio {
 	return []httpx.Medio{
 		auth.LlaveDeServicio(s.cfg.ServiceAPIKey),
 		func(siguiente http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				u := &auth.Usuario{ID: "servicio", Nombre: "servicio"}
+				u := &auth.Usuario{ID: "servicio", Nombre: "servicio", Rol: "SUPER ADMIN"}
 				r2 := r.Clone(auth.ConUsuario(r.Context(), u))
 				r2.Header.Del(alcance.CabeceraSucursal)
 				siguiente.ServeHTTP(w, r2)

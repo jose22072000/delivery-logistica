@@ -47,23 +47,70 @@ type Usuario struct {
 	Sucursal string   // "" = no pertenece a ninguna (Super Admin)
 }
 
-// EsAdmin: la comprobación de `/api/branches`, que exige administrador.
-func (u *Usuario) EsAdmin() bool {
-	if strings.EqualFold(u.Rol, "admin") {
-		return true
-	}
-	for _, r := range u.Roles {
-		if strings.EqualFold(r, "admin") {
-			return true
+// LOS ROLES DE VERDAD, escritos como los escribe PEDIDO, que es de donde salen.
+//
+// Leídos de la tabla `role` de Accesos el 16/09/2026. Son SIETE: ADMINISTRADOR,
+// DESARROLLADOR, GERENTE, GESTOR, OPERADOR, SUPER ADMIN y SUPERVISOR.
+//
+// Aquí se comparaba contra `"admin"` a secas, que **no es ninguno de ellos**. O sea que un
+// `SUPER ADMIN` de verdad no pasaba `EsSuperAdmin()` y el catálogo le contestaba «Solo el
+// Super Admin puede tocar el catálogo» a la única persona que podía. No se vio porque las
+// pruebas montaban el token con `"role": "admin"`, copiando el error del código: una
+// prueba que repite la suposición que prueba no prueba nada.
+//
+// Se comparan como texto exacto, igual que PEDIDO. Nada de «¿contiene admin?»:
+// `ADMINISTRADOR` es de UNA sucursal y eso le daría las ocho.
+const (
+	rolSuperAdmin    = "SUPER ADMIN"
+	rolDesarrollador = "DESARROLLADOR"
+	rolAdministrador = "ADMINISTRADOR"
+	// `admin` a secas es lo que traían los tokens VIEJOS de la web de delivery. Se acepta
+	// mientras esa puerta siga abierta; el día que se cierre, se quita de aquí.
+	rolAdminHeredado = "admin"
+)
+
+func (u *Usuario) tieneAlguno(roles ...string) bool {
+	for _, candidato := range append([]string{u.Rol}, u.Roles...) {
+		c := strings.TrimSpace(candidato)
+		for _, r := range roles {
+			if strings.EqualFold(c, r) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// EsSuperAdmin: administrador SIN sucursal. La distinción importa porque es quien ve las
-// ocho sucursales y quien puede elegir una por cabecera; un administrador con sucursal
-// sigue viendo sólo la suya.
-func (u *Usuario) EsSuperAdmin() bool { return u.EsAdmin() && u.Sucursal == "" }
+// EsAdmin: la comprobación de `/api/branches`, que exige administrador.
+//
+// Entra también `ADMINISTRADOR`, que administra LO SUYO: su sucursal. Que pueda
+// administrar no es lo mismo que verlo todo — eso lo decide [EsSuperAdmin].
+func (u *Usuario) EsAdmin() bool {
+	return u.tieneAlguno(rolSuperAdmin, rolDesarrollador, rolAdministrador, rolAdminHeredado)
+}
+
+// EsSuperAdmin: quien manda en todo Procovar, no en una sucursal.
+//
+// Son DOS roles y nada más. Palabras de Jose, 16/09/2026: «los super administradores
+// pueden tocar en todos lados y el desarrollador mucho mas arriba aun».
+//
+// Antes esto era «EsAdmin() && Sucursal == ""», o sea que lo decidía un HUECO: quien
+// llegara sin sucursal pasaba por super. Eso convertía un dato que falta —alguien a quien
+// todavía no le han dado la suya— en el permiso más grande que hay. Lo decide el rol.
+//
+// El alcance por sucursal es otra cosa y se resuelve aparte (`internal/alcance`): un SUPER
+// ADMIN que elija una sucursal arriba ve esa, no las ocho.
+func (u *Usuario) EsSuperAdmin() bool {
+	if u.tieneAlguno(rolSuperAdmin, rolDesarrollador) {
+		return true
+	}
+	// EL `admin` HEREDADO DE LA WEB VIEJA conserva su regla de siempre: admin y SIN
+	// sucursal. No se le aplica la nueva porque no tiene los roles nuevos —sus tokens
+	// dicen `admin` a secas— y cambiársela lo dejaría fuera de su propio sistema.
+	//
+	// Es un puente, no la regla: el día que esa puerta se cierre, esto se va con ella.
+	return u.tieneAlguno(rolAdminHeredado) && u.Sucursal == ""
+}
 
 // Verificador guarda el secreto. Se construye una vez al arrancar.
 type Verificador struct {

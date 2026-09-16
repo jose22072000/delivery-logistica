@@ -65,7 +65,7 @@ func TestYoDevuelveLaPersonaYElTokenDeLaCookie(t *testing.T) {
 // no añade nada.
 func TestYoConBearerNoDevuelveToken(t *testing.T) {
 	h := montarDePanel(t, &dobleDePanel{})
-	w := pedirDePanel(t, h, "/api/me", tokenDePanel(t, map[string]any{"sub": "super", "role": "admin"}))
+	w := pedirDePanel(t, h, "/api/me", tokenDePanel(t, map[string]any{"sub": "super", "role": "SUPER ADMIN"}))
 
 	y := leerJSONDePanel[YoSalida](t, w)
 	if y.Token != nil {
@@ -88,8 +88,8 @@ func TestAppsSoloEnseñaAccesosAlAdminGlobal(t *testing.T) {
 		reclamos map[string]any
 		accesos  bool
 	}{
-		{"admin global", map[string]any{"sub": "s", "role": "admin"}, true},
-		{"admin de sucursal", map[string]any{"sub": "a", "role": "admin", "branchId": holDePanel.String()}, false},
+		{"admin global", map[string]any{"sub": "s", "role": "SUPER ADMIN"}, true},
+		{"admin de sucursal", map[string]any{"sub": "a", "role": "ADMINISTRADOR", "branchId": holDePanel.String()}, false},
 		{"operador", map[string]any{"sub": "o", "role": "operador", "branchId": holDePanel.String()}, false},
 	}
 	for _, c := range casos {

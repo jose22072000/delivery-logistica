@@ -102,7 +102,23 @@ class _SelectorState<T> extends State<Selector<T>> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (elegida?.nota != null) ...[
+          // LA NOTA, EN LA CAJA, SOLO SI ES CORTA.
+          //
+          // En la lista la nota es todo lo larga que haga falta: ahi se esta
+          // eligiendo y cuanto mas se sepa, mejor. En la CAJA es otra cosa: vive
+          // dentro de una barra que tiene que caber, y una nota larga la infla y
+          // empuja fuera de la pantalla lo que viene detras.
+          //
+          // Pasaba con la moneda: al elegir CUP, la caja pasaba a decir «CUP
+          // 1 USD = 715 · del 16/9/2026» y se comia media barra. Jose, el
+          // 16/09/2026: «cuando escojo la moneda ese boton se agranda mucho y me
+          // jode la barra superior».
+          //
+          // El corte es por longitud y no por quien llama, porque el que decide
+          // si cabe es el ancho, no el sitio. Las notas cortas —«HAB», «STG»—
+          // son justo las que sirven de un vistazo y las que caben; una frase
+          // entera se queda en la lista y en el tooltip, donde no estorba.
+          if (_cabeEnLaCaja(elegida?.nota)) ...[
             const SizedBox(width: 6),
             Text(
               elegida!.nota!,
@@ -307,3 +323,12 @@ class _Opcion<T> extends StatelessWidget {
     ),
   );
 }
+
+/// Cuantos caracteres de nota caben al lado de la etiqueta sin inflar la caja.
+///
+/// Doce es lo que mide «HAB» con sitio de sobra y lo que NO mide una frase. El
+/// numero esta aqui y no repartido para que cambiarlo sea un sitio.
+const int _notaCortaEnLaCaja = 12;
+
+bool _cabeEnLaCaja(String? nota) =>
+    nota != null && nota.trim().length <= _notaCortaEnLaCaja;

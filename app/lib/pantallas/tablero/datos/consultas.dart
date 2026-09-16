@@ -13,6 +13,7 @@ class FiltrosSinColocar {
     this.municipio,
     this.vendedor,
     this.kmMax,
+    this.conCobroDeDomicilio,
     this.limite = 200,
   });
 
@@ -30,6 +31,20 @@ class FiltrosSinColocar {
   /// El corte por kilometros.
   final double? kmMax;
 
+  /// SI EL PEDIDO LLEVA COBRO DE DOMICILIO PUESTO. `null` = los dos.
+  ///
+  /// El costo lo pone el repartidor desde Entrega, y es lo que decide si un
+  /// pedido se puede meter en una ruta: sin el no se sabe lo que cuesta
+  /// llevarlo. Quien arma el dia necesita las dos preguntas:
+  ///
+  ///  * `true` — «ensename lo que YA puedo repartir».
+  ///  * `false` — «ensename lo que esta esperando a que le pongan el costo»,
+  ///    que es una lista de trabajo para otra persona, no para el.
+  ///
+  /// Pedido por Jose el 16/09/2026: «falta el filtro de el tablero falto poner
+  /// los pedidos con cobro de domicilio».
+  final bool? conCobroDeDomicilio;
+
   /// El tope de lo que se pinta. `total` dice cuantos hay de verdad.
   final int limite;
 
@@ -39,17 +54,22 @@ class FiltrosSinColocar {
     String? municipio,
     String? vendedor,
     double? kmMax,
+    bool? conCobroDeDomicilio,
     int? limite,
     bool quitarDia = false,
     bool quitarMunicipio = false,
     bool quitarVendedor = false,
     bool quitarKmMax = false,
+    bool quitarCobroDeDomicilio = false,
   }) => FiltrosSinColocar(
     dia: quitarDia ? null : (dia ?? this.dia),
     q: q ?? this.q,
     municipio: quitarMunicipio ? null : (municipio ?? this.municipio),
     vendedor: quitarVendedor ? null : (vendedor ?? this.vendedor),
     kmMax: quitarKmMax ? null : (kmMax ?? this.kmMax),
+    conCobroDeDomicilio: quitarCobroDeDomicilio
+        ? null
+        : (conCobroDeDomicilio ?? this.conCobroDeDomicilio),
     limite: limite ?? this.limite,
   );
 
@@ -58,7 +78,8 @@ class FiltrosSinColocar {
       (q != null && q!.trim().isNotEmpty) ||
       municipio != null ||
       vendedor != null ||
-      kmMax != null;
+      kmMax != null ||
+      conCobroDeDomicilio != null;
 }
 
 /// LAS LECTURAS DEL TABLERO, todas contra la base local.
@@ -349,6 +370,16 @@ WHERE c.branch_id = ?1''',
     final vendedor = filtros.vendedor;
     if (vendedor != null && vendedor.isNotEmpty) {
       consulta.where((t) => t.vendedor.equals(vendedor));
+    }
+    // EL COBRO DEL DOMICILIO. Un costo NULO es «todavia no se lo han puesto»;
+    // un cero no lo es, y por eso se pregunta por nulo y no por «> 0»: un
+    // domicilio de cero es una decision de alguien, no un hueco.
+    final conCobro = filtros.conCobroDeDomicilio;
+    if (conCobro != null) {
+      consulta.where(
+        (t) =>
+            conCobro ? t.deliveryPrice.isNotNull() : t.deliveryPrice.isNull(),
+      );
     }
     final dia = filtros.dia;
     if (dia != null) {

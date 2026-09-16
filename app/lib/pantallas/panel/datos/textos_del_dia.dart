@@ -26,8 +26,19 @@ enum QueToca {
   /// Hay trabajo dentro del telefono. **Manda sobre todo lo demas.**
   hayQueEnviar,
 
-  /// Todo entregado y con senal: lo que toca es traer el dia.
+  /// Todo entregado, con senal, y los datos VIEJOS: lo que toca es traerlos.
   alDia,
+
+  /// Todo entregado y los datos de ahora mismo. **No hay nada que hacer**, y por
+  /// eso no se ofrece boton.
+  ///
+  /// Jose, 16/09/2026: «tengo todo al dia y me sigue estando activado el boton
+  /// de traer el dia… el traer el dia es para si no se ha traido automatico q se
+  /// pueda hacer manual».
+  ///
+  /// Un boton que se pulsa y no cambia nada ensena a desconfiar de los botones,
+  /// y ademas gasta la conexion de alla para volver a bajar lo mismo.
+  todoAlDia,
 }
 
 abstract final class TextosDelDia {
@@ -38,6 +49,7 @@ abstract final class TextosDelDia {
     QueToca.sinConexion => 'Trabajando sin conexión',
     QueToca.hayQueEnviar => 'Tienes trabajo sin enviar',
     QueToca.alDia => 'Traer el día',
+    QueToca.todoAlDia => 'Todo al día',
   };
 
   /// El texto del boton. `null` = **no hay boton**, que es el caso de no tener
@@ -48,6 +60,8 @@ abstract final class TextosDelDia {
     QueToca.sinConexion => null,
     QueToca.hayQueEnviar => 'Enviar datos (${Numeros.entero(sinSubir)})',
     QueToca.alDia => 'Traer el día',
+    // Sin boton: no hay nada que hacer.
+    QueToca.todoAlDia => null,
   };
 
   static String explicacion(QueToca toca) => switch (toca) {
@@ -65,6 +79,9 @@ abstract final class TextosDelDia {
     QueToca.alDia =>
       'Cárgalo donde haya señal y llévatelo: el día entero se trabaja sin '
           'conexión.',
+    QueToca.todoAlDia =>
+      'Los datos son de ahora mismo y no queda nada sin enviar. Se mantiene '
+          'solo mientras haya señal.',
   };
 
   /// POR DONDE VA, con el verbo del paso que toca.
@@ -145,6 +162,7 @@ QueToca queTocaAhora({
   required bool vaMal,
   required int pendientes,
   Duration? llevaEnVuelo,
+  bool hayQueTraer = true,
 }) {
   // Un intento que lleva mas de medio minuto no se anuncia como si estuviera
   // saliendo bien. Ver `pacienciaDelIntento`.
@@ -180,5 +198,7 @@ QueToca queTocaAhora({
     return paso == PasoDelCiclo.subir ? QueToca.enviando : QueToca.trayendo;
   }
   if (pendientes > 0) return QueToca.hayQueEnviar;
-  return QueToca.alDia;
+  // Con los datos de ahora mismo no se ofrece traerlos otra vez. Ver
+  // `QueToca.todoAlDia`.
+  return hayQueTraer ? QueToca.alDia : QueToca.todoAlDia;
 }

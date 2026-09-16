@@ -272,7 +272,7 @@ func TestPanelDelSuperAdminVaSinAcotar(t *testing.T) {
 	q := &dobleDePanel{}
 	h := montarDePanel(t, q)
 
-	w := pedirDePanel(t, h, "/api/dashboard", tokenDePanel(t, map[string]any{"sub": "super", "role": "admin"}))
+	w := pedirDePanel(t, h, "/api/dashboard", tokenDePanel(t, map[string]any{"sub": "super", "role": "SUPER ADMIN"}))
 	if w.Code != http.StatusOK {
 		t.Fatalf("código %d: %s", w.Code, w.Body.String())
 	}
@@ -322,7 +322,7 @@ func TestMedianocheDeHoyEsLaDelDiaLocal(t *testing.T) {
 func TestPanelPasaLaMedianocheALaConsulta(t *testing.T) {
 	q := &dobleDePanel{}
 	h := montarDePanel(t, q)
-	pedirDePanel(t, h, "/api/dashboard", tokenDePanel(t, map[string]any{"sub": "u1"}))
+	pedirDePanel(t, h, "/api/dashboard", tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 
 	if !q.hoyVisto.Valid {
 		t.Fatal("la consulta del panel no recibió el «hoy»")

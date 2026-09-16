@@ -17,12 +17,21 @@ abstract final class FiltrosEnLaUrl {
   static FiltrosSinColocar leer(Map<String, String> parametros) {
     final dia = parametros['dia'];
     final km = parametros['kmMax'];
+    // `cobro=si` / `cobro=no`. Sin el parametro son los dos, que es lo que
+    // significa `null` — y por eso NO se lee como un booleano suelto: un `false`
+    // por defecto convertiria «todos» en «sin cobro» al abrir un enlace viejo.
+    final cobro = parametros['cobro'];
     return FiltrosSinColocar(
       q: parametros['q'],
       municipio: parametros['municipio'],
       vendedor: parametros['vendedor'],
       dia: dia == null ? null : DateTime.tryParse(dia),
       kmMax: km == null ? null : double.tryParse(km),
+      conCobroDeDomicilio: switch (cobro) {
+        'si' => true,
+        'no' => false,
+        _ => null,
+      },
     );
   }
 
@@ -35,6 +44,8 @@ abstract final class FiltrosEnLaUrl {
       if (f.vendedor != null) 'vendedor': f.vendedor!,
       if (dia != null) 'dia': '${dia.year}-${_dos(dia.month)}-${_dos(dia.day)}',
       if (km != null) 'kmMax': '$km',
+      if (f.conCobroDeDomicilio != null)
+        'cobro': f.conCobroDeDomicilio! ? 'si' : 'no',
     };
   }
 

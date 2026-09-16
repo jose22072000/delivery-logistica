@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../diseno/tema.dart';
 import '../datos/modelos.dart';
 import '../estado/filtros_en_la_url.dart';
 import '../estado/proveedores.dart';
@@ -245,6 +246,40 @@ class _Filtros extends ConsumerWidget {
                   : filtros.copiaCon(kmMax: valor),
             );
           },
+        ),
+        const SizedBox(height: 12),
+        // EL COBRO DEL DOMICILIO, que decide si un pedido se puede repartir hoy.
+        //
+        // El costo lo pone el repartidor desde Entrega, y sin el no se sabe lo
+        // que cuesta llevarlo. Las dos preguntas hacen falta: «que puedo
+        // repartir ya» y «que esta esperando a que le pongan el costo» —esta
+        // segunda es una lista de trabajo para otra persona—.
+        //
+        // Segmentos y no un desplegable: son tres opciones cortas y excluyentes,
+        // y asi se ve de un vistazo cual esta puesta sin abrir nada.
+        Text(
+          'Cobro del domicilio',
+          style: Tipos.texto(tamano: 12, color: Colores.tintaSuave),
+        ),
+        const SizedBox(height: 6),
+        SegmentedButton<int>(
+          segments: const [
+            ButtonSegment<int>(value: 0, label: Text('Todos')),
+            ButtonSegment<int>(value: 1, label: Text('Con cobro')),
+            ButtonSegment<int>(value: 2, label: Text('Sin cobro')),
+          ],
+          selected: {
+            switch (filtros.conCobroDeDomicilio) {
+              null => 0,
+              true => 1,
+              false => 2,
+            },
+          },
+          onSelectionChanged: (cual) => poner(switch (cual.first) {
+            1 => filtros.copiaCon(conCobroDeDomicilio: true),
+            2 => filtros.copiaCon(conCobroDeDomicilio: false),
+            _ => filtros.copiaCon(quitarCobroDeDomicilio: true),
+          }),
         ),
         const SizedBox(height: 16),
         OutlinedButton(

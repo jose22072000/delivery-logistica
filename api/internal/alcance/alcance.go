@@ -87,6 +87,30 @@ type Acotado struct {
 	persona  *uuid.UUID // la sucursal DE LA PERSONA, ignorando la cabecera
 }
 
+// ErrSinAlcance: no pertenece a ninguna sucursal y tampoco tiene un rol que las vea
+// todas, así que no hay nada que pueda ver. Sale como 403 con este texto: dice qué falta y
+// quién lo arregla.
+var ErrSinAlcance = errors.New(
+	"esta cuenta no está dada de alta en ninguna sucursal: pide en la oficina que te " +
+		"asignen la tuya")
+
+// LOS DOS ROLES QUE VEN LAS OCHO SUCURSALES, y no hay más.
+//
+// Salen de la tabla `role` de Accesos, leída el 16/09/2026, que tiene SIETE:
+// ADMINISTRADOR, DESARROLLADOR, GERENTE, GESTOR, OPERADOR, SUPER ADMIN y SUPERVISOR.
+//
+//   - `SUPER ADMIN` administra todo Procovar.
+//   - `DESARROLLADOR` está por encima todavía.
+//
+// Los otros cinco pertenecen a UNA sucursal, `ADMINISTRADOR` incluido — y por eso la
+// comparación es contra el texto exacto y no «contiene admin»: un ADMINISTRADOR sin su
+// sucursal se llevaría las ocho, que es justo la fuga que se está tapando. PEDIDO, que es
+// la fuente de los roles, también los compara como texto.
+// Es la misma pregunta que `auth.Usuario.EsSuperAdmin`, y por eso se delega en vez de
+// repetirla: dos copias de una regla de permisos acaban diciendo cosas distintas, y la que
+// se olvide de actualizar es por donde se cuela alguien.
+func VeTodasLasSucursales(u *auth.Usuario) bool { return u.EsSuperAdmin() }
+
 // Resolver aplica la regla, en el orden del contrato.
 //
 //  1. pedida = la sucursal de la persona; si no tiene, la cabecera `X-Sucursal-Id`.
@@ -110,7 +134,21 @@ func (p *Porteria) Resolver(ctx context.Context, u *auth.Usuario, cabecera strin
 		pedida = strings.TrimSpace(cabecera)
 	}
 	if pedida == "" {
-		// Super Admin: todas. No es un fallo, es el caso normal de quien administra.
+		// SIN SUCURSAL **NO** SIGNIFICA «TODAS». Sólo lo significa para quien administra.
+		//
+		// Esto decía «Super Admin: todas» y NO MIRABA EL ROL: cualquiera cuyo token
+		// llegara sin sucursal —alguien a quien todavía no le han dado la suya, o mal
+		// dado de alta— veía las ocho. Es la regla 1 de la casa al revés, y ya costó
+		// dinero una vez: «un operador de Santiago vio los precios de La Habana».
+		//
+		// Jose, 16/09/2026: «sin sucursal no es por el tipo de usuario no hagas eso por q
+		// entonces un usuario sin sucursal ve todas eso esta malisimo».
+		//
+		// El fallo barato es dejar fuera a quien no tiene sucursal: se arregla dándosela,
+		// y el mensaje lo dice. El caro es enseñarle las ocho, que no se ve.
+		if !VeTodasLasSucursales(u) {
+			return nil, ErrSinAlcance
+		}
 		return a, nil
 	}
 
@@ -173,7 +211,13 @@ func (p *Porteria) Exigir(siguiente http.Handler) http.Handler {
 			return
 		}
 		a, err := p.Resolver(r.Context(), u, r.Header.Get(CabeceraSucursal))
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrSinAlcance):
+			// 403 y no 500: no es una avería, es que a esta cuenta le falta algo que se
+			// arregla en la oficina. El texto lo dice y sale tal cual en la pantalla.
+			httpx.Error(w, r, http.StatusForbidden, ErrSinAlcance.Error())
+			return
+		case err != nil:
 			httpx.ErrorInterno(w, r, err)
 			return
 		}

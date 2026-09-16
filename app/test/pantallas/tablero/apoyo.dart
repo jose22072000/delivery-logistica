@@ -86,6 +86,9 @@ Future<void> sembrarPedido(
   String sucursal = sucursalStg,
   DateTime? fecha,
   bool conCoordenadas = true,
+  /// El cobro del domicilio. `null` es «todavia no se lo han puesto», que NO es
+  /// lo mismo que cero: un domicilio de cero es una decision de alguien.
+  double? cobroDomicilio,
 }) => base
     .into(base.orders)
     .insert(
@@ -106,6 +109,7 @@ Future<void> sembrarPedido(
         routeId: Value(rutaId),
         source: Value(fuente),
         branchId: Value(sucursal),
+        deliveryPrice: Value(cobroDomicilio),
         orderDate: Value(fecha ?? DateTime(2026, 9, 14, 8)),
         createdAt: Value(fecha ?? DateTime(2026, 9, 14, 8)),
       ),

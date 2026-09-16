@@ -290,7 +290,7 @@ func operadorDeSantiago(t *testing.T) string {
 // superAdmin: administrador SIN sucursal. Es el único que ve las ocho y el único que toca
 // el catálogo.
 func superAdminDeDatos(t *testing.T) string {
-	return tokenDeDatos(t, map[string]any{"sub": "p-super", "role": "admin"})
+	return tokenDeDatos(t, map[string]any{"sub": "p-super", "role": "SUPER ADMIN"})
 }
 
 func pedirDeDatos(t *testing.T, h http.Handler, metodo, ruta, token, cuerpo string, cabeceras map[string]string) *httptest.ResponseRecorder {

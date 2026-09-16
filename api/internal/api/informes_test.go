@@ -40,7 +40,7 @@ func TestInformeSumaLoMismoEnSusTresBloques(t *testing.T) {
 	}}
 	h := montarDePanel(t, q)
 
-	w := pedirDePanel(t, h, "/api/reports", tokenDePanel(t, map[string]any{"sub": "u1"}))
+	w := pedirDePanel(t, h, "/api/reports", tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 	if w.Code != http.StatusOK {
 		t.Fatalf("código %d: %s", w.Code, w.Body.String())
 	}
@@ -80,7 +80,7 @@ func TestInformeAgrupaPorIdDeVehiculoYNoPorNombre(t *testing.T) {
 	}}
 	h := montarDePanel(t, q)
 
-	w := pedirDePanel(t, h, "/api/reports", tokenDePanel(t, map[string]any{"sub": "super", "role": "admin"}))
+	w := pedirDePanel(t, h, "/api/reports", tokenDePanel(t, map[string]any{"sub": "super", "role": "SUPER ADMIN"}))
 	inf := leerJSONDePanel[InformeSalida](t, w)
 
 	if len(inf.ByVehicle) != 2 {
@@ -95,7 +95,7 @@ func TestInformeAgrupaPorIdDeVehiculoYNoPorNombre(t *testing.T) {
 // `NaN` no es JSON válido y la respuesta saldría cortada a la mitad.
 func TestInformeVacioNoDaNaNNiNull(t *testing.T) {
 	h := montarDePanel(t, &dobleDePanel{})
-	w := pedirDePanel(t, h, "/api/reports", tokenDePanel(t, map[string]any{"sub": "u1"}))
+	w := pedirDePanel(t, h, "/api/reports", tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 	if w.Code != http.StatusOK {
 		t.Fatalf("código %d: %s", w.Code, w.Body.String())
 	}
@@ -126,7 +126,7 @@ func TestInformeInterpretaElRangoEnUTCYHastaIncluyeElDia(t *testing.T) {
 	q := &dobleDePanel{}
 	h := montarDePanel(t, q)
 
-	w := pedirDePanel(t, h, "/api/reports?from=2026-09-01&to=2026-09-30", tokenDePanel(t, map[string]any{"sub": "u1"}))
+	w := pedirDePanel(t, h, "/api/reports?from=2026-09-01&to=2026-09-30", tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 	if w.Code != http.StatusOK {
 		t.Fatalf("código %d: %s", w.Code, w.Body.String())
 	}
@@ -145,7 +145,7 @@ func TestInformeInterpretaElRangoEnUTCYHastaIncluyeElDia(t *testing.T) {
 func TestInformeSinRangoNoFiltraPorFecha(t *testing.T) {
 	q := &dobleDePanel{}
 	h := montarDePanel(t, q)
-	pedirDePanel(t, h, "/api/reports", tokenDePanel(t, map[string]any{"sub": "u1"}))
+	pedirDePanel(t, h, "/api/reports", tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 
 	if q.argInforme.Desde.Valid || q.argInforme.Hasta.Valid {
 		t.Errorf("sin rango no se puede filtrar por fecha: %+v", q.argInforme)
@@ -156,7 +156,7 @@ func TestInformeSinRangoNoFiltraPorFecha(t *testing.T) {
 // devuelve el histórico entero —o un informe vacío— con un 200, y eso se lo cree cualquiera.
 func TestInformeRechazaLosFiltrosQueNoSeEntienden(t *testing.T) {
 	h := montarDePanel(t, &dobleDePanel{})
-	jwt := tokenDePanel(t, map[string]any{"sub": "u1"})
+	jwt := tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"})
 
 	for _, ruta := range []string{
 		"/api/reports?from=el-lunes",
@@ -175,7 +175,7 @@ func TestInformeAceptaElVehiculoYLoPasaALaConsulta(t *testing.T) {
 	q := &dobleDePanel{}
 	h := montarDePanel(t, q)
 
-	w := pedirDePanel(t, h, "/api/reports?vehicleId="+camion.String(), tokenDePanel(t, map[string]any{"sub": "u1"}))
+	w := pedirDePanel(t, h, "/api/reports?vehicleId="+camion.String(), tokenDePanel(t, map[string]any{"sub": "u1", "role": "SUPER ADMIN"}))
 	if w.Code != http.StatusOK {
 		t.Fatalf("código %d: %s", w.Code, w.Body.String())
 	}
