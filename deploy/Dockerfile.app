@@ -83,6 +83,38 @@ RUN flutter build web --release \
       --dart-define=SYNC_URL="${SYNC_URL}" \
       --dart-define=AUTH_URL="${AUTH_URL}"
 
+# LA HUELLA, que es lo que hace que la caché deje de adivinar.
+#
+# Flutter llama a su código `main.dart.js` SIEMPRE IGUAL, en cada compilación: misma
+# dirección, contenido distinto. Cualquier caché del mundo —el navegador, Cloudflare, el
+# proxy de una oficina— tiene derecho a quedarse con la vieja, porque nadie le dijo que
+# cambió. Eso pasó el 16/09: los cuatro servicios desplegados, el servidor sirviendo el
+# fichero nuevo, y la pantalla enseñando la aplicación del día anterior.
+#
+# La salida NO es prohibir la caché: es que el nombre cambie cuando cambia el contenido.
+# Se le pega a cada petición la huella del PROPIO fichero, así que:
+#
+#   * si el código no cambió, la dirección es la misma y la caché lo sirve al instante
+#     —que con la conexión de allá es justo lo que se quiere—;
+#   * si cambió, la dirección es otra y NO PUEDE servirse una copia vieja, porque de esa
+#     dirección nadie tiene ninguna.
+#
+# `index.html` se queda sin cachear (`deploy/nginx.conf`) y es el único sitio donde vive
+# la huella: se pide siempre, y de él sale la dirección buena de todo lo demás.
+#
+# Es md5 del contenido y no la fecha ni el commit a propósito: dos compilaciones del mismo
+# código dan la MISMA huella, así que un redespliegue que no cambia nada no obliga a nadie
+# a volver a bajarse cinco megas.
+RUN set -eu; \
+    H=$(md5sum build/web/main.dart.js | cut -c1-12); \
+    sed -i "s#flutter_bootstrap\.js#flutter_bootstrap.js?v=$H#g" build/web/index.html; \
+    sed -i "s#main\.dart\.js#main.dart.js?v=$H#g" build/web/flutter_bootstrap.js; \
+    echo "huella de esta compilacion: $H"; \
+    grep -q "flutter_bootstrap.js?v=$H" build/web/index.html \
+      || (echo "NO se pudo poner la huella en index.html" && exit 1); \
+    grep -q "main.dart.js?v=$H" build/web/flutter_bootstrap.js \
+      || (echo "NO se pudo poner la huella en flutter_bootstrap.js" && exit 1)
+
 # `sqlite3.wasm` y `drift_worker.js` son FICHEROS DEL DESPLIEGUE (app/lib/nucleo/base/
 # conexion/conexion_web.dart lo dice con esas palabras): si falta uno, la aplicación
 # arranca y la base NO. Que el build falle aquí es mucho mejor que descubrirlo en la
