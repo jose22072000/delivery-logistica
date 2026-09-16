@@ -110,7 +110,7 @@ class Cajon extends StatelessWidget {
         // `shadow-2xl` y el borde fino a la izquierda: sobre el velo al 40 % un
         // panel blanco sin sombra se pega al borde de la pantalla y no se lee
         // como algo que esta POR ENCIMA de la lista.
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Colores.blanco,
           border: Border(left: BorderSide(color: Colores.linea)),
           boxShadow: Sombras.xl,
@@ -125,7 +125,7 @@ class Cajon extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _Cabecera(titulo: titulo, subtitulo: subtitulo),
-                  const Divider(height: 1, thickness: 1, color: Colores.linea),
+                  Divider(height: 1, thickness: 1, color: Colores.linea),
                   // El cuerpo es lo unico que se desplaza.
                   Expanded(
                     child: SingleChildScrollView(
@@ -139,11 +139,7 @@ class Cajon extends StatelessWidget {
                     ),
                   ),
                   if (pie != null) ...[
-                    const Divider(
-                      height: 1,
-                      thickness: 1,
-                      color: Colores.linea,
-                    ),
+                    Divider(height: 1, thickness: 1, color: Colores.linea),
                     Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: Aire.xl,

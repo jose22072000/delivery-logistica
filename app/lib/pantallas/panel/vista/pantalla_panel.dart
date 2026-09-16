@@ -195,18 +195,18 @@ class _PendientePorSucursal extends ConsumerWidget {
           switch (filas) {
             AsyncValue<List<PendienteDeSucursal>>(:final value?)
                 when value.isEmpty =>
-              const EstadoVacio('No queda nada sin ruta.'),
+              EstadoVacio('No queda nada sin ruta.'),
             AsyncValue<List<PendienteDeSucursal>>(:final value?) => Column(
               children: [
                 for (final f in value)
                   // Cada sucursal, separada de la siguiente por la linea fina
                   // (`border-b last:border-0` de la de Next).
                   DecoratedBox(
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       border: Border(bottom: BorderSide(color: Colores.linea)),
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      padding: EdgeInsets.symmetric(vertical: 9),
                       child: Row(
                         children: [
                           Expanded(
@@ -246,9 +246,9 @@ class _PendientePorSucursal extends ConsumerWidget {
                   ),
               ],
             ),
-            _ => const SizedBox(height: 48),
+            _ => SizedBox(height: 48),
           },
-          const Divider(height: Aire.xl, color: Colores.linea),
+          Divider(height: Aire.xl, color: Colores.linea),
           Row(
             children: [
               Expanded(
@@ -286,7 +286,7 @@ class _AccionesRapidas extends StatelessWidget {
     icono: Icons.bolt_outlined,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: const [
+      children: [
         // Cada una con SU color, como los tres bloques tintados de la de Next
         // (`bg-blue-50`, `bg-green-50`, `bg-yellow-50`): tres filas grises
         // iguales no se distinguen y hay que leerlas cada vez.
@@ -294,8 +294,8 @@ class _AccionesRapidas extends StatelessWidget {
           'Planificar Rutas',
           '/routes',
           Icons.route_outlined,
-          Colores.azul,
-          Colores.azulFondo,
+          Colores.enCurso,
+          Colores.enCursoFondo,
         ),
         SizedBox(height: Aire.md),
         _Accion(

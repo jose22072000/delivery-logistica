@@ -110,11 +110,7 @@ class _SelectorState<T> extends State<Selector<T>> {
             ),
           ],
           const SizedBox(width: Aire.xs),
-          const Icon(
-            Icons.keyboard_arrow_down,
-            size: 16,
-            color: Colores.tintaSuave,
-          ),
+          Icon(Icons.keyboard_arrow_down, size: 16, color: Colores.tintaSuave),
         ],
       ),
     );
@@ -221,7 +217,7 @@ class _MenuState<T> extends State<_Menu<T>> {
               ),
             ),
           if (widget.conBuscador)
-            const Divider(height: 1, thickness: 1, color: Colores.linea),
+            Divider(height: 1, thickness: 1, color: Colores.linea),
           // NO ES UN `ListView`, Y NO PUEDE SERLO.
           //
           // `PopupMenuItem` envuelve a su hijo en un `IntrinsicWidth` para que
@@ -304,7 +300,7 @@ class _Opcion<T> extends StatelessWidget {
           ],
           if (elegida) ...[
             const SizedBox(width: Aire.sm),
-            const Icon(Icons.check, size: 16, color: Colores.primario),
+            Icon(Icons.check, size: 16, color: Colores.primario),
           ],
         ],
       ),

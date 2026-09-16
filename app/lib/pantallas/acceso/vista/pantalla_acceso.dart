@@ -377,13 +377,17 @@ class _Recuadro extends StatelessWidget {
 /// un fallo de quien escribe, la contraseña era buena. Es una cuenta sin
 /// sucursal, y lo que la arregla es una llamada a la oficina, no volver a
 /// probar.
-class _Aviso extends StatelessWidget {
+class _Aviso extends ConsumerWidget {
   const _Aviso({required this.fallo});
 
   final FalloDeAcceso fallo;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Lee el destino por provider y no llamando a `Destino` para que la prueba
+    // de la pareja —«en web no sale / en aparato si sale»— pueda ponerse en el
+    // otro lado sin compilar para web.
+    final sinConexion = ref.watch(trabajaSinConexionProvider);
     final esAviso =
         fallo.motivo == MotivoDeAcceso.sinSucursal ||
         fallo.motivo == MotivoDeAcceso.cuentaDeBaja ||
@@ -404,6 +408,10 @@ class _Aviso extends StatelessWidget {
         children: [
           Icon(
             switch (fallo.motivo) {
+              // El icono tambien cambia: en la web no se dibuja una antena
+              // tachada para decir que el servidor no contesta.
+              MotivoDeAcceso.sinConexion when !sinConexion =>
+                Icons.cloud_off_outlined,
               MotivoDeAcceso.sinConexion => Icons.wifi_off_outlined,
               MotivoDeAcceso.sinSucursal => Icons.store_outlined,
               MotivoDeAcceso.cuentaDeBaja => Icons.no_accounts_outlined,
@@ -425,10 +433,10 @@ class _Aviso extends StatelessWidget {
                     color: color,
                   ),
                 ),
-                if (_queHacer(fallo.motivo) != null) ...[
+                if (_queHacer(fallo.motivo, sinConexion) != null) ...[
                   const SizedBox(height: Aire.xs),
                   Text(
-                    _queHacer(fallo.motivo)!,
+                    _queHacer(fallo.motivo, sinConexion)!,
                     style: Tipos.texto(tamano: 12, color: Colores.tintaSuave),
                   ),
                 ],
@@ -440,7 +448,10 @@ class _Aviso extends StatelessWidget {
     );
   }
 
-  static String? _queHacer(MotivoDeAcceso motivo) => switch (motivo) {
+  static String? _queHacer(
+    MotivoDeAcceso motivo,
+    bool sinConexion,
+  ) => switch (motivo) {
     MotivoDeAcceso.sinSucursal =>
       'No es un fallo de la aplicación: tu cuenta entró bien. Pide en la '
           'oficina que te den de alta en tu sucursal y vuelve a entrar.',
@@ -448,8 +459,17 @@ class _Aviso extends StatelessWidget {
       'Pregunta en la oficina: la cuenta está dada de baja.',
     MotivoDeAcceso.demasiadosIntentos =>
       'El servidor corta los intentos seguidos para proteger la cuenta.',
-    MotivoDeAcceso.sinConexion =>
-      'Comprueba la señal. Lo que ya estaba descargado sigue en el aparato.',
+    // En la WEB no se habla de señal ni de lo que hay guardado en el aparato.
+    // La web se abre desde un navegador con internet: si la pagina cargo, la
+    // conexion hay. Lo que falla es el servidor, y decirle «comprueba la señal»
+    // a quien esta en la oficina lo manda a mirar donde no es.
+    //
+    // Paso el 16/09: el acceso de la web fallaba por CORS —auth no autorizaba el
+    // origen del reparto— y la pantalla lo contaba como falta de señal. Un fallo
+    // de configuracion disfrazado de problema de cobertura.
+    MotivoDeAcceso.sinConexion => TextosDeCaida.queHacer(
+      sinConexion: sinConexion,
+    ),
     _ => null,
   };
 }

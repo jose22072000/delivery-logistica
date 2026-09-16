@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../../diseno/colores.dart';
+
 import 'package:intl/intl.dart';
 
 /// En que tramo cae lo que se esta viendo.
@@ -120,18 +123,19 @@ class RelojDeDatos extends StatelessWidget {
 
   final VoidCallback? alPulsarPendientes;
 
-  /// El ambar del pliego. Es el mismo `Colores.ambar` de `diseno/`, repetido
-  /// aqui porque `nucleo/` no depende de `diseno/`: el reloj de datos tiene que
-  /// poder montarse en un test sin arrastrar el kit entero.
-  static const ambar = Color(0xFF96560A);
-
-  /// El `--ink-soft` de delivery, por lo mismo.
-  static const tintaSuave = Color(0xFF5C544A);
+  // AQUI HABIA DOS COLORES COPIADOS A MANO —`#96560A` y `#5C544A`— con el
+  // motivo de que «nucleo/ no depende de diseno/». El motivo era bueno y el
+  // resultado malo: el dia que la paleta paso a salir del oro del logo, estos
+  // dos se quedaron con el ambar y el gris viejos, y este reloj era el unico
+  // sitio de la aplicacion pintado de la paleta anterior.
+  //
+  // `diseno/colores.dart` no arrastra nada: es un fichero de tokens que solo
+  // importa `material`. Se importa y se acabo la copia.
 
   @override
   Widget build(BuildContext context) {
     final tema = Theme.of(context);
-    final color = estado.enAmbar ? ambar : tintaSuave;
+    final color = estado.enAmbar ? Colores.ambar : Colores.tintaSuave;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -150,7 +154,7 @@ class RelojDeDatos extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: ambar,
+              foregroundColor: Colores.ambar,
               textStyle: tema.textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.w600,
               ),

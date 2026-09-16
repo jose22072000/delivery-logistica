@@ -37,10 +37,10 @@ String horaBonita(DateTime cuando) => DateFormat('H:mm').format(cuando);
 /// sale; en **ambar** lo que sale distinto de como se pidio. Pintarlo todo en
 /// ambar es no pintar nada.
 abstract final class ColoresTablero {
-  static const rojo = Colores.rojo;
-  static const rojoFondo = Colores.rojoFondo;
-  static const ambar = Colores.ambar;
-  static const ambarFondo = Colores.ambarFondo;
+  static final rojo = Colores.rojo;
+  static final rojoFondo = Colores.rojoFondo;
+  static final ambar = Colores.ambar;
+  static final ambarFondo = Colores.ambarFondo;
 }
 
 /// La marca de una tarjeta, con su color.

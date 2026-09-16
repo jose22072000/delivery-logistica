@@ -34,13 +34,13 @@ class TarjetaVehiculo extends StatelessWidget {
   /// marcha, ambar = atencion, verde = listo. Los tenia repetidos aqui y por eso
   /// el «en uso» de un vehiculo no era el mismo azul que el de un pedido.
   Color get _colorEstado {
-    if (vehiculo.enUso) return Colores.azul;
+    if (vehiculo.enUso) return Colores.enCurso;
     if (vehiculo.enMantenimiento) return Colores.ambar;
     return Colores.verde;
   }
 
   Color get _fondoEstado {
-    if (vehiculo.enUso) return Colores.azulFondo;
+    if (vehiculo.enUso) return Colores.enCursoFondo;
     if (vehiculo.enMantenimiento) return Colores.ambarFondo;
     return Colores.verdeFondo;
   }
@@ -147,7 +147,7 @@ class TarjetaVehiculo extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colores.azulFondo,
+                color: Colores.enCursoFondo,
                 borderRadius: BorderRadius.circular(Radios.md),
               ),
               child: Column(
@@ -159,7 +159,7 @@ class TarjetaVehiculo extends StatelessWidget {
                     style: Tipos.texto(
                       tamano: 10,
                       peso: FontWeight.w600,
-                      color: Colores.azul,
+                      color: Colores.enCurso,
                       interletra: 0.4,
                     ),
                   ),

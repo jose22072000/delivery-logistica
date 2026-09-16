@@ -125,7 +125,7 @@ class _Esperando extends StatelessWidget {
   const _Esperando();
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
+  Widget build(BuildContext context) => Scaffold(
     body: Center(
       child: SizedBox(
         width: 26,

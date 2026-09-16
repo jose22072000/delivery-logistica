@@ -189,7 +189,7 @@ class _Cabecera extends StatelessWidget {
                 // donde importa, al armar la ruta (§7.3).
                 if (excede == true) ...[
                   const SizedBox(width: 6),
-                  const Icon(
+                  Icon(
                     Icons.warning_amber_rounded,
                     size: 16,
                     color: ColoresTablero.ambar,

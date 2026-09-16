@@ -106,7 +106,7 @@ class SelectorFiltro<T> extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: Aire.xs),
-              const Icon(
+              Icon(
                 Icons.keyboard_arrow_down,
                 size: 16,
                 color: Colores.tintaSuave,
@@ -205,7 +205,7 @@ class _MenuState<T> extends State<_Menu<T>> {
                 onChanged: (t) => setState(() => _busqueda = t),
               ),
             ),
-            const Divider(height: 1, thickness: 1, color: Colores.linea),
+            Divider(height: 1, thickness: 1, color: Colores.linea),
           ],
           Flexible(
             child: ListView(

@@ -298,7 +298,7 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
             Container(
               padding: const EdgeInsets.all(Aire.md),
               decoration: BoxDecoration(
-                color: Colores.azulFondo,
+                color: Colores.enCursoFondo,
                 border: Border.all(
                   color: Colores.primario.withValues(alpha: 0.2),
                 ),

@@ -46,24 +46,24 @@ abstract final class Radios {
 /// sombra negra se ve gris sucio y es lo que hace que una pantalla parezca de
 /// Material por defecto.
 abstract final class Sombras {
-  static const List<BoxShadow> sm = [
+  static final List<BoxShadow> sm = [
     BoxShadow(
-      color: Color(0x0D17130E), // rgba(23,19,14,0.05)
+      color: Colores.tintaCon(0.05),
       blurRadius: 2,
       offset: Offset(0, 1),
     ),
   ];
 
   /// `shadow-md` — la de las tarjetas del panel.
-  static const List<BoxShadow> md = [
+  static final List<BoxShadow> md = [
     BoxShadow(
-      color: Color(0x1A17130E), // rgba(23,19,14,0.10)
+      color: Colores.tintaCon(0.10),
       blurRadius: 20,
       spreadRadius: -6,
       offset: Offset(0, 6),
     ),
     BoxShadow(
-      color: Color(0x0F17130E), // rgba(23,19,14,0.06)
+      color: Colores.tintaCon(0.06),
       blurRadius: 6,
       spreadRadius: -2,
       offset: Offset(0, 2),
@@ -71,15 +71,15 @@ abstract final class Sombras {
   ];
 
   /// `shadow-lg` — la tarjeta con el raton encima.
-  static const List<BoxShadow> lg = [
+  static final List<BoxShadow> lg = [
     BoxShadow(
-      color: Color(0x2417130E), // rgba(23,19,14,0.14)
+      color: Colores.tintaCon(0.14),
       blurRadius: 36,
       spreadRadius: -10,
       offset: Offset(0, 16),
     ),
     BoxShadow(
-      color: Color(0x1417130E), // rgba(23,19,14,0.08)
+      color: Colores.tintaCon(0.08),
       blurRadius: 10,
       spreadRadius: -4,
       offset: Offset(0, 4),
@@ -87,9 +87,9 @@ abstract final class Sombras {
   ];
 
   /// `shadow-2xl` — el cajon lateral y los menus flotantes.
-  static const List<BoxShadow> xl = [
+  static final List<BoxShadow> xl = [
     BoxShadow(
-      color: Color(0x3317130E), // rgba(23,19,14,0.20)
+      color: Colores.tintaCon(0.20),
       blurRadius: 56,
       spreadRadius: -14,
       offset: Offset(0, 28),
@@ -238,22 +238,29 @@ ThemeData temaDeReparto() {
     displayColor: Colores.tinta,
   );
 
-  const esquema = ColorScheme(
+  final esquema = ColorScheme(
     brightness: Brightness.light,
-    primary: Colores.primario,
-    onPrimary: Colors.white,
+    // `primary` es EL RELLENO —el oro del logo—, no el tono de texto: Material
+    // lo usa de fondo del `FilledButton` y pone `onPrimary` encima. El tono de
+    // texto es `Colores.primario`, que es otra cosa y va en `onPrimaryContainer`.
+    //
+    // Y `onPrimary` NO se escribe: lo contesta `letrasSobre`. Aqui ponia
+    // `Colors.white`, y de ahi salia el «azul con letras blancas». Sobre el oro
+    // el blanco da 2,2 de contraste —ilegible— y la tinta da 7,6.
+    primary: Colores.marca,
+    onPrimary: Colores.sobreMarca,
     primaryContainer: Colores.primarioTenue,
     onPrimaryContainer: Colores.primario,
     secondary: Colores.secundario,
-    onSecondary: Colors.white,
+    onSecondary: letrasSobre(Colores.secundario),
     secondaryContainer: Colores.verdeFondo,
     onSecondaryContainer: Colores.verde,
     tertiary: Colores.acento,
-    onTertiary: Colors.white,
+    onTertiary: letrasSobre(Colores.acento),
     tertiaryContainer: Colores.ambarFondo,
     onTertiaryContainer: Colores.ambar,
     error: Colores.rojo,
-    onError: Colors.white,
+    onError: letrasSobre(Colores.rojo),
     errorContainer: Colores.rojoFondo,
     onErrorContainer: Colores.rojo,
     // El papel y la tinta. `surface` es BLANCO y `scaffoldBackgroundColor` es el
@@ -277,7 +284,7 @@ ThemeData temaDeReparto() {
 
   final bordeFino = OutlineInputBorder(
     borderRadius: BorderRadius.circular(Radios.lg),
-    borderSide: const BorderSide(color: Colores.linea),
+    borderSide: BorderSide(color: Colores.linea),
   );
 
   return ThemeData(
@@ -293,7 +300,7 @@ ThemeData temaDeReparto() {
     scaffoldBackgroundColor: Colors.transparent,
     canvasColor: Colores.papel,
     dividerColor: Colores.linea,
-    dividerTheme: const DividerThemeData(
+    dividerTheme: DividerThemeData(
       color: Colores.linea,
       thickness: 1,
       space: 1,
@@ -316,7 +323,7 @@ ThemeData temaDeReparto() {
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(Radios.xl),
-        side: const BorderSide(color: Colores.linea),
+        side: BorderSide(color: Colores.linea),
       ),
     ),
     appBarTheme: AppBarTheme(
@@ -326,7 +333,7 @@ ThemeData temaDeReparto() {
       elevation: 0,
       titleTextStyle: texto.titleLarge,
     ),
-    drawerTheme: const DrawerThemeData(
+    drawerTheme: DrawerThemeData(
       backgroundColor: Colores.blanco,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
@@ -346,10 +353,10 @@ ThemeData temaDeReparto() {
       color: Colores.blanco,
       surfaceTintColor: Colors.transparent,
       elevation: 8,
-      shadowColor: const Color(0x3317130E),
+      shadowColor: Colores.tintaCon(0.20),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(Radios.lg),
-        side: const BorderSide(color: Colores.linea),
+        side: BorderSide(color: Colores.linea),
       ),
       textStyle: texto.bodyMedium,
     ),
@@ -360,7 +367,7 @@ ThemeData temaDeReparto() {
         shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(Radios.lg),
-            side: const BorderSide(color: Colores.linea),
+            side: BorderSide(color: Colores.linea),
           ),
         ),
       ),
@@ -382,8 +389,8 @@ ThemeData temaDeReparto() {
     // Visto en el navegador el 15/09/2026, pulsando Tab por el Panel entero.
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: Colores.primario,
-        foregroundColor: Colors.white,
+        backgroundColor: Colores.marca,
+        foregroundColor: Colores.sobreMarca,
         elevation: 0,
         textStyle: Tipos.texto(tamano: 14, peso: FontWeight.w600),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -394,8 +401,8 @@ ThemeData temaDeReparto() {
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: Colores.primario,
-        foregroundColor: Colors.white,
+        backgroundColor: Colores.marca,
+        foregroundColor: Colores.sobreMarca,
         elevation: 0,
         textStyle: Tipos.texto(tamano: 14, peso: FontWeight.w600),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -415,7 +422,7 @@ ThemeData temaDeReparto() {
               borderRadius: BorderRadius.circular(Radios.lg),
             ),
           ).copyWith(
-            side: anilloDeFoco(enCalma: const BorderSide(color: Colores.linea)),
+            side: anilloDeFoco(enCalma: BorderSide(color: Colores.linea)),
           ),
     ),
     textButtonTheme: TextButtonThemeData(
@@ -435,7 +442,7 @@ ThemeData temaDeReparto() {
         ),
       ).copyWith(side: anilloDeFoco()),
     ),
-    iconTheme: const IconThemeData(color: Colores.tintaSuave, size: 20),
+    iconTheme: IconThemeData(color: Colores.tintaSuave, size: 20),
     // Los campos: fondo blanco, borde fino de `--line`, y el foco en primario
     // — el mismo `outline` del `globals.css`.
     inputDecorationTheme: InputDecorationTheme(
@@ -457,36 +464,34 @@ ThemeData temaDeReparto() {
       disabledBorder: bordeFino,
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Radios.lg),
-        borderSide: const BorderSide(color: Colores.primario, width: 1.6),
+        borderSide: BorderSide(color: Colores.primario, width: 1.6),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Radios.lg),
-        borderSide: const BorderSide(color: Colores.rojo),
+        borderSide: BorderSide(color: Colores.rojo),
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Radios.lg),
-        borderSide: const BorderSide(color: Colores.rojo, width: 1.6),
+        borderSide: BorderSide(color: Colores.rojo, width: 1.6),
       ),
     ),
     chipTheme: ChipThemeData(
       backgroundColor: Colores.grisFondo,
-      side: const BorderSide(color: Colores.linea),
+      side: BorderSide(color: Colores.linea),
       labelStyle: Tipos.texto(tamano: 12, peso: FontWeight.w600),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(Radios.pastilla),
       ),
     ),
     checkboxTheme: CheckboxThemeData(
-      side: const BorderSide(color: Colores.lineaFuerte, width: 1.4),
+      side: BorderSide(color: Colores.lineaFuerte, width: 1.4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
     ),
     switchTheme: SwitchThemeData(
-      trackOutlineColor: const WidgetStatePropertyAll(Colores.linea),
-      thumbColor: WidgetStateProperty.resolveWith(
-        (e) => e.contains(WidgetState.selected) ? Colors.white : Colores.blanco,
-      ),
+      trackOutlineColor: WidgetStatePropertyAll(Colores.linea),
+      thumbColor: const WidgetStatePropertyAll(Colores.blanco),
     ),
-    progressIndicatorTheme: const ProgressIndicatorThemeData(
+    progressIndicatorTheme: ProgressIndicatorThemeData(
       color: Colores.primario,
       linearTrackColor: Colores.grisFondo,
       circularTrackColor: Colores.grisFondo,
@@ -506,8 +511,8 @@ ThemeData temaDeReparto() {
       radius: const Radius.circular(Radios.pastilla),
       thumbColor: WidgetStateProperty.resolveWith(
         (e) => e.contains(WidgetState.hovered)
-            ? const Color(0xFFBDB3A2)
-            : const Color(0xFFD4CCBE),
+            ? Colores.barraEncima
+            : Colores.barra,
       ),
       trackColor: const WidgetStatePropertyAll(Colors.transparent),
       trackBorderColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -523,10 +528,11 @@ ThemeData temaDeReparto() {
       dividerThickness: 1,
       headingRowColor: const WidgetStatePropertyAll(Colores.papel),
     ),
-    textSelectionTheme: const TextSelectionThemeData(
+    textSelectionTheme: TextSelectionThemeData(
       cursorColor: Colores.primario,
-      // `::selection { background: rgba(31,79,224,0.18) }`.
-      selectionColor: Color(0x2E1F4FE0),
+      // El 18 % del `::selection` de delivery, pero de la marca de AHORA: antes
+      // era `0x2E1F4FE0`, el azul viejo congelado en un numero.
+      selectionColor: Colores.marca.withValues(alpha: 0.28),
       selectionHandleColor: Colores.primario,
     ),
   );
@@ -578,8 +584,7 @@ class _Rejilla extends CustomPainter {
     lienzo.saveLayer(Offset.zero & medida, Paint());
 
     final trazo = Paint()
-      ..color =
-          const Color(0x0617130E) // rgba(23,19,14,0.025)
+      ..color = Colores.tintaCon(0.025)
       ..strokeWidth = 1;
     for (var x = 0.0; x <= medida.width; x += _paso) {
       lienzo.drawLine(Offset(x, 0), Offset(x, medida.height), trazo);

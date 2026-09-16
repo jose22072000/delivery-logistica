@@ -149,19 +149,19 @@ class _Corriendo extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(Aire.lg),
       decoration: BoxDecoration(
-        color: Colores.azulFondo,
+        color: Colores.enCursoFondo,
         borderRadius: BorderRadius.circular(Radios.lg),
-        border: Border.all(color: Colores.azul.withValues(alpha: 0.25)),
+        border: Border.all(color: Colores.enCurso.withValues(alpha: 0.25)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(
+          SizedBox(
             width: 20,
             height: 20,
             child: CircularProgressIndicator(
               strokeWidth: 2.5,
-              color: Colores.azul,
+              color: Colores.enCurso,
             ),
           ),
           const SizedBox(width: Aire.md),
@@ -174,7 +174,7 @@ class _Corriendo extends ConsumerWidget {
                   style: Tipos.texto(
                     tamano: 15,
                     peso: FontWeight.w600,
-                    color: Colores.azul,
+                    color: Colores.enCurso,
                   ),
                 ),
                 const SizedBox(height: 4),

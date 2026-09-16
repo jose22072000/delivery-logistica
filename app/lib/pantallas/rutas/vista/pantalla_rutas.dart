@@ -65,7 +65,7 @@ class PantallaRutas extends ConsumerWidget {
                         ref.read(pestanaRutasProvider.notifier).elegir(cual),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: cual == pestana
-                          ? Colores.azul
+                          ? Colores.enCurso
                           : Colores.gris,
                     ),
                     child: Text('${cual.etiqueta} (${contadores[cual] ?? 0})'),

@@ -17,7 +17,7 @@ class Cargando extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const SizedBox(
+        SizedBox(
           width: 22,
           height: 22,
           child: CircularProgressIndicator(

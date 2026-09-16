@@ -233,7 +233,7 @@ class _Fecha extends StatelessWidget {
           : '$etiqueta: ${DateFormat('d/M/y', 'es').format(valor!)}',
     ),
     style: OutlinedButton.styleFrom(
-      side: const BorderSide(color: Colores.borde),
+      side: BorderSide(color: Colores.borde),
       foregroundColor: Theme.of(context).colorScheme.onSurface,
     ),
   );
@@ -322,10 +322,7 @@ class _Resumen extends StatelessWidget {
         etiqueta: 'Total Órdenes',
         valor: Numeros.entero(r.totalOrdenes),
       ),
-      TarjetaDeCifra(
-        etiqueta: 'Ingresos Totales',
-        valor: importe(r.ingresos),
-      ),
+      TarjetaDeCifra(etiqueta: 'Ingresos Totales', valor: importe(r.ingresos)),
       TarjetaDeCifra(
         etiqueta: 'Precio Promedio',
         valor: importe(r.precioPromedio),
@@ -504,15 +501,7 @@ class _Detalle extends StatelessWidget {
                 importe(f.importe),
               ],
           ],
-          pie: [
-            'Totales:',
-            '',
-            '',
-            '',
-            '',
-            Numeros.kg(peso),
-            importe(total),
-          ],
+          pie: ['Totales:', '', '', '', '', Numeros.kg(peso), importe(total)],
         ),
       ),
     );
@@ -545,11 +534,11 @@ class _Tabla extends StatelessWidget {
           ),
           fondo: Colores.papel,
         ),
-        const Divider(height: 1, thickness: 1, color: Colores.linea),
+        Divider(height: 1, thickness: 1, color: Colores.linea),
         for (final f in filas)
           _Fila(celdas: f, estilo: tema.textTheme.bodySmall, conLinea: true),
         if (pie != null) ...[
-          const Divider(height: 1, thickness: 1, color: Colores.linea),
+          Divider(height: 1, thickness: 1, color: Colores.linea),
           _Fila(
             celdas: pie!,
             estilo: Tipos.texto(
@@ -585,7 +574,7 @@ class _Fila extends StatelessWidget {
     decoration: BoxDecoration(
       color: fondo,
       border: conLinea
-          ? const Border(bottom: BorderSide(color: Colores.linea))
+          ? Border(bottom: BorderSide(color: Colores.linea))
           : null,
     ),
     padding: const EdgeInsets.symmetric(vertical: 9, horizontal: Aire.sm),

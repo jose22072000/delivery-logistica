@@ -74,8 +74,7 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
       // no aparecia hasta cerrar y volver a abrir.
       (contexto) => Consumer(
         builder: (contexto, ref, _) {
-          final ajustes =
-              ref.watch(ajustesVehiculosProvider).value ?? _ajustes;
+          final ajustes = ref.watch(ajustesVehiculosProvider).value ?? _ajustes;
           return StatefulBuilder(
             builder: (contexto, repintar) => FichaVehiculo(
               vehiculo: vehiculo,

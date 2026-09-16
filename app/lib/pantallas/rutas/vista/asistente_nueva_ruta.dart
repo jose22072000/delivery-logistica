@@ -258,7 +258,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         alElegir: _cambiarSucursal,
       ),
       const SizedBox(height: 8),
-      const Text(
+      Text(
         'Los pedidos, los vehículos y el punto de partida serán los de esta '
         'sucursal.',
         style: TextStyle(color: Colores.gris),
@@ -303,7 +303,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
           '${_salida?.direccion ?? ''}  '
           '${_salida?.lat?.toStringAsFixed(5) ?? ''}, '
           '${_salida?.lng?.toStringAsFixed(5) ?? ''}',
-          style: const TextStyle(color: Colores.gris),
+          style: TextStyle(color: Colores.gris),
         ),
         // El mapa de 220 px del pliego queda PENDIENTE: `lib/mapas/` (PLAN.md
         // §4.2) todavia no existe y el detalle de la ruta tampoco lo pinta. Se
@@ -594,7 +594,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
             style: TextStyle(color: color, fontWeight: FontWeight.bold),
           ),
           if (porcentaje >= 100) ...[
-            const Insignia('LLENO', color: Colores.rojo),
+            Insignia('LLENO', color: Colores.rojo),
             const Text('Camión lleno — no cabe más'),
           ],
         ],
@@ -632,7 +632,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
           Text(
             'Peso (${peso.toStringAsFixed(1)} kg) supera capacidad del '
             'vehículo (${capacidad.toStringAsFixed(0)} kg)',
-            style: const TextStyle(color: Colores.rojo),
+            style: TextStyle(color: Colores.rojo),
           ),
       ],
     );
@@ -750,7 +750,7 @@ class _FilaDisponible extends StatelessWidget {
             Text(
               _articulos,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colores.gris, fontSize: 12),
+              style: TextStyle(color: Colores.gris, fontSize: 12),
             ),
         ],
       ),
@@ -787,7 +787,7 @@ class _PreDespachoLateral extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (elegidos.isEmpty) {
-      return const Text(
+      return Text(
         AsistenteNuevaRuta.preDespachoVacio,
         style: TextStyle(color: Colores.gris),
       );
@@ -930,7 +930,7 @@ class _SinSalida extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(texto, style: const TextStyle(color: Colores.gris)),
+      Text(texto, style: TextStyle(color: Colores.gris)),
       const SizedBox(height: 12),
       FilledButton(
         onPressed: () {

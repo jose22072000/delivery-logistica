@@ -333,7 +333,7 @@ void main() {
       final linea = tester.widget<Text>(
         find.textContaining('no lo ha descargado todavía'),
       );
-      expect(linea.style?.color, Colores.azul);
+      expect(linea.style?.color, Colores.enCurso);
       await desmontar(tester);
     });
 

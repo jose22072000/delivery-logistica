@@ -55,7 +55,7 @@ class FilaDeRechazo extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.block_outlined, size: 18, color: Colores.rojo),
+              Icon(Icons.block_outlined, size: 18, color: Colores.rojo),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(

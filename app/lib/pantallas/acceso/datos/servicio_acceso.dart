@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../../../nucleo/identidad/almacen_sesion.dart';
 import '../../../nucleo/identidad/sesion.dart';
 import '../../../nucleo/registro/registro.dart';
+import '../../../nucleo/plataforma.dart';
 
 /// Por que no se pudo entrar, en cristiano.
 ///
@@ -152,10 +153,12 @@ class ServicioDeAcceso {
     final mensaje = cuerpo is Map ? cuerpo['message'] as String? : null;
 
     if (codigo == null) {
+      // El mismo fallo se cuenta distinto segun donde se abra, y no es un
+      // adorno: en la APK «no hay señal» es casi siempre verdad, y en la web es
+      // casi siempre mentira. Ver `pantalla_acceso.dart`.
       return FalloDeAcceso(
         MotivoDeAcceso.sinConexion,
-        'Sin conexión con el servidor. Para entrar hace falta conexión; '
-        'prueba otra vez cuando haya señal.',
+        TextosDeCaida.titular(sinConexion: Destino.trabajaSinConexion),
         detalle: e.message ?? e.type.name,
       );
     }

@@ -23,7 +23,7 @@ class EstadoVacio extends StatelessWidget {
           Container(
             width: 52,
             height: 52,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: Colores.grisFondo,
               shape: BoxShape.circle,
             ),
@@ -58,11 +58,11 @@ class PantallaSinDescargar extends StatelessWidget {
         Container(
           width: 52,
           height: 52,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: Colores.ambarFondo,
             shape: BoxShape.circle,
           ),
-          child: const Icon(
+          child: Icon(
             Icons.cloud_download_outlined,
             size: 24,
             color: Colores.ambar,
@@ -182,7 +182,7 @@ class Invitacion extends StatelessWidget {
             Container(
               width: 52,
               height: 52,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: Colores.grisFondo,
                 shape: BoxShape.circle,
               ),

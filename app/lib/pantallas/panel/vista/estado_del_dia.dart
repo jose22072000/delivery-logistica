@@ -183,7 +183,7 @@ class EstadoDelDia extends ConsumerWidget {
     switch (toca) {
       case QueToca.trayendo:
       case QueToca.enviando:
-        return Colores.azul;
+        return Colores.enCurso;
       case QueToca.sinConexion:
         return Colores.ambar;
       case QueToca.hayQueEnviar:

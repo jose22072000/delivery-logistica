@@ -38,7 +38,7 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
     // sobre un fondo casi blanco hace que la pantalla no tenga arriba.
     return Container(
       height: Anchos.altoBarraSuperior,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Colores.papel,
         border: Border(bottom: BorderSide(color: Colores.linea)),
       ),
@@ -77,7 +77,7 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
                 ),
                 if (actualizando) ...[
                   const SizedBox(width: 10),
-                  const SizedBox(
+                  SizedBox(
                     width: 12,
                     height: 12,
                     child: CircularProgressIndicator(
@@ -148,11 +148,7 @@ class _Sucursal extends ConsumerWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.store_outlined,
-              size: 16,
-              color: Colores.tintaSuave,
-            ),
+            Icon(Icons.store_outlined, size: 16, color: Colores.tintaSuave),
             const SizedBox(width: 6),
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 180),
@@ -268,11 +264,7 @@ class _Moneda extends ConsumerWidget {
       children: [
         Tooltip(
           message: tasa.aviso!,
-          child: const Icon(
-            Icons.schedule_outlined,
-            size: 16,
-            color: Colores.ambar,
-          ),
+          child: Icon(Icons.schedule_outlined, size: 16, color: Colores.ambar),
         ),
         const SizedBox(width: 6),
         selector,

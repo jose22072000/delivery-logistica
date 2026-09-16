@@ -65,7 +65,7 @@ class TarjetaDeTabla extends StatelessWidget {
         children: [
           Flexible(child: child),
           if (pie != null) ...[
-            const Divider(height: 1, thickness: 1, color: Colores.linea),
+            Divider(height: 1, thickness: 1, color: Colores.linea),
             pie!,
           ],
         ],

@@ -9,29 +9,28 @@ import 'tema.dart';
 ///
 /// Nada de emojis: color y palabra.
 class Insignia extends StatelessWidget {
-  const Insignia(
-    this.texto, {
-    this.color = Colores.tintaSuave,
-    this.fondo,
-    this.tooltip,
-    super.key,
-  });
+  /// El constructor ya no es `const`, y es a proposito: el color por defecto es
+  /// [Colores.tintaSuave], que desde que la paleta se calcula del logo ya no es
+  /// un numero escrito sino un tono derivado. Un valor por defecto tiene que ser
+  /// constante, asi que el campo se queda nulo y se resuelve al pintar.
+  Insignia(this.texto, {Color? color, this.fondo, this.tooltip, super.key})
+    : color = color ?? Colores.tintaSuave;
 
   /// Las tres de ruta del pliego (§9.3): `planned` ambar, `in_progress` azul,
   /// `completed` verde. Estan aqui para que las cinco pantallas que pintan
   /// estado de ruta no elijan cada una su tono.
   factory Insignia.deEstadoDeRuta(String estado) => switch (estado) {
-    'planned' => const Insignia(
+    'planned' => Insignia(
       'planned',
       color: Colores.ambar,
       fondo: Colores.ambarFondo,
     ),
-    'in_progress' => const Insignia(
+    'in_progress' => Insignia(
       'in progress',
-      color: Colores.azul,
-      fondo: Colores.azulFondo,
+      color: Colores.enCurso,
+      fondo: Colores.enCursoFondo,
     ),
-    'completed' => const Insignia(
+    'completed' => Insignia(
       'completed',
       color: Colores.verde,
       fondo: Colores.verdeFondo,

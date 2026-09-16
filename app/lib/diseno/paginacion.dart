@@ -129,7 +129,7 @@ class Paginacion extends StatelessWidget {
                 underline: const SizedBox.shrink(),
                 isDense: true,
                 borderRadius: BorderRadius.circular(Radios.lg),
-                icon: const Icon(
+                icon: Icon(
                   Icons.keyboard_arrow_down,
                   size: 16,
                   color: Colores.tintaSuave,

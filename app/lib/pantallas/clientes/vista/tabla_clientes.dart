@@ -126,8 +126,8 @@ class _Insignia extends StatelessWidget {
     final dePedido = deSource == 'pedido';
     return Insignia(
       dePedido ? 'PEDIDO' : 'Manual',
-      color: dePedido ? Colores.azul : Colores.tintaSuave,
-      fondo: dePedido ? Colores.azulFondo : Colores.grisFondo,
+      color: dePedido ? Colores.enCurso : Colores.tintaSuave,
+      fondo: dePedido ? Colores.enCursoFondo : Colores.grisFondo,
     );
   }
 }

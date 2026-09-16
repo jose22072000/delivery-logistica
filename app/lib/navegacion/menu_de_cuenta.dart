@@ -169,7 +169,7 @@ class _MenuDeCuentaState extends ConsumerState<MenuDeCuenta> {
                 AnimatedRotation(
                   turns: _abierto ? 0.5 : 0,
                   duration: const Duration(milliseconds: 150),
-                  child: const Icon(
+                  child: Icon(
                     Icons.keyboard_arrow_down,
                     size: 18,
                     color: Colores.tintaSuave,
@@ -219,7 +219,7 @@ class _MenuDeCuentaState extends ConsumerState<MenuDeCuenta> {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Radios.xl),
-          side: const BorderSide(color: Colores.linea),
+          side: BorderSide(color: Colores.linea),
         ),
         items: const [
           PopupMenuItem<void>(
@@ -271,7 +271,7 @@ class _Inicial extends StatelessWidget {
     height: 36,
     alignment: Alignment.center,
     decoration: BoxDecoration(
-      gradient: const LinearGradient(
+      gradient: LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [Colores.primario, Colores.secundario],
@@ -345,7 +345,7 @@ class _Cuerpo extends ConsumerWidget {
               ],
             ),
           ),
-          const Divider(height: 1, thickness: 1, color: Colores.linea),
+          Divider(height: 1, thickness: 1, color: Colores.linea),
         ],
         // Las aplicaciones son un EXTRA. Sin ellas —sin red, o con `/api/apps`
         // caido— el menu sigue siendo el menu, y no sale ningun aviso rojo: no
@@ -386,7 +386,7 @@ class _Cuerpo extends ConsumerWidget {
               ),
             ),
           ),
-          const Divider(height: 1, thickness: 1, color: Colores.linea),
+          Divider(height: 1, thickness: 1, color: Colores.linea),
         ],
         Padding(
           padding: const EdgeInsets.all(6),
@@ -499,7 +499,7 @@ class _Salir extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: Aire.md, vertical: 10),
         child: Row(
           children: [
-            const Icon(Icons.logout, size: 18, color: Colores.rojo),
+            Icon(Icons.logout, size: 18, color: Colores.rojo),
             const SizedBox(width: Aire.md),
             Text(
               'Cerrar sesión',

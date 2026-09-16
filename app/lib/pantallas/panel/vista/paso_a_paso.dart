@@ -68,7 +68,7 @@ class PasoAPaso extends ConsumerWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(
+              Icon(
                 Icons.checklist_rtl_outlined,
                 size: 20,
                 color: Colores.ambar,
@@ -98,9 +98,8 @@ class PasoAPaso extends ConsumerWidget {
           Text(
             'Sin esto no se puede armar una ruta. Van en este orden: cada uno '
             'necesita el anterior.',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: Colores.tintaSuave),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: Colores.tintaSuave),
           ),
           const SizedBox(height: Aire.lg),
 
@@ -149,8 +148,8 @@ class _PasoQueFalta extends StatelessWidget {
     // no se sabe todavia, y se arregla trayendo el dia. Con el mismo color los
     // dos se leen igual, que es el fallo que esto viene a quitar.
     final sinSaber = paso.como == ComoVa.sinSaber;
-    final color = sinSaber ? Colores.azul : Colores.ambar;
-    final fondo = sinSaber ? Colores.azulFondo : Colores.ambarFondo;
+    final color = sinSaber ? Colores.enCurso : Colores.ambar;
+    final fondo = sinSaber ? Colores.enCursoFondo : Colores.ambarFondo;
 
     final ruta = paso.ruta;
     final donde = paso.dondeSeArregla;
@@ -241,11 +240,7 @@ class _PasoQueFalta extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(
-                    Icons.info_outline,
-                    size: 15,
-                    color: Colores.tintaSuave,
-                  ),
+                  Icon(Icons.info_outline, size: 15, color: Colores.tintaSuave),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -276,15 +271,14 @@ class _PasoHecho extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 3),
     child: Row(
       children: [
-        const Icon(Icons.check_circle_outline, size: 16, color: Colores.verde),
+        Icon(Icons.check_circle_outline, size: 16, color: Colores.verde),
         const SizedBox(width: Aire.sm),
         Expanded(
           child: Text(
             paso.titulo,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: Colores.tintaSuave),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: Colores.tintaSuave),
           ),
         ),
       ],

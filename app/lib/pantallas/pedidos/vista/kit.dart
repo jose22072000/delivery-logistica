@@ -79,7 +79,7 @@ class Cajon extends StatelessWidget {
         // `shadow-2xl` y borde fino a la izquierda, como el `Drawer.tsx` de
         // delivery: sobre el velo al 40 %, un panel sin sombra se pega al borde
         // y no se lee como algo que esta por encima de la lista.
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Colores.blanco,
           border: Border(left: BorderSide(color: Colores.linea)),
           boxShadow: Sombras.xl,
@@ -138,7 +138,7 @@ class Cajon extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Divider(height: 1, thickness: 1, color: Colores.linea),
+                Divider(height: 1, thickness: 1, color: Colores.linea),
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(
@@ -151,7 +151,7 @@ class Cajon extends StatelessWidget {
                   ),
                 ),
                 if (pie != null) ...[
-                  const Divider(height: 1, thickness: 1, color: Colores.linea),
+                  Divider(height: 1, thickness: 1, color: Colores.linea),
                   SafeArea(
                     top: false,
                     child: Padding(
@@ -428,7 +428,7 @@ class Selector<T> extends StatelessWidget {
         shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(Radios.lg),
-            side: const BorderSide(color: Colores.linea),
+            side: BorderSide(color: Colores.linea),
           ),
         ),
       ),
@@ -467,7 +467,7 @@ class Selector<T> extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: Aire.xs),
-              const Icon(
+              Icon(
                 Icons.keyboard_arrow_down,
                 size: 16,
                 color: Colores.tintaSuave,
@@ -534,7 +534,7 @@ class _MenuConBuscadorState<T> extends State<_MenuConBuscador<T>> {
                 onChanged: (t) => setState(() => _texto = t),
               ),
             ),
-            const Divider(height: 1, thickness: 1, color: Colores.linea),
+            Divider(height: 1, thickness: 1, color: Colores.linea),
           ],
           Flexible(
             child: SingleChildScrollView(

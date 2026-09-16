@@ -32,7 +32,7 @@ class BarraLateral extends StatelessWidget {
     return Container(
       width: Anchos.barraLateral,
       height: double.infinity,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Colores.blanco,
         border: Border(right: BorderSide(color: Colores.linea)),
       ),

@@ -130,7 +130,7 @@ class _TarjetaDeRuta extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  Insignia(ruta.routeCode ?? ruta.id, color: Colores.azul),
+                  Insignia(ruta.routeCode ?? ruta.id, color: Colores.enCurso),
                   const SizedBox(width: 8),
                   Expanded(child: Text(ruta.name ?? '')),
                   Insignia(
@@ -142,7 +142,7 @@ class _TarjetaDeRuta extends ConsumerWidget {
                     },
                     color: switch (ruta.status) {
                       EstadoRuta.planificada => Colores.ambar,
-                      EstadoRuta.enCurso => Colores.azul,
+                      EstadoRuta.enCurso => Colores.enCurso,
                       EstadoRuta.completada => Colores.verde,
                       _ => Colores.gris,
                     },
@@ -159,7 +159,7 @@ class _TarjetaDeRuta extends ConsumerWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               if (sobrepeso)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(top: 4),
                   child: Insignia('Sobrepeso', color: Colores.ambar),
                 ),

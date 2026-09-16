@@ -78,7 +78,7 @@ class _Ficha extends StatelessWidget {
                   Text(
                     '${p.endLat!.toStringAsFixed(5)}, '
                     '${p.endLng!.toStringAsFixed(5)}',
-                    style: const TextStyle(color: Colores.gris),
+                    style: TextStyle(color: Colores.gris),
                   ),
                 if (p.customerPhone != null) Text(p.customerPhone!),
               ],
@@ -93,7 +93,7 @@ class _Ficha extends StatelessWidget {
                   ficha.almacen == null
                       ? 'Sin coordenadas GPS para esta ruta'
                       : 'Del almacén (${ficha.almacen!.nombre}) al cliente.',
-                  style: const TextStyle(color: Colores.gris),
+                  style: TextStyle(color: Colores.gris),
                 ),
               ],
             ),
@@ -244,7 +244,7 @@ class _Domicilio extends StatelessWidget {
                       'La distancia es del almacén al cliente.'
                 : 'El costo lo pone el repartidor desde Entrega; hasta entonces '
                       'este pedido no tiene precio de domicilio.',
-            style: const TextStyle(fontSize: 12, color: Colores.gris),
+            style: TextStyle(fontSize: 12, color: Colores.gris),
           ),
         ],
       ),

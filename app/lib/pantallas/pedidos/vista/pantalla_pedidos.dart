@@ -91,7 +91,7 @@ class PantallaPedidos extends ConsumerWidget {
                   ),
                 ),
                 if (total.isLoading || pagina.isLoading)
-                  const SizedBox(
+                  SizedBox(
                     width: 14,
                     height: 14,
                     child: CircularProgressIndicator(
@@ -140,7 +140,7 @@ class _FranjaAzul extends ConsumerWidget {
     margin: const EdgeInsets.only(top: Aire.sm),
     padding: const EdgeInsets.all(Aire.lg),
     decoration: BoxDecoration(
-      color: Colores.azulFondo,
+      color: Colores.enCursoFondo,
       border: Border.all(color: Colores.primario.withValues(alpha: 0.2)),
       borderRadius: BorderRadius.circular(Radios.lg),
     ),
@@ -508,7 +508,7 @@ class _PreDespachoDeLoFiltradoState
         ),
         onExpansionChanged: (abierto) => setState(() => _abierto = abierto),
         children: [
-          const Divider(height: 1, thickness: 1, color: Colores.linea),
+          Divider(height: 1, thickness: 1, color: Colores.linea),
           if (totales == null)
             const Cargando('Cargando...')
           else

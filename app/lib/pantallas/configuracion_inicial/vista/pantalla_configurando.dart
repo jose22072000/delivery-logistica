@@ -230,7 +230,7 @@ class _Falto extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.wifi_off_outlined, size: 18, color: Colores.ambar),
+        Icon(Icons.wifi_off_outlined, size: 18, color: Colores.ambar),
         const SizedBox(width: Aire.sm),
         Expanded(
           child: Column(

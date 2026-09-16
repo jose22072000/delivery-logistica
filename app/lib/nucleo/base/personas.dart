@@ -25,7 +25,8 @@ class PersonaEnElAparato {
   /// Apuntes suyos **sin subir**. Es lo que hay que decir ANTES de olvidarla.
   final int pendientes;
 
-  String get nombreParaVer => nombre.isNotEmpty ? nombre : 'Una cuenta anterior';
+  String get nombreParaVer =>
+      nombre.isNotEmpty ? nombre : 'Una cuenta anterior';
 
   bool get tieneTrabajoSinSubir => pendientes > 0;
 

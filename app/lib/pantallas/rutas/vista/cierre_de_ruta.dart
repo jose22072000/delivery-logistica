@@ -215,7 +215,7 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   '$sinMarcar sin marcar · cuentan como que siguen en el camión',
-                  style: const TextStyle(color: Colores.ambar),
+                  style: TextStyle(color: Colores.ambar),
                 ),
               ),
             const SizedBox(height: 12),
@@ -352,7 +352,7 @@ class _Parada extends StatelessWidget {
                       ),
                       Text(
                         pedido.endAddress ?? pedido.address,
-                        style: const TextStyle(color: Colores.gris),
+                        style: TextStyle(color: Colores.gris),
                       ),
                     ],
                   ),

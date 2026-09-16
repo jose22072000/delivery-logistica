@@ -91,7 +91,7 @@ class _CampoDeFechaState extends State<CampoDeFecha> {
         shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(Radios.lg),
-            side: const BorderSide(color: Colores.linea),
+            side: BorderSide(color: Colores.linea),
           ),
         ),
       ),

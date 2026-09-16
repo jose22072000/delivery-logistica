@@ -53,3 +53,34 @@ abstract final class Destino {
 final trabajaSinConexionProvider = Provider<bool>(
   (ref) => Destino.trabajaSinConexion,
 );
+
+/// LO QUE SE LE DICE A ALGUIEN CUANDO EL SERVIDOR NO CONTESTA, segun donde
+/// tenga abierta la aplicacion.
+///
+/// Es una funcion con nombre y no un `if` metido en la pantalla por un motivo
+/// concreto: el 16/09/2026 el acceso de la WEB fallaba por CORS —auth no
+/// autorizaba el origen del reparto— y la pantalla lo contaba como «comprueba la
+/// señal». Un fallo de configuracion del servidor disfrazado de problema de
+/// cobertura, en un producto donde la cobertura falla de verdad todos los dias.
+/// Nadie lo habria buscado donde estaba.
+///
+/// La regla:
+///
+///  * **En el aparato** (Android, escritorio) «no hay señal» es casi siempre
+///    verdad, y ademas hay algo que contar: lo que se bajo sigue dentro.
+///  * **En la web** es casi siempre mentira. Si la pagina cargo, conexion hay.
+///    Lo que no contesta es el servidor, y mandar a mirar la señal a quien esta
+///    sentado en la oficina es mandarlo a mirar donde no es.
+abstract final class TextosDeCaida {
+  /// El titular del recuadro.
+  static String titular({required bool sinConexion}) => sinConexion
+      ? 'Sin conexión con el servidor. Para entrar hace falta conexión; '
+            'prueba otra vez cuando haya señal.'
+      : 'El servidor de acceso no contesta.';
+
+  /// La linea de debajo: que hacer.
+  static String queHacer({required bool sinConexion}) => sinConexion
+      ? 'Comprueba la señal. Lo que ya estaba descargado sigue en el aparato.'
+      : 'La página cargó, así que conexión hay: el que no contesta es el '
+            'servidor. Prueba otra vez y, si sigue igual, avisa a la oficina.';
+}

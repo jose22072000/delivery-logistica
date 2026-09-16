@@ -255,7 +255,7 @@ class _Aparatos extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       const _Encabezado(),
-      const Divider(height: 1, color: Colores.borde),
+      Divider(height: 1, color: Colores.borde),
       for (final aparato in estado.aparatos) _FilaAparato(aparato: aparato),
     ],
   );
@@ -404,7 +404,7 @@ class _FilaAparato extends ConsumerWidget {
       decoration: BoxDecoration(
         border: Border(
           left: BorderSide(color: pinta.color, width: 4),
-          bottom: const BorderSide(color: Colores.borde),
+          bottom: BorderSide(color: Colores.borde),
         ),
       ),
       padding: const EdgeInsets.fromLTRB(6, 8, 4, 8),

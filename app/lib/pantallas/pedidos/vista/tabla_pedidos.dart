@@ -80,7 +80,7 @@ class TablaPedidos extends StatelessWidget {
             todosMarcados: todosMarcados,
             alMarcarPagina: (marcar) => alMarcarPagina(ids, marcar),
           ),
-          const Divider(height: 1, thickness: 1, color: Colores.linea),
+          Divider(height: 1, thickness: 1, color: Colores.linea),
           for (final pedido in pedidos)
             _Fila(
               pedido: pedido,
@@ -204,7 +204,7 @@ class _Fila extends StatelessWidget {
       onTap: alAbrir,
       hoverColor: Colores.papel,
       child: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: Colores.linea)),
         ),
         padding: const EdgeInsets.symmetric(horizontal: Aire.sm, vertical: 8),
@@ -249,7 +249,7 @@ class _Fila extends StatelessWidget {
                 flex: 2,
                 hijo: codigoDeRuta == null
                     ? const Text('—')
-                    : Insignia(codigoDeRuta!, color: Colores.azul),
+                    : Insignia(codigoDeRuta!, color: Colores.enCurso),
               ),
             if (columnas.vehiculo)
               _celda(flex: 2, hijo: Text(pedido.vehicleId == null ? '—' : '·')),
@@ -293,7 +293,7 @@ class _Fila extends StatelessWidget {
                   reparto.etiqueta,
                   color: switch (reparto) {
                     EstadoReparto.entregado => Colores.verde,
-                    EstadoReparto.enRuta => Colores.azul,
+                    EstadoReparto.enRuta => Colores.enCurso,
                     EstadoReparto.enDespacho => Colores.primario,
                     EstadoReparto.devuelto ||
                     EstadoReparto.cancelado => Colores.ambar,
@@ -301,7 +301,7 @@ class _Fila extends StatelessWidget {
                   },
                 ),
               ),
-            const SizedBox(
+            SizedBox(
               width: 32,
               child: Icon(
                 Icons.chevron_right,

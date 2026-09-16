@@ -288,7 +288,7 @@ class _CompartirState extends State<_Compartir> {
             if (sobran > 0)
               Text(
                 '(Google admite 25 paradas: $sobran quedan fuera del enlace)',
-                style: const TextStyle(color: Colores.gris),
+                style: TextStyle(color: Colores.gris),
               ),
           ],
         ),
@@ -329,7 +329,7 @@ class _Paradas extends ConsumerWidget {
             for (final entrada in _cargaTotal(renglones).entries)
               Insignia(
                 '${entrada.key} ×${cantidad(entrada.value)}',
-                color: Colores.azul,
+                color: Colores.enCurso,
               ),
           ],
         ),
