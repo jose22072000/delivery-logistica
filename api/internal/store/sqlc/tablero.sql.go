@@ -284,6 +284,9 @@ WHERE
     AND o.end_lat IS NOT NULL
     AND o.end_lng IS NOT NULL
     AND o.factura_estado IN ('igual', 'cambiado')
+    -- La misma línea que la lista, y en el mismo sitio para que se vean juntas al
+    -- compararlas a ojo.
+    AND NOT o.archivado
     AND NOT EXISTS (SELECT 1 FROM board_placements p WHERE p.order_id = o.id)
     AND o.branch_id = $1::uuid
     AND ($2::uuid IS NULL OR o.branch_id = $2::uuid)
@@ -317,23 +320,99 @@ WHERE
         OR km_haversine($9, $10, o.end_lat, o.end_lng)
            <= $8::double precision
     )
+    -- LA TANDA SIGUIENTE. El cursor por la MISMA terna del ` + "`" + `ORDER BY` + "`" + `.
+    --
+    -- Hasta el 18/09/2026 esta consulta terminaba en ` + "`" + `LIMIT` + "`" + ` y se acabó: sin ` + "`" + `OFFSET` + "`" + `, sin
+    -- cursor y sin nada por donde seguir. ` + "`" + `TopeSinColocar` + "`" + ` son 200 y ` + "`" + `limite` + "`" + ` sólo podía
+    -- BAJAR, así que con La Habana en 300 pedidos sin colocar —medido en producción el
+    -- 17/09/2026— el logístico veía los 200 más cercanos y LOS 100 MÁS LEJANOS NO SE PODÍAN
+    -- PEDIR DE NINGUNA MANERA. ` + "`" + `Truncated` + "`" + ` avisaba y no llevaba a ningún sitio, que es el
+    -- §3 del CLAUDE.md: pedir un tope y no poder seguir.
+    --
+    -- CURSOR Y NO ` + "`" + `OFFSET` + "`" + `, y esto es lo que hay que entender antes de tocarlo: con
+    -- ` + "`" + `OFFSET` + "`" + `, colocar una tarjeta mientras se pagina CORRE LA LISTA HACIA ARRIBA y el
+    -- pedido que ocupaba el sitio 201 pasa al 200 — a la tanda siguiente, que pide desde el
+    -- 200, se lo salta. Y colocar tarjetas es exactamente lo que está haciendo la persona
+    -- que pagina. Un pedido que desaparece sin que nadie lo vea es el fallo caro de esta
+    -- casa. El cursor va por VALORES, no por posición: lo que ya está colocado sale de la
+    -- lista sin mover a los demás de sitio.
+    --
+    -- La terna es la del ` + "`" + `ORDER BY` + "`" + ` —` + "`" + `km ASC, order_date DESC NULLS LAST, id ASC` + "`" + `— y tiene
+    -- que ser la misma o el corte no es estable. Se lee «lo que va DESPUÉS de esta fila»:
+    --   · más lejos del almacén, o
+    --   · a la misma distancia y más atrás en el desempate por fecha (las sin fecha van al
+    --     final, y por eso una ` + "`" + `order_date` + "`" + ` nula es «después» de cualquier fecha), o
+    --   · misma distancia y misma fecha, y el id más grande.
+    --
+    -- OJO CON LOS PUNTOS Y COMA EN ESTOS COMENTARIOS: no puede haber NINGUNO, ni siquiera
+    -- entrecomillado. La prueba que vigila que el contador filtre lo mismo que la lista lee
+    -- la consulta hasta el primero que encuentra, así que uno dentro de un comentario le
+    -- corta el cuerpo por ahí y deja de comparar todo lo que venga después — en verde y sin
+    -- decir nada. Pasó con estas mismas líneas el 18/09/2026, recién escritas, y por eso
+    -- hay otra prueba que comprueba que la consulta se lee ENTERA
+    -- (` + "`" + `internal/store/consultas_enteras_test.go` + "`" + `).
+    --
+    -- ` + "`" + `desde_id` + "`" + ` nulo es «desde el principio». Los tres van juntos o no va ninguno: dos de
+    -- tres dejarían la comparación en NULL y la lista saldría VACÍA con 200 y sin una
+    -- traza. Lo comprueba quien llama, y un cursor a medias es un 400.
+    AND (
+        $11::uuid IS NULL
+        OR km_haversine($9, $10, o.end_lat, o.end_lng)
+           > $12::double precision
+        OR (
+            km_haversine($9, $10, o.end_lat, o.end_lng)
+            = $12::double precision
+            AND (
+                ($13::timestamptz IS NOT NULL AND o.order_date IS NULL)
+                OR ($13::timestamptz IS NOT NULL
+                    AND o.order_date IS NOT NULL
+                    AND o.order_date < $13::timestamptz)
+                OR (o.order_date IS NOT DISTINCT FROM $13::timestamptz
+                    AND o.id > $11::uuid)
+            )
+        )
+    )
 `
 
 type ContarPedidosSinColocarParams struct {
-	BranchID  uuid.UUID          `json:"branch_id"`
-	Sucursal  pgtype.UUID        `json:"sucursal"`
-	Q         *string            `json:"q"`
-	Municipio *string            `json:"municipio"`
-	Vendedor  *string            `json:"vendedor"`
-	DiaDesde  pgtype.Timestamptz `json:"dia_desde"`
-	DiaHasta  pgtype.Timestamptz `json:"dia_hasta"`
-	KmMax     *float64           `json:"km_max"`
-	OrigenLat float64            `json:"origen_lat"`
-	OrigenLng float64            `json:"origen_lng"`
+	BranchID   uuid.UUID          `json:"branch_id"`
+	Sucursal   pgtype.UUID        `json:"sucursal"`
+	Q          *string            `json:"q"`
+	Municipio  *string            `json:"municipio"`
+	Vendedor   *string            `json:"vendedor"`
+	DiaDesde   pgtype.Timestamptz `json:"dia_desde"`
+	DiaHasta   pgtype.Timestamptz `json:"dia_hasta"`
+	KmMax      *float64           `json:"km_max"`
+	OrigenLat  float64            `json:"origen_lat"`
+	OrigenLng  float64            `json:"origen_lng"`
+	DesdeID    pgtype.UUID        `json:"desde_id"`
+	DesdeKm    *float64           `json:"desde_km"`
+	DesdeFecha pgtype.Timestamptz `json:"desde_fecha"`
 }
 
 // El contador de la mitad izquierda: el MISMO `WHERE`, sin tope ni orden. Tiene que ser el
 // mismo o dice «358» encima de una lista de 120.
+//
+// Y eso es exactamente lo que pasó: le faltaba `AND NOT o.archivado`, que la lista sí
+// tiene desde el 15/09/2026. Con los datos de La Habana del 17/09/2026 —728 pedidos, 429
+// archivados, 6 colocados— este contador decía **722** encima de una lista de **293**.
+//
+// Nadie lo vio en tres días porque el número sale solo, sin nada al lado con qué
+// compararlo: 722 se lee igual de bien que 293. Es el fallo que más caro sale aquí, el de
+// un número creíble y equivocado, y por eso hay una prueba que compara las dos consultas
+// contra la misma siembra en vez de comprobar cada una por su cuenta.
+//
+// POR QUÉ LLEVA EL CURSOR SI QUIEN LLAMA SIEMPRE LE PASA NULO. Porque el contrato de estas
+// dos consultas es TEXTUAL: el mismo `WHERE`, palabra por palabra, y así lo comprueba
+// `internal/store/contador_y_lista_test.go`. En cuanto la lista se pagina por cursor, dejar
+// ese trozo fuera de aquí rompe el único vigilante que tiene el número — y el número
+// volvería a poder separarse de la lista sin que nadie se entere, que es lo que pasó tres
+// días seguidos con `AND NOT o.archivado`.
+//
+// Y el número que va encima de la lista es el TOTAL, no lo que queda de la tanda en curso:
+// «Sin colocar (300)» no puede bajar a 100 porque alguien haya bajado con el dedo. Por eso
+// `mitadIzquierda` le pasa el cursor nulo SIEMPRE, y por eso «hay más tandas» no se calcula
+// restando de este número sino pidiendo una fila de más (ver `TopeSinColocar`).
 func (q *Queries) ContarPedidosSinColocar(ctx context.Context, arg ContarPedidosSinColocarParams) (int64, error) {
 	row := q.db.QueryRow(ctx, contarPedidosSinColocar,
 		arg.BranchID,
@@ -346,6 +425,9 @@ func (q *Queries) ContarPedidosSinColocar(ctx context.Context, arg ContarPedidos
 		arg.KmMax,
 		arg.OrigenLat,
 		arg.OrigenLng,
+		arg.DesdeID,
+		arg.DesdeKm,
+		arg.DesdeFecha,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -789,22 +871,77 @@ WHERE
         OR km_haversine($1, $2, o.end_lat, o.end_lng)
            <= $10::double precision
     )
+    -- LA TANDA SIGUIENTE. El cursor por la MISMA terna del ` + "`" + `ORDER BY` + "`" + `.
+    --
+    -- Hasta el 18/09/2026 esta consulta terminaba en ` + "`" + `LIMIT` + "`" + ` y se acabó: sin ` + "`" + `OFFSET` + "`" + `, sin
+    -- cursor y sin nada por donde seguir. ` + "`" + `TopeSinColocar` + "`" + ` son 200 y ` + "`" + `limite` + "`" + ` sólo podía
+    -- BAJAR, así que con La Habana en 300 pedidos sin colocar —medido en producción el
+    -- 17/09/2026— el logístico veía los 200 más cercanos y LOS 100 MÁS LEJANOS NO SE PODÍAN
+    -- PEDIR DE NINGUNA MANERA. ` + "`" + `Truncated` + "`" + ` avisaba y no llevaba a ningún sitio, que es el
+    -- §3 del CLAUDE.md: pedir un tope y no poder seguir.
+    --
+    -- CURSOR Y NO ` + "`" + `OFFSET` + "`" + `, y esto es lo que hay que entender antes de tocarlo: con
+    -- ` + "`" + `OFFSET` + "`" + `, colocar una tarjeta mientras se pagina CORRE LA LISTA HACIA ARRIBA y el
+    -- pedido que ocupaba el sitio 201 pasa al 200 — a la tanda siguiente, que pide desde el
+    -- 200, se lo salta. Y colocar tarjetas es exactamente lo que está haciendo la persona
+    -- que pagina. Un pedido que desaparece sin que nadie lo vea es el fallo caro de esta
+    -- casa. El cursor va por VALORES, no por posición: lo que ya está colocado sale de la
+    -- lista sin mover a los demás de sitio.
+    --
+    -- La terna es la del ` + "`" + `ORDER BY` + "`" + ` —` + "`" + `km ASC, order_date DESC NULLS LAST, id ASC` + "`" + `— y tiene
+    -- que ser la misma o el corte no es estable. Se lee «lo que va DESPUÉS de esta fila»:
+    --   · más lejos del almacén, o
+    --   · a la misma distancia y más atrás en el desempate por fecha (las sin fecha van al
+    --     final, y por eso una ` + "`" + `order_date` + "`" + ` nula es «después» de cualquier fecha), o
+    --   · misma distancia y misma fecha, y el id más grande.
+    --
+    -- OJO CON LOS PUNTOS Y COMA EN ESTOS COMENTARIOS: no puede haber NINGUNO, ni siquiera
+    -- entrecomillado. La prueba que vigila que el contador filtre lo mismo que la lista lee
+    -- la consulta hasta el primero que encuentra, así que uno dentro de un comentario le
+    -- corta el cuerpo por ahí y deja de comparar todo lo que venga después — en verde y sin
+    -- decir nada. Pasó con estas mismas líneas el 18/09/2026, recién escritas, y por eso
+    -- hay otra prueba que comprueba que la consulta se lee ENTERA
+    -- (` + "`" + `internal/store/consultas_enteras_test.go` + "`" + `).
+    --
+    -- ` + "`" + `desde_id` + "`" + ` nulo es «desde el principio». Los tres van juntos o no va ninguno: dos de
+    -- tres dejarían la comparación en NULL y la lista saldría VACÍA con 200 y sin una
+    -- traza. Lo comprueba quien llama, y un cursor a medias es un 400.
+    AND (
+        $11::uuid IS NULL
+        OR km_haversine($1, $2, o.end_lat, o.end_lng)
+           > $12::double precision
+        OR (
+            km_haversine($1, $2, o.end_lat, o.end_lng)
+            = $12::double precision
+            AND (
+                ($13::timestamptz IS NOT NULL AND o.order_date IS NULL)
+                OR ($13::timestamptz IS NOT NULL
+                    AND o.order_date IS NOT NULL
+                    AND o.order_date < $13::timestamptz)
+                OR (o.order_date IS NOT DISTINCT FROM $13::timestamptz
+                    AND o.id > $11::uuid)
+            )
+        )
+    )
 ORDER BY km_al_almacen ASC, o.order_date DESC NULLS LAST, o.id ASC
-LIMIT $11
+LIMIT $14
 `
 
 type ListarPedidosSinColocarParams struct {
-	OrigenLat float64            `json:"origen_lat"`
-	OrigenLng float64            `json:"origen_lng"`
-	BranchID  uuid.UUID          `json:"branch_id"`
-	Sucursal  pgtype.UUID        `json:"sucursal"`
-	Q         *string            `json:"q"`
-	Municipio *string            `json:"municipio"`
-	Vendedor  *string            `json:"vendedor"`
-	DiaDesde  pgtype.Timestamptz `json:"dia_desde"`
-	DiaHasta  pgtype.Timestamptz `json:"dia_hasta"`
-	KmMax     *float64           `json:"km_max"`
-	Limite    int32              `json:"limite"`
+	OrigenLat  float64            `json:"origen_lat"`
+	OrigenLng  float64            `json:"origen_lng"`
+	BranchID   uuid.UUID          `json:"branch_id"`
+	Sucursal   pgtype.UUID        `json:"sucursal"`
+	Q          *string            `json:"q"`
+	Municipio  *string            `json:"municipio"`
+	Vendedor   *string            `json:"vendedor"`
+	DiaDesde   pgtype.Timestamptz `json:"dia_desde"`
+	DiaHasta   pgtype.Timestamptz `json:"dia_hasta"`
+	KmMax      *float64           `json:"km_max"`
+	DesdeID    pgtype.UUID        `json:"desde_id"`
+	DesdeKm    *float64           `json:"desde_km"`
+	DesdeFecha pgtype.Timestamptz `json:"desde_fecha"`
+	Limite     int32              `json:"limite"`
 }
 
 type ListarPedidosSinColocarRow struct {
@@ -867,6 +1004,9 @@ func (q *Queries) ListarPedidosSinColocar(ctx context.Context, arg ListarPedidos
 		arg.DiaDesde,
 		arg.DiaHasta,
 		arg.KmMax,
+		arg.DesdeID,
+		arg.DesdeKm,
+		arg.DesdeFecha,
 		arg.Limite,
 	)
 	if err != nil {

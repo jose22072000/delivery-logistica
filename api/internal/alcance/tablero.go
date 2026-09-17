@@ -187,8 +187,19 @@ func (a *Acotado) TableroObtenerPedido(ctx context.Context, id uuid.UUID) (sqlc.
 }
 
 // TableroVehiculoParaCapacidad no lleva alcance porque la consulta no lo admite: sólo
-// devuelve capacidad y estado, y su `branch_id` viene en la fila para que el manejador lo
-// coteje. Se llama con un vehículo que ya salió de una columna del alcance.
+// devuelve capacidad y estado, y su `branch_id` viene en la fila PARA QUE EL MANEJADOR LO
+// COTEJE. Eso último no es un adorno: es la única acotación que hay aquí.
+//
+// LO QUE ESTE COMENTARIO DECÍA ANTES ERA FALSO. Decía «se llama con un vehículo que ya
+// salió de una columna del alcance», y eso sólo vale cuando el camión es el PREVISTO de la
+// columna. Al armar la ruta el `vehiculoId` puede venir en el CUERPO, y entonces no ha
+// salido de ninguna columna: hasta el 18/09/2026 bastaba con que fuese un uuid. Un
+// comentario que promete una comprobación que no existe es peor que no tener comentario,
+// porque el siguiente lo cree.
+//
+// Hoy el cuerpo pasa por `vehiculoDelCuerpo`, que sí resuelve el camión CON alcance, y
+// además `armarRutaDeColumna` compara el `branch_id` de esta fila con el de la columna
+// antes de usarlo. Dos cierres, ninguno de ellos aquí dentro.
 func (a *Acotado) TableroVehiculoParaCapacidad(ctx context.Context, id uuid.UUID) (sqlc.ObtenerVehiculoParaCapacidadRow, error) {
 	return a.q.ObtenerVehiculoParaCapacidad(ctx, id)
 }

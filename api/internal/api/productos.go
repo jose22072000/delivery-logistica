@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -26,6 +27,20 @@ import (
 //  2. CORREGIR va por rol, y sólo el Super Admin. La fila es de toda la empresa —una
 //     corrección la ven las ocho sucursales a la vez—, así que no es cosa de quien manda
 //     en una. Por eso esas dos consultas van a propósito SIN alcance.
+
+// avisarCambioDelCatalogo publica «algo cambió en el catálogo» para que las pantallas
+// abiertas se enteren sin esperar al temporizador.
+//
+// Vacío por defecto y lo engancha el fichero del bus (`eventos.go`), igual que el de rutas
+// y el del tablero. **No devuelve error y no se mira lo que conteste**: una corrección del
+// catálogo no se deshace porque el aviso no salga.
+//
+// `CambioCatalogo` estaba declarado desde el principio y NO LO PUBLICABA NADIE, con un
+// comentario en `eventos.go` que lo justificaba diciendo que el catálogo cambia «cuando el
+// espejo importa, que ya avisa por `CambioPedidos`». Eso nunca fue verdad: el catálogo se
+// corrige a mano desde aquí y se trae aparte con `POST /api/products/sync`, y ninguna de
+// las dos cosas escribe un solo pedido.
+var avisarCambioDelCatalogo = func(_ context.Context) {}
 
 // TopeCatalogo: 500 productos por consulta, como en el contrato. El buscador no enseña
 // más de una pantalla; el resto se encuentra escribiendo, no bajando.
@@ -234,6 +249,7 @@ func (s *Servidor) actualizarProducto(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDelCatalogo(r.Context())
 	httpx.JSON(w, r, http.StatusOK, ProductoSalida{
 		ID: f.ID, Name: f.Name, Weight: f.Weight, Packaging: f.Packaging,
 		UnitsPerPackage: f.UnitsPerPackage, Category: f.Category, Sku: f.Sku,
@@ -268,6 +284,7 @@ func (s *Servidor) borrarProducto(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusNotFound, httpx.MsgNoEncontrado)
 		return
 	}
+	avisarCambioDelCatalogo(r.Context())
 	httpx.JSON(w, r, http.StatusOK, map[string]bool{"success": true})
 }
 

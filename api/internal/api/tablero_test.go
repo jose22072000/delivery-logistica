@@ -56,6 +56,11 @@ var (
 	pedHol  = uuid.MustParse("0d000000-0000-0000-0000-00000000000f")
 
 	rutaNueva = uuid.MustParse("4a000000-0000-0000-0000-000000000001")
+
+	// Los camiones. En producción hay OCHO, uno por sucursal, los ocho con `branch_id`:
+	// no hay camiones compartidos que disculpen un id ajeno.
+	vehStgTab = uuid.MustParse("7e000000-0000-0000-0000-00000000000a")
+	vehHolTab = uuid.MustParse("7e000000-0000-0000-0000-00000000000b")
 )
 
 // --------------------------------------------------------------------------- el doble
@@ -64,21 +69,42 @@ type pedidoFalso struct {
 	id       uuid.UUID
 	sucursal uuid.UUID
 	nombre   string
+	folio    string
 	peso     float64
 	ruta     *uuid.UUID
+	// (0,0) es «SIN COORDENADAS», no el golfo de Guinea: es como el SQL de verdad ve un
+	// `end_lat`/`end_lng` nulo. Pasa en producción — el upsert del espejo escribe
+	// `end_lat = excluded.end_lat` sin `coalesce`, así que una bajada puede dejar sin
+	// punto de entrega un pedido que ya estaba colocado.
 	lat, lng float64
 	factura  *sqlc.FacturaEstado
+	// fecha es `order_date`, el segundo trozo del orden de la mitad izquierda y del
+	// cursor. Nil es un pedido SIN fecha, que va al final (`DESC NULLS LAST`) y es donde
+	// un cursor mal escrito se repite a sí mismo o se salta filas.
+	fecha *time.Time
 }
+
+// tieneCoordenadas: lo que en la base es `end_lat IS NOT NULL AND end_lng IS NOT NULL`.
+func (p pedidoFalso) tieneCoordenadas() bool { return p.lat != 0 || p.lng != 0 }
 
 type colocacion struct {
 	columna  uuid.UUID
 	posicion int32
 }
 
+// vehiculoFalso: un camión con su sucursal. `sucursal` vacía es el COMPARTIDO, el que no
+// es de nadie y por tanto es de todas.
+type vehiculoFalso struct {
+	id       uuid.UUID
+	nombre   string
+	sucursal uuid.UUID
+}
+
 type tableroFalso struct {
 	sqlc.Querier
 
 	origenes  []sqlc.ListarOrigenesRow
+	vehiculos map[uuid.UUID]vehiculoFalso
 	columnas  map[uuid.UUID]sqlc.BoardColumn
 	pedidos   map[uuid.UUID]pedidoFalso
 	colocadas map[uuid.UUID]colocacion
@@ -88,9 +114,18 @@ type tableroFalso struct {
 	// Postgres esa única es diferida y salta al CERRAR la transacción, cuando dos
 	// aparatos suben a la vez y los dos calcularon el mismo `max(posicion)+1`.
 	choquePosicion bool
-	sinOrigen      bool
-	borrarFalla    bool
-	capacidad      float64
+	// El choque de la única de las TARJETAS, `(column_id, posicion)`. También es
+	// `DEFERRABLE INITIALLY DEFERRED`, así que no salta al escribir: salta AL CERRAR la
+	// transacción, y por eso el doble lo devuelve desde `EnTx` y no desde `ColocarPedido`.
+	// Puesto en el sitio equivocado, la prueba aprobaría un manejador que sólo traduce lo
+	// que le llega de la consulta.
+	choqueAlCerrar bool
+	// El pedido que OTRO se lleva entre la validación y el enganche. Es la carrera de
+	// verdad, la única que sí se arregla reintentando.
+	seLoLlevan  uuid.UUID
+	sinOrigen   bool
+	borrarFalla bool
+	capacidad   float64
 
 	// Lo que se vio pasar al armar la ruta: es lo que se comprueba.
 	rutaCreada  *sqlc.CrearRutaParams
@@ -101,6 +136,10 @@ type tableroFalso struct {
 func nuevoTablero() *tableroFalso {
 	igual := sqlc.FacturaEstadoIgual
 	t := &tableroFalso{
+		vehiculos: map[uuid.UUID]vehiculoFalso{
+			vehStgTab: {id: vehStgTab, nombre: "Camión de Santiago", sucursal: sucStg},
+			vehHolTab: {id: vehHolTab, nombre: "Camión de Holguín", sucursal: sucHol},
+		},
 		columnas: map[uuid.UUID]sqlc.BoardColumn{
 			colCentro: {ID: colCentro, BranchID: sucStg, Nombre: "Centro", Posicion: 1},
 			colVista:  {ID: colVista, BranchID: sucStg, Nombre: "Vista Alegre", Posicion: 2},
@@ -323,7 +362,34 @@ func (q *tableroFalso) ReordenarColumnas(_ context.Context, arg sqlc.ReordenarCo
 	return n, nil
 }
 
+// enAlcance repite lo que hacen TODAS las consultas del tablero:
+// `(sucursal IS NULL OR c.branch_id = sucursal)`, con la columna por delante — casi todas
+// llegan a `board_placements` pasando por `board_columns`, así que una columna que no
+// existe es tan «fuera» como una de otra sucursal.
+//
+// NO ESTABA, y ése era el agujero. El 18/09/2026 el auditor sustituyó las 24 apariciones
+// de `Sucursal: a.sucursalPg()` por «todas las sucursales» y la suite entera siguió verde:
+// el doble no miraba `arg.Sucursal`, así que el parámetro podía llegar vacío sin que se
+// notara en ninguna respuesta. Un doble que no mira el alcance no puede cazar una fuga de
+// alcance, y estas pruebas van por los cinco endpoints que NO reciben `branchId` ni pasan
+// por `tableroDe`: para ellos ese narg es la única defensa que hay.
+func (q *tableroFalso) enAlcance(columna uuid.UUID, sucursal pgtype.UUID) bool {
+	c, hay := q.columnas[columna]
+	if !hay {
+		return false
+	}
+	return !sucursal.Valid || c.BranchID == uuid.UUID(sucursal.Bytes)
+}
+
+// deLaSucursal es lo mismo para las consultas que salen de `orders` y no de una columna.
+func deLaSucursal(suya uuid.UUID, sucursal pgtype.UUID) bool {
+	return !sucursal.Valid || suya == uuid.UUID(sucursal.Bytes)
+}
+
 func (q *tableroFalso) ContarPedidosEnColumna(_ context.Context, arg sqlc.ContarPedidosEnColumnaParams) (int64, error) {
+	if !q.enAlcance(arg.ColumnaID, arg.Sucursal) {
+		return 0, nil
+	}
 	var n int64
 	for _, c := range q.colocadas {
 		if c.columna == arg.ColumnaID {
@@ -334,6 +400,9 @@ func (q *tableroFalso) ContarPedidosEnColumna(_ context.Context, arg sqlc.Contar
 }
 
 func (q *tableroFalso) VaciarColumna(_ context.Context, arg sqlc.VaciarColumnaParams) (int64, error) {
+	if !q.enAlcance(arg.ColumnaID, arg.Sucursal) {
+		return 0, nil
+	}
 	var n int64
 	for ped, c := range q.colocadas {
 		if c.columna == arg.ColumnaID {
@@ -348,6 +417,9 @@ func (q *tableroFalso) MoverPedidosDeColumna(_ context.Context, arg sqlc.MoverPe
 	origen, ok1 := q.columnas[arg.ColumnaOrigen]
 	destino, ok2 := q.columnas[arg.ColumnaDestino]
 	if !ok1 || !ok2 || origen.BranchID != destino.BranchID {
+		return 0, nil
+	}
+	if !deLaSucursal(origen.BranchID, arg.Sucursal) {
 		return 0, nil
 	}
 	tope := int32(0)
@@ -416,6 +488,9 @@ func (q *tableroFalso) ColocarPedido(_ context.Context, arg sqlc.ColocarPedidoPa
 }
 
 func (q *tableroFalso) AbrirHuecoEnColumna(_ context.Context, arg sqlc.AbrirHuecoEnColumnaParams) (int64, error) {
+	if !q.enAlcance(arg.ColumnaID, arg.Sucursal) {
+		return 0, nil
+	}
 	var n int64
 	for ped, c := range q.colocadas {
 		if c.columna == arg.ColumnaID && c.posicion >= arg.DesdePosicion {
@@ -427,6 +502,9 @@ func (q *tableroFalso) AbrirHuecoEnColumna(_ context.Context, arg sqlc.AbrirHuec
 }
 
 func (q *tableroFalso) CerrarHuecoEnColumna(_ context.Context, arg sqlc.CerrarHuecoEnColumnaParams) (int64, error) {
+	if !q.enAlcance(arg.ColumnaID, arg.Sucursal) {
+		return 0, nil
+	}
 	var n int64
 	for ped, c := range q.colocadas {
 		if c.columna == arg.ColumnaID && c.posicion > arg.DesdePosicion {
@@ -442,8 +520,42 @@ func (q *tableroFalso) QuitarPedidoDelTablero(_ context.Context, arg sqlc.Quitar
 	if !ok {
 		return sqlc.QuitarPedidoDelTableroRow{}, pgx.ErrNoRows
 	}
+	// El `USING board_columns c` del DELETE de verdad: la tarjeta se saca por su COLUMNA,
+	// y la columna es la que lleva la sucursal.
+	if !q.enAlcance(c.columna, arg.Sucursal) {
+		return sqlc.QuitarPedidoDelTableroRow{}, pgx.ErrNoRows
+	}
 	delete(q.colocadas, arg.PedidoID)
 	return sqlc.QuitarPedidoDelTableroRow{OrderID: arg.PedidoID, ColumnID: c.columna, Posicion: c.posicion}, nil
+}
+
+// ObtenerVehiculo repite el `WHERE` de `vehicles.sql`: con alcance salen los de esa
+// sucursal MÁS los que no tienen ninguna (los compartidos). Es por donde pasa ahora el
+// `vehiculoId` del cuerpo, que hasta el 18/09/2026 sólo se comprobaba que fuese un uuid.
+func (q *tableroFalso) ObtenerVehiculo(_ context.Context, arg sqlc.ObtenerVehiculoParams) (sqlc.ObtenerVehiculoRow, error) {
+	v, hay := q.vehiculos[arg.ID]
+	if !hay {
+		return sqlc.ObtenerVehiculoRow{}, pgx.ErrNoRows
+	}
+	if arg.Sucursal.Valid && v.sucursal != uuid.Nil && v.sucursal != uuid.UUID(arg.Sucursal.Bytes) {
+		return sqlc.ObtenerVehiculoRow{}, pgx.ErrNoRows
+	}
+	fila := sqlc.ObtenerVehiculoRow{ID: v.id, Name: v.nombre}
+	if v.sucursal != uuid.Nil {
+		fila.BranchID = pgtype.UUID{Bytes: [16]byte(v.sucursal), Valid: true}
+	}
+	return fila, nil
+}
+
+// ObtenerVehiculoParaCapacidad va SIN alcance —la consulta no lo admite— y por eso
+// devuelve `branch_id`: es el manejador quien lo coteja contra la sucursal de la columna.
+func (q *tableroFalso) ObtenerVehiculoParaCapacidad(_ context.Context, id uuid.UUID) (sqlc.ObtenerVehiculoParaCapacidadRow, error) {
+	fila := sqlc.ObtenerVehiculoParaCapacidadRow{ID: id, Name: "F-350", Capacity: q.capacidad}
+	if v, hay := q.vehiculos[id]; hay && v.sucursal != uuid.Nil {
+		fila.Name = v.nombre
+		fila.BranchID = pgtype.UUID{Bytes: [16]byte(v.sucursal), Valid: true}
+	}
+	return fila, nil
 }
 
 func (q *tableroFalso) ObtenerPedido(_ context.Context, arg sqlc.ObtenerPedidoParams) (sqlc.ObtenerPedidoRow, error) {
@@ -468,12 +580,33 @@ func (q *tableroFalso) ListarPedidosColocados(_ context.Context, arg sqlc.Listar
 		if col.BranchID != arg.BranchID {
 			continue
 		}
+		if !deLaSucursal(col.BranchID, arg.Sucursal) {
+			continue
+		}
 		p := q.pedidos[ped]
-		salida = append(salida, sqlc.ListarPedidosColocadosRow{
+		fila := sqlc.ListarPedidosColocadosRow{
 			OrderID: ped, ColumnID: c.columna, Posicion: c.posicion,
 			ColumnaNombre: col.Nombre, CustomerName: p.nombre, Weight: p.peso,
-			KmAlAlmacen: kmHaversine(arg.OrigenLat, arg.OrigenLng, p.lat, p.lng),
-		})
+			FacturaEstado: p.factura,
+			KmAlAlmacen:   kmHaversine(arg.OrigenLat, arg.OrigenLng, p.lat, p.lng),
+		}
+		// LO QUE **NO** LLEVA EL `WHERE` DE ESTA CONSULTA: aquí sale TODO lo puesto, se
+		// pueda repartir o no, y por eso se devuelven crudos `route_id`, las coordenadas y
+		// `source`. Es con lo que el armador nombra cada tarjeta que se cae y por qué.
+		if p.tieneCoordenadas() {
+			lat, lng := p.lat, p.lng
+			fila.EndLat, fila.EndLng = &lat, &lng
+		}
+		if p.ruta != nil {
+			fila.RouteID = pgtype.UUID{Bytes: [16]byte(*p.ruta), Valid: true}
+		}
+		if p.folio != "" {
+			folio := p.folio
+			fila.OperationNumber = &folio
+		}
+		origen := sqlc.ProcedenciaPedido
+		fila.Source = &origen
+		salida = append(salida, fila)
 	}
 	sort.Slice(salida, func(i, j int) bool { return salida[i].Posicion < salida[j].Posicion })
 	return salida, nil
@@ -483,6 +616,9 @@ func (q *tableroFalso) AvisosDelTablero(_ context.Context, arg sqlc.AvisosDelTab
 	var fila sqlc.AvisosDelTableroRow
 	for ped, c := range q.colocadas {
 		if q.columnas[c.columna].BranchID != arg.BranchID {
+			continue
+		}
+		if !deLaSucursal(q.columnas[c.columna].BranchID, arg.Sucursal) {
 			continue
 		}
 		fila.Colocados++
@@ -499,26 +635,91 @@ func (q *tableroFalso) ListarPedidosSinColocar(_ context.Context, arg sqlc.Lista
 		if p.sucursal != arg.BranchID || p.ruta != nil {
 			continue
 		}
+		if !deLaSucursal(p.sucursal, arg.Sucursal) {
+			continue
+		}
 		if _, puesto := q.colocadas[p.id]; puesto {
 			continue
 		}
-		salida = append(salida, sqlc.ListarPedidosSinColocarRow{
+		fila := sqlc.ListarPedidosSinColocarRow{
 			ID: p.id, CustomerName: p.nombre, Weight: p.peso,
 			KmAlAlmacen: kmHaversine(arg.OrigenLat, arg.OrigenLng, p.lat, p.lng),
-		})
+		}
+		if p.fecha != nil {
+			fila.OrderDate = pgtype.Timestamptz{Time: *p.fecha, Valid: true}
+		}
+		salida = append(salida, fila)
 	}
-	// El encargo: el más cerca del almacén primero.
-	sort.Slice(salida, func(i, j int) bool { return salida[i].KmAlAlmacen < salida[j].KmAlAlmacen })
-	if int32(len(salida)) > arg.Limite {
-		salida = salida[:arg.Limite]
+	// El encargo: el más cerca del almacén primero, y el desempate del SQL de verdad
+	// —`km ASC, order_date DESC NULLS LAST, id ASC`—. Sin el desempate, dos clientes del
+	// mismo edificio salen en un orden distinto en cada llamada y un cursor sobre eso no
+	// puede funcionar: no es que pagine mal, es que no hay por dónde cortar.
+	sort.Slice(salida, func(i, j int) bool { return vaAntes(salida[i], salida[j]) })
+	// El corte del cursor: se dejan fuera las filas que NO van después de la terna.
+	var tanda []sqlc.ListarPedidosSinColocarRow
+	for _, f := range salida {
+		if !despuesDelCursor(f, arg) {
+			continue
+		}
+		tanda = append(tanda, f)
 	}
-	return salida, nil
+	if int32(len(tanda)) > arg.Limite {
+		tanda = tanda[:arg.Limite]
+	}
+	return tanda, nil
+}
+
+// vaAntes repite `ORDER BY km_al_almacen ASC, o.order_date DESC NULLS LAST, o.id ASC`.
+func vaAntes(a, b sqlc.ListarPedidosSinColocarRow) bool {
+	if a.KmAlAlmacen != b.KmAlAlmacen {
+		return a.KmAlAlmacen < b.KmAlAlmacen
+	}
+	if a.OrderDate.Valid != b.OrderDate.Valid {
+		return a.OrderDate.Valid // las que no tienen fecha van al final
+	}
+	if a.OrderDate.Valid && !a.OrderDate.Time.Equal(b.OrderDate.Time) {
+		return a.OrderDate.Time.After(b.OrderDate.Time) // la más reciente primero
+	}
+	return a.ID.String() < b.ID.String()
+}
+
+// despuesDelCursor repite el `AND (...)` del cursor, condición por condición. Si esto se
+// escribiera «más fácil» que el SQL, la prueba aprobaría una paginación que en Postgres se
+// salta filas — que es justo lo que se está arreglando.
+func despuesDelCursor(f sqlc.ListarPedidosSinColocarRow, arg sqlc.ListarPedidosSinColocarParams) bool {
+	if !arg.DesdeID.Valid {
+		return true // desde el principio
+	}
+	if arg.DesdeKm == nil {
+		// Los tres van juntos. En la base esto deja la comparación en NULL y no sale
+		// ninguna fila; aquí se hace lo mismo para que nadie se fíe de un cursor a medias.
+		return false
+	}
+	if f.KmAlAlmacen > *arg.DesdeKm {
+		return true
+	}
+	if f.KmAlAlmacen != *arg.DesdeKm {
+		return false
+	}
+	switch {
+	case arg.DesdeFecha.Valid && !f.OrderDate.Valid:
+		return true
+	case arg.DesdeFecha.Valid && f.OrderDate.Valid && f.OrderDate.Time.Before(arg.DesdeFecha.Time):
+		return true
+	case f.OrderDate.Valid == arg.DesdeFecha.Valid &&
+		(!f.OrderDate.Valid || f.OrderDate.Time.Equal(arg.DesdeFecha.Time)):
+		return f.ID.String() > uuid.UUID(arg.DesdeID.Bytes).String()
+	}
+	return false
 }
 
 func (q *tableroFalso) ContarPedidosSinColocar(_ context.Context, arg sqlc.ContarPedidosSinColocarParams) (int64, error) {
 	var n int64
 	for _, p := range q.pedidos {
 		if p.sucursal != arg.BranchID || p.ruta != nil {
+			continue
+		}
+		if !deLaSucursal(p.sucursal, arg.Sucursal) {
 			continue
 		}
 		if _, puesto := q.colocadas[p.id]; puesto {
@@ -537,7 +738,17 @@ func (f fuenteTab) Consultas() sqlc.Querier { return f.q }
 
 // EnTx corre la función tal cual. El doble no deshace nada: lo que se prueba aquí es el
 // manejador, no el aislamiento de Postgres.
-func (f fuenteTab) EnTx(_ context.Context, fn func(sqlc.Querier) error) error { return fn(f.q) }
+func (f fuenteTab) EnTx(_ context.Context, fn func(sqlc.Querier) error) error {
+	if err := fn(f.q); err != nil {
+		return err
+	}
+	// EL COMMIT. Las dos únicas diferidas del tablero saltan aquí y no antes, y lo que las
+	// traduce tiene que estar mirando el error de `EnTx`, no el de la consulta.
+	if t, ok := f.q.(*tableroFalso); ok && t.choqueAlCerrar {
+		return &pgconn.PgError{Code: "23505", ConstraintName: "board_placements_posicion_unica"}
+	}
+	return nil
+}
 
 func montarTab(t *testing.T, q sqlc.Querier) http.Handler {
 	t.Helper()
@@ -948,6 +1159,9 @@ func TestSantiagoNoLlegaAlTableroDeHolguin(t *testing.T) {
 // --------------------------------------------------------------------------- armar ruta
 
 func (q *tableroFalso) PedidosDeColumnaParaArmarRuta(_ context.Context, arg sqlc.PedidosDeColumnaParaArmarRutaParams) ([]sqlc.PedidosDeColumnaParaArmarRutaRow, error) {
+	if !q.enAlcance(arg.ColumnaID, arg.Sucursal) {
+		return nil, nil
+	}
 	var salida []sqlc.PedidosDeColumnaParaArmarRutaRow
 	for ped, c := range q.colocadas {
 		if c.columna != arg.ColumnaID {
@@ -956,13 +1170,19 @@ func (q *tableroFalso) PedidosDeColumnaParaArmarRuta(_ context.Context, arg sqlc
 		p := q.pedidos[ped]
 		// Las condiciones del SQL: sin ruta y con coordenadas. `factura_estado` NO corta
 		// aquí, corta el manejador, para poder nombrar cuál falla y por qué.
-		if p.ruta != nil || (p.lat == 0 && p.lng == 0) {
+		if p.ruta != nil || !p.tieneCoordenadas() {
 			continue
 		}
-		salida = append(salida, sqlc.PedidosDeColumnaParaArmarRutaRow{
+		lat, lng := p.lat, p.lng
+		fila := sqlc.PedidosDeColumnaParaArmarRutaRow{
 			ID: p.id, CustomerName: p.nombre, Weight: p.peso,
-			EndLat: &p.lat, EndLng: &p.lng, FacturaEstado: p.factura, Posicion: c.posicion,
-		})
+			EndLat: &lat, EndLng: &lng, FacturaEstado: p.factura, Posicion: c.posicion,
+		}
+		if p.folio != "" {
+			folio := p.folio
+			fila.OperationNumber = &folio
+		}
+		salida = append(salida, fila)
 	}
 	sort.Slice(salida, func(i, j int) bool { return salida[i].Posicion < salida[j].Posicion })
 	return salida, nil
@@ -980,7 +1200,7 @@ func (q *tableroFalso) CrearRuta(_ context.Context, arg sqlc.CrearRutaParams) (s
 
 func (q *tableroFalso) EngancharPedidoARuta(_ context.Context, arg sqlc.EngancharPedidoARutaParams) (int64, error) {
 	p, ok := q.pedidos[arg.PedidoID]
-	if !ok || p.ruta != nil {
+	if !ok || p.ruta != nil || arg.PedidoID == q.seLoLlevan {
 		return 0, nil // se lo llevaron entre medias
 	}
 	ruta := uuid.UUID(arg.RutaID.Bytes)
@@ -997,17 +1217,16 @@ func (q *tableroFalso) FijarTotalesDeRuta(_ context.Context, arg sqlc.FijarTotal
 
 func (q *tableroFalso) QuitarDelTableroLosDeRuta(_ context.Context, arg sqlc.QuitarDelTableroLosDeRutaParams) (int64, error) {
 	var n int64
-	for ped := range q.colocadas {
+	for ped, c := range q.colocadas {
+		if !q.enAlcance(c.columna, arg.Sucursal) {
+			continue
+		}
 		if p := q.pedidos[ped]; p.ruta != nil && [16]byte(*p.ruta) == arg.RutaID.Bytes {
 			delete(q.colocadas, ped)
 			n++
 		}
 	}
 	return n, nil
-}
-
-func (q *tableroFalso) ObtenerVehiculoParaCapacidad(_ context.Context, id uuid.UUID) (sqlc.ObtenerVehiculoParaCapacidadRow, error) {
-	return sqlc.ObtenerVehiculoParaCapacidadRow{ID: id, Name: "F-350", Capacity: q.capacidad}, nil
 }
 
 // De una columna sale una ruta, la columna se queda vacía y la columna SIGUE EXISTIENDO:

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +14,23 @@ import (
 	"procovar/reparto-api/internal/httpx"
 	"procovar/reparto-api/internal/store/sqlc"
 )
+
+// avisarCambioDeVehiculos publica «algo cambió en la flota» para que las pantallas
+// abiertas se enteren sin esperar al temporizador.
+//
+// Vacío por defecto y lo engancha el fichero del bus (`eventos.go`), igual que el de rutas
+// y el del tablero. **No devuelve error y no se mira lo que conteste**: un camión no se
+// deja de dar de alta porque el aviso no salga.
+//
+// LO USAN DOS FICHEROS, éste y `tipos_vehiculo.go`, y es a propósito: la pantalla de
+// Vehículos enseña las dos cosas —la flota y el desplegable de tipos— en la misma vista, y
+// un tipo nuevo que no aparece en el desplegable se ve igual de roto que un camión que no
+// aparece en la lista.
+//
+// Y esta pantalla es de las que MÁS falta le hacía: no vive de la base local, pide
+// `GET /api/vehicles` a la red. El ciclo de sincronización no la repinta, así que sin este
+// aviso lo único que la actualizaba era volver a entrar.
+var avisarCambioDeVehiculos = func(_ context.Context) {}
 
 // TipoPorDefecto: el contrato dice `type || 'truck'`. El nombre se traduce al id del
 // catálogo `vehicle_types`, que es la tabla que antes no existía.
@@ -171,6 +189,7 @@ func (s *Servidor) crearVehiculo(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDeVehiculos(r.Context())
 	httpx.JSON(w, r, http.StatusCreated, deVehiculo(creado, c.Type.Con(TipoPorDefecto)))
 }
 
@@ -262,8 +281,14 @@ func (s *Servidor) actualizarVehiculo(w http.ResponseWriter, r *http.Request) {
 				"vehiculo", id, "err", err)
 		} else if n > 0 {
 			httpx.Registro(r).Info("rutas cerradas al liberar el vehículo", "vehiculo", id, "rutas", n)
+			// La ruta que se acaba de cerrar la está mirando otro en la pantalla de
+			// Rutas. Se avisa de LAS DOS cosas porque cambiaron las dos, y cada pantalla
+			// vuelve a pedir lo suyo: mandar sólo `vehiculos` dejaría la ruta abierta en
+			// la pantalla de al lado hasta el temporizador.
+			avisarCambioDeRutas(r.Context())
 		}
 	}
+	avisarCambioDeVehiculos(r.Context())
 	httpx.JSON(w, r, http.StatusOK, deVehiculo(actualizado, nombreTipo))
 }
 
@@ -311,6 +336,12 @@ func (s *Servidor) borrarVehiculo(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	// TRES AVISOS, y no es de más: este borrado desvincula el camión de sus rutas y de sus
+	// pedidos antes de quitarlo. Las tres listas cambiaron de verdad, y quien tenga Rutas
+	// delante vería el camión de una ruta que ya no lo tiene hasta el temporizador.
+	avisarCambioDeVehiculos(r.Context())
+	avisarCambioDeRutas(r.Context())
+	avisarCambioDePedidos(r.Context())
 	httpx.JSON(w, r, http.StatusOK, map[string]bool{"success": true})
 }
 

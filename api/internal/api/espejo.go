@@ -230,6 +230,13 @@ func (s *Servidor) sincronizarProductos(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// SÓLO si entró algo. Una vuelta que no escribió nada —todas las sucursales con
+	// error, o la respuesta «saltado» de más arriba, que sale antes de llegar aquí— no
+	// cambió el catálogo de nadie, y avisar mandaría a todas las pantallas a bajarse otra
+	// vez lo mismo por la conexión de allá.
+	if escritosTotal > 0 {
+		avisarCambioDelCatalogo(r.Context())
+	}
 	httpx.JSON(w, r, http.StatusOK, map[string]any{
 		"sucursales": filas,
 		"escritos":   escritosTotal,

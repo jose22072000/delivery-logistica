@@ -171,22 +171,43 @@ var busEventos = NuevoDifusor()
 // en el móvil, moví cosas, y en la web no salió en tiempo real, ¿por qué razón si eso debe
 // pasar?».
 //
-// (`CambioCatalogo` y `CambioClientes` siguen declarados y sin publicar. No es lo mismo:
-// ésos cambian cuando el espejo importa, que ya avisa por `CambioPedidos`, y una pantalla
-// de clientes no es algo que dos personas miren a la vez esperando ver el gesto del otro.
-// Se dejan, y queda dicho aquí para que nadie los dé por vivos.)
+// ## AQUÍ HABÍA UN COMENTARIO QUE MENTÍA — corregido el 17/09/2026
 //
-// Lo que se notaba: suscribirse al canal no servía de nada. Una zona creada en el teléfono
-// no aparecía en la web hasta que pasaba el temporizador —dos minutos— o alguien refrescaba
-// a mano. Jose, 16/09/2026: «hice un tablero en el móvil, moví cosas, y en la web no salió
-// en tiempo real, ¿por qué razón si eso debe pasar?».
+// Decía que `CambioCatalogo` y `CambioClientes` podían quedarse sin publicar porque «ésos
+// cambian cuando el espejo importa, que ya avisa por `CambioPedidos`». **Ya no es verdad**,
+// y la parte de catálogo no lo fue nunca: el catálogo se toca a mano desde Productos
+// (`PATCH`/`DELETE /api/products`) y se trae aparte con `POST /api/products/sync`, sin que
+// eso escriba un solo pedido. Un aviso de `pedidos` no invalida el catálogo de nadie.
+//
+// Jose, 17/09/2026: «¿y por qué probamos con tableros solamente? Son todas, porque todos
+// deben ser en tiempo real como el tablero cuando las cosas tienen conexión».
+//
+// Así que ahora avisan TODAS las puertas que escriben algo que una pantalla enseña:
+// pedidos, catálogo, vehículos (con sus tipos), almacenes, sucursales y ajustes, cada una
+// con SU tipo. El tipo importa: quien lo recibe vuelve a pedir lo suyo, y mandar
+// `pedidos` por un cambio de camión es hacer que ocho navegadores se bajen la lista de
+// pedidos entera por nada, con la conexión de allá.
+//
+// **`CambioClientes` sigue sin tener quien lo publique, y no es un olvido**: en esta API
+// NO HAY ninguna puerta que escriba `customers`. El único que los escribe es el proceso
+// del espejo (`cmd/espejo`, `internal/espejo/ciclo.go`, `clientes()`), que va contra
+// Postgres directamente y **corre en otro proceso** — y este bus vive en la memoria de
+// éste (ver arriba). Desde allí no hay forma de publicar sin volver a un bus de verdad o
+// sin abrirle una puerta al espejo. Queda dicho aquí, y la constante se deja declarada
+// porque el cliente ya sabe leerla el día que haya quien la mande.
 //
 // Se enganchan aquí, en el fichero del bus, y no en cada manejador: quien escribe una zona
-// no tiene por qué saber cómo se reparten los avisos, y el día que esto vuelva a ser Redis
-// no hay que tocar el tablero.
+// —o un camión— no tiene por qué saber cómo se reparten los avisos, y el día que esto
+// vuelva a ser Redis no hay que tocar ni el tablero ni los demás.
 func init() {
 	avisarCambioDeRutas = func(_ context.Context) { busEventos.Avisar(CambioRutas, nil) }
 	avisarCambioDelTablero = func(_ context.Context) { busEventos.Avisar(CambioTablero, nil) }
+	avisarCambioDePedidos = func(_ context.Context) { busEventos.Avisar(CambioPedidos, nil) }
+	avisarCambioDelCatalogo = func(_ context.Context) { busEventos.Avisar(CambioCatalogo, nil) }
+	avisarCambioDeVehiculos = func(_ context.Context) { busEventos.Avisar(CambioVehiculos, nil) }
+	avisarCambioDeAlmacenes = func(_ context.Context) { busEventos.Avisar(CambioAlmacenes, nil) }
+	avisarCambioDeSucursales = func(_ context.Context) { busEventos.Avisar(CambioSucursales, nil) }
+	avisarCambioDeAjustes = func(_ context.Context) { busEventos.Avisar(CambioAjustes, nil) }
 }
 
 // Avisar publica un cambio. Devuelve si salió o si lo paró el freno; nunca bloquea y nunca
@@ -466,3 +487,34 @@ func registrarApagado(r *http.Request, bus *Difusor) {
 	bus.enganchados[srv] = struct{}{}
 	srv.RegisterOnShutdown(bus.Cerrar)
 }
+
+// ---------------------------------------------------------------------------
+// Los tipos que faltaban — 17/09/2026
+// ---------------------------------------------------------------------------
+//
+// Van al final del fichero y no en el bloque de arriba a propósito: ese bloque lo está
+// leyendo más gente, y añadir aquí no mueve ni una línea de lo que ya hay. Añadir NO rompe
+// nada —un tipo que la pantalla no espera se recibe y se ignora—; renombrar sí.
+//
+// Cada uno está porque hay UNA PANTALLA que lo enseña y que hoy no se entera de nada hasta
+// que pasa el temporizador (dos minutos en la web, cinco en la APK):
+//
+//   - `vehiculos`  → la pantalla de Vehículos, que pide `GET /api/vehicles` y
+//     `GET /api/vehicle-types` a la red y **no vive de la base**: el ciclo de
+//     sincronización no la repinta, así que sin este aviso no hay nada que la repinte.
+//   - `almacenes`  → la pantalla de Almacenes, igual: `GET /api/almacenes` a la red, y los
+//     almacenes ni siquiera viajan en `GET /api/sync/cambios` (van en `faltan`).
+//   - `sucursales` → el selector de sucursal de la barra y el de Rutas. Ésos sí salen de la
+//     base, pero una sucursal recién creada no aparece hasta el siguiente ciclo.
+//   - `ajustes`    → la tasa y la moneda. Con ellas se convierte TODO importe que se pinta;
+//     una tasa vieja es un número creíble y equivocado, que es lo peor que le puede pasar a
+//     algo que alguien va a cobrar.
+//
+// NO se añadió un tipo para los orígenes (`/api/origins`): ninguna pantalla de la
+// aplicación los pide. Queda dicho para que nadie lo lea como un olvido.
+const (
+	CambioVehiculos  = "vehiculos"
+	CambioAlmacenes  = "almacenes"
+	CambioSucursales = "sucursales"
+	CambioAjustes    = "ajustes"
+)

@@ -47,6 +47,22 @@ ENV CGO_ENABLED=0
 # estaba igual de abierta.
 #
 # Las pruebas SÍ la cazaban. Nadie se lo preguntó a nadie. Costaba diez segundos aquí.
+#
+# Y POR ESO ENTRA AQUÍ UN FICHERO DE FLUTTER — 17/09/2026
+#
+# `internal/api/protocolo_avisos_test.go` compara los tipos de aviso que publica
+# `eventos.go` con los que espera `app/lib/nucleo/refresco_en_vivo.dart`. Son dos listas
+# escritas a mano en dos lenguajes, y hasta hoy nadie las ataba: renombrar una
+# —`vehiculos` a `vehiculo`— dejaba `build`, `vet` y `test` en verde y la pantalla de
+# Vehículos sin refrescarse en vivo, que además NO vive de la base local, así que el ciclo
+# tampoco la repinta.
+#
+# La ruta es la que espera la prueba: desde `/src/internal/api`, `../../../app/lib/...`
+# cae en `/app/lib/...`. Sin este COPY la prueba NO puede correr, y el contrato se
+# quedaría sin vigilante justo en el último portón antes de producción. Va DESPUÉS de
+# `COPY api/ .` para no invalidar la capa de los módulos.
+COPY app/lib/nucleo/refresco_en_vivo.dart /app/lib/nucleo/refresco_en_vivo.dart
+
 RUN go vet ./... && go test ./...
 
 RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/api ./cmd/api

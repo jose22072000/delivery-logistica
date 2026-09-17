@@ -25,6 +25,29 @@ import (
 	"procovar/reparto-api/internal/store/sqlc"
 )
 
+// avisarCambioDeAlmacenes publica «cambiaron los almacenes» para que las pantallas
+// abiertas se enteren sin esperar al temporizador.
+//
+// Vacío por defecto y lo engancha el fichero del bus (`eventos.go`), igual que el de rutas
+// y el del tablero. **No devuelve error y no se mira lo que conteste**: lo que Accesos ya
+// guardó no se deshace porque el aviso no salga.
+//
+// ES DE LOS QUE MÁS FALTA HACÍAN, por dos razones que se suman:
+//
+//  1. la pantalla de Almacenes no vive de la base local, pide `GET /api/almacenes` a la
+//     red, así que el ciclo de sincronización no la repinta;
+//  2. los almacenes NI SIQUIERA VIAJAN en `GET /api/sync/cambios` —salen en `faltan`— y se
+//     bajan con una petición aparte al final del ciclo. O sea que ni las pantallas que sí
+//     leen de la base los tenían al día antes de tiempo.
+//
+// Y no es cosmético: el domicilio se cobra por la distancia DESDE el almacén. Dos personas
+// mirando puntos distintos cobran precios distintos por la misma entrega.
+//
+// LOS ORÍGENES (`/api/origins`) NO AVISAN, y no es un olvido: ninguna pantalla de la
+// aplicación los pide —se comprobó buscando `origins` en `app/lib` el 17/09/2026—. Son
+// herencia del front de delivery. El día que una pantalla los enseñe, aquí va su aviso.
+var avisarCambioDeAlmacenes = func(_ context.Context) {}
+
 // PUNTOS DE PARTIDA (/api/origins) y ALMACENES (/api/almacenes). Dos cosas parecidas que
 // NO son la misma, y por eso están juntas aquí donde se ve la diferencia:
 //
@@ -419,6 +442,10 @@ func (s *Servidor) guardarAlmacenes(w http.ResponseWriter, r *http.Request) {
 		respuesta["aviso"] = fmt.Sprintf(
 			"%d almacén(es) sin coordenadas: desde ésos no se puede medir el domicilio.", sinPunto)
 	}
+	// DESPUÉS de que Accesos lo haya aceptado, nunca antes: si contestó un error ya se
+	// salió con el 502 de arriba, y avisar de lo que no se guardó manda a todas las
+	// pantallas abiertas a pedir la lista para encontrarla igual.
+	avisarCambioDeAlmacenes(r.Context())
 	httpx.JSON(w, r, http.StatusOK, respuesta)
 }
 

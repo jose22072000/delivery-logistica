@@ -104,6 +104,7 @@ func (s *Servidor) crearTipoDeVehiculo(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDeVehiculos(r.Context())
 	httpx.JSON(w, r, http.StatusCreated, deTipo(t, 0))
 }
 
@@ -136,6 +137,7 @@ func (s *Servidor) actualizarTipoDeVehiculo(w http.ResponseWriter, r *http.Reque
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDeVehiculos(r.Context())
 	httpx.JSON(w, r, http.StatusOK, deTipo(t, 0))
 }
 
@@ -168,6 +170,7 @@ func (s *Servidor) borrarTipoDeVehiculo(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if filas > 0 {
+		avisarCambioDeVehiculos(r.Context())
 		httpx.JSON(w, r, http.StatusOK, map[string]any{"success": true, "retirado": false})
 		return
 	}
@@ -180,6 +183,10 @@ func (s *Servidor) borrarTipoDeVehiculo(w http.ResponseWriter, r *http.Request) 
 		httpx.Error(w, r, http.StatusNotFound, httpx.MsgNoEncontrado)
 		return
 	}
+	// Un tipo RETIRADO también sale del desplegable, así que la pantalla cambia igual que
+	// si se hubiera borrado. Avisar sólo en la rama del borrado dejaría la mitad de los
+	// casos sin decir nada.
+	avisarCambioDeVehiculos(r.Context())
 	httpx.JSON(w, r, http.StatusOK, map[string]any{"success": true, "retirado": true})
 }
 

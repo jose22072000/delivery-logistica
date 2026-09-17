@@ -201,6 +201,27 @@ type Querier interface {
 	ContarPedidosEnColumna(ctx context.Context, arg ContarPedidosEnColumnaParams) (int64, error)
 	// El contador de la mitad izquierda: el MISMO `WHERE`, sin tope ni orden. Tiene que ser el
 	// mismo o dice «358» encima de una lista de 120.
+	//
+	// Y eso es exactamente lo que pasó: le faltaba `AND NOT o.archivado`, que la lista sí
+	// tiene desde el 15/09/2026. Con los datos de La Habana del 17/09/2026 —728 pedidos, 429
+	// archivados, 6 colocados— este contador decía **722** encima de una lista de **293**.
+	//
+	// Nadie lo vio en tres días porque el número sale solo, sin nada al lado con qué
+	// compararlo: 722 se lee igual de bien que 293. Es el fallo que más caro sale aquí, el de
+	// un número creíble y equivocado, y por eso hay una prueba que compara las dos consultas
+	// contra la misma siembra en vez de comprobar cada una por su cuenta.
+	//
+	// POR QUÉ LLEVA EL CURSOR SI QUIEN LLAMA SIEMPRE LE PASA NULO. Porque el contrato de estas
+	// dos consultas es TEXTUAL: el mismo `WHERE`, palabra por palabra, y así lo comprueba
+	// `internal/store/contador_y_lista_test.go`. En cuanto la lista se pagina por cursor, dejar
+	// ese trozo fuera de aquí rompe el único vigilante que tiene el número — y el número
+	// volvería a poder separarse de la lista sin que nadie se entere, que es lo que pasó tres
+	// días seguidos con `AND NOT o.archivado`.
+	//
+	// Y el número que va encima de la lista es el TOTAL, no lo que queda de la tanda en curso:
+	// «Sin colocar (300)» no puede bajar a 100 porque alguien haya bajado con el dedo. Por eso
+	// `mitadIzquierda` le pasa el cursor nulo SIEMPRE, y por eso «hay más tandas» no se calcula
+	// restando de este número sino pidiendo una fila de más (ver `TopeSinColocar`).
 	ContarPedidosSinColocar(ctx context.Context, arg ContarPedidosSinColocarParams) (int64, error)
 	// ---------------------------------------------------------------------------
 	// Para el panel y para la flota

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +14,18 @@ import (
 	"procovar/reparto-api/internal/httpx"
 	"procovar/reparto-api/internal/store/sqlc"
 )
+
+// avisarCambioDeSucursales publica «cambió la lista de sucursales» para que las pantallas
+// abiertas se enteren sin esperar al temporizador.
+//
+// Vacío por defecto y lo engancha el fichero del bus (`eventos.go`), igual que el de rutas
+// y el del tablero. **No devuelve error y no se mira lo que conteste**: una sucursal no se
+// deja de crear porque el aviso no salga.
+//
+// Aunque esto sólo lo toca un administrador y de higos a brevas, la lista de sucursales la
+// enseñan el selector de la barra —en TODAS las pantallas— y el de Rutas. Una sucursal
+// nueva que no aparece en el selector se lee como «la aplicación no la guardó».
+var avisarCambioDeSucursales = func(_ context.Context) {}
 
 // SucursalSalida es la forma con la que sale una sucursal.
 //
@@ -161,6 +174,7 @@ func (s *Servidor) crearSucursal(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDeSucursales(r.Context())
 	httpx.JSON(w, r, http.StatusCreated, deBranch(creada, 1))
 }
 
@@ -230,6 +244,7 @@ func (s *Servidor) actualizarSucursal(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDeSucursales(r.Context())
 	httpx.JSON(w, r, http.StatusOK, deBranch(b, origenes))
 }
 
@@ -259,6 +274,7 @@ func (s *Servidor) borrarSucursal(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.Registro(r).Warn("sucursal borrada: las personas que la tenían asignada siguen asignadas EN AUTH",
 		"sucursal", id, "actor", a.Actor())
+	avisarCambioDeSucursales(r.Context())
 	httpx.JSON(w, r, http.StatusOK, map[string]bool{"success": true})
 }
 

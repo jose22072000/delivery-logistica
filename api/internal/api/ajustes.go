@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,6 +13,18 @@ import (
 	"procovar/reparto-api/internal/httpx"
 	"procovar/reparto-api/internal/store/sqlc"
 )
+
+// avisarCambioDeAjustes publica «cambiaron los ajustes» para que las pantallas abiertas se
+// enteren sin esperar al temporizador.
+//
+// Vacío por defecto y lo engancha el fichero del bus (`eventos.go`), igual que el de rutas
+// y el del tablero. **No devuelve error y no se mira lo que conteste**.
+//
+// Aquí vive la MONEDA y su TASA, y con ellas se convierte todo importe que se pinta. Una
+// tasa vieja en la pantalla de al lado no se ve rota: se ve como un número creíble y
+// equivocado, que es lo peor que le puede pasar a algo que alguien va a cobrar. El mismo
+// caso de Granma enseñando los 685 de La Habana (`../CLAUDE.md` §4).
+var avisarCambioDeAjustes = func(_ context.Context) {}
 
 // Los ajustes. GLOBALES: no llevan alcance por sucursal y no es un olvido — son de toda
 // la empresa, y no hay ninguna columna de sucursal en estas dos tablas que filtrar. La
@@ -135,6 +148,7 @@ func (s *Servidor) guardarAjustes(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDeAjustes(r.Context())
 	httpx.JSON(w, r, http.StatusOK, deAjustes(ajustes, monedas))
 }
 

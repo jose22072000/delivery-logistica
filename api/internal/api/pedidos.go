@@ -12,6 +12,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,22 @@ import (
 	"procovar/reparto-api/internal/httpx"
 	"procovar/reparto-api/internal/store/sqlc"
 )
+
+// avisarCambioDePedidos publica «algo cambió en los pedidos» para que las pantallas
+// abiertas se enteren sin esperar al temporizador.
+//
+// Vacío por defecto y lo engancha el fichero del bus (`eventos.go`), igual que el de rutas
+// y el del tablero. **No devuelve error y no se mira lo que conteste**: un pedido no se
+// deja de guardar porque el aviso no salga.
+//
+// ## HASTA HOY AVISABA UN SOLO SITIO, y era el equivocado para esto — 17/09/2026
+//
+// El único `CambioPedidos` del servicio salía del lote del espejo (`cotizacion.go`,
+// `cotizarLote`). O sea: los pedidos que entran solos avisaban, y los que toca una persona
+// —cambiar el estado, asignar ruta, borrar uno— no los avisaba nadie. Justo al revés de lo
+// que hace falta, porque lo que toca una persona es lo que otra está mirando en ese mismo
+// momento.
+var avisarCambioDePedidos = func(_ context.Context) {}
 
 // Los topes del contrato, con nombre para que se vean en un sitio y no repartidos por los
 // manejadores.
@@ -823,6 +840,7 @@ func (s *Servidor) actualizarPedido(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	avisarCambioDePedidos(r.Context())
 	httpx.JSON(w, r, http.StatusOK, salida)
 }
 
@@ -874,6 +892,7 @@ func (s *Servidor) borrarPedido(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusNotFound, httpx.MsgNotFound)
 		return
 	}
+	avisarCambioDePedidos(r.Context())
 	httpx.JSON(w, r, http.StatusOK, map[string]bool{"success": true})
 }
 
@@ -980,6 +999,12 @@ func (s *Servidor) recalcularPesos(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, x := range sinPeso {
 		salida.ProductosSinPeso = append(salida.ProductosSinPeso, ProductoSinPeso{Name: x.Nombre, Veces: x.Veces})
+	}
+	// SÓLO si se escribió de verdad. En seco (`dryRun`) no se ha tocado una fila, y un
+	// aviso ahí manda a todas las pantallas abiertas a volver a pedir la lista para
+	// encontrarla igual; sin nada actualizado tampoco hay nada nuevo que enseñar.
+	if !enSeco && salida.Updated > 0 {
+		avisarCambioDePedidos(r.Context())
 	}
 	httpx.JSON(w, r, http.StatusOK, salida)
 }

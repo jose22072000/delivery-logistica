@@ -94,8 +94,18 @@ const (
 )
 
 // TopeSinColocar es el tope por defecto de la mitad izquierda. Se puede bajar por query,
-// no subir: la conexión de allá no da para más y el `total` que va al lado ya dice
-// cuántos hay de verdad.
+// no subir: la conexión de allá no da para más.
+//
+// EL TOPE YA NO ES UN TECHO, ES UNA TANDA. Hasta el 18/09/2026 sí era un techo: la
+// consulta acababa en `LIMIT` sin `OFFSET` ni cursor, así que lo que no cabía en los 200
+// primeros NO SE PODÍA PEDIR DE NINGUNA MANERA. Medido en producción el 17/09/2026, La
+// Habana tenía 300 pedidos sin colocar: el logístico veía los 200 más cercanos y los 100
+// más lejanos no existían para él. `Truncated` lo avisaba y no llevaba a ningún sitio,
+// que es el §3 del CLAUDE.md —pedir un tope y no poder seguir— y el fallo que más caro
+// sale aquí.
+//
+// Ahora se pide la tanda siguiente con `?desde=<cursor>`, y el cursor lo devuelve la
+// respuesta anterior en `siguiente`.
 const TopeSinColocar = 200
 
 // ---------------------------------------------------------------------------
@@ -201,9 +211,17 @@ type SucursalDelTablero struct {
 }
 
 type MitadIzquierda struct {
-	Total     int64              `json:"total"`
-	Count     int                `json:"count"`
-	Truncated bool               `json:"truncated"`
+	// Total son TODOS los que hay sin colocar con estos filtros, no los de esta tanda:
+	// es el número que va encima de la lista y no puede bajar porque alguien pagine.
+	Total int64 `json:"total"`
+	Count int   `json:"count"`
+	// Truncated es «HAY MÁS TANDAS», y se calcula pidiendo una fila de más, no restando
+	// del total. Restando del total daba `true` para siempre en cuanto se paginaba.
+	Truncated bool `json:"truncated"`
+	// Siguiente es el cursor de la tanda siguiente, o nil si ésta fue la última. Es lo
+	// que se le vuelve a mandar al servidor en `?desde=`. Antes no existía y por eso
+	// `truncated` no llevaba a ningún sitio.
+	Siguiente *string            `json:"siguiente"`
 	Pedidos   []SinColocarSalida `json:"pedidos"`
 }
 
@@ -406,30 +424,52 @@ func (s *Servidor) mitadIzquierda(w http.ResponseWriter, r *http.Request, a *alc
 	}
 	desde, hasta := diaDelPedido(q.Get("dia"))
 
+	// EL CURSOR DE LA TANDA SIGUIENTE. Un cursor que no se entiende es un 400 y no una
+	// lista vacía: los tres trozos van juntos o la comparación queda en NULL y la consulta
+	// devuelve CERO filas con un 200 limpio, que aquí es el modo de fallo caro — parecería
+	// «ya no queda nada» justo cuando quedan cien.
+	cursor, err := cursorDeLaTanda(q.Get("desde"))
+	if err != nil {
+		httpx.Error(w, r, http.StatusBadRequest, err.Error())
+		return MitadIzquierda{}, false
+	}
+
 	arg := sqlc.ListarPedidosSinColocarParams{
-		OrigenLat: t.almacen.Lat,
-		OrigenLng: t.almacen.Lng,
-		BranchID:  t.sucursal,
-		Q:         textoOpcional(q.Get("q")),
-		Municipio: textoOpcional(q.Get("municipio")),
-		Vendedor:  textoOpcional(q.Get("vendedor")),
-		DiaDesde:  desde,
-		DiaHasta:  hasta,
-		KmMax:     numeroOpcional(q.Get("kmMax")),
-		Limite:    limite,
+		OrigenLat:  t.almacen.Lat,
+		OrigenLng:  t.almacen.Lng,
+		BranchID:   t.sucursal,
+		Q:          textoOpcional(q.Get("q")),
+		Municipio:  textoOpcional(q.Get("municipio")),
+		Vendedor:   textoOpcional(q.Get("vendedor")),
+		DiaDesde:   desde,
+		DiaHasta:   hasta,
+		KmMax:      numeroOpcional(q.Get("kmMax")),
+		DesdeID:    cursor.id,
+		DesdeKm:    cursor.km,
+		DesdeFecha: cursor.fecha,
+		// UNA FILA DE MÁS. Es lo que convierte «truncado» en un dato y no en una
+		// sospecha: si vuelve, hay otra tanda; si no vuelve, ésta era la última. Restar
+		// del total no sirve —el total es de TODOS, no de los que quedan— y daba
+		// `truncated: true` para siempre en cuanto se paginaba.
+		Limite: limite + 1,
 	}
 	filas, err := a.ListarPedidosSinColocar(r.Context(), arg)
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return MitadIzquierda{}, false
 	}
+	hayMas := int32(len(filas)) > limite
+	if hayMas {
+		filas = filas[:limite]
+	}
+
 	// El contador lleva EL MISMO `WHERE` sin tope: si contara otra cosa diría «358»
-	// encima de una lista de 120.
-	total, err := a.ContarPedidosSinColocar(r.Context(), sqlc.ContarPedidosSinColocarParams{
-		BranchID: arg.BranchID, Q: arg.Q, Municipio: arg.Municipio, Vendedor: arg.Vendedor,
-		DiaDesde: arg.DiaDesde, DiaHasta: arg.DiaHasta, KmMax: arg.KmMax,
-		OrigenLat: arg.OrigenLat, OrigenLng: arg.OrigenLng,
-	})
+	// encima de una lista de 120. VA SIN CURSOR a propósito: el número de arriba es el
+	// TOTAL —«Sin colocar (300)»— y no puede bajar a 100 porque alguien haya bajado con
+	// el dedo. El trozo del cursor está también en su SQL para que los dos `WHERE` sigan
+	// siendo el mismo texto, que es lo único que vigila que el número no se separe de la
+	// lista (`internal/store/contador_y_lista_test.go`).
+	total, err := a.ContarPedidosSinColocar(r.Context(), paramsDelContador(arg))
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return MitadIzquierda{}, false
@@ -447,11 +487,88 @@ func (s *Servidor) mitadIzquierda(w http.ResponseWriter, r *http.Request, a *alc
 			MismoCliente: repes[strings.ToLower(strings.TrimSpace(f.CustomerName))],
 		})
 	}
+	// El cursor que se le devuelve: la ÚLTIMA fila servida. Sólo si hay más — mandar uno
+	// cuando ya no queda nada invita a una vuelta de más por la conexión de allá.
+	var siguiente *string
+	if hayMas && len(filas) > 0 {
+		ultima := filas[len(filas)-1]
+		c := cursorHacia(ultima.KmAlAlmacen, ultima.OrderDate, ultima.ID)
+		siguiente = &c
+	}
 	return MitadIzquierda{
 		Total: total, Count: len(pedidos),
-		Truncated: total > int64(len(pedidos)), Pedidos: pedidos,
+		Truncated: hayMas, Siguiente: siguiente, Pedidos: pedidos,
 	}, true
 }
+
+// ---------------------------------------------------------------------------
+// El cursor de la mitad izquierda
+// ---------------------------------------------------------------------------
+
+// tandaDesde son los tres trozos del cursor, ya en el tipo que espera sqlc.
+type tandaDesde struct {
+	km    *float64
+	fecha pgtype.Timestamptz
+	id    pgtype.UUID
+}
+
+// EL FORMATO ES «km|fecha|id», en texto plano y a propósito.
+//
+// Ni base64 ni JSON cifrado: esto se lee en un registro de acceso y en la barra del
+// navegador cuando alguien dice «me faltan pedidos», y un cursor opaco obliga a
+// descodificarlo a mano para saber por dónde iba. La fecha es RFC3339 con nanosegundos, o
+// vacía cuando el pedido no tiene `order_date` —que es un caso real y va al final de la
+// lista, no al principio—.
+//
+// No lleva firma ni caducidad porque no concede nada: el alcance no sale de aquí, sale de
+// quién pregunta, y con un cursor inventado lo peor que se consigue es empezar a leer la
+// lista propia por otro sitio.
+const separadorDeTanda = "|"
+
+func cursorHacia(km float64, fecha pgtype.Timestamptz, id uuid.UUID) string {
+	texto := ""
+	if fecha.Valid {
+		texto = fecha.Time.UTC().Format(time.RFC3339Nano)
+	}
+	// 'g' con -1 es la representación más corta que vuelve a dar EXACTAMENTE el mismo
+	// float al leerla. Importa: el corte compara `km = desde_km` en la base, y un
+	// redondeo por el camino repetiría una fila o se saltaría otra.
+	return strconv.FormatFloat(km, 'g', -1, 64) + separadorDeTanda + texto + separadorDeTanda + id.String()
+}
+
+func cursorDeLaTanda(crudo string) (tandaDesde, error) {
+	crudo = strings.TrimSpace(crudo)
+	if crudo == "" {
+		return tandaDesde{}, nil // desde el principio
+	}
+	trozos := strings.Split(crudo, separadorDeTanda)
+	if len(trozos) != 3 {
+		return tandaDesde{}, errCursorRoto
+	}
+	km, err := strconv.ParseFloat(trozos[0], 64)
+	if err != nil {
+		return tandaDesde{}, errCursorRoto
+	}
+	id, err := uuid.Parse(trozos[2])
+	if err != nil {
+		return tandaDesde{}, errCursorRoto
+	}
+	salida := tandaDesde{km: &km, id: pgtype.UUID{Bytes: [16]byte(id), Valid: true}}
+	if trozos[1] != "" {
+		t, err := time.Parse(time.RFC3339Nano, trozos[1])
+		if err != nil {
+			return tandaDesde{}, errCursorRoto
+		}
+		salida.fecha = pgtype.Timestamptz{Time: t, Valid: true}
+	}
+	return salida, nil
+}
+
+// errCursorRoto: se dice QUÉ hacer. Un cursor a medias dejaría la comparación del SQL en
+// NULL y la lista saldría vacía con un 200 limpio — «no queda nada» con cien esperando.
+var errCursorRoto = errors.New(
+	"«desde» no es un cursor de esta lista. Vuelve a pedir la primera tanda sin «desde» " +
+		"y usa el «siguiente» que venga en la respuesta.")
 
 // ---------------------------------------------------------------------------
 // Las columnas
@@ -495,7 +612,7 @@ func (s *Servidor) crearColumna(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusBadRequest, msgNombreRequerido)
 		return
 	}
-	veh, ok := vehiculoDelCuerpo(w, r, c.VehiculoID)
+	veh, ok := vehiculoDelCuerpo(w, r, a, c.VehiculoID)
 	if !ok {
 		return
 	}
@@ -584,7 +701,7 @@ func (s *Servidor) actualizarColumna(w http.ResponseWriter, r *http.Request) {
 	// columna le desasignaría el camión de paso.
 	if c.VehiculoID.Presente {
 		arg.TocarVehiculo = true
-		veh, ok := vehiculoDelCuerpo(w, r, c.VehiculoID)
+		veh, ok := vehiculoDelCuerpo(w, r, a, c.VehiculoID)
 		if !ok {
 			return
 		}
@@ -890,6 +1007,26 @@ func (s *Servidor) colocarPedido(w http.ResponseWriter, r *http.Request) {
 		s.porQueNoSePudoColocar(w, r, a, pedido)
 		return
 	}
+	// EL CHOQUE DE POSICIÓN ES UN 409 REINTENTABLE, NO UN 500.
+	//
+	// La única de `(column_id, posicion)` es `DEFERRABLE INITIALLY DEFERRED`, así que dos
+	// colocaciones a la vez no chocan al escribir: chocan EN EL COMMIT, y el error sale
+	// por `EnTx`, no por `ColocarPedido`. Aquí sólo se traducía `pgx.ErrNoRows`, de modo
+	// que ese 23505 caía en `httpx.ErrorInterno` y la respuesta era «Error interno» con un
+	// 500 dentro.
+	//
+	// Y un 500 aquí no es un detalle: el tablero se usa sin red y sus escrituras suben en
+	// LOTES que se reintentan. Un 500 corta el lote entero; un 409 con este texto dice lo
+	// único que hay que hacer, que es volver a mandarlo. Es la misma traducción que ya hace
+	// `crearColumna` con `board_columns_posicion_unica`, y por la misma razón: las colas se
+	// vacían de golpe cuando vuelve la señal, así que dos aparatos soltando tarjeta en la
+	// misma posición a la vez pasa más cuanto peor esté la conexión.
+	if esEstaClaveRepetida(err, "board_placements_posicion_unica") {
+		httpx.Error(w, r, http.StatusConflict,
+			"Otro aparato puso una tarjeta en ese mismo sitio en el mismo momento. "+
+				"Vuelve a intentarlo.")
+		return
+	}
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return
@@ -901,6 +1038,39 @@ func (s *Servidor) colocarPedido(w http.ResponseWriter, r *http.Request) {
 		"posicion":   puesto.Posicion,
 		"colocadoAt": hora(puesto.ColocadoAt),
 	})
+}
+
+// paramsDelContador pasa los filtros de la lista al contador, campo por campo.
+//
+// EXISTE PARA PODER PROBARLA. Esto estaba escrito a mano dentro del manejador, y
+// ahí no había forma de que nada vigilara que no se olvidara un campo: el
+// auditor quitó `Municipio:` el 17/09/2026 y `go build && go vet && go test ./...`
+// de `api/` entero quedó **en verde**. Con el filtro de municipio puesto, la
+// lista enseñaría un municipio y el número contaría la sucursal entera — que es
+// exactamente el «Sin colocar (722) encima de una lista de 293» que costó tres
+// días, en el fichero de al lado.
+//
+// `contador_y_lista_test.go` compara los dos `WHERE` y los dos `FROM`, pero eso
+// es el SQL: lo que Go le pasa no lo miraba nadie. Ahora lo mira
+// `params_del_contador_test.go`, campo por campo y por reflexión, así que un
+// campo NUEVO en la consulta también entra sin que haya que acordarse.
+//
+// Los tres `Desde…` se dejan a cero A PROPÓSITO y no por olvido: el número de
+// arriba es el TOTAL —«Sin colocar (300)»— y no puede bajar a 100 porque alguien
+// haya pedido la tanda siguiente. La prueba conoce esa excepción por su nombre.
+func paramsDelContador(arg sqlc.ListarPedidosSinColocarParams) sqlc.ContarPedidosSinColocarParams {
+	return sqlc.ContarPedidosSinColocarParams{
+		BranchID:  arg.BranchID,
+		Sucursal:  arg.Sucursal,
+		Q:         arg.Q,
+		Municipio: arg.Municipio,
+		Vendedor:  arg.Vendedor,
+		DiaDesde:  arg.DiaDesde,
+		DiaHasta:  arg.DiaHasta,
+		KmMax:     arg.KmMax,
+		OrigenLat: arg.OrigenLat,
+		OrigenLng: arg.OrigenLng,
+	}
 }
 
 // porQueNoSePudoColocar traduce el «cero filas» del INSERT.
@@ -976,14 +1146,21 @@ type cuerpoArmar struct {
 	Optimizar httpx.Opcional[bool] `json:"optimizar"`
 }
 
-// DescartadoSalida nombra a cada pedido que se cayó y POR QUÉ. Una columna de doce que
-// produce una ruta de nueve sin explicación es la manera más rápida de que el logístico
-// deje de fiarse del tablero.
+// DescartadoSalida nombra a cada pedido que se cayó, POR QUÉ y QUÉ HACER. Una columna de
+// doce que produce una ruta de nueve sin explicación es la manera más rápida de que el
+// logístico deje de fiarse del tablero.
+//
+// `queHacer` no es un adorno. El 409 que esto sustituye decía «1 de los 2 pedidos ya están
+// en otra ruta. Vuelve a elegirlos.» sobre una tarjeta cuyo pedido se había quedado SIN
+// COORDENADAS: el motivo era falso, no se nombraba la tarjeta, y «vuelve a elegirlos» no
+// arreglaba nada — volver a pulsar daba el mismo 409 para siempre. Un rechazo permanente
+// que dice que se reintente es la peor forma de no dejar salir a nadie.
 type DescartadoSalida struct {
 	PedidoID        uuid.UUID `json:"pedidoId"`
 	OperationNumber *string   `json:"operationNumber"`
 	CustomerName    string    `json:"customerName"`
 	Motivo          string    `json:"motivo"`
+	QueHacer        string    `json:"queHacer"`
 }
 
 // POST /api/board/columns/{id}/route
@@ -1029,35 +1206,72 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
-	puestos, err := a.ContarPedidosEnColumna(r.Context(), id)
+	// LO QUE LA CONSULTA DE ARRIBA DEJÓ FUERA, NOMBRADO UNO A UNO.
+	//
+	// Antes esto era una RESTA —`ContarPedidosEnColumna` menos los candidatos— y la
+	// diferencia entera se le atribuía a «ya están en otra ruta». Era falso y no tenía
+	// salida: `PedidosDeColumnaParaArmarRuta` descarta además `source <> 'pedido'` y los
+	// pedidos SIN COORDENADAS, y eso último pasa de verdad — el upsert del espejo hace
+	// `end_lat = excluded.end_lat` sin `coalesce` (`db/queries/orders.sql:718`), así que
+	// una bajada puede dejar sin punto de entrega un pedido que ya estaba colocado.
+	//
+	// Ejecutado contra una columna de dos con una tarjeta así, la respuesta era:
+	// `409 {"error":"1 de los 2 pedidos ya están en otra ruta. Vuelve a elegirlos."}`.
+	// Permanente —volver a pulsar daba lo mismo—, con el motivo equivocado, sin decir cuál
+	// de las dos era, y sin llegar nunca a `descartados`, que existe justo para esto.
+	//
+	// Ahora se leen las tarjetas puestas y se compara con los candidatos: los que faltan se
+	// nombran con su motivo de verdad y la ruta se arma con el resto. Es la regla de la
+	// casa —«los avisos del armador son aviso, no bloqueo»— y la otra —«nada se descarta en
+	// silencio»— al mismo tiempo.
+	//
+	// La carrera de verdad sigue cubierta, y en el único sitio donde se puede cubrir: el
+	// `EngancharPedidoARuta` de la transacción devuelve cero filas si alguien se llevó el
+	// pedido entre medias, y de ahí sale `errSeLoLlevaron` con su «vuelve a intentarlo».
+	puestas, err := a.ListarPedidosColocados(r.Context(), sqlc.ListarPedidosColocadosParams{
+		OrigenLat: almacen.Lat, OrigenLng: almacen.Lng, BranchID: columna.BranchID,
+	})
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
-	if faltan := puestos - int64(len(candidatos)); faltan > 0 {
-		httpx.Error(w, r, http.StatusConflict,
-			fmt.Sprintf("%d de los %d pedidos ya están en otra ruta. Vuelve a elegirlos.", faltan, puestos))
-		return
+	esCandidato := make(map[uuid.UUID]bool, len(candidatos))
+	for _, p := range candidatos {
+		esCandidato[p.ID] = true
+	}
+	descartados := []DescartadoSalida{}
+	for _, t := range puestas {
+		if t.ColumnID != id || esCandidato[t.OrderID] {
+			continue
+		}
+		motivo, queHacer := porQueNoEsCandidato(t)
+		descartados = append(descartados, DescartadoSalida{
+			PedidoID: t.OrderID, OperationNumber: t.OperationNumber,
+			CustomerName: t.CustomerName, Motivo: motivo, QueHacer: queHacer,
+		})
 	}
 
 	// El corte por factura se hace AQUÍ y no en el SQL, para poder nombrar cuál falla y
 	// por qué. Un WHERE que los descartara en la consulta deja el mismo rechazo sin nada
 	// que decir.
 	var buenos []sqlc.PedidosDeColumnaParaArmarRutaRow
-	descartados := []DescartadoSalida{}
 	for _, p := range candidatos {
-		motivo := ""
+		motivo, queHacer := "", ""
 		switch {
 		case p.Archivado:
 			motivo = "archivado en PEDIDO"
+			queHacer = "PEDIDO le dio de baja. Quita la tarjeta de la zona."
 		case p.FacturaEstado == nil:
 			// NULL NO ES «cuadra». Con un NULL colado se armó una ruta sin facturar el
 			// 2/09; por eso se nombra distinto de `sin_factura`.
 			motivo = "sin cotejar"
+			queHacer = "Nadie ha cotejado su factura todavía. Se cotea y vuelve a armar."
 		case *p.FacturaEstado == sqlc.FacturaEstadoSinFactura:
 			motivo = "sin factura"
+			queHacer = "No tiene factura. Se le hace en PEDIDO y vuelve a armar."
 		case *p.FacturaEstado == sqlc.FacturaEstadoCambiado:
 			motivo = "cambió en la factura"
+			queHacer = "La factura ya no es la que era: repásala antes de cargar."
 		}
 		if motivo == "" {
 			buenos = append(buenos, p)
@@ -1065,7 +1279,7 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 		}
 		descartados = append(descartados, DescartadoSalida{
 			PedidoID: p.ID, OperationNumber: p.OperationNumber,
-			CustomerName: p.CustomerName, Motivo: motivo,
+			CustomerName: p.CustomerName, Motivo: motivo, QueHacer: queHacer,
 		})
 	}
 	if len(buenos) == 0 {
@@ -1081,7 +1295,7 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 	// haber ninguno; la ruta se arma igual y el camión se elige después.
 	vehiculo := columna.VehicleID
 	if c.VehiculoID.Presente {
-		v, ok := vehiculoDelCuerpo(w, r, c.VehiculoID)
+		v, ok := vehiculoDelCuerpo(w, r, a, c.VehiculoID)
 		if !ok {
 			return
 		}
@@ -1110,6 +1324,19 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 		v, err := a.TableroVehiculoParaCapacidad(r.Context(), uuid.UUID(vehiculo.Bytes))
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			httpx.ErrorInterno(w, r, err)
+			return
+		}
+		// EL SEGUNDO CIERRE DEL CAMIÓN. Esta consulta va SIN alcance —no lo admite— y por
+		// eso devuelve `branch_id`: es aquí donde se coteja. El camión de la ruta tiene
+		// que ser de la sucursal de la columna, o no tener ninguna (compartido).
+		//
+		// El primer cierre es `vehiculoDelCuerpo`, que ya lo resuelve con alcance. Éste
+		// cubre lo que aquél no ve: el camión PREVISTO que quedó guardado en la columna
+		// antes del 18/09/2026, cuando el `PATCH` aceptaba cualquier uuid. Sin él, esas
+		// columnas seguirían pariendo rutas con el camión de otra sucursal dentro.
+		if err == nil && v.BranchID.Valid && uuid.UUID(v.BranchID.Bytes) != columna.BranchID {
+			httpx.Error(w, r, http.StatusBadRequest,
+				fmt.Sprintf("No existe el vehículo '%s'", uuid.UUID(vehiculo.Bytes)))
 			return
 		}
 		if err == nil && v.Capacity > 0 && pesoTotal > v.Capacity {
@@ -1224,6 +1451,39 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 }
 
 var errSeLoLlevaron = errors.New("un pedido se subió a otra ruta mientras se armaba")
+
+// porQueNoEsCandidato traduce cada condición del `WHERE` de `PedidosDeColumnaParaArmarRuta`
+// a algo que una persona pueda leer y hacer.
+//
+// LOS TRES MOTIVOS SON DISTINTOS Y SE ARREGLAN DE TRES MANERAS, y por eso no se juntan en
+// un número. Meterlos todos en «ya están en otra ruta» es lo que dejaba al logístico
+// pulsando un botón que nunca iba a funcionar.
+//
+// El orden importa: se mira primero la ruta, porque un pedido que ya salió puede además
+// haberse quedado sin coordenadas, y lo que hay que contarle a quien mira la pantalla es
+// que el camión ya se lo llevó.
+func porQueNoEsCandidato(t sqlc.ListarPedidosColocadosRow) (motivo, queHacer string) {
+	switch {
+	case t.RouteID.Valid:
+		return "ya va en otra ruta",
+			"Otro lo subió a un camión. Quita la tarjeta de la zona."
+	case t.EndLat == nil || t.EndLng == nil:
+		// PASA DE VERDAD, y es la que estaba escondida detrás del 409 mentiroso: el
+		// upsert del espejo escribe `end_lat = excluded.end_lat` sin `coalesce`, así que
+		// una bajada de PEDIDO puede dejar sin punto de entrega un pedido ya colocado.
+		return "sin coordenadas de entrega",
+			"Se quedó sin punto de entrega. Hay que ponérselo en PEDIDO; con la bajada " +
+				"siguiente vuelve a poder ir en una ruta."
+	case t.Source == nil || *t.Source != sqlc.ProcedenciaPedido:
+		return "no vino de PEDIDO",
+			"Sólo se arman rutas con pedidos de PEDIDO. Quita la tarjeta de la zona."
+	}
+	// No debería llegar aquí: las de arriba son todas las condiciones de la consulta. Si
+	// llega, se dice que no se sabe en vez de inventar un motivo — un motivo equivocado es
+	// peor que ninguno, que es exactamente lo que pasó con el 409 de «otra ruta».
+	return "ya no se puede meter en una ruta",
+		"Cambió mientras se armaba. Vuelve a abrir el tablero para ver cómo está."
+}
 
 // codigoDeRuta arma el `RT-YYYYMMDD-NNN`.
 //
@@ -1341,7 +1601,23 @@ func coord(v *float64) float64 {
 
 // vehiculoDelCuerpo traduce el `vehiculoId` del cuerpo. Vacío o null es «quítamelo»; un
 // id que no es un uuid es un 400, porque aquí sí se sabe que el que escribe es el cliente.
-func vehiculoDelCuerpo(w http.ResponseWriter, r *http.Request, v httpx.Opcional[string]) (pgtype.UUID, bool) {
+//
+// Y SE COMPRUEBA CON ALCANCE, igual que en `rutas.go` y por lo mismo: el camión de
+// Holguín no se engancha a una zona de Santiago ni sabiendo su id. Hasta el 18/09/2026
+// aquí sólo se miraba que fuese un uuid, y con eso un `PATCH /api/board/columns/{suya}`
+// con el `vehiculoId` de otra sucursal contestaba 200 y se guardaba; después
+// `ListarColumnasDelTablero` —que trae el camión por un `LEFT JOIN vehicles` SIN condición
+// de sucursal— servía su nombre, su matrícula y su capacidad en cada `GET /api/board`, y
+// al armar la ruta ese mismo id pisaba al de la columna y llegaba tal cual a `CrearRuta`.
+// Es la regla 1 de la casa por la puerta de atrás: el alcance sale de quién pregunta.
+//
+// En producción hay ocho camiones, uno por sucursal, los ocho con `branch_id`: no hay
+// camiones compartidos que disculpen un id ajeno. Los que no tienen sucursal —si algún día
+// los hay— sí pasan, que para eso están, y eso lo decide el `WHERE` de `ObtenerVehiculo`.
+//
+// El mensaje es el mismo de `rutas.go` a propósito: «no existe» y «no es de tu sucursal»
+// se contestan igual, porque distinguirlos ya es contar algo.
+func vehiculoDelCuerpo(w http.ResponseWriter, r *http.Request, a *alcance.Acotado, v httpx.Opcional[string]) (pgtype.UUID, bool) {
 	crudo := strings.TrimSpace(v.Con(""))
 	if crudo == "" {
 		return pgtype.UUID{}, true
@@ -1350,6 +1626,14 @@ func vehiculoDelCuerpo(w http.ResponseWriter, r *http.Request, v httpx.Opcional[
 	if err != nil {
 		httpx.Error(w, r, http.StatusBadRequest,
 			fmt.Sprintf("«%s» no es el id de un vehículo", crudo))
+		return pgtype.UUID{}, false
+	}
+	if _, err := a.ObtenerVehiculo(r.Context(), id); errors.Is(err, pgx.ErrNoRows) {
+		httpx.Error(w, r, http.StatusBadRequest,
+			fmt.Sprintf("No existe el vehículo '%s'", crudo))
+		return pgtype.UUID{}, false
+	} else if err != nil {
+		httpx.ErrorInterno(w, r, err)
 		return pgtype.UUID{}, false
 	}
 	return pgDe(id), true
