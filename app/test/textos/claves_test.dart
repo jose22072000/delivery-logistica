@@ -125,16 +125,32 @@ void main() {
     });
   });
 
+  // EL PATRÓN NO VIAJA EN ESTE REPOSITORIO, Y HAY QUE DECIRLO EN VOZ ALTA.
+  //
+  // Este grupo lee el fichero de la de Next, que vive en el repositorio de al
+  // lado (`../../delivery`). En una máquina de trabajo está y la comprobación
+  // corre; dentro de la imagen de Docker **no existe ni va a existir**, y el
+  // grupo reventaba al declararse — se llevó por delante el despliegue de la web
+  // del 17/09/2026, con 852 pruebas verdes y estas 3 en rojo.
+  //
+  // Se salta con `skip:` y NO con un `if` que lo haga desaparecer: un `if` deja
+  // el fichero en verde fingiendo que comprobó algo. `skip` sale impreso, con su
+  // motivo, y quien mire el registro del build ve que esta comprobación no se
+  // hizo ahí y dónde sí se hace. Es la regla de la casa: nada se descarta en
+  // silencio.
+  final hayPatron = File(_fuenteNext).existsSync();
+
   group('el traslado desde la de Next está completo', () {
     // Las claves originales, leídas del propio fichero de Next. Es la única
     // forma de que esto siga siendo verdad cuando alguien añada una allí.
-    final crudo = File(_fuenteNext).readAsStringSync();
+    final crudo = hayPatron ? File(_fuenteNext).readAsStringSync() : '';
     final original = RegExp(r"^\s*'([a-zA-Z]+\.[a-zA-Z0-9_.]+)':\s*'")
         .allMatches(
           RegExp(
             r'const es: Dict = \{\n(.*?)\n\}\n',
             dotAll: true,
-          ).firstMatch(crudo)!.group(1)!,
+          ).firstMatch(crudo)?.group(1) ??
+              '',
         )
         .map((m) => m.group(1)!)
         .toSet();
@@ -184,5 +200,9 @@ void main() {
         expect(desc, isNot(contains('en delivery/src/lib/i18n.ts')));
       }
     });
-  });
+  }, skip: hayPatron
+      ? null
+      : 'no está «$_fuenteNext»: la de Next vive en el repositorio de al lado y '
+            'no viaja en la imagen. Esta paridad se comprueba en la máquina de '
+            'trabajo, con los dos repos clonados.');
 }
