@@ -11,6 +11,7 @@ import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/pantallas/sincronizacion/datos/panel_sincronizacion.dart';
 import 'package:reparto/pantallas/sincronizacion/registro.dart';
+import 'package:reparto/pantallas/sincronizacion/vista/pantalla_sincronizacion.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 import 'apoyo_sincronizacion.dart';
@@ -57,7 +58,12 @@ void main() {
         child: RepartoApp(
           enrutador: crearEnrutador(
             pantallas: [registrarSincronizacion()],
-            inicial: '/sync',
+            // La constante, NO el literal. Copiar aqui la direccion que se
+            // quiere probar es no probarla: cuando la pantalla se movio de
+            // `/sync` —que en el servidor es del proxy, no de la
+            // aplicacion— esta prueba habria seguido verde sobre una
+            // direccion que ya no existia.
+            inicial: PantallaSincronizacion.ruta,
           ),
         ),
       ),

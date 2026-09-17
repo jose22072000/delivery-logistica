@@ -142,7 +142,7 @@ final entregarElDiaProvider = NotifierProvider<EntregarElDia, LoQueSeEntrego?>(
 
 /// LOS RECHAZADOS que esperan a que una persona decida.
 ///
-/// Sale de la cola local y no del panel de `/sync`: el panel es lo que ve quien
+/// Sale de la cola local y no del panel de `/sincronizacion`: el panel es lo que ve quien
 /// vigila los diez aparatos, y esto es lo que tiene que ver **el logistico de
 /// este telefono**, tambien sin conexion.
 final rechazadosProvider = StreamProvider<List<Apunte>>(

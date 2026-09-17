@@ -6,6 +6,9 @@
 // pedidos que todavia no bajaron.
 
 import 'package:flutter/material.dart';
+import '../../../nucleo/frescura/reloj_de_datos.dart';
+import '../../../nucleo/frescura/primera_bajada.dart';
+import '../../../nucleo/plataforma.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
@@ -40,11 +43,30 @@ class CajonDetallePedido extends ConsumerWidget {
       ),
       data: (ficha) {
         if (ficha == null) {
-          return const Cajon(
-            titulo: 'No está en el aparato',
+          // LA ULTIMA FRASE DEL APARATO QUE QUEDABA SUELTA EN LA WEB.
+          //
+          // «No esta en el aparato» y «Con conexion baja sola» son dos de las
+          // cinco que Jose lleva seis veces pidiendo que desaparezcan, y aqui no
+          // habia ninguna guarda. Camino estrecho —se abre la ficha de un pedido
+          // que ya no esta en la base en ese instante— pero es la frase literal.
+          //
+          // Y en la web el motivo real es otro: la base nace vacia en cada carga,
+          // asi que o todavia esta bajando, o la bajada no llego.
+          return Cajon(
+            titulo: Destino.trabajaSinConexion
+                ? 'No está en el aparato'
+                : 'No se encontró el pedido',
             cuerpo: EstadoVacio(
-              'Esta pantalla no se ha descargado todavía. '
-              'Con conexión baja sola.',
+              switch (ref.watch(porQueEstaVacioProvider)) {
+                PorQueEstaVacio.noSeDescargo =>
+                  SinDescargar.textoDeLaPantallaVacia,
+                PorQueEstaVacio.todaviaBajando => TextosDeLaWeb.cargando(
+                  'el pedido',
+                ),
+                PorQueEstaVacio.noPudoBajar => TextosDeLaWeb.noPudoBajar(
+                  'los pedidos',
+                ),
+              },
             ),
           );
         }

@@ -63,13 +63,15 @@ class ColumnaDelTablero extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // La cabecera se arrastra: es como se reordena el tablero. Va en
-            // pulsacion larga, igual que las tarjetas, para no comerse el
-            // desplazamiento lateral de la tira en un telefono. Quien no quiera
-            // arrastrar tiene «mover a la izquierda / derecha» en el menu.
-            LongPressDraggable<ColumnaArrastrada>(
-              data: ColumnaArrastrada(columna.id),
-              delay: const Duration(milliseconds: 250),
+            // La cabecera se arrastra: es como se reordena el tablero. Igual
+            // que las tarjetas, el gesto lo decide el PUNTERO: del tiron con
+            // raton o lapiz, con pulsacion larga con el dedo, que es lo que
+            // evita comerse el desplazamiento lateral de la tira en un
+            // telefono. El porque esta en `ArrastrableSegunPuntero`
+            // (`kit.dart`). Quien no quiera arrastrar tiene «mover a la
+            // izquierda / derecha» en el menu.
+            ArrastrableSegunPuntero<ColumnaArrastrada>(
+              datos: ColumnaArrastrada(columna.id),
               feedback: Material(
                 elevation: 8,
                 borderRadius: BorderRadius.circular(10),

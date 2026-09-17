@@ -150,8 +150,17 @@ final renglonesDeParadasProvider =
       ]);
     });
 
-final rutasDescargadasProvider = FutureProvider<bool>(
-  (ref) => ref.watch(frescuraProvider).seDescargo(Colecciones.rutas),
+/// ¿Se bajaron las rutas alguna vez?
+///
+/// **Stream y no Future**, por lo mismo que en `pedidosDescargadosProvider`: una
+/// sola respuesta se toma con la base vacia —que en la web es siempre, porque
+/// arranca vacia en cada carga— y deja la pantalla clavada en «Esta pantalla no
+/// se ha descargado todavia» aunque las rutas lleguen dos segundos despues.
+final rutasDescargadasProvider = StreamProvider<bool>(
+  (ref) => ref
+      .watch(frescuraProvider)
+      .mirar(Colecciones.rutas)
+      .map((fila) => fila?.bajadaAt != null),
 );
 
 /// Los filtros del paso 4 del asistente. Van como valor con `==` porque son el

@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart' show TableUpdateQuery;
+
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -12,6 +13,7 @@ import 'base/base.dart';
 import 'cola/cola_salida.dart';
 import 'cola/provisionales.dart';
 import 'frescura/frescura.dart';
+import 'frescura/primera_bajada.dart';
 import 'identidad/almacen_sesion.dart';
 import 'identidad/renovador.dart';
 import 'plataforma.dart';
@@ -221,9 +223,7 @@ class SucursalMirada extends Notifier<String?> {
     // numeros de la otra sucursal, y una escritura en disco no puede meterse
     // por medio. Si falla, lo peor que pasa es que el proximo arranque abra
     // donde abria antes.
-    unawaited(
-      _guardar(ClaveDePreferencia.sucursalMirada, sucursalId),
-    );
+    unawaited(_guardar(ClaveDePreferencia.sucursalMirada, sucursalId));
   }
 
   /// Vuelve a poner lo ultimo que se eligio. Se llama al entrar, con la base de
@@ -497,9 +497,30 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
     },
     alAvanzar: (avance) =>
         ref.read(marchaDelCicloProvider.notifier).avanza(avance),
-    alAcabar: (resumen) =>
-        ref.read(saludDeLaRedProvider.notifier).anotar(resumen),
+    alAcabar: ref.watch(alAcabarElCicloProvider),
   ),
+);
+
+/// LO QUE SE ANOTA CUANDO UN CICLO ACABA. **Son dos, y las dos hacen falta.**
+///
+/// Va como provider con nombre y no como una lambda dentro de [cicloProvider]
+/// por el mismo motivo que `haySesionParaSincronizar`: escrito a pelo ahi
+/// dentro no hay forma de probarlo sin montar el ciclo entero —con su red, su
+/// sesion y su portero—, y lo que no se puede probar se queda a medias sin que
+/// nadie lo note.
+///
+///  * **La salud de la red** decide lo que dice la franja de arriba.
+///  * **La primera bajada** es lo que hace que la web deje de decir «cargando».
+///    Da igual si el ciclo salio bien o mal: lo que este aviso cierra es el
+///    «todavia no se sabe» con el que nace la web en cada carga de la pagina
+///    (`frescura/primera_bajada.dart`). Sin esto, una bajada que falla de verdad
+///    dejaria una rueda girando sin fin — que es peor que el mensaje falso que
+///    todo esto vino a quitar.
+final alAcabarElCicloProvider = Provider<void Function(ResumenDelCiclo)>(
+  (ref) => (resumen) {
+    ref.read(saludDeLaRedProvider.notifier).anotar(resumen);
+    ref.read(primeraBajadaProvider.notifier).anotar(resumen);
+  },
 );
 
 /// LO QUE CAMBIO EN EL SERVIDOR, para quien quiera enterarse. UN solo canal.
@@ -520,12 +541,81 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
 /// Asi que el canal funcionaba —el servidor registraba la conexion abierta— y en
 /// la pantalla no pasaba nada. Se comprobo con el telefono delante: la zona subia
 /// con un 201 y la web seguia igual hasta que pasaba el temporizador.
+/// COMO SE ABRE EL CANAL. Se pasa por un proveedor para poder cambiarlo en una
+/// prueba: la funcion de verdad va contra `Entorno.apiUrl`, que es una constante
+/// de compilacion y no se puede sustituir.
+final escuchaDeEventosProvider = Provider<EscuchaDeEventos>(
+  (ref) => escucharEventos,
+);
+
 final avisosDelServidorProvider = Provider<Stream<String>>((ref) {
-  final canal = escucharEventos(
-    Entorno.apiUrl,
-    () async => (await ref.read(almacenSesionProvider).leer())?.token,
-  ).asBroadcastStream();
-  return canal;
+  // ## SE ABRE AL PRIMER OYENTE Y SE VUELVE A ABRIR SI VUELVEN — 17/09/2026
+  //
+  // Antes esto era `escucharEventos(…).asBroadcastStream()`, y tenia un agujero
+  // que no se ve hasta que alguien sale y vuelve a entrar **sin cerrar la
+  // aplicacion**: al cerrar sesion el vigia cancela su suscripcion, el
+  // `asBroadcastStream` suelta la de abajo, y al volver a entrar el proveedor —
+  // que es el mismo objeto, un `Provider` no se reconstruye— devuelve el mismo
+  // stream, que ya **no vuelve a abrir nada**. Ni error, ni aviso: la pantalla
+  // se queda con el temporizador, cinco minutos en el aparato, y nadie sabe por
+  // que. Comprobado: re-escuchar no lanza, simplemente no llama a `onListen`.
+  //
+  // Con un controlador de difusion el ciclo se cierra bien: al primer oyente se
+  // abre el canal, al ultimo que se va se suelta —conexion incluida— y si
+  // vuelven se abre otra vez.
+  StreamSubscription<String>? fuente;
+  final control = StreamController<String>.broadcast();
+  control
+    ..onListen = () {
+      fuente = ref
+          .read(escuchaDeEventosProvider)(
+            Entorno.apiUrl,
+            () async => (await ref.read(almacenSesionProvider).leer())?.token,
+            // QUE UN 401 NO MATE EL CANAL PARA TODA LA SESION — 17/09/2026
+            //
+            // El token de acceso dura quince minutos. Sin esto, el primer 401 del
+            // canal lo cerraba hasta que alguien cerrara y volviera a abrir la
+            // aplicacion — y en el registro de produccion hay `401 GET
+            // /api/eventos` de verdad.
+            //
+            // Es el `Renovador` de siempre, con su candado de una sola renovacion
+            // en vuelo: si el ciclo esta renovando en este mismo instante, esta
+            // llamada reutiliza su resultado en vez de gastar otro refresh. Los
+            // frenos para que esto no sea un bucle estan en `red/eventos_io.dart`.
+            renovarSesion: () async {
+              final guardada = await ref.read(almacenSesionProvider).leer();
+              if (guardada == null) {
+                // Sin par guardado no hay nada que renovar desde aqui. Lanzar es
+                // lo que cierra el canal, que es justo lo que toca.
+                throw const SesionMuerta(
+                  '401 en el canal de eventos y no hay sesión que renovar',
+                );
+              }
+              await ref.read(renovadorProvider).renovar(guardada);
+            },
+          )
+          .listen(
+            control.add,
+            // El canal no lanza nunca, pero si algun dia lanzara no puede
+            // tumbar al vigia: queda el temporizador.
+            onError: (Object e) =>
+                Registro.aviso('canal de eventos: se cayó el canal: $e'),
+            cancelOnError: false,
+          );
+    }
+    ..onCancel = () async {
+      // NO QUEDA NADA VIVO cuando se va el ultimo: ni la suscripcion ni la
+      // conexion que hay debajo.
+      final s = fuente;
+      fuente = null;
+      await s?.cancel();
+    };
+  ref.onDispose(() {
+    unawaited(fuente?.cancel());
+    fuente = null;
+    unawaited(control.close());
+  });
+  return control.stream;
 });
 
 /// EL VIGIA: el aviso de red y el reloj. Lo arranca y lo para `app.dart` segun
@@ -538,10 +628,9 @@ final vigiaProvider = Provider<VigiaDeSincronizacion>((ref) {
     // gesto, lo escriba quien lo escriba, y la cola no tiene que saber nada del
     // ciclo —que ademas seria un ciclo de dependencias, porque el ciclo necesita
     // la cola—.
-    avisosDeLaCola: () =>
-        ref.read(baseProvider).tableUpdates(TableUpdateQuery.onTable(
-          ref.read(baseProvider).apuntes,
-        )),
+    avisosDeLaCola: () => ref
+        .read(baseProvider)
+        .tableUpdates(TableUpdateQuery.onTable(ref.read(baseProvider).apuntes)),
     // EL CANAL EN VIVO. Lo que cambia en el servidor se sabe en cuanto cambia, en
     // vez de esperar al reloj —dos minutos en la web, cinco en la APK—.
     //

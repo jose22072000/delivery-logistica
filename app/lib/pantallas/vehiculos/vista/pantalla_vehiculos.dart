@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/frescura/copia_bajada.dart';
+import 'package:reparto/nucleo/plataforma.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
 import '../../../diseno/cajon.dart';
@@ -219,7 +220,16 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
               // contestar la pregunta que de verdad importa: si el aparato
               // bajo la flota alguna vez o no la ha bajado nunca. Son dos
               // situaciones que hoy se ven iguales y se arreglan al reves.
-              enElAparato: ref.watch(flotaEnElAparatoProvider).value,
+              //
+              // **En la web, nada de esto.** Alli la base nace vacia en cada
+              // carga de la pagina, asi que «este aparato no ha descargado la
+              // flota todavia» es verdad siempre y no significa nada: ni hay
+              // aparato al que traerle el dia ni copia del lunes con la que
+              // armar una ruta (`nucleo/plataforma.dart`, regla 1).
+              enElAparato: ref.watch(trabajaSinConexionProvider)
+                  ? ref.watch(flotaEnElAparatoProvider).value
+                  : null,
+              enWeb: !ref.watch(trabajaSinConexionProvider),
               alReintentar: () => ref.invalidate(vehiculosProvider),
             )
           else if (lista.value case final vehiculos?)
@@ -255,19 +265,34 @@ class _Fallo extends StatelessWidget {
     required this.fallo,
     required this.alReintentar,
     this.enElAparato,
+    this.enWeb = false,
   });
 
   final Object fallo;
   final VoidCallback alReintentar;
 
-  /// Lo que la bajada del dia dejo en la base. `null` mientras se mira.
+  /// Lo que la bajada del dia dejo en la base. `null` mientras se mira, y
+  /// siempre `null` en la web: alli no hay copia de la que hablar.
   final CopiaBajada? enElAparato;
+
+  /// Si esto se esta viendo en un navegador. Cambia las PALABRAS, no la regla:
+  /// el fallo se cuenta igual, pero sin mandar a mirar una señal que quien esta
+  /// sentado en la oficina ya tiene (`nucleo/plataforma.dart`, `TextosDeCaida`).
+  final bool enWeb;
 
   @override
   Widget build(BuildContext context) {
     final texto = switch (fallo) {
       // Literal NUEVO: dice que es de ahora y que no se guarda nada aqui, para
       // que nadie se ponga a dar de alta camiones que no van a existir.
+      //
+      // En la web el titular cambia entero: si la pagina cargo, conexion hay, y
+      // el que no contesta es el servidor. Mandar a mirar la señal a quien esta
+      // en la oficina es mandarlo a mirar donde no es.
+      FalloDeRed() when enWeb =>
+        'El servidor no contesta. La página cargó, así que conexión hay: el '
+            'que no responde es el servidor. Prueba otra vez y, si sigue '
+            'igual, avisa a la oficina.',
       FalloDeRed() =>
         'Sin conexión. Los vehículos se configuran con conexión: aquí no se '
             'guarda nada en el aparato. Vuelve a intentarlo cuando haya red.',

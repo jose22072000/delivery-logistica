@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../diseno/colores.dart';
+import '../plataforma.dart';
 
 import 'package:intl/intl.dart';
 
@@ -134,6 +135,31 @@ class RelojDeDatos extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // EN LA WEB ESTO NO PINTA NADA, Y ES LA REGLA 1 — 17/09/2026.
+    //
+    // Este reloj dice dos cosas: de que hora es **tu copia** y cuanto te queda
+    // **sin subir**. Las dos son del mundo de no tener senal. En un navegador no
+    // hay copia que pueda envejecer ni cola que pueda atascarse: se lee del
+    // servidor y lo que se hace sale en el momento.
+    //
+    // Asi que ahi «Datos de las 10:36» no informa de nada — y el dia que la
+    // marca se quede atras por cualquier motivo, informa de algo FALSO, que es
+    // peor.
+    //
+    // Va aqui y no en las siete pantallas que lo llaman a proposito: en siete
+    // sitios se olvida uno, y el que se olvide es el que vera Jose. Van ya cinco
+    // veces que hay que repetirselo: «la web siempre esta en linea, nunca se
+    // desconecta; quita todo lo que tenga que ver con eso».
+    //
+    // Lo que SI se queda en la web es la pantalla de Sincronizacion, que es otra
+    // cosa: no habla de esta maquina, habla de **los telefonos**, y existe para
+    // ver desde el servidor cual lleva sin subir y desde cuando.
+    //
+    // Se lee `Destino` y no un provider a proposito: es un booleano de
+    // plataforma, no arrastra medio arbol a una prueba de widget, y
+    // `Destino.comoSiFueraWeb` deja probar los dos lados.
+    if (!Destino.trabajaSinConexion) return const SizedBox.shrink();
+
     final tema = Theme.of(context);
     final color = estado.enAmbar ? Colores.ambar : Colores.tintaSuave;
 

@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../nucleo/plataforma.dart';
 import '../diseno/anchos.dart';
 import '../diseno/cajon.dart';
 import '../diseno/colores.dart';
@@ -522,15 +523,35 @@ class _Salir extends ConsumerWidget {
     if (pendientes > 0) {
       // Trabajo sin subir: se dice CUANTO y se pregunta. Salir lo borraria del
       // aparato sin que nadie lo hubiera visto nunca en el servidor.
+      //
+      // ## Las mismas cuentas, dos textos, porque NO SON LO MISMO — 17/09/2026
+      //
+      // En la APK esto es trabajo de una jornada sin señal esperando a que haya
+      // red: por eso se dice «conecta y espera», que es lo que hay que hacer.
+      //
+      // En la web no hay jornada sin señal que esperar. La cola ahí es un sitio
+      // de paso —cada gesto sale en el momento—, así que si queda algo dentro no
+      // es trabajo guardado: es un cambio que **no se pudo guardar**. Decirle a
+      // quien está en un navegador «conecta y espera a que suba» es mandarle a
+      // hacer algo que ya está hecho, y encima le hace pensar que la web guarda
+      // cosas por su cuenta. Regla 1 del CLAUDE.md.
+      final enLaWeb = !Destino.trabajaSinConexion;
+      final cuantos = '$pendientes ${pendientes == 1 ? "cambio" : "cambios"}';
       final sigue = await showDialog<bool>(
         context: context,
         builder: (contexto) => AlertDialog(
-          title: const Text('Queda trabajo sin subir'),
+          title: Text(
+            enLaWeb ? 'Hay cambios sin guardar' : 'Queda trabajo sin subir',
+          ),
           content: Text(
-            'Hay $pendientes ${pendientes == 1 ? "apunte" : "apuntes"} sin '
-            'subir al servidor. Si sales ahora se borra lo de este aparato y '
-            'ese trabajo se pierde.\n\nConecta y espera a que suba antes de '
-            'salir.',
+            enLaWeb
+                ? 'Hay $cuantos que no llegaron al servidor. Si sales ahora se '
+                      'pierden.\n\nVuelve a intentarlo desde la pantalla donde '
+                      'los hiciste.'
+                : 'Hay $pendientes ${pendientes == 1 ? "apunte" : "apuntes"} sin '
+                      'subir al servidor. Si sales ahora se borra lo de este '
+                      'aparato y ese trabajo se pierde.\n\nConecta y espera a '
+                      'que suba antes de salir.',
           ),
           actions: [
             TextButton(

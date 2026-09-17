@@ -21,6 +21,7 @@ import '../../../impresion/hoja.dart' as papel;
 import '../../../impresion/pre_despacho.dart' show pdfPreDespacho;
 import '../../../impresion/vista_previa.dart';
 import '../../../nucleo/base/base.dart';
+import '../../../nucleo/frescura/primera_bajada.dart';
 import '../../../nucleo/frescura/reloj_de_datos.dart';
 import '../../../nucleo/proveedores.dart';
 import '../datos/filtros_pedidos.dart';
@@ -122,8 +123,28 @@ class PantallaPedidos extends ConsumerWidget {
                         ref.read(filtrosPedidosProvider.notifier).irAPagina(n),
                   )
                 : null,
+            // EN LA WEB SON TRES CASOS, NO UNO — 17/09/2026.
+            //
+            // Esta pantalla se quedó fuera de la pasada que separó los tres, y
+            // era **la que Jose nombró**: en la web salía «Esta pantalla no se
+            // ha descargado todavía. Con conexión baja sola» en cada carga,
+            // porque su base nace vacía. Dos de las frases que él lleva todo el
+            // día pidiendo que desaparezcan, en la pantalla de la queja.
             child: descargados.value == false
-                ? const EstadoVacio(SinDescargar.textoDeLaPantallaVacia)
+                ? switch (ref.watch(porQueEstaVacioProvider)) {
+                    // El aparato: ahí «no se ha descargado» es un estado real.
+                    PorQueEstaVacio.noSeDescargo => const EstadoVacio(
+                      SinDescargar.textoDeLaPantallaVacia,
+                    ),
+                    // La web, el primer segundo: cargando y sin acusar a nadie.
+                    PorQueEstaVacio.todaviaBajando => EstadoVacio(
+                      TextosDeLaWeb.cargando('los pedidos'),
+                    ),
+                    // Y si no llegó, se dice y se deja entrar.
+                    PorQueEstaVacio.noPudoBajar => EstadoVacio(
+                      TextosDeLaWeb.noPudoBajar('los pedidos'),
+                    ),
+                  }
                 : _Cuerpo(filtros: filtros, pagina: pagina, total: total),
           ),
         ],

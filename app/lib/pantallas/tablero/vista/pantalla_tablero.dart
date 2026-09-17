@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../nucleo/plataforma.dart';
 
 import '../datos/modelos.dart';
 import '../estado/filtros_en_la_url.dart';
@@ -356,6 +357,21 @@ class _BarraDeArriba extends ConsumerWidget {
                 // mitad que faltaba. Callarselo dejaba a quien pulsaba sin saber
                 // si es que no habia cambios o que se estaba protegiendo su
                 // trabajo.
+                // EL GESTO QUE NO LLEGÓ AL SERVIDOR. Sólo en la web, donde
+                // no hay cola que lo guarde para luego: si no subió, no está.
+                // Va el PRIMERO de la franja porque es lo único de aquí que
+                // exige hacer algo ahora mismo.
+                // `watch` y no `read`: el rechazo llega DESPUES, con la
+                // pantalla ya abierta, y con `read` no se repintaba nunca.
+                if (ref.watch(loQueElServidorRechazoProvider).value
+                    case final fallo?)
+                  Text(
+                    fallo,
+                    style: tema.textTheme.labelMedium?.copyWith(
+                      color: ColoresTablero.ambar,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 if (ref
                         .read(tableroProvider.notifier)
                         .porQueNoSeRefresca
@@ -368,7 +384,15 @@ class _BarraDeArriba extends ConsumerWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   )
-                else
+                // «Visto por ultima vez a las 10:41» — SOLO DONDE HAY UNA
+                // COPIA QUE PUEDA ENVEJECER, o sea en la APK y el escritorio.
+                //
+                // En la web el tablero sale del servidor y se repinta solo en
+                // cuanto algo cambia, asi que esa hora no avisa de nada: es la
+                // hora de hace un segundo, puesta ahi para siempre. Y «Sin
+                // descargar todavia» es directamente falso en un navegador.
+                // Regla 1 del CLAUDE.md, y van cinco veces.
+                else if (Destino.trabajaSinConexion)
                   Text(
                     tablero.vistoAt == null
                         ? 'Sin descargar todavía'

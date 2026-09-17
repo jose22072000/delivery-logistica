@@ -125,6 +125,10 @@ class ServicioTablero {
         .whereType<Map<String, Object?>>()
         .toList();
 
+    // Fuera de la transaccion para poder devolverlo: lo de dentro se descarta si
+    // algo revienta, y entonces no hay nada que reintentar.
+    var sinPedido = 0;
+
     await _base.transaction(() async {
       // Las colocaciones ANTES que las columnas: `ON DELETE RESTRICT` no deja
       // borrar una columna con tarjetas dentro, y eso es lo que se quiere en
@@ -194,6 +198,7 @@ class ServicioTablero {
           'tablero: $huerfanas tarjetas de pedidos que este aparato no tiene',
         );
       }
+      sinPedido = huerfanas;
     });
 
     // La hora del SERVIDOR, tal cual vino: es la que se ensena como «visto por
@@ -211,7 +216,7 @@ class ServicioTablero {
       );
     }
     EsquemaTablero.avisarDeCambio(_base);
-    return const ResultadoDeBajarElTablero.bajado();
+    return ResultadoDeBajarElTablero.bajado(tarjetasSinPedido: sinPedido);
   }
 
   /// La marca del servidor, pasada al formato en el que guarda las fechas el
@@ -267,12 +272,37 @@ class ServicioTablero {
 /// delante pulsaba actualizar, no pasaba nada, y no habia forma de saber si era
 /// que no habia cambios o que la aplicacion se estaba negando.
 class ResultadoDeBajarElTablero {
-  const ResultadoDeBajarElTablero.bajado() : porQue = null;
+  const ResultadoDeBajarElTablero.bajado({this.tarjetasSinPedido = 0})
+    : porQue = null;
 
-  const ResultadoDeBajarElTablero.esperando(String this.porQue);
+  const ResultadoDeBajarElTablero.esperando(String this.porQue)
+    : tarjetasSinPedido = 0;
 
   /// `null` cuando se bajo. Con texto, lo que hay aqui y no esta arriba.
   final String? porQue;
+
+  /// CUANTAS TARJETAS TRAJO EL SERVIDOR QUE NO SE PUDIERON PONER — 17/09/2026.
+  ///
+  /// Una colocacion apunta a un pedido (`order_id REFERENCES orders(id)`), asi
+  /// que no se puede escribir si ese pedido todavia no esta en esta base. Eso se
+  /// contaba en una variable local y se escribia en el registro, donde no lo lee
+  /// nadie.
+  ///
+  /// Y no era un caso raro: es lo que pasa en la web CADA VEZ que se abre.
+  /// Su base nace vacia; el tablero pide `/board` nada mas pintarse y los
+  /// pedidos llegan despues, por el ciclo, que es otro camino. Asi que las
+  /// tarjetas llegan primero y se tiran todas. Luego llegan los pedidos, el
+  /// tablero **ya no vuelve a bajar** —esta guardado para no bajar dos veces por
+  /// sucursal— y la zona se queda a cero con sus pedidos en «Sin colocar».
+  ///
+  /// Lo vio Jose el 17/09/2026: la zona «Vista» con 6 pedidos en el telefono y
+  /// «Vista (0)» en la web, con las 6 colocaciones bien puestas en el servidor.
+  ///
+  /// Sale por aqui para que quien llama pueda VOLVER A PEDIRLA cuando lleguen
+  /// los pedidos que faltaban. Inventar el pedido con lo que trae la tarjeta no
+  /// vale: quedaria una fila a medias que el resto de la aplicacion leeria como
+  /// un pedido de verdad.
+  final int tarjetasSinPedido;
 
   bool get seBajo => porQue == null;
 }

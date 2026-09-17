@@ -51,7 +51,7 @@ class PantallaPanel extends ConsumerWidget {
         // cifras. **Una sola pieza y no dos botones**: la pantalla ya sabe si
         // toca traer, enviar o solo decir que se esta trabajando sin conexion,
         // y eso es trabajo que no tiene por que hacer el logistico. El porque
-        // de que este aqui y no en `/sync` esta en el propio widget.
+        // de que este aqui y no en `/sincronizacion` esta en el propio widget.
         //
         // **En web no se monta**: alli no hay dia que traer a mano —se
         // sincroniza solo— y «Trabajando sin conexion» es una frase que a quien

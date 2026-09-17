@@ -5,6 +5,7 @@
 // todas las consultas (no se recarga la página)»: como cada provider la mira con
 // `ref.watch`, cambiarla los reconstruye solos y los numeros cambian en el sitio.
 
+import 'package:drift/drift.dart' show TableUpdateQuery;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
@@ -116,11 +117,39 @@ final renglonesDePaginaProvider =
       ]);
     });
 
-final facetasPedidosProvider = FutureProvider<Facetas>(
-  (ref) => ref
-      .watch(consultasPedidosProvider)
-      .facetas(sucursalId: ref.watch(sucursalMiradaProvider)),
-);
+/// Lo que llena los desplegables «Municipio del cliente» y «Vendedor del
+/// pedido», con su cuenta al lado.
+///
+/// ## STREAM, y por el mismo motivo que el de arriba — 17/09/2026
+///
+/// Esto era un `FutureProvider` que sólo miraba la sucursal, o sea que se
+/// resolvía UNA vez y ya. En la web se resolvía siempre con la base vacía, y
+/// entonces pasaba esto: el cartel de «no se ha descargado» se iba solo, la
+/// cabecera pasaba a «299 pedidos», la lista salía… **y los dos desplegables se
+/// quedaban vacíos para siempre**, sólo con «Todos los municipios». No había
+/// forma de filtrar sin recargar.
+///
+/// Lo encontró el auditor justo después de arreglar el cartel: el mismo fallo,
+/// en la misma pantalla, a doce líneas de distancia. Por eso se arreglan los
+/// dos juntos y con la misma forma.
+///
+/// El primer valor sale enseguida —`tableUpdates` no emite al suscribirse, y sin
+/// esto la pantalla arrancaría sin desplegables aunque los datos ya estuvieran—
+/// y a partir de ahí se recalcula con cada escritura en la tabla de pedidos.
+final facetasPedidosProvider = StreamProvider<Facetas>((ref) {
+  final base = ref.watch(baseProvider);
+  final consultas = ref.watch(consultasPedidosProvider);
+  final sucursal = ref.watch(sucursalMiradaProvider);
+
+  Future<Facetas> mirar() => consultas.facetas(sucursalId: sucursal);
+
+  return () async* {
+    yield await mirar();
+    yield* base
+        .tableUpdates(TableUpdateQuery.onTable(base.orders))
+        .asyncMap((_) => mirar());
+  }();
+});
 
 /// El pre-despacho de LO FILTRADO. Se pide sólo cuando se abre el bloque
 /// plegable, igual que en la de Next: sumar doce mil pedidos al pintar la
@@ -149,8 +178,29 @@ final detallePedidoProvider = FutureProvider.family<DetallePedido?, String>(
 ///
 /// Separa «no hay nada» de «no se ha descargado». Una lista vacia sin esta
 /// respuesta es un fallo que se lee como un dato (caso S7).
-final pedidosDescargadosProvider = FutureProvider<bool>(
-  (ref) => ref.watch(frescuraProvider).seDescargo(Colecciones.pedidos),
+///
+/// ## STREAM, no Future — 17/09/2026
+///
+/// Esto era un `FutureProvider`, o sea **una sola respuesta, la del instante en
+/// que la pantalla se pinta por primera vez**. En la APK daba igual: se entra
+/// con el aparato ya configurado y para entonces la marca esta puesta. En la web
+/// la base arranca VACIA en cada carga, asi que la primera respuesta era siempre
+/// «no se descargo» — y como no se volvia a preguntar, se quedaba asi para
+/// siempre.
+///
+/// Lo que se veia, y Jose lo vio: la cabecera diciendo «299 pedidos», el pie
+/// diciendo «Mostrando 1-50 de 299» y en medio «Esta pantalla no se ha
+/// descargado todavia». El total y la pagina son streams y se enteraban de la
+/// bajada; esto no. Tres consultas sobre la misma tabla contando cosas
+/// distintas.
+///
+/// `mirar` vigila la fila de frescura, asi que en cuanto la bajada la marca la
+/// pantalla se rehace sola. Sin recargar, que es la otra cosa que Jose pidio.
+final pedidosDescargadosProvider = StreamProvider<bool>(
+  (ref) => ref
+      .watch(frescuraProvider)
+      .mirar(Colecciones.pedidos)
+      .map((fila) => fila?.bajadaAt != null),
 );
 
 /// El nombre de la sucursal que va en la cabecera de la hoja impresa.

@@ -63,6 +63,34 @@ RUN flutter pub get
 # (app/pubspec.yaml: `generate: true` + l10n.yaml), así que no hace falta traerlo hecho.
 COPY app/ .
 
+# LAS PRUEBAS, ANTES DE CONSTRUIR. Como en `Dockerfile.api` y `Dockerfile.sync`.
+#
+# El 16/09/2026 una mutación de prueba llegó a producción porque el Dockerfile del
+# sincronizador sólo compilaba. Se arregló ahí y en la api, y **aquí se quedó sin
+# arreglar**: la web se construía sin pasar una sola prueba. O sea, el mismo
+# agujero por el que ya se coló una vez, abierto en el otro lado.
+#
+# `analyze` además de `test` porque son cosas distintas: `analyze` caza el código
+# que no compila en un destino aunque las pruebas no lo toquen.
+#
+# `timeout 600` porque un contenedor sin pantalla es más lento que esta máquina, y
+# una prueba colgada no puede dejar el build corriendo para siempre.
+# LOS TEXTOS GENERADOS, ANTES DE ANALIZAR. Sin esto la imagen NO CONSTRUYE.
+#
+# `.dockerignore` excluye `app/lib/textos/generado/` y `lib/textos/textos.dart`
+# lo importa, así que dentro de la imagen ese directorio no existe. Antes daba
+# igual porque el primer mandato tras el `COPY` era `flutter build web`, **y ése
+# sí genera l10n**. `flutter analyze` no: se queda en 11 errores de
+# «Target of URI doesn't exist: 'generado/textos.dart'».
+#
+# O sea: el `analyze` que se añadió aquí para que no se escapara nada habría
+# roto todos los despliegues de la web. Lo cazó el auditor reproduciendo la
+# secuencia del Dockerfile paso a paso, no leyéndola.
+RUN flutter gen-l10n
+
+RUN flutter analyze
+RUN timeout 600 flutter test
+
 # Las tres URL. Los valores por defecto son los de producción, los mismos que están
 # escritos en entorno.dart: si alguien construye sin argumentos, sale la de verdad y no
 # un localhost que en el servidor no existe.

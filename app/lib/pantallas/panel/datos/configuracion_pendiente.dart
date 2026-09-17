@@ -33,6 +33,7 @@ library;
 import 'package:drift/drift.dart';
 
 import '../../../nucleo/base/base.dart';
+import '../../../nucleo/frescura/primera_bajada.dart';
 
 /// Cual de los cuatro. Se usa para probarlos por separado y para que la vista
 /// no tenga que comparar textos.
@@ -89,11 +90,29 @@ class PasoDeConfiguracion {
   /// Donde se arregla cuando [ruta] es `null`.
   final String? dondeSeArregla;
 
-  /// Lo que se lee debajo del titulo segun como este.
-  String get explicacion => switch (como) {
+  /// Lo que se lee debajo del titulo segun como este, **en el aparato**.
+  String get explicacion => explicacionEn(PorQueEstaVacio.noSeDescargo);
+
+  /// Lo mismo, sabiendo POR QUE esta vacia la copia.
+  ///
+  /// Sólo cambia el caso [ComoVa.sinSaber], que es el unico que habla de la
+  /// bajada. Los otros dos son del negocio y se dicen igual en los tres
+  /// destinos: un almacen que falta, falta en el navegador y en el telefono.
+  String explicacionEn(PorQueEstaVacio porQue) => switch (como) {
     ComoVa.hecho => paraQue,
     ComoVa.falta => siFalta,
-    ComoVa.sinSaber => textoSinDescargar,
+    ComoVa.sinSaber => switch (porQue) {
+      PorQueEstaVacio.noSeDescargo => textoSinDescargar,
+      // En la web no hay «aparato» ni gesto de traer el dia: la unica verdad es
+      // que esto no llego.
+      //
+      // Los dos casos de web dicen lo MISMO a proposito, y no es pereza:
+      // mientras la bajada va en camino este paso **no se pinta siquiera**
+      // (`paso_a_paso.dart`), asi que si se llega hasta aqui es porque ya se
+      // dejo de esperar. Un tercer literal seria uno que nadie lee nunca.
+      PorQueEstaVacio.todaviaBajando ||
+      PorQueEstaVacio.noPudoBajar => textoNoLlego,
+    },
   };
 
   /// El literal de «esto no se ha bajado». Es de la pieza, no de la pantalla,
@@ -101,6 +120,13 @@ class PasoDeConfiguracion {
   static const textoSinDescargar =
       'Este aparato no lo ha descargado todavía, así que no se sabe si falta. '
       'Se arregla trayendo el día, no dando nada de alta.';
+
+  /// EL MISMO ESTADO, EN LA WEB. Se dice, sin mandar a nadie a mirar la señal
+  /// ni a traer ningun dia: ninguna de las dos cosas existe en un navegador.
+  static const textoNoLlego =
+      'Esto no se pudo traer, así que no se sabe si falta. No es que no esté '
+      'dado de alta: es que no llegó. Prueba a recargar y, si sigue igual, '
+      'avisa a la oficina.';
 }
 
 /// Los cuatro pasos y la regla de cuando se ensenan.
@@ -120,6 +146,20 @@ class ElPasoAPaso {
 
   /// Nada bajado: el aparato no sabe nada de nada.
   bool get noSeSabeNada => pasos.every((p) => p.como == ComoVa.sinSaber);
+
+  /// Hay algun paso que **no se ha llegado a mirar**.
+  ///
+  /// En el aparato es un estado tranquilo —falta traer el dia—; en la web es el
+  /// segundo que tarda en entrar la primera bajada, y ahi no se puede
+  /// diagnosticar nada todavia. Ver `frescura/primera_bajada.dart`.
+  bool get algoSinMirar => pasos.any((p) => p.como == ComoVa.sinSaber);
+
+  /// Hay algo que de verdad FALTA: se miro y no esta.
+  ///
+  /// Es lo que separa «falta configurar esta sucursal» de «esto todavia no ha
+  /// bajado». Sin esta distincion, un aparato al que sólo le falta una
+  /// coleccion por bajar acusaba a la sucursal de estar a medio configurar.
+  bool get faltaAlgoDeVerdad => pasos.any((p) => p.como == ComoVa.falta);
 
   /// SI SE PINTA O NO. Las dos unicas veces que no:
   ///

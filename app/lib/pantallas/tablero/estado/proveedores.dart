@@ -1,11 +1,13 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart' show TableUpdateQuery;
+import 'package:drift/drift.dart' show OrderingTerm, TableUpdateQuery;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
+import '../../../nucleo/refresco_en_vivo.dart';
 import '../../../nucleo/red/fallos.dart';
+import '../../../nucleo/plataforma.dart';
 import '../../../nucleo/registro/registro.dart';
 import '../datos/consultas.dart';
 import '../datos/esquema.dart';
@@ -60,17 +62,97 @@ class FiltrosTablero extends Notifier<FiltrosSinColocar> {
   void limpiar() => state = const FiltrosSinColocar();
 }
 
+/// LO QUE LA WEB INTENTO GUARDAR Y EL SERVIDOR RECHAZO.
+///
+/// ## Por que existe
+///
+/// En la APK un gesto se escribe aqui, se encola y sube cuando hay señal. Si
+/// tarda no pasa nada: para eso esta la cola, y el reloj de arriba dice «N sin
+/// subir», y ademas hay una bandeja de rechazos. En la web ese reloj se quito
+/// —hablarle de trabajo sin conexion a quien esta en un navegador es mentirle,
+/// regla 1— y quitarlo sin poner nada deja algo peor: la tarjeta se mueve, el
+/// servidor dice que no, y **no se entera nadie** hasta que alguien recarga y
+/// la ve volver a su sitio.
+///
+/// ## Las dos formas en que ya me equivoque aqui, para no repetirlas
+///
+/// 1. **Esperar al ciclo despues de cada gesto y mirar si la cola quedaba
+///    vacia.** Salta en CADA movimiento, porque un apunte esta legitimamente
+///    pendiente el instante que va del gesto a la subida. Un aviso que sale
+///    siempre deja de leerse. Lo unico inequivoco es un apunte **rechazado**:
+///    ahi el servidor contesto que no.
+/// 2. **Calcularlo dentro del notifier, al bajar la foto.** Parecia bien y no
+///    salia NUNCA en el caso real: bajar la foto ocurre al cambiar de sucursal
+///    y con un aviso del canal, y el rechazo llega despues, con la pantalla ya
+///    abierta y sin que nadie vuelva a preguntar. Lo cazo el auditor
+///    ejecutandolo en el orden de la vida real — y mi prueba no lo cazaba
+///    porque sembraba el rechazo ANTES de montar, que es justo la forma que el
+///    `CLAUDE.md` §3-ter prohibe.
+///
+/// Por eso esto es un **stream sobre la tabla**: se entera pase lo que pase y
+/// cuando pase, sin depender de que alguien se acuerde de preguntar.
+///
+/// El motivo va LITERAL, el del servidor: «Ese pedido ya va en otra ruta» le
+/// dice a alguien que hacer; «no se pudo guardar» no le dice nada.
+final loQueElServidorRechazoProvider = StreamProvider<String?>((ref) {
+  // En el aparato esto no sale: alli hay bandeja de rechazos y reloj arriba, y
+  // este seria el tercero diciendo lo mismo.
+  if (Destino.trabajaSinConexion) return Stream<String?>.value(null);
+
+  final base = ref.watch(baseProvider);
+  // La consulta TIPADA y no SQL a mano: `estado` es texto con conversor, no un
+  // numero. Escrito a mano con el indice del enum no casaba ninguna fila y el
+  // aviso no salia nunca — en verde y sin avisar de nada, que es el peor de los
+  // dos fallos posibles aqui.
+  return (base.select(base.apuntes)
+        ..where((a) => a.estado.equalsValue(EstadoApunte.rechazado))
+        ..orderBy([(a) => OrderingTerm.desc(a.orden)])
+        ..limit(1))
+      .watchSingleOrNull()
+      .map((fila) {
+        if (fila == null) return null;
+        final motivo = fila.motivo;
+        return motivo == null || motivo.isEmpty
+            ? 'El servidor no aceptó el último cambio.'
+            : 'El servidor no aceptó el último cambio: $motivo';
+      })
+      .handleError((Object e) {
+        // Que no se pueda leer la bandeja no puede tumbar el tablero.
+        Registro.aviso('tablero: no se pudo mirar si algo fue rechazado: $e');
+      });
+});
+
 final filtrosTableroProvider =
     NotifierProvider<FiltrosTablero, FiltrosSinColocar>(FiltrosTablero.new);
 
 /// Los camiones de la sucursal, para el «camion previsto» de la columna.
-final camionesProvider = FutureProvider<List<Vehiculo>>((ref) async {
-  final sucursalId = await ref.watch(sucursalDelTableroProvider.future);
+///
+/// **Stream y no Future** — 17/09/2026. Era un `FutureProvider` que leia la
+/// flota UNA vez y no lo invalidaba nadie: si se leia antes de que bajaran los
+/// camiones —que en la web es siempre, porque la base nace vacia en cada
+/// carga—, el cajon de «Camion previsto» se quedaba con «Sin camion» toda la
+/// sesion, y aunque la flota llegara dos segundos despues la lista cacheada no
+/// cambiaba.
+///
+/// Es el mismo patron congelado que dejo Pedidos sin sus desplegables y el
+/// tablero sin sus tarjetas. Aqui se corta de raiz: se vigila la tabla.
+final camionesProvider = StreamProvider<List<Vehiculo>>((ref) {
   final base = ref.watch(baseProvider);
-  final todos = await base.select(base.vehicles).get();
-  return todos
-      .where((v) => sucursalId == null || v.branchId == sucursalId)
-      .toList(growable: false);
+
+  Future<List<Vehiculo>> mirar() async {
+    final sucursalId = await ref.read(sucursalDelTableroProvider.future);
+    final todos = await base.select(base.vehicles).get();
+    return todos
+        .where((v) => sucursalId == null || v.branchId == sucursalId)
+        .toList(growable: false);
+  }
+
+  return () async* {
+    yield await mirar();
+    yield* base
+        .tableUpdates(TableUpdateQuery.onTable(base.vehicles))
+        .asyncMap((_) => mirar());
+  }();
 });
 
 /// De cuando son los datos del tablero. Va arriba, con todas las letras: un
@@ -132,6 +214,7 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
       // El aviso de la sucursal anterior se va: «hay 1 zona sin subir» de Holguin
       // no es verdad en el tablero de La Habana.
       _porQueNoSeRefresca = null;
+      _yaSeReintento = false;
       await _traerDelServidor(sucursalId);
     }
 
@@ -153,7 +236,11 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
     // `build` observa.
     final enVivo = ref
         .watch(avisosDelServidorProvider)
-        .where((tipo) => tipo == 'tablero')
+        // La constante, no el literal. Era el ultimo sitio de `app/lib` que
+        // comparaba a mano, y el docstring de `CambioEnVivo` ya lo nombraba
+        // como el motivo por el que se creo — o sea, un comentario que daba por
+        // hecho un cambio que no se habia hecho.
+        .where((tipo) => tipo == CambioEnVivo.tablero)
         .listen((_) async {
           await _traerDelServidor(sucursalId);
           await refrescar();
@@ -183,10 +270,35 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
             TableUpdateQuery.onTable(base.branches),
           ]),
         )
-        .listen((_) => unawaited(refrescar()));
+        .listen((_) => unawaited(_alCambiarLasTablas(sucursalId)));
     ref.onDispose(sub.cancel);
 
     return _leer(sucursalId, filtros);
+  }
+
+  /// Algo cambio en las tablas que pinta el tablero. Casi siempre es repintar y
+  /// ya; la excepcion es la carrera de la web.
+  ///
+  /// **La carrera:** la web abre con la base vacia, el tablero pide `/board`
+  /// nada mas pintarse y los pedidos llegan despues por el ciclo, que es otro
+  /// camino. Las tarjetas llegan primero y se caen todas —una colocacion
+  /// necesita su pedido—, y como la foto no se vuelve a pedir, la zona se queda
+  /// a cero con sus pedidos en «Sin colocar». Eso es lo que vio Jose: «Vista»
+  /// con 6 pedidos en el telefono y «Vista (0)» en la web.
+  ///
+  /// Aqui es donde se cierra: la llegada de los pedidos ES una escritura en la
+  /// tabla `orders`, o sea este mismo aviso. Se vuelve a pedir la foto **una
+  /// sola vez por sucursal**, que es lo que hace falta y no mas.
+  Future<void> _alCambiarLasTablas(String sucursalId) async {
+    if (_faltabanPedidos && !_yaSeReintento) {
+      _yaSeReintento = true;
+      Registro.info(
+        'tablero: la foto traía tarjetas sin pedido y los pedidos ya están; '
+        'se vuelve a pedir',
+      );
+      await _traerDelServidor(sucursalId);
+    }
+    await refrescar();
   }
 
   Future<Tablero> _leer(String sucursalId, FiltrosSinColocar filtros) async {
@@ -241,6 +353,16 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
   /// La sucursal cuya foto ya se pidio. Sin esto, cada filtro era una descarga.
   String? _sucursalYaBajada;
 
+  /// La ultima foto trajo tarjetas que no se pudieron poner: les faltaba el
+  /// pedido. Se vuelve a pedir **una vez**, cuando los pedidos lleguen.
+  bool _faltabanPedidos = false;
+
+  /// Que ya se reintento por esto en esta sucursal. Es el tope: sin el, una
+  /// tarjeta de un pedido que este aparato no va a tener nunca —archivado, de
+  /// otra sucursal— pediria la foto entera con cada escritura de la tabla de
+  /// pedidos, para siempre.
+  bool _yaSeReintento = false;
+
   /// Trae la foto del servidor y **se queda con el porque si no se pudo**.
   ///
   /// ## Lo que se traga y lo que NO — 17/09/2026
@@ -266,6 +388,10 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
       // tiraba el resultado y la barra enseñaba «Visto por última vez a las …»
       // con una hora congelada, como si estuviera al día.
       _porQueNoSeRefresca = r.porQue;
+      // Tarjetas que el servidor mandó y no se pudieron poner porque su pedido
+      // todavía no está en esta base. Se apunta para volver a pedir la foto en
+      // cuanto lleguen; el porqué, en `ResultadoDeBajarElTablero`.
+      _faltabanPedidos = r.tarjetasSinPedido > 0;
     } on FalloDeRed catch (e) {
       _porQueNoSeRefresca = null;
       Registro.info('tablero: sin conexión al abrir, se sigue con lo de aquí ($e)');

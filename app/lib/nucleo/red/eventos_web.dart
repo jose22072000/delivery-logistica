@@ -16,14 +16,51 @@ import '../registro/registro.dart';
 /// `withCredentials` va puesto: en la web la sesion es la cookie del acceso
 /// unico, no un token guardado (`docs/identidad.md`). Sin eso el servidor
 /// contesta 401 y el canal no abre.
+///
+/// ## UN 401 NO MATA EL CANAL PARA TODA LA SESION — 17/09/2026
+///
+/// Esto cerraba el control en cuanto el navegador daba la conexion por fallida, y
+/// de ahi no se volvia: el canal se acababa para lo que quedara de pestaña. Y
+/// pasa de verdad — hay `401 GET /api/eventos` en el registro de produccion—,
+/// porque el token de acceso dura **quince minutos** y aqui tambien se guarda el
+/// par (`almacen_sesion_web.dart`), asi que caduca igual que en la APK.
+///
+/// Se renueva una vez y se vuelve a abrir, con los mismos dos frenos que la APK
+/// (ver `eventos_io.dart`): **una sola renovacion por canal**, y **ninguna si la
+/// sesion no cambia**.
+///
+/// ## Lo que aqui NO se puede saber, y por que aun asi compensa
+///
+/// `EventSource` no dice el codigo. Un `readyState == CLOSED` puede ser un 401 o
+/// un `Content-Type` que no es `text/event-stream`. Con lo de abajo, el caso del
+/// `Content-Type` cuesta **una renovacion y una peticion** de mas y despues se
+/// cierra igual que antes; el caso del 401 —el que esta pasando— recupera el
+/// canal. Y el canal importa: Vehiculos y Almacenes piden a la red y no viven de
+/// la base local, asi que sin canal se quedan clavadas con lo que pintaron al
+/// abrirse, temporizador o no.
 Stream<String> escucharEventos(
   String urlBase,
-  Future<String?> Function() token,
-) {
+  Future<String?> Function() token, {
+  Future<void> Function()? renovarSesion,
+}) {
   final control = StreamController<String>();
   web.EventSource? fuente;
 
-  control.onListen = () async {
+  // Los dos frenos. Se sueltan con el `listo`, que es la unica señal de que la
+  // sesion que llevamos vale de verdad.
+  var yaSeRenovoPorUn401 = false;
+  String? tokenRechazado;
+
+  late Future<void> Function() abrir;
+
+  Future<void> cerrarDelTodo(String motivo) async {
+    Registro.aviso('canal de eventos: $motivo; se sigue con el temporizador');
+    fuente?.close();
+    fuente = null;
+    if (!control.isClosed) await control.close();
+  }
+
+  abrir = () async {
     // EL TOKEN VA POR COOKIE, no por la direccion.
     //
     // `EventSource` no sabe mandar cabeceras, asi que no hay `Authorization`
@@ -38,14 +75,19 @@ Stream<String> escucharEventos(
     //
     // Se llama `token` porque es el nombre que ya lee `auth.DelaPeticion` del
     // reparto — la misma puerta que usan la APK y la web, sin inventar otra.
+    if (control.isClosed) return;
     final t = await token();
     if (t == null || t.isEmpty) {
       Registro.info('canal de eventos: sin sesión todavía, no se abre');
       unawaited(control.close());
       return;
     }
-    web.document.cookie =
-        'token=$t; Path=/; Secure; SameSite=Strict';
+    // FRENO 2: la renovacion no cambio la sesion, asi que no se insiste.
+    if (t == tokenRechazado) {
+      await cerrarDelTodo('el canal se rechaza y la sesión no ha cambiado');
+      return;
+    }
+    web.document.cookie = 'token=$t; Path=/; Secure; SameSite=Strict';
 
     try {
       fuente = web.EventSource(
@@ -59,6 +101,17 @@ Stream<String> escucharEventos(
       unawaited(control.close());
       return;
     }
+
+    // EL `listo` NO SE REENVIA, pero si sirve para algo: es la señal de que la
+    // sesion que llevamos vale. Con el se sueltan los dos frenos, igual que en
+    // la APK.
+    fuente!.addEventListener(
+      'listo',
+      (web.Event _) {
+        yaSeRenovoPorUn401 = false;
+        tokenRechazado = null;
+      }.toJS,
+    );
 
     // El `cambio` es el unico que le dice algo a una pantalla. El `listo` del
     // principio y los latidos son del transporte: sirven para que el navegador
@@ -86,16 +139,51 @@ Stream<String> escucharEventos(
       // temporizador en silencio. El comentario decia que reconectaba solo, y
       // para ese caso era mentira.
       if (fuente?.readyState == web.EventSource.CLOSED) {
-        Registro.aviso(
-          'canal de eventos cerrado por el navegador (401 o cabecera mala): se '
-          'sigue con el temporizador',
+        // Aqui es donde caia el 401. Se renueva UNA vez y se vuelve a abrir; si
+        // vuelve a caer, ya si se cierra para siempre.
+        fuente?.close();
+        fuente = null;
+        if (renovarSesion == null) {
+          unawaited(
+            cerrarDelTodo(
+              'el navegador cerró el canal y no hay con qué renovar',
+            ),
+          );
+          return;
+        }
+        if (yaSeRenovoPorUn401) {
+          // FRENO 1: ya gasto su renovacion y sigue sin abrir. Esto es un 403, un
+          // 404 o una cabecera mala — algo que renovar no arregla.
+          unawaited(
+            cerrarDelTodo(
+              'el navegador cerró el canal con la sesión ya renovada',
+            ),
+          );
+          return;
+        }
+        yaSeRenovoPorUn401 = true;
+        tokenRechazado = t;
+        unawaited(
+          renovarSesion()
+              .then((_) async {
+                if (control.isClosed) return;
+                Registro.info(
+                  'canal de eventos: rechazado, sesión renovada; se vuelve a '
+                  'abrir',
+                );
+                await abrir();
+              })
+              .catchError((Object e) async {
+                await cerrarDelTodo('no se pudo renovar la sesión ($e)');
+              }),
         );
-        unawaited(control.close());
         return;
       }
       Registro.info('canal de eventos: corte, el navegador reconecta solo');
     }.toJS;
   };
+
+  control.onListen = () => unawaited(abrir());
 
   control.onCancel = () {
     fuente?.close();

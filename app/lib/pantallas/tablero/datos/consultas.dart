@@ -46,7 +46,18 @@ class FiltrosSinColocar {
   final bool? conCobroDeDomicilio;
 
   /// El tope de lo que se pinta. `total` dice cuantos hay de verdad.
+  ///
+  /// No es un limite de lo que se puede ver: es cuanto se pinta de una vez, para
+  /// no meter dos mil tarjetas en una lista de golpe. Lo que faltaba era el gesto
+  /// de pedir la siguiente tanda, y sin el los mas lejanos al almacen —que son
+  /// los ultimos de la lista, porque va por cercania— no habia forma de verlos.
   final int limite;
+
+  /// Cuanto sube el tope cada vez que alguien pide ver mas.
+  ///
+  /// El mismo numero que el tope inicial: es lo que ya se sabe que la pantalla
+  /// aguanta pintando de una vez.
+  static const tanda = 200;
 
   FiltrosSinColocar copiaCon({
     DateTime? dia,

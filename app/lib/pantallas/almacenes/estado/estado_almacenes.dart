@@ -1,8 +1,10 @@
+import '../../../nucleo/plataforma.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/frescura/copia_bajada.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
+import 'package:reparto/nucleo/refresco_en_vivo.dart';
 
 import '../datos/almacen_api.dart';
 import '../datos/repositorio_almacenes.dart';
@@ -12,10 +14,18 @@ final repositorioAlmacenesProvider = Provider<RepositorioAlmacenes>(
 );
 
 /// Las sucursales con sus almacenes, tal y como las devuelve Accesos.
+///
+/// Pide a la red en cada visita, asi que **el ciclo de sincronizacion no la
+/// repinta**; y los almacenes son ademas la coleccion que NI SIQUIERA VIAJA en
+/// `GET /api/sync/cambios` —salen en `faltan`— sino en una peticion aparte al
+/// final del ciclo. Sin el aviso en vivo, dos personas configurando el mismo
+/// almacen se pisan sin verse, y el domicilio se cobra por la distancia DESDE
+/// ese punto. Ver `nucleo/refresco_en_vivo.dart`.
 final almacenesProvider = FutureProvider.autoDispose<List<SucursalDeAccesos>>((
   ref,
 ) {
   ref.watch(sucursalMiradaProvider);
+  refrescarConElAviso(ref, const [CambioEnVivo.almacenes]);
   return ref.watch(repositorioAlmacenesProvider).listar();
 });
 
@@ -54,11 +64,15 @@ class AvisoAlmacenes {
   /// Literal NUEVO. Dice lo unico que importa: **no salio del aparato**. El
   /// mensaje bueno, `Guardado en Accesos.`, sólo se puede dar cuando Accesos
   /// contesto; decirlo sin red seria mentir en la pantalla.
-  const AvisoAlmacenes.sinConexion()
-    : texto =
-          'Sin conexión: no se guardó nada en Accesos. Los almacenes se '
-          'configuran con conexión; inténtalo otra vez cuando haya red.',
-      esFallo = true;
+  factory AvisoAlmacenes.sinConexion() => AvisoAlmacenes(
+    Destino.trabajaSinConexion
+        ? 'Sin conexión: no se guardó nada en Accesos. Los almacenes se '
+              'configuran con conexión; inténtalo otra vez cuando haya red.'
+        : 'Sin conexión con Accesos: no se guardó nada. La página cargó, así '
+              'que conexión hay: el que no contesta es Accesos. Prueba otra vez '
+              'y, si sigue igual, avisa a la oficina.',
+    esFallo: true,
+  );
 
   final String texto;
   final bool esFallo;
@@ -88,7 +102,7 @@ class ControlAlmacenes extends Notifier<AvisoAlmacenes?> {
       );
       return true;
     } on FalloDeRed {
-      state = const AvisoAlmacenes.sinConexion();
+      state = AvisoAlmacenes.sinConexion();
       return false;
     } on Rechazo catch (e) {
       // Los mensajes de Accesos son literales y en espanol: `Accesos no aceptó

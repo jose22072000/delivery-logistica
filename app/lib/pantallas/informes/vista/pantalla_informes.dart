@@ -13,6 +13,7 @@ import '../../../diseno/selector.dart';
 import '../../../diseno/tabla_ancha.dart';
 import '../../../diseno/tarjeta.dart';
 import '../../../navegacion/estado_navegacion.dart';
+import '../../../nucleo/frescura/primera_bajada.dart';
 import '../../../nucleo/proveedores.dart';
 import '../datos/consultas_informes.dart';
 import '../estado/informes_estado.dart';
@@ -26,17 +27,42 @@ abstract final class TextosNuevosDeInformes {
       'Cuadrado con los datos del aparato, del $fecha. '
       'Con conexión sale el del servidor.';
 
+  /// LO MISMO, EN LA WEB. Ni «aparato» ni «con conexión»: en un navegador no
+  /// hay aparato del que sacar nada y la conexión la da por hecha la propia
+  /// página, que cargó.
+  ///
+  /// Jose, 17/09/2026, viendo el texto de arriba en `reparto.procovar.cloud`:
+  /// era el mundo de la APK asomando en la web.
+  static String cuadradoConLoQueBajo(String fecha) =>
+      'Cuadrado con lo último que bajó, de las $fecha.';
+
   /// Cuando lo bajado tiene mas de un dia. **Aqui el informe ya no sirve para
   /// cerrar nada**, y hay que decirlo con esas palabras.
   static const noSirveSinEstarAlDia =
       'Estos datos tienen más de un día: el informe no cuadra con el servidor '
       'y no sirve para cerrar. Conéctate y deja que baje.';
 
+  /// Y EN LA WEB. Que los datos tengan un dia en un navegador no se arregla
+  /// conectandose —ya lo esta—: significa que la sincronizacion no esta
+  /// llegando, y eso lo arregla la oficina.
+  static const noSirveSinEstarAlDiaEnWeb =
+      'Estos datos tienen más de un día: el informe no cuadra con el servidor '
+      'y no sirve para cerrar. Recarga la página y, si sigue igual, avisa a la '
+      'oficina.';
+
   /// Cuando no se bajo nunca. No se pinta ninguna tabla: una tabla de ceros se
   /// lee como «no hubo ventas», que es lo contrario de lo que pasa.
   static const sinNadaQueCuadrar =
       'No hay nada descargado todavía, así que no hay nada que cuadrar. '
       'Con conexión baja sola.';
+
+  /// Lo que se dice en la web mientras la primera bajada va en camino.
+  static const cargandoElReporte = 'Cargando reporte...';
+
+  /// Y lo que se dice en la web cuando esa bajada no llego.
+  static final noLlegoElReporte = TextosDeLaWeb.noPudoBajar(
+    'los datos del reporte',
+  );
 }
 
 /// REPORTES (pliego §7). **No esta en el menu**: se llega por URL y desde las
@@ -66,6 +92,13 @@ class PantallaInformes extends ConsumerWidget {
     final sinDescargar = bajada.hasValue && cuando == null;
     final viejo =
         cuando != null && ahora.difference(cuando) > const Duration(hours: 24);
+    // POR QUE ESTA VACIO, que no es lo mismo que «esta vacio».
+    //
+    // En la web la base nace vacia en cada carga de la pagina, asi que el primer
+    // segundo esto decia «No hay nada descargado todavía… Con conexión baja
+    // sola»: dos frases del mundo de la APK delante de alguien sentado en la
+    // oficina con internet, acusando de un problema que no existia.
+    final porQue = ref.watch(porQueEstaVacioProvider);
 
     // `p-3 sm:p-6` de delivery.
     final estrecho = MediaQuery.sizeOf(context).width < Anchos.idioma;
@@ -75,10 +108,29 @@ class PantallaInformes extends ConsumerWidget {
       children: [
         const _Filtros(),
         const SizedBox(height: Aire.lg),
-        _Advertencia(sinDescargar: sinDescargar, viejo: viejo, cuando: cuando),
+        _Advertencia(
+          sinDescargar: sinDescargar,
+          viejo: viejo,
+          cuando: cuando,
+          porQue: porQue,
+        ),
         const SizedBox(height: Aire.lg),
         if (sinDescargar)
-          const PantallaSinDescargar()
+          switch (porQue) {
+            // El aparato: es un estado de verdad y se dice como siempre.
+            PorQueEstaVacio.noSeDescargo => const PantallaSinDescargar(),
+            // La web, el primer segundo: **cargando, y nada mas**. Sin
+            // diagnostico, porque no se ha mirado nada todavia.
+            PorQueEstaVacio.todaviaBajando => const Cargando(
+              TextosNuevosDeInformes.cargandoElReporte,
+            ),
+            // La web cuando la bajada no llego: se dice, y se deja entrar. Los
+            // filtros de arriba siguen ahi y la pagina se puede recargar.
+            PorQueEstaVacio.noPudoBajar => EstadoVacio(
+              TextosNuevosDeInformes.noLlegoElReporte,
+              icono: Icons.cloud_off_outlined,
+            ),
+          }
         else
           switch (informe) {
             AsyncValue<Informe>(:final value?) => _Pestanas(
@@ -103,25 +155,45 @@ class _Advertencia extends StatelessWidget {
     required this.sinDescargar,
     required this.viejo,
     required this.cuando,
+    required this.porQue,
   });
 
   final bool sinDescargar;
   final bool viejo;
   final DateTime? cuando;
+  final PorQueEstaVacio porQue;
 
   @override
   Widget build(BuildContext context) {
+    final enWeb = porQue != PorQueEstaVacio.noSeDescargo;
+
     if (sinDescargar) {
-      return const AvisoAmbar(TextosNuevosDeInformes.sinNadaQueCuadrar);
+      return switch (porQue) {
+        PorQueEstaVacio.noSeDescargo => const AvisoAmbar(
+          TextosNuevosDeInformes.sinNadaQueCuadrar,
+        ),
+        // MIENTRAS BAJA NO SE ACUSA A NADIE. El recuadro ambar de «no hay nada
+        // que cuadrar» delante de alguien cuyos datos entran un segundo despues
+        // es exactamente el mensaje falso del 17/09/2026. Lo que toca es
+        // esperar, y de decirlo se ocupa el cargando de abajo.
+        PorQueEstaVacio.todaviaBajando => const SizedBox.shrink(),
+        PorQueEstaVacio.noPudoBajar => AvisoAmbar(
+          TextosNuevosDeInformes.noLlegoElReporte,
+        ),
+      };
     }
     if (cuando == null) return const SizedBox.shrink();
 
     final fecha = DateFormat('d/M/y, H:mm', 'es').format(cuando!);
-    final texto = TextosNuevosDeInformes.cuadradoConElAparato(fecha);
+    final hora = DateFormat('H:mm', 'es').format(cuando!);
+    final texto = enWeb
+        ? TextosNuevosDeInformes.cuadradoConLoQueBajo(hora)
+        : TextosNuevosDeInformes.cuadradoConElAparato(fecha);
 
     if (viejo) {
       return AvisoAmbar(
-        '$texto\n${TextosNuevosDeInformes.noSirveSinEstarAlDia}',
+        '$texto\n'
+        '${enWeb ? TextosNuevosDeInformes.noSirveSinEstarAlDiaEnWeb : TextosNuevosDeInformes.noSirveSinEstarAlDia}',
       );
     }
     return Text(

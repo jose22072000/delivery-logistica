@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/frescura/copia_bajada.dart';
+import 'package:reparto/nucleo/plataforma.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
 import '../../../diseno/cajon.dart';
@@ -131,7 +132,17 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
               // el almacén está bajado o si este aparato no lo ha visto nunca,
               // y son dos cosas distintas: con la copia se sigue midiendo el
               // domicilio; sin ella no hay desde dónde.
-              enElAparato: ref.watch(almacenesEnElAparatoProvider).value,
+              //
+              // **En la web, nada de esto.** Allí la base nace vacía en cada
+              // carga de la página, así que «este aparato no ha descargado los
+              // almacenes todavía» es verdad siempre y no significa nada: no
+              // hay aparato al que traerle el día ni copia del lunes con la que
+              // seguir midiendo. Contarlo sería acusar de un problema que no
+              // existe (`nucleo/plataforma.dart`, regla 1).
+              enElAparato: ref.watch(trabajaSinConexionProvider)
+                  ? ref.watch(almacenesEnElAparatoProvider).value
+                  : null,
+              enWeb: !ref.watch(trabajaSinConexionProvider),
               alReintentar: () => ref.invalidate(almacenesProvider),
             )
           else if (datos.value case final sucursales?)
@@ -285,13 +296,20 @@ class _Fallo extends StatelessWidget {
     required this.fallo,
     required this.alReintentar,
     this.enElAparato,
+    this.enWeb = false,
   });
 
   final Object fallo;
   final VoidCallback alReintentar;
 
-  /// Lo que la bajada del dia dejo en la base. `null` mientras se mira.
+  /// Lo que la bajada del dia dejo en la base. `null` mientras se mira, y
+  /// siempre `null` en la web: alli no hay copia de la que hablar.
   final CopiaBajada? enElAparato;
+
+  /// Si esto se esta viendo en un navegador. Cambia las PALABRAS, no la regla:
+  /// el fallo se cuenta igual, pero sin mandar a mirar una señal que quien esta
+  /// sentado en la oficina ya tiene (`nucleo/plataforma.dart`, `TextosDeCaida`).
+  final bool enWeb;
 
   @override
   Widget build(BuildContext context) {
@@ -299,6 +317,15 @@ class _Fallo extends StatelessWidget {
       // Literal NUEVO. Lo importante es la segunda frase: aqui no hay copia
       // local que editar, asi que sin red no hay nada que hacer en esta
       // pantalla y mas vale decirlo que dejar a alguien tecleando.
+      //
+      // En la web el titular cambia entero: si la pagina cargo, conexion hay, y
+      // el que no contesta es el servidor. Es el mismo fallo de fondo que el del
+      // 16/09/2026, cuando un CORS mal puesto se contaba como «comprueba la
+      // señal» a alguien que estaba en la oficina.
+      FalloDeRed() when enWeb =>
+        'Accesos no contesta. La página cargó, así que conexión hay: los '
+            'almacenes viven en Accesos y ahora mismo no responde. Prueba otra '
+            'vez y, si sigue igual, avisa a la oficina.',
       FalloDeRed() =>
         'Sin conexión. Los almacenes viven en Accesos y se configuran con '
             'conexión: aquí no se guarda nada en el aparato. Vuelve a '

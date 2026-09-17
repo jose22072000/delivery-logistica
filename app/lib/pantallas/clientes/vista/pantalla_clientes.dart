@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:reparto/nucleo/frescura/primera_bajada.dart';
 import 'package:reparto/nucleo/frescura/reloj_de_datos.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 
@@ -62,6 +63,12 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
     final filtros = ref.watch(filtrosClientesProvider);
     final frescura = ref.watch(frescuraClientesProvider);
     final sinSubir = ref.watch(sinSubirProvider).value ?? 0;
+    // POR QUE ESTA VACIA LA COPIA. En la web la base nace vacia en cada carga de
+    // la pagina, asi que el primer segundo esta pantalla acusaba al servidor de
+    // no haber mandado nada («Esta pantalla no se ha descargado todavía. Con
+    // conexión baja sola») y el reloj de arriba lo repetia en ambar. Las dos
+    // cosas eran mentira: los clientes entraban un segundo despues.
+    final porQue = ref.watch(porQueEstaVacioProvider);
 
     // SIN `Scaffold` propio: lo pone el armazon.
     //
@@ -108,6 +115,7 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
             _Lista(
               datos: datos,
               filtros: filtros,
+              porQue: porQue,
               alIr: (n) =>
                   ref.read(filtrosClientesProvider.notifier).aPagina(n),
             )
@@ -155,6 +163,12 @@ class _Cabecera extends StatelessWidget {
             ),
             // Siempre visible, en las 7 pantallas (caso S8): sin esto, unos
             // datos de anteayer son indistinguibles de unos al dia.
+            //
+            // **En la web no pinta nada, y lo decide el propio widget** — asi
+            // no hay que acordarse en las siete pantallas. Ahi «Sin descargar
+            // todavía» en ámbar, durante el segundo que tarda en entrar la
+            // primera bajada, era el mismo mensaje falso de abajo puesto arriba
+            // del todo y en el color que pide que lo miren.
             RelojDeDatos(estado: estado, sinSubir: sinSubir),
           ],
         ),
@@ -333,21 +347,39 @@ class _Lista extends StatelessWidget {
   const _Lista({
     required this.datos,
     required this.filtros,
+    required this.porQue,
     required this.alIr,
   });
 
   final PaginaClientes datos;
   final FiltrosClientes filtros;
+
+  /// Por que esta vacia la copia: el aparato no la bajo, la web todavia la
+  /// espera, o la web no la pudo traer. Ver `frescura/primera_bajada.dart`.
+  final PorQueEstaVacio porQue;
+
   final ValueChanged<int> alIr;
 
   @override
   Widget build(BuildContext context) {
     if (datos.clientes.isEmpty) {
-      // Tres vacios distintos y se confunden con facilidad. El de «no se ha
-      // descargado» va primero porque es el unico que NO es un dato: es un
-      // fallo disfrazado de lista vacia (caso S7).
+      // Cuatro vacios distintos y se confunden con facilidad. Los de la bajada
+      // van primero porque son los unicos que NO son un dato: son un fallo
+      // disfrazado de lista vacia (caso S7) — o, en la web, ni siquiera eso.
       if (!datos.seDescargo) {
-        return const _Aviso(texto: SinDescargar.textoDeLaPantallaVacia);
+        return switch (porQue) {
+          PorQueEstaVacio.noSeDescargo => const _Aviso(
+            texto: SinDescargar.textoDeLaPantallaVacia,
+          ),
+          // La web, el primer segundo: **cargando y nada mas**. No se acusa a
+          // nadie de nada porque todavia no se ha mirado nada.
+          PorQueEstaVacio.todaviaBajando => const _Aviso(texto: 'Cargando…'),
+          // Y si de verdad no llego, se dice y se deja entrar: los filtros de
+          // arriba siguen puestos y la pagina se puede recargar.
+          PorQueEstaVacio.noPudoBajar => _Aviso(
+            texto: TextosDeLaWeb.noPudoBajar('los clientes'),
+          ),
+        };
       }
       if (filtros.hayQueQuitar ||
           filtros.kmMax != null ||

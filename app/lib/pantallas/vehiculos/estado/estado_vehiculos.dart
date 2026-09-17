@@ -1,8 +1,10 @@
+import '../../../nucleo/plataforma.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/frescura/copia_bajada.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
+import 'package:reparto/nucleo/refresco_en_vivo.dart';
 
 import '../datos/repositorio_vehiculos.dart';
 import '../datos/vehiculo_api.dart';
@@ -13,18 +15,34 @@ final repositorioVehiculosProvider = Provider<RepositorioVehiculos>(
 
 /// La flota. Es una peticion y no un stream sobre la base **porque aqui no hay
 /// base**: lo que se ve es lo que hay en el servidor ahora mismo, o no se ve.
+///
+/// Y por eso mismo **el ciclo de sincronizacion no la repinta**: el ciclo escribe
+/// en la base, y aqui no se lee de la base. Hasta el 17/09/2026 lo unico que
+/// actualizaba esta pantalla era salir de ella y volver a entrar, aunque el aviso
+/// en vivo del servidor estuviera llegando. El mismo fallo del Tablero, en otra
+/// pantalla. Ver `nucleo/refresco_en_vivo.dart`.
 final vehiculosProvider = FutureProvider.autoDispose<List<VehiculoDeLaApi>>((
   ref,
 ) {
   // Al cambiar de sucursal en la barra se vuelve a pedir: el alcance lo
   // resuelve el servidor con la cabecera `x-sucursal-id`.
   ref.watch(sucursalMiradaProvider);
+  refrescarConElAviso(ref, const [CambioEnVivo.vehiculos]);
   return ref.watch(repositorioVehiculosProvider).listar();
 });
 
-final ajustesVehiculosProvider = FutureProvider.autoDispose<AjustesDeLaApi>(
-  (ref) => ref.watch(repositorioVehiculosProvider).ajustes(),
-);
+/// La moneda y el costo por km. Escucha DOS tipos porque la pantalla enseña las
+/// dos cosas: los tipos de vehiculo con su costo (`vehiculos`) y la tasa con la
+/// que se convierten los importes (`ajustes`).
+final ajustesVehiculosProvider = FutureProvider.autoDispose<AjustesDeLaApi>((
+  ref,
+) {
+  refrescarConElAviso(ref, const [
+    CambioEnVivo.ajustes,
+    CambioEnVivo.vehiculos,
+  ]);
+  return ref.watch(repositorioVehiculosProvider).ajustes();
+});
 
 /// LO QUE EL APARATO TIENE BAJADO de la flota.
 ///
@@ -87,11 +105,27 @@ class AvisoVehiculos {
   /// Literal NUEVO (no existe en la de Next): la de Next nunca se queda sin
   /// red porque vive en un navegador con el servidor al lado. Dice dos cosas y
   /// las dos importan: que no hubo red y, sobre todo, **que no se guardo nada**.
-  const AvisoVehiculos.sinConexion()
-    : texto =
-          'Sin conexión: no se guardó nada. Los vehículos se configuran con '
-          'conexión; inténtalo otra vez cuando haya red.',
-      esFallo = true;
+  /// EL MISMO FALLO, DOS TEXTOS, PORQUE NO SE ARREGLA IGUAL — 17/09/2026.
+  ///
+  /// En el aparato «inténtalo otra vez cuando haya red» es lo que hay que
+  /// hacer: se está en el patio de un almacén y la red vuelve sola.
+  ///
+  /// En la web no. Si la página cargó, conexión hay; el que no contesta es el
+  /// servidor, y mandar a mirar la señal a quien está sentado en la oficina es
+  /// mandarlo a mirar donde no es. Es el mismo razonamiento de
+  /// `TextosDeCaida.queHacer`, que ya lo tenía resuelto para la puerta.
+  ///
+  /// Lo que NO cambia en ninguno de los dos, y es la mitad que importa:
+  /// **que no se guardó nada**.
+  factory AvisoVehiculos.sinConexion() => AvisoVehiculos(
+    Destino.trabajaSinConexion
+        ? 'Sin conexión: no se guardó nada. Los vehículos se configuran con '
+              'conexión; inténtalo otra vez cuando haya red.'
+        : 'Sin conexión con el servidor: no se guardó nada. La página cargó, '
+              'así que conexión hay: el que no contesta es el servidor. Prueba '
+              'otra vez y, si sigue igual, avisa a la oficina.',
+    esFallo: true,
+  );
 
   final String texto;
   final bool esFallo;
@@ -141,7 +175,7 @@ class ControlVehiculos extends Notifier<AvisoVehiculos?> {
     } on FalloDeRed {
       // Red caida, tiempo agotado o 5xx: la peticion NO llego. No se encola, no
       // se escribe en local, no se dice que se guardo.
-      state = const AvisoVehiculos.sinConexion();
+      state = AvisoVehiculos.sinConexion();
       return false;
     } on Rechazo catch (e) {
       // El servidor entendio y dijo que no. Su mensaje se ensena LITERAL, en

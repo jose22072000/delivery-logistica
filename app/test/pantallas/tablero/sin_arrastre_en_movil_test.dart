@@ -23,6 +23,11 @@ import 'package:reparto/pantallas/tablero/vista/tarjeta.dart';
 ///    vez, es el gesto natural;
 ///  * solo «en escritorio si» se cumpliria igual si alguien quitara el umbral, y
 ///    el telefono volveria a levantar tarjetas sin querer.
+///
+/// CUAL de los dos gestos hace falta —del tiron con raton, pulsacion larga con
+/// el dedo— es otra cosa y se comprueba arrastrando de verdad, en
+/// `arrastre_segun_puntero_test.dart`. Aqui solo se mira si el arrastre EXISTE
+/// o no a cada ancho.
 void main() {
   const pedido = TarjetaPedido(
     pedidoId: 'p-1',
@@ -51,11 +56,13 @@ void main() {
     );
   }
 
-  testWidgets('en un TELEFONO la tarjeta no se puede arrastrar', (tester) async {
+  testWidgets('en un TELEFONO la tarjeta no se puede arrastrar', (
+    tester,
+  ) async {
     await montarA(tester, anchoDeDosMitades - 1);
 
     expect(
-      find.byType(LongPressDraggable<TarjetaArrastrada>),
+      find.byType(ArrastrableSegunPuntero<TarjetaArrastrada>),
       findsNothing,
       reason:
           'en el movil las columnas no se ven a la vez que «sin colocar»: '
@@ -65,13 +72,11 @@ void main() {
     expect(find.text('Yasmani Pérez'), findsOneWidget);
   });
 
-  testWidgets('en ESCRITORIO si se arrastra, con pulsacion larga', (
-    tester,
-  ) async {
+  testWidgets('en ESCRITORIO si se arrastra', (tester) async {
     await montarA(tester, anchoDeDosMitades + 1);
 
     expect(
-      find.byType(LongPressDraggable<TarjetaArrastrada>),
+      find.byType(ArrastrableSegunPuntero<TarjetaArrastrada>),
       findsOneWidget,
       reason:
           'con las dos mitades a la vista arrastrar es el gesto natural y no '

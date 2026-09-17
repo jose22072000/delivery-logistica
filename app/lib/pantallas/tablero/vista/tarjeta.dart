@@ -34,9 +34,20 @@ class TarjetaArrastrada {
 /// El gesto que sirve ya existe y hace exactamente lo mismo, llamando al mismo
 /// sitio: tocar la tarjeta abre «moverla a» (`AccionesTablero.moverTarjeta`).
 ///
-/// En escritorio se queda el arrastre, con **pulsacion larga** y no arrastre
-/// directo, por lo mismo de la lista. Ahi las dos mitades SI se ven a la vez,
+/// En escritorio se queda el arrastre: ahi las dos mitades SI se ven a la vez,
 /// que es lo que hace que arrastrar tenga sentido.
+///
+/// # Y el gesto del arrastre depende del PUNTERO, no del aparato
+///
+/// Con raton o lapiz se arrastra **del tiron**; con el dedo, con **pulsacion
+/// larga**, que es lo que evita comerse el desplazamiento de la lista. Lo
+/// decide `ArrastrableSegunPuntero` (`kit.dart`) mirando el
+/// `PointerDeviceKind` del gesto, no la plataforma: un portatil tactil y una
+/// tableta con raton existen, y la web se abre igual desde un telefono.
+///
+/// Estuvo con pulsacion larga para todos y en la web no se podia arrastrar:
+/// quien tira con el raton nunca llega a los 200 ms. Jose, 17/09/2026: «que yo
+/// arrastre las cosas y no funcionen».
 class TarjetaDePedido extends ConsumerWidget {
   const TarjetaDePedido({
     required this.pedido,
@@ -70,9 +81,11 @@ class TarjetaDePedido extends ConsumerWidget {
     if (!cabenLasDosMitades) return tarjeta;
 
     final datos = TarjetaArrastrada(pedido.pedidoId, desdeColumnaId: columnaId);
-    return LongPressDraggable<TarjetaArrastrada>(
-      data: datos,
-      delay: const Duration(milliseconds: 200),
+    // Del tiron con raton o lapiz, con pulsacion larga con el dedo. El por que
+    // de cada cosa —y por que NO se mira la plataforma— esta en
+    // `ArrastrableSegunPuntero`, en `kit.dart`.
+    return ArrastrableSegunPuntero<TarjetaArrastrada>(
+      datos: datos,
       feedback: Material(
         elevation: 6,
         borderRadius: BorderRadius.circular(8),

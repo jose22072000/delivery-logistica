@@ -1,15 +1,17 @@
-/// SIN CANAL EN VIVO. La APK y el escritorio, de momento.
+/// SIN CANAL EN VIVO. Hoy no lo usa ningun destino.
 ///
-/// No es un olvido: en el aparato el canal costaria una conexion abierta todo el
-/// dia contra la red de alla, y ahi lo que de verdad hace falta es push del
-/// sistema (FCM), que despierta la aplicacion sin mantener nada vivo. Mientras
-/// tanto manda el temporizador del vigia, que es lo que habia.
+/// Era el de la APK y el escritorio hasta el 17/09/2026, cuando dejaron de ir a
+/// golpe de temporizador y pasaron a tener el suyo (`eventos_io.dart`). Se queda
+/// como valor por defecto de la importacion condicional: un destino que no sea
+/// ni la web ni `dart:io` —hoy no hay ninguno— se encuentra esto y no el fallo
+/// de compilar.
 ///
 /// Devuelve un stream que se cierra al momento: quien escuche no se queda
-/// esperando un aviso que no va a llegar.
+/// esperando un aviso que no va a llegar, y manda el temporizador del vigia.
 Stream<String> escucharEventos(
   String urlBase,
-  Future<String?> Function() token,
-) => const Stream<String>.empty();
+  Future<String?> Function() token, {
+  Future<void> Function()? renovarSesion,
+}) => const Stream<String>.empty();
 
 bool get hayCanalDeEventos => false;

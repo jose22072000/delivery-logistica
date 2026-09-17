@@ -1,3 +1,5 @@
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -99,3 +101,158 @@ Future<T?> mostrarCajon<T>({
 /// mismo siempre. Con el numero repetido, mover uno y olvidar el otro deja un
 /// telefono donde se puede levantar una tarjeta que no se puede soltar.
 const double anchoDeDosMitades = 900.0;
+
+/// LOS PUNTEROS QUE ARRASTRAN DEL TIRÓN: el raton y el lapiz.
+///
+/// Se enumeran los que van a arrastre INMEDIATO, y no al reves, a proposito.
+/// Un tipo de puntero que no este en esta lista —`touch`, `unknown`, o uno que
+/// se invente Flutter manana— cae del lado seguro: pulsacion larga, que como
+/// mucho estorba. Al reves, un dedo tratado como raton levanta tarjetas sin
+/// querer mientras alguien baja la lista, que es exactamente el fallo que la
+/// pulsacion larga vino a tapar.
+const Set<PointerDeviceKind> punterosQueArrastranDelTiron = {
+  PointerDeviceKind.mouse,
+  PointerDeviceKind.stylus,
+  PointerDeviceKind.invertedStylus,
+};
+
+/// Lo que tarda un dedo en «agarrar» algo antes de poder moverlo.
+const Duration retardoDelDedo = Duration(milliseconds: 200);
+
+/// ARRASTRE QUE DECIDE SU GESTO POR EL PUNTERO, NO POR LA PLATAFORMA.
+///
+/// Con **raton o lapiz** se arrastra del tiron, en cuanto el puntero se mueve.
+/// Con **el dedo** hace falta mantener pulsado [retardoDelDedo] antes de
+/// levantar nada.
+///
+/// # Por que hacian falta las dos cosas
+///
+/// Con el dedo la pulsacion larga es imprescindible: la lista se desplaza
+/// arrastrando, asi que un arrastre inmediato se come el desplazamiento y quien
+/// queria bajar a ver la tarjeta treinta levanta una tarjeta sin querer.
+///
+/// Con el raton ese problema **no existe**: la lista se desplaza con la rueda
+/// (el `ScrollBehavior` de escritorio ni siquiera acepta el raton como `drag
+/// device`), asi que ahi la pulsacion larga no protege de nada y solo estorba.
+/// Y estorbaba de verdad: Jose, 17/09/2026, «en la web no tengo el drag and
+/// drop… que yo arrastre las cosas y no funcionen». Una persona con raton pincha
+/// y tira del tiron, nunca llega a los 200 ms, y la tarjeta no se levanta jamas.
+/// El arrastre estaba entero y llegaba al servidor; lo que no llegaba a empezar
+/// era el gesto.
+///
+/// # Por que NO se mira la plataforma
+///
+/// Nada de `kIsWeb` ni de `Platform.isAndroid`: un portatil con pantalla tactil
+/// y una tableta con raton existen, y la web se abre igual desde un telefono. El
+/// dato correcto es el del gesto concreto que esta ocurriendo, y ese es
+/// [PointerDeviceKind]. El mismo tablero, en el mismo aparato, responde a los
+/// dos si tiene los dos.
+///
+/// # Por que este camino y no otro
+///
+/// Hay tres formas de hacerlo y esta es la que menos codigo propio necesita:
+///
+///  1. `RawGestureDetector` con dos `MultiDragGestureRecognizer` a mano —
+///     obligaria a reescribir el `feedback`, el `childWhenDragging`, el
+///     `DragTarget` y todo el tinglado del `_DragAvatar` de Flutter. Mucho
+///     codigo nuestro que Flutter ya tiene probado;
+///  2. una sola `Draggable` con un reconocedor propio que fuera inmediato o con
+///     retardo segun el puntero — un reconocedor escrito por nosotros, que es
+///     justo la pieza mas delicada de todo esto;
+///  3. **las dos `Draggable` de Flutter, una encima de otra, cada una con su
+///     `supportedDevices`** — que es lo de aqui. Cada `GestureRecognizer` ya
+///     sabe rechazar los punteros que no son suyos (`isPointerAllowed`), asi que
+///     ante un `PointerDownEvent` solo una de las dos coge el puntero y la otra
+///     ni se entera. No compiten, no hay arena que desempatar, y el unico codigo
+///     nuestro son dos `createRecognizer` de tres lineas.
+///
+/// Pulsar sin mover sigue siendo un toque: el reconocedor inmediato no acepta el
+/// gesto hasta que el puntero se mueve mas que el `hitSlop`, asi que el `onTap`
+/// de la tarjeta —el que abre «moverla a»— se queda intacto, y soltar un
+/// arrastre no lo dispara.
+class ArrastrableSegunPuntero<T extends Object> extends StatelessWidget {
+  const ArrastrableSegunPuntero({
+    required this.datos,
+    required this.feedback,
+    required this.child,
+    this.childWhenDragging,
+    super.key,
+  });
+
+  /// Lo que viaja con el arrastre.
+  final T datos;
+
+  /// Lo que se ve pegado al puntero mientras se arrastra.
+  final Widget feedback;
+
+  final Widget child;
+
+  /// Lo que se queda en el hueco. `null` = el propio [child].
+  final Widget? childWhenDragging;
+
+  @override
+  Widget build(BuildContext context) => _ArrastreConDedo<T>(
+    data: datos,
+    feedback: feedback,
+    childWhenDragging: childWhenDragging,
+    child: _ArrastreConPuntero<T>(
+      data: datos,
+      feedback: feedback,
+      childWhenDragging: childWhenDragging,
+      child: child,
+    ),
+  );
+}
+
+/// El de siempre —pulsacion larga— pero **solo para el dedo**.
+class _ArrastreConDedo<T extends Object> extends LongPressDraggable<T> {
+  const _ArrastreConDedo({
+    required super.data,
+    required super.feedback,
+    required super.child,
+    required super.childWhenDragging,
+  }) : super(delay: retardoDelDedo);
+
+  @override
+  DelayedMultiDragGestureRecognizer createRecognizer(
+    GestureMultiDragStartCallback onStart,
+  ) =>
+      DelayedMultiDragGestureRecognizer(
+          delay: delay,
+          // Todo lo que no sea raton ni lapiz entra por aqui, incluido lo que no
+          // sepamos identificar: ver `punterosQueArrastranDelTiron`.
+          supportedDevices: PointerDeviceKind.values.toSet().difference(
+            punterosQueArrastranDelTiron,
+          ),
+          allowedButtonsFilter: allowedButtonsFilter,
+        )
+        ..onStart = (posicion) {
+          final arrastre = onStart(posicion);
+          // El tic al agarrar, que es lo que le dice a un dedo que YA la lleva.
+          // `LongPressDraggable` lo hace en su `createRecognizer`, y al sobrescribirlo
+          // se perdia sin que se notara en ninguna prueba: en un widget test no
+          // vibra nada.
+          if (arrastre != null && hapticFeedbackOnStart) {
+            HapticFeedback.selectionClick();
+          }
+          return arrastre;
+        };
+}
+
+/// El nuevo —del tiron— **solo para raton y lapiz**.
+class _ArrastreConPuntero<T extends Object> extends Draggable<T> {
+  const _ArrastreConPuntero({
+    required super.data,
+    required super.feedback,
+    required super.childWhenDragging,
+    required super.child,
+  });
+
+  @override
+  MultiDragGestureRecognizer createRecognizer(
+    GestureMultiDragStartCallback onStart,
+  ) => ImmediateMultiDragGestureRecognizer(
+    supportedDevices: punterosQueArrastranDelTiron,
+    allowedButtonsFilter: allowedButtonsFilter,
+  )..onStart = onStart;
+}

@@ -101,15 +101,54 @@ class _PanelSinColocarState extends ConsumerState<PanelSinColocar> {
                 ),
               ),
             ),
+            // «SE VEN 200 DE 300» TENÍA QUE LLEVAR A ALGUN SITIO — 17/09/2026.
+            //
+            // Decía «afina con los filtros» y ya. Y eso no es una salida: los
+            // 100 que faltaban eran **los más lejanos al almacén** —la lista va
+            // ordenada por cercanía—, o sea justo los que no se encuentran
+            // afinando, porque quien los busca no sabe ni qué municipio mirar.
+            // No había forma de verlos. Ninguna.
+            //
+            // Es el §3 del CLAUDE.md otra vez: se pidió un tope y no se puso
+            // manera de pedir la tanda siguiente. Aquí es barato, además: los
+            // pedidos ya están todos en la base de este aparato, así que subir
+            // el tope no cuesta ni una petición.
             if (izquierda.truncada)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-                child: Text(
-                  'Se ven ${izquierda.pedidos.length} de ${izquierda.total}. '
-                  'Afina con los filtros.',
-                  style: tema.textTheme.labelSmall?.copyWith(
-                    color: ColoresTablero.ambar,
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Se ven ${izquierda.pedidos.length} de '
+                        '${izquierda.total}.',
+                        style: tema.textTheme.labelSmall?.copyWith(
+                          color: ColoresTablero.ambar,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => ref
+                          .read(filtrosTableroProvider.notifier)
+                          .poner(
+                            filtros.copiaCon(
+                              limite: filtros.limite + FiltrosSinColocar.tanda,
+                            ),
+                          ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        foregroundColor: ColoresTablero.ambar,
+                        textStyle: tema.textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      child: Text(
+                        'Ver ${izquierda.total - izquierda.pedidos.length} más',
+                      ),
+                    ),
+                  ],
                 ),
               ),
             const SizedBox(height: 4),

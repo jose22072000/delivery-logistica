@@ -17,7 +17,7 @@ import '../datos/panel_sincronizacion.dart';
 import 'fila_de_rechazo.dart';
 import '../estado/proveedores_sincronizacion.dart';
 
-/// SINCRONIZACION — `/sync`. El panel de `GET /sync/estado`.
+/// SINCRONIZACION — `/sincronizacion`. El panel de `GET /sync/estado`.
 ///
 /// Es lo que hoy no existe en ningun sitio y lo mas valioso de todo: **que se
 /// vea que Palma lleva desde el martes sin subir, y se pueda llamar**. Sin esto
@@ -41,7 +41,26 @@ import '../estado/proveedores_sincronizacion.dart';
 class PantallaSincronizacion extends ConsumerWidget {
   const PantallaSincronizacion({super.key});
 
-  static const ruta = '/sync';
+  /// `/sincronizacion`, y **no `/sync`, que es del proxy** — 17/09/2026.
+  ///
+  /// En el servidor, Traefik reparte por camino:
+  ///
+  /// ```
+  /// Host(`reparto.procovar.cloud`) && PathPrefix(`/api`)   -> el reparto
+  /// Host(`reparto.procovar.cloud`) && PathPrefix(`/sync`)  -> el sincronizador
+  /// Host(`reparto.procovar.cloud`)                         -> esta aplicacion
+  /// ```
+  ///
+  /// Con esta pantalla en `/sync` se llegaba navegando por el menu —eso lo
+  /// resuelve el enrutador dentro del navegador, sin pedirle nada al servidor—
+  /// pero **recargar ahi, o abrir el enlace, no llegaba nunca a la aplicacion**:
+  /// lo atrapaba el sincronizador y contestaba `401`. O sea, la persona se
+  /// quedaba fuera mirando un error de un servicio del que no sabe nada.
+  ///
+  /// Se mueve la pantalla y no el proxy a proposito: el prefijo `/sync` es la
+  /// direccion que ya usan las APK instaladas para subir y bajar, y cambiarlo
+  /// deja sin sincronizar a todo el que no se haya actualizado.
+  static const ruta = '/sincronizacion';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

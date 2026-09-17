@@ -88,10 +88,17 @@ class RegistroDeFrescura {
     return fechas.first;
   }
 
-  /// ¿Se bajo alguna vez esta coleccion?
+  /// ¿Se bajo alguna vez esta coleccion? **Una respuesta, y ya.**
   ///
-  /// Es la pregunta que separa «no hay nada» de «no se ha descargado». Una lista
-  /// vacia sin respuesta a esto es un fallo que se lee como un dato (caso S7).
+  /// Separa «no hay nada» de «no se ha descargado», que es la pregunta del caso
+  /// S7. Pero ojo con usarla para pintar: una pantalla que pregunte esto una vez
+  /// se queda con la respuesta del instante en que se monto, y en la web ese
+  /// instante es siempre con la base vacia —nace vacia en cada carga—, asi que
+  /// la pantalla se clava en «no se ha descargado» aunque los datos lleguen
+  /// enseguida. Eso paso en Pedidos y en Rutas el 17/09/2026.
+  ///
+  /// **Para pintar se usa [mirar]**, que es un stream y se entera. Esto queda
+  /// para decidir en seco, sin nada que repintar.
   Future<bool> seDescargo(String coleccion) async =>
       (await leer(coleccion))?.bajadaAt != null;
 }

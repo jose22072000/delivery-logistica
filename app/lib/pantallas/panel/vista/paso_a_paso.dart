@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../diseno/anchos.dart';
 import '../../../diseno/colores.dart';
 import '../../../diseno/tema.dart';
+import '../../../nucleo/frescura/primera_bajada.dart';
 import '../datos/configuracion_pendiente.dart';
 import '../estado/configuracion_estado.dart';
 
@@ -44,9 +45,30 @@ class PasoAPaso extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final estado = ref.watch(pasoAPasoProvider).value;
+    final porQue = ref.watch(porQueEstaVacioProvider);
     // Mientras se mira la base no se pinta nada. Un hueco que aparece medio
     // segundo despues empuja el Panel entero hacia abajo debajo del dedo.
     if (estado == null || !estado.seEnsena) return const SizedBox.shrink();
+
+    // EN LA WEB, MIENTRAS LA PRIMERA BAJADA VA EN CAMINO, ESTO NO SE PINTA.
+    //
+    // Es el fallo del 17/09/2026: la base de la web nace vacia en cada carga de
+    // la pagina, asi que durante un segundo los cuatro pasos estan en «no se
+    // sabe» y los que ya bajaron, no. Con eso bastaba para que el Panel dijera
+    // «Falta configurar esta sucursal» y señalara un almacen que existia y
+    // todavia no habia llegado. Jose: «Eso no puede pasar mi loco».
+    //
+    // No se pinta un «cargando» en su sitio a proposito: este widget ya es el
+    // que no ocupa nada cuando no hay nada que decir, y meter una rueda donde
+    // luego no va a haber nada empuja el Panel entero hacia abajo para
+    // devolverlo medio segundo despues.
+    //
+    // **El suelo esta puesto en `primera_bajada.dart`**: esto deja de ser
+    // `todaviaBajando` en cuanto termina un ciclo o a los 20 s, pase lo que
+    // pase. No hay forma de que el paso a paso se quede escondido para siempre.
+    if (porQue == PorQueEstaVacio.todaviaBajando && estado.algoSinMirar) {
+      return const SizedBox.shrink();
+    }
 
     final pendientes = estado.pendientes;
     final hechos = estado.hechos;
@@ -76,7 +98,16 @@ class PasoAPaso extends ConsumerWidget {
               const SizedBox(width: Aire.sm),
               Expanded(
                 child: Text(
-                  'Falta configurar esta sucursal',
+                  // EL TITULO NO PUEDE ACUSAR DE ALGO QUE NO SE HA MIRADO.
+                  //
+                  // «Falta configurar esta sucursal» sólo es verdad si hay algun
+                  // paso que se miro y no estaba. Con todos los pendientes en
+                  // «no se sabe» —una coleccion que aun no bajo— lo que falta es
+                  // la bajada, no la configuracion, y mandar a alguien a dar de
+                  // alta un almacen que ya existe es justo lo que esto evita.
+                  estado.faltaAlgoDeVerdad
+                      ? 'Falta configurar esta sucursal'
+                      : tituloDeLoQueFaltaPorBajar(porQue),
                   style: Tipos.texto(
                     tamano: 17,
                     peso: FontWeight.w700,
@@ -112,6 +143,7 @@ class PasoAPaso extends ConsumerWidget {
               numero: estado.pasos.indexOf(paso) + 1,
               total: estado.pasos.length,
               paso: paso,
+              porQue: porQue,
             ),
             const SizedBox(height: Aire.md),
           ],
@@ -129,17 +161,34 @@ class PasoAPaso extends ConsumerWidget {
   }
 }
 
+/// EL TITULO CUANDO LO UNICO PENDIENTE ES QUE BAJE.
+///
+/// Dos textos y no uno porque son dos situaciones distintas: en el aparato se
+/// arregla trayendo el dia —hay un boton justo debajo— y en la web no hay dia
+/// que traer ni aparato al que traerselo.
+String tituloDeLoQueFaltaPorBajar(PorQueEstaVacio porQue) => switch (porQue) {
+  PorQueEstaVacio.noSeDescargo => 'Falta por traer parte de la configuración',
+  PorQueEstaVacio.todaviaBajando => 'Todavía está bajando la configuración',
+  PorQueEstaVacio.noPudoBajar => 'No se pudo traer la configuración',
+};
+
 /// Un paso pendiente. Dice **que es**, **que pasa si falta** y **a donde ir**.
 class _PasoQueFalta extends StatelessWidget {
   const _PasoQueFalta({
     required this.numero,
     required this.total,
     required this.paso,
+    required this.porQue,
   });
 
   final int numero;
   final int total;
   final PasoDeConfiguracion paso;
+
+  /// Por que esta vacia la copia. Sólo cambia lo que se lee en los pasos que
+  /// **no se han mirado**; lo que de verdad falta se dice igual en los tres
+  /// destinos.
+  final PorQueEstaVacio porQue;
 
   @override
   Widget build(BuildContext context) {
@@ -202,7 +251,7 @@ class _PasoQueFalta extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      paso.explicacion,
+                      paso.explicacionEn(porQue),
                       style: tema.textTheme.bodySmall?.copyWith(color: color),
                     ),
                   ],

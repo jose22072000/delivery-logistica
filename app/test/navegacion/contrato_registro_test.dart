@@ -17,6 +17,51 @@ void main() {
     }
   });
 
+  /// NINGUNA PANTALLA PUEDE LLAMARSE COMO UN CAMINO DEL PROXY — 17/09/2026.
+  ///
+  /// En el servidor, Traefik reparte por camino y **se queda con lo suyo antes
+  /// de que la aplicacion vea nada**:
+  ///
+  /// ```
+  /// Host(`reparto.procovar.cloud`) && PathPrefix(`/api`)   -> el reparto
+  /// Host(`reparto.procovar.cloud`) && PathPrefix(`/sync`)  -> el sincronizador
+  /// Host(`reparto.procovar.cloud`)                         -> esta aplicacion
+  /// ```
+  ///
+  /// La pantalla de Sincronizacion vivia en `/sync`. Navegando por el menu
+  /// funcionaba —eso lo resuelve el enrutador dentro del navegador— y por eso
+  /// nadie lo vio: el unico camino que falla es **recargar ahi o abrir el
+  /// enlace**, y entonces contesta el sincronizador con un `401` que no tiene
+  /// nada que ver con la aplicacion.
+  ///
+  /// Es un fallo que no se ve leyendo el codigo de la aplicacion, porque la
+  /// mitad que lo causa esta en el fichero de Traefik. Aqui queda escrito para
+  /// que la proxima pantalla que se llame `/api-algo` o `/sync-algo` falle antes
+  /// de salir de esta maquina.
+  test('ninguna ruta invade un camino del proxy', () {
+    // Los prefijos que el servidor NO entrega a la aplicacion.
+    const delProxy = <String>['/api', '/sync'];
+    for (final p in pantallas) {
+      for (final suyo in delProxy) {
+        // `startsWith(suyo)` a secas, y no `'$suyo/'`, que era lo que estaba y
+        // no cubria nada. `PathPrefix` de Traefik es prefijo de CADENA, no de
+        // segmento: con `PathPrefix(`/sync`)`, la direccion `/sync-estado` se la
+        // queda el sincronizador igual que `/sync`. Se comprobo poniendo la
+        // pantalla en `/sync-estado`: la guarda pasaba en verde y la aplicacion
+        // habria vuelto a quedarse fuera.
+        expect(
+          p.ruta.startsWith(suyo),
+          isFalse,
+          reason:
+              '«${p.ruta}» cae dentro de «$suyo», que en el servidor es del '
+              'proxy: recargar ahi no llega a la aplicacion. Ponle otro nombre '
+              'a la pantalla; el prefijo no se toca, que es la direccion que '
+              'ya usan las APK instaladas.',
+        );
+      }
+    }
+  });
+
   test('las seis del pliego mas el tablero y reportes estan registradas', () {
     final rutas = pantallas.map((p) => p.ruta).toSet();
     expect(
@@ -30,6 +75,11 @@ void main() {
         '/warehouses',
         '/reports',
         '/tablero',
+        // Se podia borrar `registrarSincronizacion()` entera —sin ruta y sin
+        // entrada de menu— y las 788 pruebas seguian verdes. Lo encontro el
+        // auditor el 17/09/2026, justo en el cambio que movia esa pantalla de
+        // sitio.
+        '/sincronizacion',
       ]),
     );
   });

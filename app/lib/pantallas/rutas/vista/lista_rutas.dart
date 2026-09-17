@@ -10,6 +10,8 @@ import '../../../diseno/tema.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../nucleo/frescura/primera_bajada.dart';
+import '../../../nucleo/frescura/reloj_de_datos.dart';
 import '../../../nucleo/base/base.dart';
 import '../../pedidos/datos/formato.dart';
 import '../../pedidos/vista/kit.dart';
@@ -36,10 +38,30 @@ class ListaDeRutas extends ConsumerWidget {
     };
 
     // Una lista vacia de una coleccion que nunca se bajo NO es «no hay rutas».
+    //
+    // Y en la web son TRES casos, no uno. Esta pantalla se quedo fuera de la
+    // pasada que separo los tres —el aviso lo dejo escrito quien la hizo— y sin
+    // esto la web ensena «Esta pantalla no se ha descargado todavia. Con
+    // conexion baja sola» durante el primer segundo de cada carga, que es un
+    // diagnostico falso y ademas en el idioma del aparato. Regla 1.
+    //
+    // La constante, no el literal: la misma frase escrita a mano en dos sitios
+    // se separa en cuanto alguien cambie uno, y esta es la que ya usa Pedidos.
     if (descargadas == false) {
-      return const EstadoVacio(
-        'Esta pantalla no se ha descargado todavía. Con conexión baja sola.',
-      );
+      return switch (ref.watch(porQueEstaVacioProvider)) {
+        // El aparato: ahi «no se ha descargado» es un estado de verdad.
+        PorQueEstaVacio.noSeDescargo => const EstadoVacio(
+          SinDescargar.textoDeLaPantallaVacia,
+        ),
+        // La web, el primer segundo: cargando y nada mas.
+        PorQueEstaVacio.todaviaBajando => EstadoVacio(
+          TextosDeLaWeb.cargando('las rutas'),
+        ),
+        // Y si no llego, se dice y se deja entrar.
+        PorQueEstaVacio.noPudoBajar => EstadoVacio(
+          TextosDeLaWeb.noPudoBajar('las rutas'),
+        ),
+      };
     }
     if (rutas.isEmpty) return EstadoVacio(pestana.vacio);
 

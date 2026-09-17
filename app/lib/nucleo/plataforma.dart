@@ -26,11 +26,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 ///
 /// ## Lo que esto NO decide
 ///
-/// **La base local y la sincronizacion se quedan enteras en web.** Las siete
-/// pantallas leen de Drift y no del servidor; quitarle la descarga a la web la
-/// dejaria en blanco. Lo que esta capacidad apaga es **lo que se ve y lo que se
-/// le pide a la persona**, nunca el motor: en web la base local es una cache de
-/// la que nadie habla.
+/// **El motor de bajar sigue entero en web.** Las siete pantallas leen de Drift
+/// y no del servidor; quitarle la descarga a la web la dejaria en blanco. Lo que
+/// esta capacidad apaga es **lo que se ve y lo que se le pide a la persona**,
+/// nunca el motor.
+///
+/// Lo que **NO** hay en la web es una base en disco. Aqui ponia que era «una
+/// cache de la que nadie habla», y estaba mal: `CLAUDE.md` §1 lo corrigio el
+/// 16/09/2026 —«la web siempre esta en vivo porque saca de la base de datos de
+/// la nube, no de una extra»— y desde entonces la base de la web es **en
+/// memoria**, o sea que **nace vacia en cada carga de la pagina**.
+///
+/// Eso tiene una consecuencia que hay que tener delante al tocar cualquier
+/// pantalla: en la web, una copia vacia **no significa nada** durante el segundo
+/// que tarda en entrar la primera bajada. Lo que se puede decir en ese rato, y
+/// lo que se dice cuando la bajada no llega, vive en
+/// `frescura/primera_bajada.dart`.
 abstract final class Destino {
   /// ¿Hay que prepararse para quedarse sin senal?
   ///

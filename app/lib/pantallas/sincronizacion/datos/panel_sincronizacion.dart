@@ -14,6 +14,8 @@
 /// engano que esta pantalla existe para impedir.
 library;
 
+import '../../../nucleo/plataforma.dart';
+
 DateTime? _fecha(Object? valor) {
   if (valor is! String || valor.isEmpty) return null;
   return DateTime.tryParse(valor)?.toLocal();
@@ -277,10 +279,25 @@ abstract final class TextosDeSincronizacion {
   /// Sin red la pantalla dice que NO PUEDE SABERLO. No hay datos viejos que
   /// ensenar, y si los hubiera tampoco se ensenarian: «Palma subió hace 2
   /// horas» con la lectura de anteayer es peor que no decir nada.
-  static const sinConexion =
-      'Sin conexión: no se puede saber quién lleva sin subir. Esta pantalla se '
-      'lee del servidor y no guarda copia en el aparato, así que no hay nada '
-      'viejo que enseñar. Vuelve a intentarlo cuando haya red.';
+  /// LAS MISMAS DOS FRASES, SEGÚN DESDE DÓNDE SE MIRE — 17/09/2026.
+  ///
+  /// La mitad que no cambia es la buena y es la razón de ser de esta pantalla:
+  /// **no se puede saber quién lleva sin subir, y no se enseña una lectura
+  /// vieja.** «Palma subió hace 2 horas» con el dato de anteayer es peor que no
+  /// decir nada.
+  ///
+  /// Lo que cambia es qué hacer. En el aparato, esperar a que haya red. En un
+  /// navegador no: si la página cargó, conexión hay, y el que no contesta es el
+  /// servidor. Mandar a mirar la señal a quien está en la oficina es mandarlo a
+  /// mirar donde no es — el mismo razonamiento de `TextosDeCaida.queHacer`.
+  static String get sinConexion => Destino.trabajaSinConexion
+      ? 'Sin conexión: no se puede saber quién lleva sin subir. Esta pantalla '
+            'se lee del servidor y no guarda copia en el aparato, así que no hay '
+            'nada viejo que enseñar. Vuelve a intentarlo cuando haya red.'
+      : 'El servidor no contesta: no se puede saber quién lleva sin subir. Esta '
+            'pantalla se lee del servidor y no guarda copia, así que no hay nada '
+            'viejo que enseñar. Prueba otra vez y, si sigue igual, avisa a la '
+            'oficina.';
 
   static const sinAparatos = 'No hay ningún aparato dado de alta todavía.';
 
