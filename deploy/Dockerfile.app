@@ -43,9 +43,22 @@
 ARG FLUTTER_VERSION=3.47.4
 
 FROM debian:bookworm-slim AS build
-# Lo que pide el SDK para compilar para web, y nada más.
+# Lo que pide el SDK para compilar para web, y `libsqlite3` para poder PROBAR.
+#
+# `libsqlite3-dev` no es un adorno: las pruebas de este proyecto abren bases de
+# verdad con Drift (`NativeDatabase`), y sin esa biblioteca cada una muere con
+# «Failed to load dynamic library 'libsqlite3.so'». Se descubrió al añadir
+# `flutter test` a esta imagen: el build se comió los 600 s del `timeout` viendo
+# caer prueba tras prueba. Antes no hacía falta porque aquí no se probaba nada,
+# que es justo lo que se vino a arreglar.
+#
+# Y **el `-dev` y no el `-0`**, aunque aquí no se compile nada de C: `libsqlite3-0`
+# instala sólo `libsqlite3.so.0`, y Dart abre la biblioteca por su nombre SIN
+# versión. El enlace `libsqlite3.so` lo trae el paquete de desarrollo y nada más.
+# Comprobado en un `debian:bookworm-slim` limpio antes de volver a desplegar, que
+# si no el segundo intento habría caído por lo mismo con otro nombre.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git curl unzip xz-utils ca-certificates \
+      git curl unzip xz-utils ca-certificates libsqlite3-dev \
  && rm -rf /var/lib/apt/lists/*
 ARG FLUTTER_VERSION
 RUN git clone --depth 1 --branch "${FLUTTER_VERSION}" https://github.com/flutter/flutter.git /sdk

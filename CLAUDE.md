@@ -257,8 +257,14 @@ Dos reglas que salieron de ese día:
 - **Nunca `git add -A` mientras un agente está mutando el árbol.** Se le lleva la
   mutación al commit. Pasó, y se desplegó.
 - **Los tres Dockerfile corren sus pruebas antes de construir.** `Dockerfile.api`
-  y `.sync` hacen `go vet && go test`; `Dockerfile.app` hace `flutter analyze` y
-  `flutter test`. El de sync sólo compilaba, y por eso la mutación llegó al
+  y `.sync` hacen `go vet && go test`; `Dockerfile.app` hace `flutter gen-l10n`,
+  `flutter analyze` y `flutter test`. Poner eso en la imagen de la web costó dos
+  intentos y los dos enseñan lo mismo —**una imagen no es esta máquina**—:
+  `.dockerignore` excluye los textos generados y `analyze` no los genera (sí lo
+  hacía `build web`, que era lo único que había antes); y las pruebas abren bases
+  de verdad con Drift, así que hace falta `libsqlite3-dev` — **el `-dev`, no el
+  `-0`**, porque el `-0` instala `libsqlite3.so.0` y Dart abre la biblioteca por
+  su nombre sin versión. El de sync sólo compilaba, y por eso la mutación llegó al
   servidor. El de la web se quedó sin arreglar aquel día y estuvo un día entero
   construyendo sin pasar una sola prueba — el mismo agujero, en el otro lado.
 - **Con agentes escribiendo a la vez, no se lanza `./comprobar.sh`.** Mide un
