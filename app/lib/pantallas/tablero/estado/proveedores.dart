@@ -268,6 +268,18 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
             // ciclo, que toca otra tabla.
             TableUpdateQuery.onTable(base.warehouses),
             TableUpdateQuery.onTable(base.branches),
+            // LA COLA, para enterarse de cuando deja de haber trabajo sin subir.
+            //
+            // El tablero se niega a bajar mientras quede algo sin subir —para no
+            // pisarlo, que es la regla que no se negocia— y lo DICE arriba: «No
+            // se actualiza: hay 1 cambio sin subir». Ese texto se escribia al
+            // intentar la bajada y **no lo recalculaba nadie**: el apunte subia
+            // cuatro segundos despues y el cartel se quedaba puesto.
+            //
+            // Jose, 17/09/2026, con el telefono delante: «ahi en el movil me
+            // sale como que no se ha subido aun, ¿por que razon me sale eso si
+            // ya esta?».
+            TableUpdateQuery.onTable(base.apuntes),
           ]),
         )
         .listen((_) => unawaited(_alCambiarLasTablas(sucursalId)));
@@ -290,6 +302,15 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
   /// tabla `orders`, o sea este mismo aviso. Se vuelve a pedir la foto **una
   /// sola vez por sucursal**, que es lo que hace falta y no mas.
   Future<void> _alCambiarLasTablas(String sucursalId) async {
+    // YA NO QUEDA NADA SIN SUBIR: se vuelve a intentar la bajada que se negó.
+    //
+    // Sin esto el cartel de «no se actualiza» se queda puesto hasta que alguien
+    // pulse refrescar o cambie de sucursal, diciendo algo que dejó de ser verdad
+    // hace rato. Y el tablero, mientras, sin bajar.
+    if (_porQueNoSeRefresca != null && await _yaNoQuedaNadaSinSubir()) {
+      Registro.info('tablero: ya subió lo que faltaba; se vuelve a bajar');
+      await _traerDelServidor(sucursalId);
+    }
     if (_faltabanPedidos && !_yaSeReintento) {
       _yaSeReintento = true;
       Registro.info(
@@ -362,6 +383,22 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
   /// otra sucursal— pediria la foto entera con cada escritura de la tabla de
   /// pedidos, para siempre.
   bool _yaSeReintento = false;
+
+  /// ¿Se vació la cola? Es la señal de que el motivo por el que no se bajaba ya
+  /// no existe.
+  ///
+  /// Se pregunta por lo MISMO que preguntó la negativa —lo pendiente y lo que
+  /// nació aquí y no está arriba—, que es lo que mira `descargar`. Preguntar
+  /// sólo por la cola dejaría el cartel puesto cuando lo que queda es una zona
+  /// huérfana, y al revés.
+  Future<bool> _yaNoQuedaNadaSinSubir() async {
+    try {
+      return await ref.read(baseProvider).cuantosPendientes() == 0;
+    } on Object catch (e) {
+      Registro.aviso('tablero: no se pudo mirar si queda algo sin subir: $e');
+      return false;
+    }
+  }
 
   /// Trae la foto del servidor y **se queda con el porque si no se pudo**.
   ///
