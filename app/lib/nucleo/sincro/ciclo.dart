@@ -214,9 +214,28 @@ class CicloDeSincronizacion {
   }) {
     final yaVa = _enVuelo;
     if (yaVa != null) {
-      // Ni se encola ni se descarta el trabajo: quien llega se engancha al que
-      // ya corre y se entera del mismo resultado. El temporizador es la red de
-      // seguridad de lo que este aviso se pierda.
+      // SE APUNTA QUE HAY QUE VOLVER A DARLA — 17/09/2026.
+      //
+      // Aqui ponia «ni se encola ni se descarta el trabajo: quien llega se
+      // engancha al que ya corre». Lo segundo era mentira: **si se descartaba**.
+      //
+      // El ciclo es renovar → subir → bajar. Si llega un gesto cuando el ciclo
+      // en vuelo ya pasó por «subir», ese ciclo NO lleva el gesto dentro — subio
+      // lo que habia antes—, asi que engancharse a el es esperar al temporizador:
+      // dos minutos en la web, cinco en la APK.
+      //
+      // Medido en produccion: un arrastre en la web tardo **50 segundos** en
+      // llegar al servidor. Jose: «¿por que se demora en traer esas cosas tanto
+      // tiempo si debe ser en tiempo real todo esto cuando tenga internet?».
+      //
+      // Es el mismo apaño que ya tiene `refrescar()` del tablero con su
+      // `_otraVez`, y por el mismo motivo: descartar el aviso deja la pantalla
+      // —o la cola— en lo de antes del ultimo cambio, que es el fallo que nadie
+      // sabe reproducir.
+      // No se marca nada aqui: si este aviso traia trabajo, al terminar la
+      // vuelta quedara en la cola y de eso se encarga `_haceFaltaOtraVuelta`.
+      // Marcarlo aqui daria una vuelta de mas por cada aviso repetido —la
+      // antena que coge y suelta dos veces— y cada vuelta es una renovacion.
       Registro.info('ciclo: ya hay uno en vuelo, no se lanza otro ($motivo)');
       return yaVa;
     }
@@ -233,8 +252,46 @@ class CicloDeSincronizacion {
     // asignacion pasa antes de que nadie pueda volver a entrar aqui.
     final futuro = _correr(motivo, yaSeRenovo: yaSeRenovo);
     _enVuelo = futuro;
-    futuro.whenComplete(() => _enVuelo = null).ignore();
+    futuro
+        .then((resumen) async {
+          _enVuelo = null;
+          if (await _haceFaltaOtraVuelta(resumen)) {
+            // `yaSeRenovo`: el par es de hace un instante, el de la vuelta que
+            // acaba de terminar. Renovar otra vez seria una rotacion del refresh
+            // que no hace falta — y dos con el mismo el servidor las lee como
+            // robo (`identidad.md`).
+            ahora(motivo: 'quedó trabajo de mitad de ciclo', yaSeRenovo: true)
+                .ignore();
+          }
+        })
+        .catchError((_) => _enVuelo = null)
+        .ignore();
     return futuro;
+  }
+
+  /// ¿Se quedo trabajo fuera de la vuelta que acaba de terminar?
+  ///
+  /// El ciclo es renovar → subir → bajar. Un gesto que llega **despues** del
+  /// paso de subir no viaja en esa vuelta: se engancha a ella, se entera de su
+  /// resultado, y su apunte se queda en la cola esperando al temporizador —dos
+  /// minutos en la web, cinco en la APK—. Medido en produccion el 17/09/2026:
+  /// un arrastre en la web tardo **50 segundos** en llegar al servidor.
+  ///
+  /// La señal de que paso eso es exacta: **la vuelta fue bien y aun asi queda
+  /// algo pendiente**. Si hubiera ido mal, lo pendiente seria lo que no se pudo
+  /// subir y volver a intentarlo al instante seria machacar; para eso esta el
+  /// temporizador.
+  ///
+  /// Y no hace bucle: la segunda vuelta sube lo que quedaba y deja la cola
+  /// vacia, asi que no pide una tercera.
+  Future<bool> _haceFaltaOtraVuelta(ResumenDelCiclo resumen) async {
+    if (!resumen.bien) return false;
+    try {
+      return (await _cola.lote(maximo: 1)).isNotEmpty;
+    } on Object catch (e) {
+      Registro.aviso('ciclo: no se pudo mirar si quedaba trabajo: $e');
+      return false;
+    }
   }
 
   ResumenDelCiclo _contar(ResumenDelCiclo resumen) {

@@ -238,6 +238,75 @@ void main() {
       expect(m.ciclo.enVuelo, isFalse, reason: 'y el candado queda suelto');
     });
 
+    test(
+      'un gesto que llega DESPUÉS de subir no espera al temporizador: se da '
+      'otra vuelta',
+      () async {
+        // EL FALLO DE LOS 50 SEGUNDOS, 17/09/2026.
+        //
+        // El ciclo es renovar → subir → bajar. Un gesto que llega cuando la
+        // vuelta ya pasó por «subir» no viaja en ella: se engancha, se entera de
+        // su resultado, y su apunte se queda en la cola hasta el temporizador —
+        // dos minutos en la web, cinco en la APK. Medido en producción con un
+        // arrastre en el tablero: **50 segundos** en llegar al servidor.
+        //
+        // Jose: «¿por qué se demora en traer esas cosas tanto tiempo si debe ser
+        // en tiempo real todo esto cuando tenga internet?».
+        // El gesto entra JUSTO DESPUÉS del paso de subir, que es el momento
+        // exacto del fallo. Se encola desde el propio servidor falso, cuando
+        // llega la petición de bajar: encolarlo antes no reproduce nada, porque
+        // entonces sí viaja en esa vuelta (y así estaba escrita la primera
+        // versión de esta prueba, que pasaba sin probar nada).
+        var yaSeEncolo = false;
+        final m = montar((p) async {
+          if (p.ruta.endsWith('/sync/cambios') && !yaSeEncolo) {
+            yaSeEncolo = true;
+            await cola.encolar(
+              metodo: 'PUT',
+              ruta: '/api/board/placements/p-1',
+              cuerpo: <String, Object?>{'columnaId': 'c-1', 'posicion': 1},
+            );
+          }
+          return servidorQueVaBien(p);
+        });
+
+        await m.ciclo.ahora(motivo: 'toco el reloj');
+        // La segunda vuelta la lanza el ciclo solo, sin temporizador y sin que
+        // nadie vuelva a pedirla.
+        for (var i = 0; i < 40 && await base.cuantosPendientes() > 0; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+
+        expect(
+          await base.cuantosPendientes(),
+          0,
+          reason:
+              'el gesto tiene que estar arriba YA, no dentro de dos minutos: '
+              'es lo que distingue «en vivo» de «a golpe de reloj»',
+        );
+        expect(
+          ordenDe(m.servidor).where((p) => p == 'subir').length,
+          1,
+          reason:
+              'UNA subida, la de la segunda vuelta. La primera no manda ninguna '
+              'porque su cola estaba vacía, y una subida sin nada dentro es una '
+              'petición regalada',
+        );
+        expect(
+          ordenDe(m.servidor).where((p) => p == 'bajar').length,
+          2,
+          reason: 'dos vueltas enteras, la segunda lanzada por el propio ciclo',
+        );
+        expect(
+          m.renovador.renovacionesPedidas,
+          1,
+          reason:
+              'y UNA sola renovación en las dos vueltas: dos con el mismo '
+              'refresh se leen como robo y revocan todas las sesiones',
+        );
+      },
+    );
+
     test('acabando de entrar no se renueva dos veces seguidas', () async {
       // El arranque y la pantalla de acceso traen el par recien hecho. Renovar
       // otra vez dos dedos despues es una ida y vuelta regalada por la conexion
