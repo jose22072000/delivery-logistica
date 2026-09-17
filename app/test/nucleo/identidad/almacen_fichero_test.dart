@@ -183,6 +183,32 @@ void main() {
       expect((await almacen().leer())?.refresh, 'r-bueno');
     });
 
+    // COMO ROOT NO SE PUEDE PROBAR ESTO, Y HAY QUE DECIRLO.
+    //
+    // Las dos de aquí abajo ponen la carpeta a `500` y comprueban que guardar
+    // contesta «no pude» en vez de reventar. Root **se salta los permisos**, así
+    // que ahí `chmod` no impide nada: la escritura funciona y las dos fallan sin
+    // que haya nada roto.
+    //
+    // Y eso no es teórico: el build de la imagen corre como root, y estas dos
+    // tumbaron el tercer despliegue de la web del 17/09/2026 con 860 pruebas en
+    // verde.
+    //
+    // Se salta con `skip:` y no con un `if`: un `if` deja el fichero en verde
+    // fingiendo que comprobó algo. `skip` sale impreso, con su motivo, y quien
+    // mire el registro ve qué no se comprobó ahí. Nada se descarta en silencio.
+    // Se PRUEBA la premisa en vez de preguntar «¿soy root?». Preguntar por el
+    // usuario es adivinar; esto hace el experimento: una carpeta a `500` y un
+    // fichero dentro. Si entra, `chmod` no protege nada aquí —da igual si es por
+    // root o por cómo esté montado el sistema de ficheros— y estas dos no pueden
+    // comprobar lo que dicen.
+    final permisosSeRespetan = _losPermisosSeRespetan();
+    const porQueSeSalta =
+        'aquí `chmod 500` no impide escribir (build como root, o el sistema de '
+        'ficheros no respeta los permisos), así que «carpeta de solo lectura» no '
+        'se puede reproducir. Se comprueba en una máquina de trabajo, con un '
+        'usuario normal.';
+
     test('carpeta de solo lectura: guardar devuelve false, no lanza', () async {
       await almacen().guardar(sesionDePrueba()); // para que exista la carpeta
       await Process.run('chmod', <String>['500', carpeta.path]);
@@ -191,7 +217,7 @@ void main() {
         await almacen().guardar(sesionDePrueba(refresh: 'nuevo')),
         isFalse,
       );
-    });
+    }, skip: permisosSeRespetan ? null : porQueSeSalta);
 
     test(
       'carpeta de solo lectura: comprobar lo dice ANTES de la contrasena',
@@ -203,8 +229,32 @@ void main() {
         expect(salud.guarda, isFalse);
         expect(salud.motivo, isNotNull);
       },
+      skip: permisosSeRespetan ? null : porQueSeSalta,
     );
   });
 }
 
 File _elFichero(Directory carpeta) => File('${carpeta.path}/sesion.caja');
+
+/// ¿`chmod 500` impide de verdad escribir en esta máquina?
+///
+/// Se comprueba haciéndolo, no preguntando quién soy: root se salta los
+/// permisos, y hay sistemas de ficheros que directamente no los respetan. Lo que
+/// importa no es la identidad, es si el experimento se puede montar.
+bool _losPermisosSeRespetan() {
+  final carpeta = Directory.systemTemp.createTempSync('permisos_');
+  try {
+    Process.runSync('chmod', <String>['500', carpeta.path]);
+    File('${carpeta.path}/prueba').writeAsStringSync('x');
+    return false; // Entró: aquí los permisos no protegen nada.
+  } on FileSystemException {
+    return true;
+  } finally {
+    Process.runSync('chmod', <String>['700', carpeta.path]);
+    try {
+      carpeta.deleteSync(recursive: true);
+    } on FileSystemException {
+      // Si no se puede borrar, es una carpeta temporal y se la lleva el sistema.
+    }
+  }
+}
