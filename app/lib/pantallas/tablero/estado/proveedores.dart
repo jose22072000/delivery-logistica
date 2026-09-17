@@ -135,6 +135,31 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
       await _traerDelServidor(sucursalId);
     }
 
+    // Y EL AVISO EN VIVO DEL SERVIDOR.
+    //
+    // Sin esto el canal funcionaba y no servia de nada. El aviso disparaba el
+    // ciclo de sincronizacion, y **el tablero no viaja en el ciclo**: la bajada
+    // por diferencias sirve pedidos, clientes, rutas y catalogo, y las zonas se
+    // piden aparte con `GET /api/board`, que sólo se llamaba al abrir la
+    // pantalla. Se vio con el telefono delante: la zona subia con un 201, el
+    // servidor registraba la conexion abierta, y la web seguia igual hasta que
+    // pasaba el temporizador de dos minutos.
+    //
+    // Se mira el TIPO: un cambio de clientes o de catalogo no tiene por que
+    // costar una foto entera del tablero.
+    //
+    // `descargar` trae y escribe, y esa escritura despierta al `tableUpdates` de
+    // aqui abajo, que repinta. No hay bucle: la bajada no cambia nada de lo que
+    // `build` observa.
+    final enVivo = ref
+        .watch(avisosDelServidorProvider)
+        .where((tipo) => tipo == 'tablero')
+        .listen((_) async {
+          await _traerDelServidor(sucursalId);
+          await refrescar();
+        });
+    ref.onDispose(enVivo.cancel);
+
     final sub = base
         .tableUpdates(
           TableUpdateQuery.allOf([

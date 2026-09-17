@@ -502,6 +502,32 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
   ),
 );
 
+/// LO QUE CAMBIO EN EL SERVIDOR, para quien quiera enterarse. UN solo canal.
+///
+/// Es de DIFUSION —`asBroadcastStream`— porque lo escuchan dos: el vigia, que
+/// dispara un ciclo de sincronizacion, y el Tablero, que vuelve a pedir su foto.
+/// Con un canal por oyente serian dos conexiones abiertas contra el servidor para
+/// traer exactamente lo mismo.
+///
+/// ## Y hacen falta los DOS, que fue el fallo — 17/09/2026
+///
+/// Al principio sólo lo escuchaba el vigia, y parecia razonable: llega el aviso,
+/// se dispara el ciclo, se baja todo. **Pero el tablero no viaja en el ciclo**: la
+/// bajada por diferencias (`/sync/cambios`) sirve pedidos, clientes, rutas y
+/// catalogo, y las zonas se piden aparte con `GET /api/board`, que sólo se llama
+/// al abrir la pantalla.
+///
+/// Asi que el canal funcionaba —el servidor registraba la conexion abierta— y en
+/// la pantalla no pasaba nada. Se comprobo con el telefono delante: la zona subia
+/// con un 201 y la web seguia igual hasta que pasaba el temporizador.
+final avisosDelServidorProvider = Provider<Stream<String>>((ref) {
+  final canal = escucharEventos(
+    Entorno.apiUrl,
+    () async => (await ref.read(almacenSesionProvider).leer())?.token,
+  ).asBroadcastStream();
+  return canal;
+});
+
 /// EL VIGIA: el aviso de red y el reloj. Lo arranca y lo para `app.dart` segun
 /// lo que diga el portero — nada vivo sin sesion.
 final vigiaProvider = Provider<VigiaDeSincronizacion>((ref) {
@@ -521,10 +547,7 @@ final vigiaProvider = Provider<VigiaDeSincronizacion>((ref) {
     //
     // Es una MEJORA y no un cimiento: donde no hay canal devuelve un stream
     // vacío y manda el temporizador, que es lo que había. Ver `red/eventos.dart`.
-    avisosDelServidor: () => escucharEventos(
-      Entorno.apiUrl,
-      () async => (await ref.read(almacenSesionProvider).leer())?.token,
-    ),
+    avisosDelServidor: () => ref.read(avisosDelServidorProvider),
     // EL RITMO, segun el destino. En web es lo UNICO que trae los cambios —alli
     // no queda ni un gesto para traer el dia a mano—, asi que va mas seguido; en
     // la APK cada tic se paga en bateria y datos por la conexion de alla. El

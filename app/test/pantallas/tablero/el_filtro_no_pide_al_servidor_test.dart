@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +30,7 @@ void main() {
   late ServidorFalso servidor;
   late ProviderContainer contenedor;
   late List<PeticionVista> vistas;
+  late StreamController<String> enVivo;
 
   ProviderContainer montar() {
     final dio = Dio(BaseOptions(baseUrl: 'https://reparto.invalido'))
@@ -35,6 +38,7 @@ void main() {
     return ProviderContainer.test(
       overrides: [
         baseProvider.overrideWith((ref) => base),
+        avisosDelServidorProvider.overrideWithValue(enVivo.stream),
         clienteApiProvider.overrideWithValue(
           ClienteApi(dio: dio, esperas: const <Duration>[]),
         ),
@@ -53,6 +57,7 @@ void main() {
   }
 
   setUp(() async {
+    enVivo = StreamController<String>.broadcast();
     base = baseDePrueba();
     await sembrarSucursal(base);
     await sembrarAlmacen(base);
@@ -69,6 +74,7 @@ void main() {
 
   tearDown(() async {
     contenedor.dispose();
+    await enVivo.close();
     await base.close();
   });
 
@@ -211,5 +217,44 @@ void main() {
       reason: 'el aviso que costó el incidente del 16/09 no puede irse solo al '
           'tocar un desplegable',
     );
+  });
+
+  /// UN AVISO DEL SERVIDOR VUELVE A PEDIR LA FOTO. Es para lo que está el canal.
+  ///
+  /// Sin esto el canal funcionaba y no servía de nada: el aviso disparaba el ciclo de
+  /// sincronización, y **el tablero no viaja en el ciclo** —la bajada por diferencias
+  /// sirve pedidos, clientes, rutas y catálogo; las zonas se piden aparte—. Se vio con el
+  /// teléfono delante: la zona subía con un 201, el servidor registraba la conexión
+  /// abierta, y la web seguía igual hasta que pasaban los dos minutos del temporizador.
+  group('el aviso en vivo', () {
+    test('un «tablero» vuelve a pedir la foto', () async {
+      await contenedor.read(tableroProvider.future);
+      expect(peticionesDelTablero(), 1);
+
+      enVivo.add('tablero');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(
+        peticionesDelTablero(),
+        2,
+        reason: 'lo que hizo el otro en su teléfono tiene que aparecer aquí solo',
+      );
+    });
+
+    test('un aviso de OTRA cosa no cuesta una foto del tablero', () async {
+      await contenedor.read(tableroProvider.future);
+      expect(peticionesDelTablero(), 1);
+
+      enVivo.add('clientes');
+      enVivo.add('catalogo');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(
+        peticionesDelTablero(),
+        1,
+        reason: 'un cambio de clientes no tiene por qué costar una ida y vuelta '
+            'por la conexión de allá',
+      );
+    });
   });
 }
