@@ -30,7 +30,8 @@ import 'eventos_stub.dart'
 /// se cae —un proxy que corta, una red que se va— el reloj sigue ahi y el trabajo
 /// llega igual, sólo que mas tarde. Por eso esto nunca lanza: un aviso que no
 /// llega no puede dejar a nadie sin sincronizar.
-typedef EscuchaDeEventos = Stream<String> Function(String urlBase);
+typedef EscuchaDeEventos =
+    Stream<String> Function(String urlBase, Future<String?> Function() token);
 
 /// Abre el canal y devuelve el TIPO de cada cambio: `pedidos`, `rutas`,
 /// `tablero`, `catalogo`, `clientes`.
@@ -40,7 +41,12 @@ typedef EscuchaDeEventos = Stream<String> Function(String urlBase);
 ///
 /// En los destinos donde todavia no hay implementacion devuelve un stream vacio,
 /// y entonces manda el temporizador, que es exactamente lo de antes.
-Stream<String> escucharEventos(String urlBase) => destino.escucharEventos(urlBase);
+/// [token] se pide al abrir, no antes: `EventSource` no sabe mandar cabeceras,
+/// asi que el token viaja por la cookie que la API ya lee.
+Stream<String> escucharEventos(
+  String urlBase,
+  Future<String?> Function() token,
+) => destino.escucharEventos(urlBase, token);
 
 /// `true` donde el canal esta implementado. Sirve para poder DECIRLO —y para que
 /// una prueba no compruebe algo que en ese destino no existe—.

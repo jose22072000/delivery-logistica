@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reparto/nucleo/base/base.dart';
+import 'package:reparto/nucleo/base/preferencias_del_aparato.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 
@@ -66,6 +67,28 @@ void main() {
       await base.preferencia(ClaveDePreferencia.monedaMirada),
       'CUP',
       reason: 'borrar la sucursal no puede llevarse la moneda por delante',
+    );
+  });
+
+  test('en la APK van a la base, que es un fichero y sobrevive', () async {
+    // En la web NO: la base del navegador es en memoria desde que la web dejó de
+    // guardar copia, así que estas dos elecciones se perderían en cada recarga y el
+    // Super Admin tendría que volver a elegir su sucursal cada vez. Allí van a
+    // `localStorage`, que es donde ya vive la sesión.
+    //
+    // Estas pruebas corren en la VM, o sea el camino de la APK.
+    expect(
+      PreferenciasDelAparato.fueraDeLaBase,
+      isFalse,
+      reason: 'fuera de la web mandan la tabla y el fichero',
+    );
+
+    await base.anotarPreferencia(ClaveDePreferencia.sucursalMirada, 'hab-1');
+    final filas = await base.select(base.preferencias).get();
+    expect(
+      filas.where((f) => f.clave == ClaveDePreferencia.sucursalMirada).length,
+      1,
+      reason: 'se escribió en la tabla, no en otro sitio',
     );
   });
 }

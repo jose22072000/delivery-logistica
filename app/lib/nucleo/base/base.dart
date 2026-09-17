@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import 'conexion/conexion.dart';
+import 'preferencias_del_aparato.dart';
 import 'tablas/aparato.dart';
 import 'tablas/dominio.dart';
 
@@ -276,6 +277,13 @@ class BaseLocal extends _$BaseLocal {
   /// Lo ultimo que se eligio, para volver a ponerlo al abrir. `null` cuando no
   /// hay nada elegido: en la sucursal eso es «todas».
   Future<String?> preferencia(String clave) async {
+    // EN LA WEB, FUERA DE AQUI. Esta tabla vive en la base del navegador, que es
+    // en memoria desde que la web dejo de guardar copia: se vaciaria en cada
+    // recarga y la sucursal elegida se perderia. Ver
+    // `preferencias_del_aparato.dart`.
+    if (PreferenciasDelAparato.fueraDeLaBase) {
+      return PreferenciasDelAparato.leer(clave);
+    }
     final fila = await (select(
       preferencias,
     )..where((p) => p.clave.equals(clave))).getSingleOrNull();
@@ -287,6 +295,10 @@ class BaseLocal extends _$BaseLocal {
   /// vacia: leer luego «» y tratarlo como una sucursal es el fallo que esto
   /// evita.
   Future<void> anotarPreferencia(String clave, String? valor) async {
+    if (PreferenciasDelAparato.fueraDeLaBase) {
+      PreferenciasDelAparato.escribir(clave, valor);
+      return;
+    }
     if (valor == null || valor.isEmpty) {
       await (delete(preferencias)..where((p) => p.clave.equals(clave))).go();
       return;

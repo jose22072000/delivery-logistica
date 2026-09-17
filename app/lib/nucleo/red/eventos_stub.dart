@@ -7,6 +7,9 @@
 ///
 /// Devuelve un stream que se cierra al momento: quien escuche no se queda
 /// esperando un aviso que no va a llegar.
-Stream<String> escucharEventos(String urlBase) => const Stream<String>.empty();
+Stream<String> escucharEventos(
+  String urlBase,
+  Future<String?> Function() token,
+) => const Stream<String>.empty();
 
 bool get hayCanalDeEventos => false;

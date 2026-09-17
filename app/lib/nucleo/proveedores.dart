@@ -521,7 +521,10 @@ final vigiaProvider = Provider<VigiaDeSincronizacion>((ref) {
     //
     // Es una MEJORA y no un cimiento: donde no hay canal devuelve un stream
     // vacío y manda el temporizador, que es lo que había. Ver `red/eventos.dart`.
-    avisosDelServidor: () => escucharEventos(Entorno.apiUrl),
+    avisosDelServidor: () => escucharEventos(
+      Entorno.apiUrl,
+      () async => (await ref.read(almacenSesionProvider).leer())?.token,
+    ),
     // EL RITMO, segun el destino. En web es lo UNICO que trae los cambios —alli
     // no queda ni un gesto para traer el dia a mano—, asi que va mas seguido; en
     // la APK cada tic se paga en bateria y datos por la conexion de alla. El

@@ -16,11 +16,37 @@ import '../registro/registro.dart';
 /// `withCredentials` va puesto: en la web la sesion es la cookie del acceso
 /// unico, no un token guardado (`docs/identidad.md`). Sin eso el servidor
 /// contesta 401 y el canal no abre.
-Stream<String> escucharEventos(String urlBase) {
+Stream<String> escucharEventos(
+  String urlBase,
+  Future<String?> Function() token,
+) {
   final control = StreamController<String>();
   web.EventSource? fuente;
 
-  control.onListen = () {
+  control.onListen = () async {
+    // EL TOKEN VA POR COOKIE, no por la direccion.
+    //
+    // `EventSource` no sabe mandar cabeceras, asi que no hay `Authorization`
+    // posible. Quedaban dos formas y esta es la buena: el token en la URL
+    // (`?token=…`) acaba escrito en el registro del servidor, en el del proxy y
+    // en el historial del navegador, y ahi se queda; la cookie no sale en
+    // ninguno de los tres.
+    //
+    // No es exposicion nueva: en la web el token ya vive en `localStorage`, o sea
+    // que el JavaScript de esta pagina ya lo tiene. `SameSite=Strict` para que no
+    // viaje desde otro sitio, y `Secure` porque esto sirve por https.
+    //
+    // Se llama `token` porque es el nombre que ya lee `auth.DelaPeticion` del
+    // reparto — la misma puerta que usan la APK y la web, sin inventar otra.
+    final t = await token();
+    if (t == null || t.isEmpty) {
+      Registro.info('canal de eventos: sin sesión todavía, no se abre');
+      unawaited(control.close());
+      return;
+    }
+    web.document.cookie =
+        'token=$t; Path=/; Secure; SameSite=Strict';
+
     try {
       fuente = web.EventSource(
         '$urlBase/eventos',
@@ -47,8 +73,26 @@ Stream<String> escucharEventos(String urlBase) {
     );
 
     fuente!.onerror = (web.Event _) {
-      // `EventSource` reconecta solo. Esto se anota y ya: cerrar el stream aqui
-      // dejaria la pantalla sin canal para siempre por un corte de dos segundos.
+      // ## Hay DOS errores distintos y se parecen en nada
+      //
+      // Un corte de red: `readyState` queda en `CONNECTING` y **el navegador
+      // reconecta solo**, con su espera creciente. Ahi no hay nada que hacer.
+      //
+      // Un 401, o un `Content-Type` que no es `text/event-stream`: por la
+      // especificacion de HTML el navegador hace *fail the connection* —
+      // `readyState` pasa a `CLOSED` y **no reintenta nunca mas**. Sin
+      // distinguirlo, el `StreamController` se quedaba abierto y muerto: no
+      // emitia, no cerraba, nadie se enteraba, y la aplicacion caia al
+      // temporizador en silencio. El comentario decia que reconectaba solo, y
+      // para ese caso era mentira.
+      if (fuente?.readyState == web.EventSource.CLOSED) {
+        Registro.aviso(
+          'canal de eventos cerrado por el navegador (401 o cabecera mala): se '
+          'sigue con el temporizador',
+        );
+        unawaited(control.close());
+        return;
+      }
       Registro.info('canal de eventos: corte, el navegador reconecta solo');
     }.toJS;
   };
