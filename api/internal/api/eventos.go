@@ -51,6 +51,10 @@ const (
 	CambioCatalogo = "catalogo"
 	CambioRutas    = "rutas"
 	CambioClientes = "clientes"
+	// EL TABLERO. Es el que más falta hacía y el que no estaba: es la pantalla que dos
+	// personas miran a la vez —una arma zonas en el teléfono y otra las ve desde el
+	// navegador— y la única donde el trabajo de uno aparece encima del del otro.
+	CambioTablero = "tablero"
 )
 
 // FrenoAvisos: como mucho UN aviso cada quince segundos por tipo.
@@ -58,6 +62,20 @@ const (
 // POR QUÉ: el espejo importa por lotes de doscientos y avisaba por cada lote — veinte
 // avisos seguidos y la pantalla recargándose veinte veces. Lo que pasa en ese rato viaja
 // en el siguiente aviso, así que no se pierde nada: se pierde el parpadeo.
+//
+// ## Y POR ESO HAY FLANCO DE BAJADA — 17/09/2026
+//
+// «Lo que pasa en ese rato viaja en el siguiente aviso» era cierto para el espejo, que
+// siempre tiene un lote detrás. **Para un gesto humano es falso**: doce tarjetas
+// arrastradas en doce segundos mandaban UN aviso —el de la primera, o sea el momento en
+// que menos hay que contar— y las once siguientes se descartaban sin dejar rastro. La otra
+// pantalla refrescaba tras la tarjeta 1 y se quedaba once atrás hasta el temporizador: dos
+// minutos en la web, cinco en la APK. La queja que esto venía a arreglar, arreglada a un
+// doceavo.
+//
+// Ahora lo que llega dentro del freno **se anota como pendiente** y sale solo al vencer.
+// Se sigue mandando un aviso cada quince segundos como mucho —que es lo que evita el
+// parpadeo— pero el último cambio siempre llega.
 const FrenoAvisos = 15 * time.Second
 
 // El latido, y el plazo de cada escritura. Son variables y no constantes para que las
@@ -108,7 +126,10 @@ type Difusor struct {
 	mu       sync.Mutex
 	abonados map[chan Cambio]struct{}
 	ultimo   map[string]time.Time // el freno, por tipo
-	cerrado  bool
+	// pendiente: lo que llegó DENTRO del freno y todavía no ha salido. Es el flanco de
+	// bajada; sin esto, lo que pasa en esos quince segundos no se dice nunca.
+	pendiente map[string]Cambio
+	cerrado   bool
 	// enganchados: los servidores HTTP a los que ya se les colgó el cierre. Ver
 	// `registrarApagado`.
 	enganchados map[*http.Server]struct{}
@@ -121,6 +142,7 @@ func NuevoDifusor() *Difusor {
 	return &Difusor{
 		abonados:    map[chan Cambio]struct{}{},
 		ultimo:      map[string]time.Time{},
+		pendiente:   map[string]Cambio{},
 		enganchados: map[*http.Server]struct{}{},
 		freno:       FrenoAvisos,
 		ahora:       time.Now,
@@ -138,8 +160,33 @@ var busEventos = NuevoDifusor()
 //
 // El detalle va vacío a propósito: el aviso dice QUÉ cambió, no cuánto. La pantalla vuelve a
 // pedir la lista, y esa sí va acotada a su sucursal.
+// ## El tablero no avisaba, y es la pantalla que más falta hacía — 17/09/2026
+//
+// Publicaban dos: `CambioRutas` desde el armador y `CambioPedidos` desde el lote del espejo.
+// Del tablero, nada — y es justamente la pantalla que dos personas miran a la vez: una arma
+// zonas en el teléfono y otra las ve desde el navegador.
+//
+// Lo que se notaba: una zona creada en el móvil no aparecía en la web hasta que pasaba el
+// temporizador —dos minutos— o alguien refrescaba a mano. Jose, 16/09/2026: «hice un tablero
+// en el móvil, moví cosas, y en la web no salió en tiempo real, ¿por qué razón si eso debe
+// pasar?».
+//
+// (`CambioCatalogo` y `CambioClientes` siguen declarados y sin publicar. No es lo mismo:
+// ésos cambian cuando el espejo importa, que ya avisa por `CambioPedidos`, y una pantalla
+// de clientes no es algo que dos personas miren a la vez esperando ver el gesto del otro.
+// Se dejan, y queda dicho aquí para que nadie los dé por vivos.)
+//
+// Lo que se notaba: suscribirse al canal no servía de nada. Una zona creada en el teléfono
+// no aparecía en la web hasta que pasaba el temporizador —dos minutos— o alguien refrescaba
+// a mano. Jose, 16/09/2026: «hice un tablero en el móvil, moví cosas, y en la web no salió
+// en tiempo real, ¿por qué razón si eso debe pasar?».
+//
+// Se enganchan aquí, en el fichero del bus, y no en cada manejador: quien escribe una zona
+// no tiene por qué saber cómo se reparten los avisos, y el día que esto vuelva a ser Redis
+// no hay que tocar el tablero.
 func init() {
 	avisarCambioDeRutas = func(_ context.Context) { busEventos.Avisar(CambioRutas, nil) }
+	avisarCambioDelTablero = func(_ context.Context) { busEventos.Avisar(CambioTablero, nil) }
 }
 
 // Avisar publica un cambio. Devuelve si salió o si lo paró el freno; nunca bloquea y nunca
@@ -151,14 +198,27 @@ func (d *Difusor) Avisar(tipo string, detalle map[string]any) bool {
 		return false
 	}
 	ahora := d.ahora()
+	c := Cambio{Tipo: tipo, Cuando: ahora, Detalle: detalle}
+
 	if visto, hay := d.ultimo[tipo]; hay && ahora.Sub(visto) < d.freno {
-		// Se DESCARTA, no se encola ni se reprograma: lo que pasó en estos quince
-		// segundos viaja en el siguiente aviso.
+		// DENTRO DEL FRENO: no sale ahora, pero **se guarda**. Sale solo al vencer, con
+		// `soltarPendientes`. Antes se descartaba, y de doce gestos seguidos llegaba uno
+		// —el primero— y once se perdían para siempre.
+		//
+		// Se queda el ÚLTIMO: es el que describe cómo está el tablero ahora, y quien lo
+		// reciba va a pedir la lista entera de todos modos.
+		d.pendiente[tipo] = c
 		return false
 	}
 	d.ultimo[tipo] = ahora
+	delete(d.pendiente, tipo)
 
-	c := Cambio{Tipo: tipo, Cuando: ahora, Detalle: detalle}
+	d.repartir(c)
+	return true
+}
+
+// repartir manda el cambio a todos los abonados. Con el candado ya cogido.
+func (d *Difusor) repartir(c Cambio) {
 	for ch := range d.abonados {
 		select {
 		case ch <- c:
@@ -168,7 +228,31 @@ func (d *Difusor) Avisar(tipo string, detalle map[string]any) bool {
 			// esperando a que un navegador se despierte.
 		}
 	}
-	return true
+}
+
+// SoltarPendientes manda lo que se quedó dentro del freno y ya venció.
+//
+// Lo llama el latido de cada conexión abierta (`eventos.go`, el `ticker`), que es lo único
+// que corre solo en este servicio: montar un temporizador propio sería un hilo más vivo
+// para algo que ya tiene quien lo despierte cada veinte segundos.
+//
+// Y por eso el retraso máximo de un aviso es el freno más un latido. Sigue siendo dos
+// órdenes de magnitud menos que los dos minutos del temporizador de la pantalla.
+func (d *Difusor) SoltarPendientes() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.cerrado || len(d.pendiente) == 0 {
+		return
+	}
+	ahora := d.ahora()
+	for tipo, c := range d.pendiente {
+		if visto, hay := d.ultimo[tipo]; hay && ahora.Sub(visto) < d.freno {
+			continue
+		}
+		d.ultimo[tipo] = ahora
+		delete(d.pendiente, tipo)
+		d.repartir(c)
+	}
 }
 
 // Suscribir abre un abono. El tercer valor es false cuando el bus está cerrado —el proceso
@@ -316,6 +400,15 @@ func (s *Servidor) servirEventos(w http.ResponseWriter, r *http.Request, bus *Di
 			}
 
 		case <-tic.C:
+			// LO QUE SE QUEDÓ DENTRO DEL FRENO y ya venció. Va aquí y no en un
+			// temporizador propio: este latido ya corre por cada conexión abierta, y
+			// montar otro hilo para algo que ya tiene quien lo despierte es hilo de más.
+			//
+			// Sin esto, doce gestos en doce segundos mandaban UNO —el primero— y los once
+			// siguientes no se decían nunca: la otra pantalla se quedaba once tarjetas
+			// atrás hasta el temporizador.
+			bus.SoltarPendientes()
+
 			// Un comentario SSE (`:`), que no es un evento: el cliente lo descarta y el
 			// proxy ve tráfico. Es lo único que impide que la conexión se corte sola.
 			if !enviarSSE(w, r, rc, ": latido\n\n") {

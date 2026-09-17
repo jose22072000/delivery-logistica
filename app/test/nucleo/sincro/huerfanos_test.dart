@@ -219,4 +219,98 @@ void main() {
       expect(nuevos.length, 1);
     });
   });
+
+  /// UNA TARJETA HUÉRFANA SOBRE UNA ZONA QUE SÍ ESTÁ ARRIBA.
+  ///
+  /// Es el mismo atasco de las zonas, por el otro lado, y se quedó abierto: se arrastra una
+  /// tarjeta sin señal sobre una zona que ya existe en el servidor, su apunte se descarta, y
+  /// entonces no hay nada que la suba. La bajada se niega para no borrarla —bien—, pero lo
+  /// único que limpia su marca es una bajada… que está bloqueada. Tablero parado sin salida,
+  /// igual que el de la zona «Vista» del 16/09 y por la misma razón.
+  ///
+  /// El bucle de las zonas no las coge: va por zonas, y una tarjeta sobre una zona que ya
+  /// subió no está dentro de ninguna zona huérfana.
+  group('tarjetas sueltas', () {
+    /// Una zona que YA SUBIÓ: `nacio_aqui = 0`.
+    Future<void> zonaDelServidor(String id) => base.customStatement(
+      'INSERT INTO board_columns (id, branch_id, nombre, posicion, created_at, '
+      'updated_at, nacio_aqui) '
+      "VALUES (?1, ?2, 'Centro', 1, '2026-09-17T09:00:00.000', "
+      "'2026-09-17T09:00:00.000', 0)",
+      [id, 'hab-1'],
+    );
+
+    Future<void> tarjetaLocal(String pedido, String zona, int sitio) async {
+      await base
+          .into(base.orders)
+          .insertOnConflictUpdate(
+            OrdersCompanion.insert(
+              id: pedido,
+              customerName: 'Cliente',
+              address: 'Calle 1',
+            ),
+          );
+      await base.customStatement(
+        'INSERT INTO board_placements (order_id, column_id, posicion, colocado_at, '
+        'updated_at, nacio_aqui) '
+        "VALUES (?1, ?2, ?3, '2026-09-17T09:00:00.000', "
+        "'2026-09-17T09:00:00.000', 1)",
+        [pedido, zona, sitio],
+      );
+    }
+
+    test('se vuelve a encolar, con su zona y su sitio', () async {
+      await zonaDelServidor('c-arriba');
+      await tarjetaLocal('p1', 'c-arriba', 3);
+
+      expect(await huerfanos.volverAEncolar(cola), 1);
+
+      final apunte = (await base.select(base.apuntes).get()).single;
+      expect(apunte.metodo, 'PUT');
+      expect(apunte.ruta, '/board/placements/p1');
+      expect(
+        apunte.cuerpo,
+        contains('"posicion":3'),
+        reason: 'el sitio importa: es el orden de visita del camión',
+      );
+      expect(apunte.cuerpo, contains('"columnaId":"c-arriba"'));
+    });
+
+    test('NO la vuelve a encolar en la vuelta siguiente', () async {
+      await zonaDelServidor('c-arriba');
+      await tarjetaLocal('p1', 'c-arriba', 0);
+
+      expect(await huerfanos.volverAEncolar(cola), 1);
+      expect(
+        await huerfanos.volverAEncolar(cola),
+        0,
+        reason: 'el ciclo corre cada pocos minutos: la cola crecería sola',
+      );
+    });
+
+    test('una tarjeta que ya subió no se toca', () async {
+      await zonaDelServidor('c-arriba');
+      await tarjetaLocal('p1', 'c-arriba', 0);
+      await base.customStatement('UPDATE board_placements SET nacio_aqui = 0');
+
+      expect(await huerfanos.volverAEncolar(cola), 0);
+    });
+
+    test('las de una zona huérfana NO se encolan dos veces', () async {
+      // Ésas ya salen detrás de su zona, con el orden que les toca.
+      await zonaLocal('local-vista', pedidos: ['p1', 'p2']);
+
+      expect(
+        await huerfanos.volverAEncolar(cola),
+        3,
+        reason: '1 zona + 2 tarjetas, no 5',
+      );
+    });
+
+    test('en un aparato sin Tablero no revienta', () async {
+      final virgen = baseDePrueba();
+      addTearDown(virgen.close);
+      expect(await Huerfanos(virgen).volverAEncolar(ColaDeSalida(virgen)), 0);
+    });
+  });
 }

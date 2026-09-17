@@ -17,6 +17,7 @@ import 'identidad/renovador.dart';
 import 'plataforma.dart';
 import 'red/cliente_api.dart';
 import 'red/entorno.dart';
+import 'red/eventos.dart';
 import 'red/fallos.dart';
 import 'red/salud.dart';
 import 'reloj.dart';
@@ -515,6 +516,12 @@ final vigiaProvider = Provider<VigiaDeSincronizacion>((ref) {
         ref.read(baseProvider).tableUpdates(TableUpdateQuery.onTable(
           ref.read(baseProvider).apuntes,
         )),
+    // EL CANAL EN VIVO. Lo que cambia en el servidor se sabe en cuanto cambia, en
+    // vez de esperar al reloj —dos minutos en la web, cinco en la APK—.
+    //
+    // Es una MEJORA y no un cimiento: donde no hay canal devuelve un stream
+    // vacío y manda el temporizador, que es lo que había. Ver `red/eventos.dart`.
+    avisosDelServidor: () => escucharEventos(Entorno.apiUrl),
     // EL RITMO, segun el destino. En web es lo UNICO que trae los cambios —alli
     // no queda ni un gesto para traer el dia a mano—, asi que va mas seguido; en
     // la APK cada tic se paga en bateria y datos por la conexion de alla. El

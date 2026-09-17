@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
-import '../../../nucleo/plataforma.dart';
 import '../../../nucleo/red/fallos.dart';
 import '../../../nucleo/registro/registro.dart';
 import '../datos/consultas.dart';
@@ -94,22 +93,48 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
 
   @override
   Future<Tablero> build() async {
-    // AL CAMBIAR DE SUCURSAL, el aviso de la anterior se va. `build` se rehace
-    // cuando cambia `sucursalDelTableroProvider`, así que éste es el sitio.
-    // Arrastrar «hay 1 zona sin subir» de Holguín al tablero de La Habana es
-    // decir algo que ahí no es verdad.
-    _porQueNoSeRefresca = null;
     final sucursalId = await ref.watch(sucursalDelTableroProvider.future);
     if (sucursalId == null) {
       return const Tablero.imposible('Elige una sucursal para ver su tablero');
     }
     final filtros = ref.watch(filtrosTableroProvider);
-
-    // Lo que cambie por debajo —una bajada que trae pedidos nuevos, una ruta
-    // que se lleva unos cuantos— tiene que verse sin que nadie tire de la
-    // pantalla. Las tablas del tablero no son de Drift, asi que se escuchan por
-    // su nombre.
     final base = ref.watch(baseProvider);
+
+    // CON CONEXION, DEL SERVIDOR. Al abrir el tablero y al cambiar de sucursal —
+    // y SOLO entonces.
+    //
+    // **La APK conectada hace lo mismo que la web.** Esa es la arquitectura
+    // entera, en una frase de Jose: «cuando las apk estén conectadas deben hacer
+    // lo mismo, estar directas a la base de datos del servidor; esto [la copia]
+    // es sólo para cuando se quiten de una red y no puedan ver la base de datos
+    // del servidor: ahí es donde entra el sync».
+    //
+    // ## POR SUCURSAL Y NO POR CADA `build`
+    //
+    // `build` mira tambien `filtrosTableroProvider`, asi que **cada filtro lo
+    // vuelve a ejecutar**. Sin esta guarda, abrir el cajon de filtros y tocar
+    // cuatro cosas eran cuatro descargas completas del tablero: la pantalla en
+    // blanco, la rueda girando y una ida y vuelta por la conexion de alla —que el
+    // propio cliente documenta en 55 s en el caso normal y 115 s en el peor—
+    // **por un filtro que es local y no necesita servidor para nada**.
+    //
+    // ## AQUI Y NO EN `_leer`, o es un bucle
+    //
+    // `descargar` ESCRIBE en las tablas del tablero, y ahi abajo hay un
+    // `tableUpdates` que llama a `refrescar()` con cada escritura. Pidiendolo en
+    // cada lectura: descargar → cambian las tablas → refrescar → leer →
+    // descargar… sin parar.
+    //
+    // Lo demas ya esta cubierto: el ciclo del sincronizador, el canal en vivo y
+    // el boton de refrescar.
+    if (sucursalId != _sucursalYaBajada) {
+      _sucursalYaBajada = sucursalId;
+      // El aviso de la sucursal anterior se va: «hay 1 zona sin subir» de Holguin
+      // no es verdad en el tablero de La Habana.
+      _porQueNoSeRefresca = null;
+      await _traerDelServidor(sucursalId);
+    }
+
     final sub = base
         .tableUpdates(
           TableUpdateQuery.allOf([
@@ -125,31 +150,6 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
   }
 
   Future<Tablero> _leer(String sucursalId, FiltrosSinColocar filtros) async {
-    // EN LA WEB, DEL SERVIDOR. Siempre, y antes de pintar nada.
-    //
-    // La web esta en el servidor y siempre tiene conexion: lo que tiene que
-    // enseñar es lo que hay en la nube, no una copia suya. La copia local existe
-    // **para la APK y el escritorio**, que son los que se van sin señal; en un
-    // navegador solo puede mentir, y mintio: el tablero se quedo hora y media
-    // enseñando una foto de las 16:13 mientras el telefono subia zonas que no
-    // aparecian.
-    //
-    // Sigue escribiendose en Drift y leyendose de ahi —las consultas de abajo
-    // son las mismas para las tres formas, y tener dos caminos de lectura seria
-    // tener dos verdades—, pero en web la copia se refresca ANTES de cada
-    // lectura, asi que lo que se pinta es lo del servidor.
-    //
-    // Sin señal en la web no es un caso que haya que resolver: `descargar` lanza
-    // `FalloDeRed`, se sigue con lo que hubiera y la barra de arriba ya dice que
-    // no hay conexion.
-    if (!Destino.trabajaSinConexion) {
-      try {
-        await ref.read(servicioTableroProvider).descargar(sucursalId);
-      } on FalloDeRed catch (e) {
-        Registro.info('tablero web: sin conexion al abrir ($e)');
-      }
-    }
-
     final consultas = ref.read(consultasTableroProvider);
     // Antes de leer, los `local-…` que ya tengan id de verdad. Si no, la
     // pantalla sigue ensenando el provisional hasta la proxima bajada.
@@ -198,6 +198,52 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
   /// fallo que nadie sabe reproducir: «a veces la tarjeta se queda en la
   /// columna vieja». Y devolver la espera buena es lo que hace que quien llama
   /// —un gesto, o una prueba— pueda fiarse de que al volver ya esta puesto.
+  /// La sucursal cuya foto ya se pidio. Sin esto, cada filtro era una descarga.
+  String? _sucursalYaBajada;
+
+  /// Trae la foto del servidor y **se queda con el porque si no se pudo**.
+  ///
+  /// ## Lo que se traga y lo que NO — 17/09/2026
+  ///
+  /// `FalloDeRed` es lo normal sin señal y se sigue con lo de aqui, que es para
+  /// lo que esta la copia. Lo demas hay que cogerlo tambien, y faltaba:
+  ///
+  ///  * un **403** —«esa sucursal no es tuya»— salia de `build` y el future del
+  ///    provider **no se completaba nunca**: la pantalla se quedaba con la rueda
+  ///    girando para siempre, sin el mensaje del servidor y **sin pintar la copia
+  ///    local, que lo tenia todo**;
+  ///  * un **401** terminal, igual;
+  ///  * y un cuerpo que no se entiende llegaba a la pantalla de error con un
+  ///    `type 'Null' is not a subtype of type 'String'`, que no le dice nada a
+  ///    nadie.
+  ///
+  /// Ninguna de esas tres puede impedir ver el tablero: lo que hay en el aparato
+  /// se pinta igual, y lo que pasó se DICE arriba.
+  Future<void> _traerDelServidor(String sucursalId) async {
+    try {
+      final r = await ref.read(servicioTableroProvider).descargar(sucursalId);
+      // Y si la bajada se NEGO —queda trabajo sin subir—, se dice. Antes se
+      // tiraba el resultado y la barra enseñaba «Visto por última vez a las …»
+      // con una hora congelada, como si estuviera al día.
+      _porQueNoSeRefresca = r.porQue;
+    } on FalloDeRed catch (e) {
+      _porQueNoSeRefresca = null;
+      Registro.info('tablero: sin conexión al abrir, se sigue con lo de aquí ($e)');
+    } on Rechazo catch (e) {
+      // El literal del servidor, que es lo único que le dice a alguien qué hacer.
+      _porQueNoSeRefresca = e.mensaje;
+      Registro.aviso('tablero: el servidor dijo que no al bajar: ${e.mensaje}');
+    } on SesionMuerta catch (e) {
+      _porQueNoSeRefresca = 'la sesión se perdió: hace falta volver a entrar';
+      Registro.aviso('tablero: sesión muerta al bajar ($e)');
+    } on Object catch (e, pila) {
+      // EL SUELO. Cualquier otra cosa —un cuerpo que no cuadra, un fallo al
+      // escribir— deja el tablero con lo que hay, no con una rueda eterna.
+      _porQueNoSeRefresca = 'no se pudo traer del servidor';
+      Registro.fallo('tablero: no se pudo bajar: $e', e, pila);
+    }
+  }
+
   Future<void> refrescar() {
     final enCurso = _enCurso;
     if (enCurso != null) {

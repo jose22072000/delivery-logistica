@@ -22,6 +22,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -68,6 +69,15 @@ func (s *Servidor) rutasTablero(rt *httpx.Router, sesion, admin []httpx.Medio) {
 	rt.ManejarFunc(http.MethodPut, "/api/board/placements/{id}", s.colocarPedido, sesion...)
 	rt.ManejarFunc(http.MethodDelete, "/api/board/placements/{id}", s.quitarPedidoDelTablero, sesion...)
 }
+
+// avisarCambioDelTablero publica «algo cambió en el tablero» para que las pantallas
+// abiertas se enteren sin esperar al temporizador.
+//
+// Vacío por defecto y lo engancha el fichero del bus (`eventos.go`), igual que el de rutas.
+// **NO devuelve error y no se mira lo que conteste**: una zona no se deja de crear porque
+// el aviso no salga. El bus tiene además un freno de quince segundos por tipo, así que
+// arrastrar doce tarjetas seguidas no manda doce avisos.
+var avisarCambioDelTablero = func(_ context.Context) {}
 
 // ---------------------------------------------------------------------------
 // Mensajes literales del tablero
@@ -541,6 +551,7 @@ func (s *Servidor) crearColumna(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDelTablero(r.Context())
 	httpx.JSON(w, r, http.StatusCreated, deColumnaPelada(fila))
 }
 
@@ -594,6 +605,7 @@ func (s *Servidor) actualizarColumna(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDelTablero(r.Context())
 	httpx.JSON(w, r, http.StatusOK, deColumnaPelada(fila))
 }
 
@@ -659,6 +671,7 @@ func (s *Servidor) reordenarColumnas(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDelTablero(r.Context())
 	httpx.JSON(w, r, http.StatusOK, map[string]any{
 		"reordenadas": n,
 		"columnas":    deColumnas(columnas),
@@ -771,6 +784,7 @@ func (s *Servidor) borrarColumna(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDelTablero(r.Context())
 	httpx.JSON(w, r, http.StatusOK, map[string]any{"success": true, "movidos": dentro})
 }
 
@@ -880,6 +894,7 @@ func (s *Servidor) colocarPedido(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDelTablero(r.Context())
 	httpx.JSON(w, r, http.StatusOK, map[string]any{
 		"pedidoId":   puesto.OrderID,
 		"columnaId":  puesto.ColumnID,
@@ -943,6 +958,7 @@ func (s *Servidor) quitarPedidoDelTablero(w http.ResponseWriter, r *http.Request
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+	avisarCambioDelTablero(r.Context())
 	httpx.JSON(w, r, http.StatusOK, map[string]any{"success": true, "quitado": quitado})
 }
 
@@ -1179,6 +1195,15 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
+
+	// Armar la ruta VACÍA la zona: los pedidos pasan a la ruta y dejan de estar en el
+	// tablero. Es el cambio más grande que hay aquí, y el que más falta hace que vea la
+	// otra persona — quien esté mirando el tablero desde el navegador tiene que enterarse
+	// de que esas doce tarjetas ya salieron, no seguir arrastrándolas.
+	//
+	// Y avisa del TABLERO además de las rutas, que ya lo hace el armador: son dos
+	// pantallas distintas y las dos cambian.
+	avisarCambioDelTablero(r.Context())
 
 	httpx.JSON(w, r, http.StatusCreated, map[string]any{
 		"id":          ruta.ID,

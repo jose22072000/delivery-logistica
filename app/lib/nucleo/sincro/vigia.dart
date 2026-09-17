@@ -109,6 +109,7 @@ class VigiaDeSincronizacion {
     required Future<void> Function(String motivo) ciclo,
     Stream<bool> Function() avisosDeRed = avisosDeConnectivityPlus,
     Stream<void> Function()? avisosDeLaCola,
+    Stream<String> Function()? avisosDelServidor,
     Duration periodo = periodoPorDefecto,
     CrearTemporizador crearTemporizador = Timer.periodic,
     LoQueHayAhora loQueHay = noSeSabeLoQueHay,
@@ -116,6 +117,7 @@ class VigiaDeSincronizacion {
   }) : _ciclo = ciclo,
        _avisosDeRed = avisosDeRed,
        _avisosDeLaCola = avisosDeLaCola,
+       _avisosDelServidor = avisosDelServidor,
        _periodo = periodo,
        _crearTemporizador = crearTemporizador,
        _loQueHay = loQueHay,
@@ -161,6 +163,14 @@ class VigiaDeSincronizacion {
   /// Avisa cuando ENTRA algo en la cola, para intentar subirlo ya. `null` en las
   /// pruebas que no van de esto.
   final Stream<void> Function()? _avisosDeLaCola;
+
+  /// LO QUE CAMBIO EN EL SERVIDOR, en cuanto cambia. Trae el TIPO —`pedidos`,
+  /// `tablero`, `rutas`…— y con eso se dispara un ciclo.
+  ///
+  /// Es una mejora sobre el reloj, no un sustituto: donde no hay canal esto es
+  /// `null` o un stream vacio, y el temporizador sigue trayendo el trabajo. Un
+  /// aviso que no llega no puede dejar a nadie sin sincronizar.
+  final Stream<String> Function()? _avisosDelServidor;
   final Duration _periodo;
   final CrearTemporizador _crearTemporizador;
   final LoQueHayAhora _loQueHay;
@@ -168,6 +178,7 @@ class VigiaDeSincronizacion {
 
   StreamSubscription<bool>? _suscripcion;
   StreamSubscription<void>? _suscripcionCola;
+  StreamSubscription<String>? _suscripcionServidor;
   Timer? _temporizador;
   bool _andando = false;
   bool _delante = true;
@@ -213,6 +224,13 @@ class VigiaDeSincronizacion {
     // reintenta: exactamente lo de antes, sin nada que perder. Y el candado de
     // «un solo ciclo en vuelo» vive dentro del ciclo, asi que arrastrar doce
     // tarjetas seguidas no lanza doce.
+    _suscripcionServidor = _avisosDelServidor?.call().listen(
+      (tipo) => _disparar('cambió $tipo en el servidor'),
+      onError: (Object e) =>
+          Registro.aviso('vigia: el canal de eventos se cayó: $e'),
+      cancelOnError: false,
+    );
+
     _suscripcionCola = _avisosDeLaCola?.call().listen(
       (_) => _disparar('se hizo algo'),
       onError: (Object e) =>
@@ -229,12 +247,15 @@ class VigiaDeSincronizacion {
     if (!_andando &&
         _temporizador == null &&
         _suscripcion == null &&
-        _suscripcionCola == null) {
+        _suscripcionCola == null &&
+        _suscripcionServidor == null) {
       return;
     }
     _andando = false;
     unawaited(_suscripcionCola?.cancel());
     _suscripcionCola = null;
+    unawaited(_suscripcionServidor?.cancel());
+    _suscripcionServidor = null;
     _quitarTemporizador();
     unawaited(_suscripcion?.cancel());
     _suscripcion = null;

@@ -261,7 +261,64 @@ class Huerfanos {
         '${dentro.length} pedidos',
       );
     }
+
+    puestos += await _tarjetasSueltas(cola);
     return puestos;
+  }
+
+  /// LAS TARJETAS HUERFANAS DE ZONAS QUE **SI** ESTAN ARRIBA.
+  ///
+  /// Es el mismo atasco de las zonas, por el otro lado, y se quedo abierto: se
+  /// arrastra una tarjeta sin señal sobre una zona que ya existe en el servidor,
+  /// su apunte se descarta —o se pierde—, y entonces no hay nada que la suba. La
+  /// bajada se niega para no borrarla (bien), pero lo unico que limpia su marca
+  /// es una bajada… que esta bloqueada. **Tablero parado sin salida**, igual que
+  /// el de la zona «Vista» del 16/09 y por la misma razon.
+  ///
+  /// El bucle de arriba no las coge porque va por zonas: una tarjeta sobre una
+  /// zona que ya subio no esta dentro de ninguna zona huerfana.
+  ///
+  /// Se reconstruye lo mismo que escribe `RepositorioTablero.colocar`: la zona y
+  /// el sitio. Y NO se tocan las de zonas huerfanas —esas ya van detras de su
+  /// zona, con el orden que les toca— para no encolarlas dos veces.
+  Future<int> _tarjetasSueltas(ColaDeSalida cola) async {
+    if (!await _hayTabla('board_placements')) return 0;
+    final filas = await _base
+        .customSelect(
+          'SELECT p.order_id AS pedido, p.column_id AS zona, p.posicion AS sitio '
+          'FROM board_placements p '
+          'JOIN board_columns c ON c.id = p.column_id '
+          'WHERE p.nacio_aqui = 1 '
+          // Su zona SI esta arriba: las de zonas huerfanas ya salieron detras de
+          // la suya en el bucle de arriba.
+          '  AND c.nacio_aqui = 0 '
+          // Y no le queda ningun apunte vivo que la suba. Se busca por la ruta,
+          // que es donde el apunte nombra al pedido.
+          '  AND NOT EXISTS ('
+          '    SELECT 1 FROM apuntes a '
+          "    WHERE a.ruta = '/board/placements/' || p.order_id "
+          "      AND a.estado IN ('pendiente', 'rechazado')"
+          '  )',
+        )
+        .get();
+
+    for (final f in filas) {
+      await cola.encolar(
+        metodo: 'PUT',
+        ruta: '/board/placements/${f.read<String>('pedido')}',
+        cuerpo: <String, Object?>{
+          'columnaId': f.read<String>('zona'),
+          'posicion': f.read<int>('sitio'),
+        },
+      );
+    }
+    if (filas.isNotEmpty) {
+      Registro.aviso(
+        '${filas.length} tarjetas estaban colocadas en el aparato y no en el '
+        'servidor, sin ningún apunte que las subiera. Se vuelven a encolar',
+      );
+    }
+    return filas.length;
   }
 }
 

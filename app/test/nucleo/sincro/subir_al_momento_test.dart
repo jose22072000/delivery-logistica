@@ -82,4 +82,74 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(ciclos, ['se hizo algo']);
   });
+
+  /// EL CANAL EN VIVO: lo que cambia en el servidor se sabe en cuanto cambia.
+  ///
+  /// Hasta hoy, lo que hacía una persona no aparecía en la pantalla de otra hasta que
+  /// pasaba el temporizador —dos minutos en la web, cinco en la APK—. Con dos personas
+  /// trabajando el mismo tablero eso no es trabajar juntos, es trabajar por turnos sin
+  /// saberlo. Jose, 16/09/2026: «hice un tablero en el móvil, moví cosas, y en la web no
+  /// salió en tiempo real».
+  ///
+  /// El canal existía en el servidor desde el principio y **no lo escuchaba nadie**.
+  group('el canal en vivo', () {
+    late StreamController<String> servidor;
+
+    setUp(() {
+      servidor = StreamController<String>.broadcast();
+      vigia = VigiaDeSincronizacion(
+        ciclo: (motivo) async => ciclos.add(motivo),
+        avisosDeRed: Stream<bool>.empty,
+        avisosDelServidor: () => servidor.stream,
+        crearTemporizador: (_, _) => Timer(const Duration(days: 1), () {}),
+      );
+    });
+
+    tearDown(() async => servidor.close());
+
+    test('un cambio en el servidor dispara el ciclo, y se dice cuál', () async {
+      vigia.arrancar();
+      servidor.add('tablero');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(ciclos, ['cambió tablero en el servidor']);
+    });
+
+    test('al parar se suelta: nada vivo sin sesión', () async {
+      vigia.arrancar();
+      vigia.parar();
+      servidor.add('tablero');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(ciclos, isEmpty);
+    });
+
+    test('si el canal se cae, el reloj sigue: no se pierde el trabajo', () async {
+      // El canal es una MEJORA, no un cimiento. Un proxy que corta o una red que se va no
+      // pueden dejar a nadie sin sincronizar — sólo hacen que llegue más tarde.
+      vigia.arrancar();
+      servidor.addError(Exception('el proxy cortó'));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(vigia.andando, isTrue, reason: 'la vigilancia sigue en pie');
+      servidor.add('pedidos');
+      await Future<void>.delayed(Duration.zero);
+      expect(ciclos, ['cambió pedidos en el servidor']);
+    });
+
+    test('sin canal —la APK— no pasa nada: manda el temporizador', () async {
+      final sinCanal = VigiaDeSincronizacion(
+        ciclo: (motivo) async => ciclos.add(motivo),
+        avisosDeRed: Stream<bool>.empty,
+        crearTemporizador: (_, _) => Timer(const Duration(days: 1), () {}),
+      );
+      addTearDown(sinCanal.parar);
+
+      sinCanal.arrancar();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(ciclos, isEmpty);
+      expect(sinCanal.andando, isTrue);
+    });
+  });
 }

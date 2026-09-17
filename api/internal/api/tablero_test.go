@@ -270,6 +270,40 @@ func filaDeColumna(c sqlc.BoardColumn) sqlc.CrearColumnaRow {
 	}
 }
 
+// ActualizarColumna: renombrar y elegir camión. **No estaba**, así que esa ruta no la
+// ejercitaba nadie: el `sqlc.Querier` embebido es nil y cualquier PATCH daba 500 dentro de
+// las pruebas. Se descubrió el 17/09/2026 escribiendo la prueba de que cada escritura del
+// tablero avisa a las pantallas abiertas.
+//
+// Repite lo que hace el SQL: acota por sucursal, respeta `tocar_vehiculo` —«no me lo
+// toques» y «quítamelo» son dos órdenes distintas y las dos llegan con el campo vacío— y
+// choca con el índice único del nombre.
+func (q *tableroFalso) ActualizarColumna(_ context.Context, arg sqlc.ActualizarColumnaParams) (sqlc.BoardColumn, error) {
+	c, hay := q.columnas[arg.ID]
+	if !hay {
+		return sqlc.BoardColumn{}, pgx.ErrNoRows
+	}
+	if arg.Sucursal.Valid && c.BranchID != uuid.UUID(arg.Sucursal.Bytes) {
+		return sqlc.BoardColumn{}, pgx.ErrNoRows
+	}
+	if arg.Nombre != nil {
+		for otra, o := range q.columnas {
+			if otra != arg.ID && o.BranchID == c.BranchID &&
+				strings.EqualFold(o.Nombre, *arg.Nombre) {
+				return sqlc.BoardColumn{}, &pgconn.PgError{
+					Code: "23505", ConstraintName: "board_columns_nombre_idx",
+				}
+			}
+		}
+		c.Nombre = *arg.Nombre
+	}
+	if arg.TocarVehiculo {
+		c.VehicleID = arg.VehicleID
+	}
+	q.columnas[arg.ID] = c
+	return c, nil
+}
+
 // ReordenarColumnas repite el `array_position`: la posición de cada una es su sitio en la
 // lista, y las que no vengan no se tocan.
 func (q *tableroFalso) ReordenarColumnas(_ context.Context, arg sqlc.ReordenarColumnasParams) (int64, error) {

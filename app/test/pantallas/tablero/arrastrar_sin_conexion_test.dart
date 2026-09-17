@@ -56,7 +56,13 @@ void main() {
         // Sin `onDispose`: la base la cierra la prueba, que es justo lo que
         // quiere simular.
         baseProvider.overrideWith((ref) => base),
-        clienteApiProvider.overrideWithValue(ClienteApi(dio: dio)),
+        // SIN ESPERAS. El tablero pide la foto del servidor al abrirse y aquí no
+        // hay servidor: con los reintentos por defecto son 1+4+10 segundos por
+        // prueba —quince en total— quemados esperando a una red que no existe, y
+        // `comprobar.sh` corta el `flutter test` entero a 300 s.
+        clienteApiProvider.overrideWithValue(
+          ClienteApi(dio: dio, esperas: const <Duration>[]),
+        ),
         almacenSesionProvider.overrideWithValue(
           AlmacenEnMemoria(
             const Sesion(
@@ -93,6 +99,14 @@ void main() {
       ], reason: 'el más cerca del almacén primero');
 
       // ---- Por la tarde, en el patio y sin señal. -----------------------
+      //
+      // Se olvida lo que se haya intentado hasta aquí: al ABRIR el tablero sí se
+      // le pide la foto al servidor —con conexión manda el servidor y no la
+      // copia—, y eso es correcto. Lo que esta prueba vigila es el GESTO: que
+      // arrastrar no hable con nadie. Sin este borrado se estaría midiendo la
+      // apertura y no el arrastre.
+      servidor.vistas.clear();
+
       final mando = contenedor.read(tableroProvider.notifier);
       final columnaId = await mando.crearColumna('Centro');
       // El id lo pone el APARATO, aquí mismo y sin señal: un UUIDv7 definitivo.
@@ -109,7 +123,12 @@ void main() {
       await mando.colocar(pedidoId: 'p-cerca', columnaId: columnaId);
       await mando.colocar(pedidoId: 'p-medio', columnaId: columnaId);
 
-      // 1. NO SE LLAMÓ A NADIE. Arrastrar no habla con el servidor.
+      // 1. EL GESTO NO LLAMA A NADIE. Arrastrar escribe aquí y va a la cola.
+      //
+      // Sobre TODAS las peticiones y no sólo las de `/board`: se probó a filtrar por
+      // esa ruta y no cazaba nada que no cazara ya el `clear()` de arriba — lo único
+      // que hacía era dejar de vigilar todo lo demás, como un `/auth/refresh` que un
+      // gesto disparara sin querer.
       expect(
         servidor.vistas,
         isEmpty,
@@ -228,7 +247,13 @@ void main() {
     final contenedor = ProviderContainer.test(
       overrides: [
         baseProvider.overrideWith((ref) => base),
-        clienteApiProvider.overrideWithValue(ClienteApi(dio: dio)),
+        // SIN ESPERAS. El tablero pide la foto del servidor al abrirse y aquí no
+        // hay servidor: con los reintentos por defecto son 1+4+10 segundos por
+        // prueba —quince en total— quemados esperando a una red que no existe, y
+        // `comprobar.sh` corta el `flutter test` entero a 300 s.
+        clienteApiProvider.overrideWithValue(
+          ClienteApi(dio: dio, esperas: const <Duration>[]),
+        ),
         almacenSesionProvider.overrideWithValue(AlmacenEnMemoria()),
       ],
     );

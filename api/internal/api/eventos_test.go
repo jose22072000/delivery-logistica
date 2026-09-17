@@ -354,3 +354,130 @@ func esperarA(t *testing.T, plazo time.Duration, cumple func() bool, queja strin
 	}
 	t.Error(queja)
 }
+
+// LO QUE PASA DENTRO DEL FRENO NO SE PIERDE: sale al vencer.
+//
+// El freno era de flanco de SUBIDA puro: lo que llegaba dentro de los quince segundos se
+// descartaba y no se reprogramaba. Con el espejo daba igual —siempre hay un lote detrás
+// que vuelve a avisar—, pero **con un gesto humano no**: doce tarjetas arrastradas en doce
+// segundos mandaban UN aviso, el de la primera, o sea el momento en que menos hay que
+// contar. La otra pantalla refrescaba tras la tarjeta 1 y se quedaba once atrás hasta el
+// temporizador: dos minutos en la web, cinco en la APK.
+//
+// Es la queja de Jose del 16/09 —«moví cosas y en la web no salió en tiempo real»—
+// arreglada a un doceavo.
+func TestLoQueEntraDentroDelFrenoSaleAlVencer(t *testing.T) {
+	reloj := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	d := NuevoDifusor()
+	d.ahora = func() time.Time { return reloj }
+
+	canal, cortar, vivo := d.Suscribir()
+	if !vivo {
+		t.Fatal("el bus tenía que estar vivo")
+	}
+	defer cortar()
+
+	// Doce gestos en doce segundos, como arrastrar doce tarjetas seguidas.
+	for i := 0; i < 12; i++ {
+		d.Avisar(CambioTablero, map[string]any{"gesto": i})
+		reloj = reloj.Add(time.Second)
+	}
+
+	// Sale el primero, que es lo correcto: la pantalla se entera en el acto.
+	primero := recibir(t, canal)
+	if primero.Detalle["gesto"] != 0 {
+		t.Fatalf("el primero fue %v", primero.Detalle["gesto"])
+	}
+	if hayCambio(canal) {
+		t.Fatal("salió un segundo aviso dentro del freno: eso es el parpadeo que el " +
+			"freno viene a evitar")
+	}
+
+	// Pasa el freno y lo suelta el latido.
+	reloj = reloj.Add(15 * time.Second)
+	d.SoltarPendientes()
+
+	ultimo := recibir(t, canal)
+	if ultimo.Detalle["gesto"] != 11 {
+		t.Errorf("salió el gesto %v y tenía que salir el ÚLTIMO (11): es el que describe "+
+			"cómo está el tablero ahora", ultimo.Detalle["gesto"])
+	}
+}
+
+// Y si no quedó nada pendiente, soltar no manda nada.
+//
+// Lo llama el latido de CADA conexión abierta, cada veinte segundos. Si mandara algo sin
+// haber cambiado nada, diez navegadores abiertos serían diez recargas del tablero por
+// minuto sin que nadie hubiera tocado una tarjeta.
+func TestSoltarSinNadaPendienteNoMandaNada(t *testing.T) {
+	reloj := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	d := NuevoDifusor()
+	d.ahora = func() time.Time { return reloj }
+
+	canal, cortar, _ := d.Suscribir()
+	defer cortar()
+
+	d.Avisar(CambioTablero, nil)
+	recibir(t, canal)
+
+	reloj = reloj.Add(time.Hour)
+	d.SoltarPendientes()
+	d.SoltarPendientes()
+
+	if hayCambio(canal) {
+		t.Error("mandó un aviso sin que hubiera cambiado nada: con diez navegadores " +
+			"abiertos eso son diez recargas por minuto de balde")
+	}
+}
+
+// Cada tipo lleva su propio pendiente: un cambio del tablero no se come el de pedidos.
+func TestCadaTipoGuardaSuPendiente(t *testing.T) {
+	reloj := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	d := NuevoDifusor()
+	d.ahora = func() time.Time { return reloj }
+
+	canal, cortar, _ := d.Suscribir()
+	defer cortar()
+
+	d.Avisar(CambioTablero, nil)
+	d.Avisar(CambioPedidos, nil)
+	recibir(t, canal)
+	recibir(t, canal)
+
+	// Los dos, dentro del freno.
+	reloj = reloj.Add(2 * time.Second)
+	d.Avisar(CambioTablero, map[string]any{"cual": "tablero"})
+	d.Avisar(CambioPedidos, map[string]any{"cual": "pedidos"})
+
+	reloj = reloj.Add(20 * time.Second)
+	d.SoltarPendientes()
+
+	vistos := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		c := recibir(t, canal)
+		vistos[c.Tipo] = true
+	}
+	if !vistos[CambioTablero] || !vistos[CambioPedidos] {
+		t.Errorf("se perdió uno de los dos: %v", vistos)
+	}
+}
+
+func recibir(t *testing.T, canal <-chan Cambio) Cambio {
+	t.Helper()
+	select {
+	case c := <-canal:
+		return c
+	case <-time.After(time.Second):
+		t.Fatal("no llegó ningún aviso")
+		return Cambio{}
+	}
+}
+
+func hayCambio(canal <-chan Cambio) bool {
+	select {
+	case <-canal:
+		return true
+	default:
+		return false
+	}
+}

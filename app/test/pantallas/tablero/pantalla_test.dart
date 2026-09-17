@@ -65,7 +65,13 @@ void main() {
     return ProviderScope(
       overrides: [
         baseProvider.overrideWith((ref) => base),
-        clienteApiProvider.overrideWithValue(ClienteApi(dio: dio)),
+        // SIN ESPERAS. El tablero pide la foto del servidor al abrirse —con
+        // conexión manda el servidor, no la copia— y aquí no hay servidor: el
+        // cliente reintentaría con esperas de verdad y `pumpAndSettle` se cuelga
+        // en vez de fallar. Es la trampa del `CLAUDE.md` §5.
+        clienteApiProvider.overrideWithValue(
+          ClienteApi(dio: dio, esperas: const <Duration>[]),
+        ),
         almacenSesionProvider.overrideWithValue(
           AlmacenEnMemoria(
             const Sesion(
