@@ -166,6 +166,21 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
             TableUpdateQuery.onTableName(EsquemaTablero.columnas),
             TableUpdateQuery.onTableName(EsquemaTablero.colocaciones),
             TableUpdateQuery.onTable(base.orders),
+            // ALMACENES Y SUCURSALES, que faltaban y dejaban la pantalla muerta.
+            //
+            // El tablero se ordena desde el punto del que sale la mercancia. Si
+            // ese almacen todavia no esta en la copia, `_leer` devuelve «La
+            // Habana no tiene ningun almacen con coordenadas» — que ademas es
+            // FALSO: lo tiene, lo que pasa es que todavia no habia bajado.
+            //
+            // Mientras la copia era un fichero que sobrevivia, eso casi nunca se
+            // veia: los almacenes ya estaban de la vez anterior. **En la web ya
+            // no**: desde que su base es en memoria, cada carga empieza vacia, y
+            // sin esto la pantalla se quedaba con ese mensaje **para siempre** —
+            // `build` no se vuelve a ejecutar solo, y los almacenes llegan por el
+            // ciclo, que toca otra tabla.
+            TableUpdateQuery.onTable(base.warehouses),
+            TableUpdateQuery.onTable(base.branches),
           ]),
         )
         .listen((_) => unawaited(refrescar()));

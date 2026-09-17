@@ -257,4 +257,62 @@ void main() {
       );
     });
   });
+
+  /// LA COPIA ARRANCA VACÍA Y LA PANTALLA TIENE QUE RECUPERARSE SOLA.
+  ///
+  /// El tablero se ordena desde el punto del que sale la mercancía. Si ese almacén todavía
+  /// no está en la copia, se pinta «La Habana no tiene ningún almacén con coordenadas» —que
+  /// además es falso: lo tiene, lo que pasa es que no había bajado todavía—.
+  ///
+  /// Mientras la copia era un fichero que sobrevivía, eso casi nunca se veía. **En la web ya
+  /// no**: desde que su base es en memoria, cada carga empieza vacía. Y sin escuchar esa
+  /// tabla la pantalla se quedaba con ese mensaje PARA SIEMPRE: `build` no se vuelve a
+  /// ejecutar solo, y los almacenes llegan por el ciclo, que toca otra tabla.
+  test('cuando baja el almacén, el tablero se repinta solo', () async {
+    final vacia = baseDePrueba();
+    addTearDown(vacia.close);
+    await sembrarSucursal(vacia);
+    // SIN almacén: es como arranca la web.
+
+    final dio = Dio(BaseOptions(baseUrl: 'https://reparto.invalido'))
+      ..httpClientAdapter = servidor;
+    final c = ProviderContainer.test(
+      overrides: [
+        baseProvider.overrideWith((ref) => vacia),
+        avisosDelServidorProvider.overrideWithValue(enVivo.stream),
+        clienteApiProvider.overrideWithValue(
+          ClienteApi(dio: dio, esperas: const <Duration>[]),
+        ),
+        almacenSesionProvider.overrideWithValue(
+          AlmacenEnMemoria(
+            const Sesion(
+              token: 't',
+              refresh: 'r',
+              sub: 'logistico',
+              sucursalId: sucursalStg,
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+
+    final primero = await c.read(tableroProvider.future);
+    expect(
+      primero.problema,
+      isNotNull,
+      reason: 'sin almacén no se puede ordenar nada, y se dice',
+    );
+
+    // Llega el almacén por el ciclo, que toca OTRA tabla.
+    await sembrarAlmacen(vacia);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final despues = await c.read(tableroProvider.future);
+    expect(
+      despues.problema,
+      isNull,
+      reason: 'sin esto la pantalla se queda con el mensaje para siempre',
+    );
+  });
 }
