@@ -91,54 +91,50 @@ void main() {
     );
   }
 
-  test(
-    'una tarjeta cuyo pedido no llega nunca: se vuelve a pedir la foto UNA '
-    'vez y se para, no 1205 veces',
-    () async {
-      final contenedor = montar();
-      addTearDown(contenedor.dispose);
+  test('una tarjeta cuyo pedido no llega nunca: se vuelve a pedir la foto UNA '
+      'vez y se para, no 1205 veces', () async {
+    final contenedor = montar();
+    addTearDown(contenedor.dispose);
 
-      // 1. Como abre la web: la foto primero. Su tarjeta se cae porque falta el
-      //    pedido, y ese pedido no va a llegar.
-      final tablero = await contenedor.read(tableroProvider.future);
-      expect(tablero.columnas.single.pedidos, 0);
+    // 1. Como abre la web: la foto primero. Su tarjeta se cae porque falta el
+    //    pedido, y ese pedido no va a llegar.
+    final tablero = await contenedor.read(tableroProvider.future);
+    expect(tablero.columnas.single.pedidos, 0);
 
-      // 2. Llega cualquier otro pedido por el ciclo. Eso es una escritura en
-      //    `orders`, que es el aviso que dispara el reintento.
-      await sembrarPedido(base, id: 'p-otro', operacion: 'SC06-0431');
+    // 2. Llega cualquier otro pedido por el ciclo. Eso es una escritura en
+    //    `orders`, que es el aviso que dispara el reintento.
+    await sembrarPedido(base, id: 'p-otro', operacion: 'SC06-0431');
 
-      // 3. Se deja correr el tiempo de verdad. Si hay bucle, aquí se ve: son
-      //    ~400 peticiones por segundo.
-      await Future<void>.delayed(const Duration(seconds: 3));
+    // 3. Se deja correr el tiempo de verdad. Si hay bucle, aquí se ve: son
+    //    ~400 peticiones por segundo.
+    await Future<void>.delayed(const Duration(seconds: 3));
 
-      final fotos = servidor.cuantas('GET', '/board');
-      expect(
-        fotos,
-        lessThanOrEqualTo(5),
-        reason:
-            'BUCLE DE BAJADAS: se pidieron $fotos veces `GET /board` en tres '
-            'segundos y tenían que ser dos.\n'
-            'La tarjeta apunta a un pedido que este aparato no va a tener '
-            'nunca (archivado, o de otra sucursal), así que cada bajada vuelve '
-            'a traerla sin pedido; y como `servicio.dart` termina toda bajada '
-            'con `EsquemaTablero.avisarDeCambio`, esa misma bajada dispara el '
-            'aviso que pide la siguiente.\n'
-            'Lo único que corta la cadena es `_yaSeReintento = true` en '
-            '`tablero/estado/proveedores.dart`. Sin esa línea son 1205 '
-            'peticiones en tres segundos, contra el servidor y desde cada '
-            'pantalla abierta.',
-      );
+    final fotos = servidor.cuantas('GET', '/board');
+    expect(
+      fotos,
+      lessThanOrEqualTo(5),
+      reason:
+          'BUCLE DE BAJADAS: se pidieron $fotos veces `GET /board` en tres '
+          'segundos y tenían que ser dos.\n'
+          'La tarjeta apunta a un pedido que este aparato no va a tener '
+          'nunca (archivado, o de otra sucursal), así que cada bajada vuelve '
+          'a traerla sin pedido; y como `servicio.dart` termina toda bajada '
+          'con `EsquemaTablero.avisarDeCambio`, esa misma bajada dispara el '
+          'aviso que pide la siguiente.\n'
+          'Lo único que corta la cadena es `_yaSeReintento = true` en '
+          '`tablero/estado/proveedores.dart`. Sin esa línea son 1205 '
+          'peticiones en tres segundos, contra el servidor y desde cada '
+          'pantalla abierta.',
+    );
 
-      // Y la otra mitad, para que el tope no se «arregle» a base de no
-      // reintentar nunca: la foto SÍ se volvió a pedir una vez.
-      expect(
-        fotos,
-        greaterThanOrEqualTo(2),
-        reason:
-            'el freno no puede convertirse en «no se reintenta nunca»: eso es '
-            'el «Vista (0)» que cubre `vuelve_a_pedir_la_foto_test.dart`',
-      );
-    },
-    timeout: const Timeout(Duration(seconds: 60)),
-  );
+    // Y la otra mitad, para que el tope no se «arregle» a base de no
+    // reintentar nunca: la foto SÍ se volvió a pedir una vez.
+    expect(
+      fotos,
+      greaterThanOrEqualTo(2),
+      reason:
+          'el freno no puede convertirse en «no se reintenta nunca»: eso es '
+          'el «Vista (0)» que cubre `vuelve_a_pedir_la_foto_test.dart`',
+    );
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }

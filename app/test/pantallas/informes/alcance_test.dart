@@ -125,11 +125,17 @@ void main() {
       await vehiculo('v2', 'Camión de La Habana', 'hab');
 
       final contenedor = await mirando('stg');
-      expect(contenedor.read(vehiculosDelInformeProvider).value!.single.id, 'v1');
+      expect(
+        contenedor.read(vehiculosDelInformeProvider).value!.single.id,
+        'v1',
+      );
 
       contenedor.read(sucursalMiradaProvider.notifier).mirar('hab');
       await Future<void>.delayed(Duration.zero);
-      expect(contenedor.read(vehiculosDelInformeProvider).value!.single.id, 'v2');
+      expect(
+        contenedor.read(vehiculosDelInformeProvider).value!.single.id,
+        'v2',
+      );
     });
   });
 

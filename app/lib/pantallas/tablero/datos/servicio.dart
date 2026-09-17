@@ -254,7 +254,8 @@ class ServicioTablero {
   static String _enPalabras((int, int) cuenta) {
     final (zonas, tarjetas) = cuenta;
     final partes = <String>[
-      if (zonas > 0) '$zonas ${zonas == 1 ? 'zona del tablero' : 'zonas del tablero'}',
+      if (zonas > 0)
+        '$zonas ${zonas == 1 ? 'zona del tablero' : 'zonas del tablero'}',
       if (tarjetas > 0) '$tarjetas ${tarjetas == 1 ? 'tarjeta' : 'tarjetas'}',
     ];
     return partes.join(' y ');

@@ -1,15 +1,29 @@
 // El detalle de la ruta elegida: la columna derecha.
 //
-// Todo sale de la base local, asi que sin red se ve entero: paradas, carga total,
-// km, peso, importe y duracion. Lo unico que no se puede hacer sin conexion es
-// abrir el enlace de Google Maps, y eso se dice con el motivo a la vista —nunca
-// en silencio.
+// Todo sale de la base local, asi que sin red se ve entero: el mapa, las
+// paradas, la carga total, los km, el peso, el importe y la duracion. Lo que
+// necesita señal —el fondo de calles, el recorrido por carretera y abrir Google
+// Maps— **mejora** lo que ya hay y, cuando no llega, la pantalla lo dice con el
+// motivo a la vista. Nunca en silencio, y nunca una rueda girando.
+//
+// ## Que se desplaza hasta el final
+//
+// Jose, 17/09/2026, mirando el original: «me corta parte de abajo, esto hasta
+// del mapa, no solo de la última card, no puedo ver el final». Es un fallo del
+// patron, no algo que copiar, y aqui se evita por tres sitios a la vez:
+//
+//  * esto es un `ListView`, o sea que **se desplaza** de arriba abajo;
+//  * el mapa pide un alto PROPIO y con techo (`altoDelMapa`), nunca «lo que
+//    sobre»: un hijo sin alto dentro de algo que se desplaza es exactamente
+//    como se corta esto;
+//  * el relleno de abajo (ver `rellenoAlFinalDelDetalle`) deja la ultima linea
+//    por encima de la barra del sistema del telefono.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
+import '../../../diseno/tema.dart';
 import '../../pedidos/datos/formato.dart';
 import '../../pedidos/datos/repositorio_pedidos.dart';
 import '../../pedidos/vista/kit.dart';
@@ -17,10 +31,15 @@ import '../datos/acciones_rutas.dart';
 import '../datos/repositorio_rutas.dart';
 import '../estado/proveedores_rutas.dart';
 import 'cierre_de_ruta.dart';
+import 'mapa_de_la_ruta.dart';
 
-/// Google admite 25 paradas en un enlace. Mas alla se recortan y se dice
-/// cuantas quedan fuera.
-const topeDeParadasEnElEnlace = 25;
+/// EL RELLENO DE ABAJO DEL TODO.
+///
+/// En un telefono, la barra de gestos del sistema se come la ultima linea de lo
+/// que se desplaza: se llega al final de la lista y el ultimo renglon queda
+/// medio tapado, que se lee como «no puedo ver el final». Generoso a proposito,
+/// que sobre aire no molesta y que falte si.
+const rellenoAlFinalDelDetalle = 56.0;
 
 class DetalleDeRuta extends ConsumerWidget {
   const DetalleDeRuta({required this.rutaId, super.key});
@@ -29,20 +48,54 @@ class DetalleDeRuta extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final ruta = ref.watch(rutaConTodoProvider(rutaId)).value;
-    if (ruta == null) return const EstadoVacio('Cargando...');
+    // TRES ESTADOS, NO DOS. Y el que faltaba era el que dejaba la rueda girando
+    // para siempre.
+    //
+    // Esto era `ref.watch(...).value` y `if (ruta == null) return
+    // EstadoVacio('Cargando...')`, o sea **dos cosas distintas metidas en un
+    // solo `null`**: «todavía no se sabe» y «esa ruta ya no está». Jose,
+    // 17/09/2026, con una ruta de prueba borrada del servidor y el teléfono
+    // apuntando a ella: «la apk se me quedó cargando ahí en la ruta». Era
+    // literal — nunca iba a llegar nada, porque ya no había nada que llegara.
+    //
+    // Es la familia de fallos del §3-ter y del «Sin colocar (722) encima de una
+    // lista de 293»: un estado vacío que se lee como si fuera otro. Aquí se
+    // miran los tres del `AsyncValue`, y el `error` también, que antes tampoco
+    // se miraba.
+    final asincrono = ref.watch(rutaConTodoProvider(rutaId));
+    final ruta = switch (asincrono) {
+      AsyncValue(:final error?) => _NoEsta(
+        motivo: 'No se pudo abrir esta ruta: $error',
+      ),
+      // `data(null)` = la ruta ya no está. Se dice, y se da la salida: sin ella
+      // en el móvil no queda nada a lo que volver.
+      AsyncData(value: null) => const _NoEsta(
+        motivo:
+            'Esta ruta ya no está. La han borrado o se fue a otra sucursal.',
+      ),
+      AsyncData(value: _?) => null,
+      // Sólo aquí es «cargando»: cuando de verdad no se sabe todavía.
+      _ => const EstadoVacio('Cargando...'),
+    };
+    if (ruta != null) return ruta;
+    final datos = asincrono.value!;
 
     final paradas =
-        ref.watch(paradasDeRutaProvider(rutaId)).value ?? ruta.paradas;
+        ref.watch(paradasDeRutaProvider(rutaId)).value ?? datos.paradas;
     final conTodo = RutaConTodo(
-      ruta: ruta.ruta,
+      ruta: datos.ruta,
       paradas: paradas,
-      vehiculo: ruta.vehiculo,
-      sucursal: ruta.sucursal,
+      vehiculo: datos.vehiculo,
+      sucursal: datos.sucursal,
     );
 
     return ListView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(
+        12,
+        12,
+        12,
+        rellenoAlFinalDelDetalle,
+      ),
       children: [
         _Cabecera(ruta: conTodo),
         const SizedBox(height: 8),
@@ -50,7 +103,12 @@ class DetalleDeRuta extends ConsumerWidget {
         const SizedBox(height: 12),
         _LineaDeDatos(ruta: conTodo),
         const SizedBox(height: 12),
-        _Compartir(ruta: conTodo),
+        // EL MAPA, con sus cuatro gestos —abrir en Google Maps, WhatsApp,
+        // compartir y copiar. Antes aqui habia medio gesto: un boton que
+        // copiaba el enlace al portapapeles y nada mas, con el mapa sin portar
+        // del Next. Jose, 17/09/2026: «El mapa, ¿por qué no me sale el mapa con
+        // la ruta, si teníamos hasta para compartir la ruta por WhatsApp?».
+        MapaDeLaRuta(ruta: conTodo),
         const SizedBox(height: 12),
         _Paradas(ruta: conTodo),
       ],
@@ -58,13 +116,63 @@ class DetalleDeRuta extends ConsumerWidget {
   }
 }
 
-class _Cabecera extends StatelessWidget {
+/// LA CLAVE DE LA ✕ DE LA CABECERA DEL DETALLE. Publica porque la prueba la
+/// pulsa, y buscarla por el icono ataria la prueba al dibujo.
+///
+/// En el movil hay ADEMAS una barra fija de «Volver a la lista» encima del
+/// detalle (`pantalla_rutas.dart`), que es la salida que no se puede perder de
+/// vista. Esta ✕ es la de escritorio, donde la lista se ve al lado y lo que
+/// hace falta es poder DESELECCIONAR.
+const claveDeLaEquisDelDetalle = ValueKey('ruta-cerrar-detalle');
+
+/// LA RUTA QUE YA NO ESTÁ: se dice, y se sale.
+///
+/// La salida es la mitad que importa. Sin ella, en el teléfono —donde el detalle
+/// sustituye a la lista— quien llega aquí se queda mirando un cartel y nada
+/// más: la ruta elegida sigue puesta y la pantalla no puede pintar otra cosa.
+class _NoEsta extends ConsumerWidget {
+  const _NoEsta({required this.motivo});
+
+  final String motivo;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(motivo, textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            key: claveDeVolverDeLaQueNoEsta,
+            onPressed: () =>
+                ref.read(rutaElegidaProvider.notifier).elegir(null),
+            icon: const Icon(Icons.arrow_back, size: 18),
+            label: const Text('Volver a la lista'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// La clave del botón de salir de una ruta que ya no existe.
+const claveDeVolverDeLaQueNoEsta = ValueKey('ruta-que-ya-no-esta-volver');
+
+/// Las claves de los dos botones que cambian con el estado de la ruta. Buscarlos
+/// por su texto ataria la prueba a como se llaman hoy, y justo el texto es una
+/// de las cosas que cambia (`Cierre (3)` en curso, `Ver cierre` completada).
+const claveDelCierre = ValueKey('ruta-cierre');
+const claveDeCompletar = ValueKey('ruta-marcar-como-completada');
+
+class _Cabecera extends ConsumerWidget {
   const _Cabecera({required this.ruta});
 
   final RutaConTodo ruta;
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context, WidgetRef ref) => Row(
     children: [
       Expanded(
         child: Column(
@@ -81,6 +189,23 @@ class _Cabecera extends StatelessWidget {
       ),
       if (ruta.sucursal != null)
         Insignia(ruta.sucursal!.name, color: Colores.gris),
+      // LA SALIDA. Jose, 17/09/2026: «toqué una ruta hecha para ver detalles y
+      // no puedo salir de esa ruta señalada».
+      //
+      // Y era literal: la ruta elegida sólo se soltaba al COMPLETARLA. En el
+      // telefono el detalle sustituye a la lista, asi que quien tocaba una ruta
+      // ya hecha —que no se puede completar— se quedaba dentro sin ninguna
+      // salida.
+      //
+      // Va en la cabecera y **a todos los anchos**, no solo en el movil: en
+      // escritorio la lista se ve al lado, pero deseleccionar tampoco se podia.
+      // Y no desaparece nunca, que es la regla de la casa para la ✕.
+      IconButton(
+        key: claveDeLaEquisDelDetalle,
+        icon: const Icon(Icons.close),
+        tooltip: 'Volver a la lista',
+        onPressed: () => ref.read(rutaElegidaProvider.notifier).elegir(null),
+      ),
     ],
   );
 }
@@ -119,7 +244,7 @@ class _Acciones extends ConsumerWidget {
               await acciones.iniciar(ruta.ruta.id);
               // **Y se va con ella a la pestaña donde acaba de caer.**
               //
-              // Iniciar la saca de `Activas` —correctamente: ya no esta
+              // Iniciar la saca de `Planificadas` —correctamente: ya no esta
               // activa, esta en curso—, y sin esto la ruta le desaparece de
               // delante a quien acaba de arrancarla, que se queda mirando un
               // hueco y creyendo que no funciono. La de Next hace esto mismo
@@ -130,32 +255,77 @@ class _Acciones extends ConsumerWidget {
             }),
             child: const Text('Iniciar ruta'),
           ),
-        // El `Cierre` esta disponible en `in_progress` **y** en `completed`:
-        // el camion vuelve al patio despues de que alguien haya dado la ruta
-        // por completada, y ahi es cuando se cuadra lo que baja.
-        if (estado == EstadoRuta.enCurso || estado == EstadoRuta.completada)
+        // EL CIERRE, en curso: se va marcando parada a parada segun se reparte,
+        // y la ruta sigue en curso. La cuenta entre parentesis es lo que queda
+        // por marcar, o sea una tarea pendiente.
+        if (estado == EstadoRuta.enCurso)
           OutlinedButton(
+            key: claveDelCierre,
             onPressed: () => abrirCajon<void>(
               context,
-              (_) => CierreDeRuta(rutaId: ruta.ruta.id),
+              (_) => CierreDeRuta(
+                rutaId: ruta.ruta.id,
+                modo: ModoDelCierre.marcar,
+              ),
             ),
             child: Text(
               ruta.sinMarcar > 0 ? 'Cierre (${ruta.sinMarcar})' : 'Cierre',
             ),
           ),
+        // EL CIERRE, ya completada: **`Ver cierre`, y sin la cuenta**. En una
+        // ruta cerrada «sin marcar» ya no es algo que hacer: es como acabo. Un
+        // `Cierre (3)` ahi parece una tarea pendiente que nadie va a poder
+        // hacer, y eso es peor que no ensenar el numero.
+        if (estado == EstadoRuta.completada)
+          OutlinedButton(
+            key: claveDelCierre,
+            onPressed: () => abrirCajon<void>(
+              context,
+              (_) => CierreDeRuta(
+                rutaId: ruta.ruta.id,
+                modo: ModoDelCierre.soloLectura,
+              ),
+            ),
+            child: const Text('Ver cierre'),
+          ),
         if (estado == EstadoRuta.enCurso)
           FilledButton(
-            onPressed: () => hacer(() async {
-              await acciones.completar(ruta.ruta.id);
-              // Al `Historial`, y **soltando la ruta elegida**: lo mismo que
-              // hace la de Next (`routes/page.tsx:463-464`). Quedarse con ella
-              // abierta a la derecha despues de darla por cerrada deja el
-              // detalle de algo que ya no es de lo que va la pantalla.
-              ref.read(rutaElegidaProvider.notifier).elegir(null);
-              ref
-                  .read(pestanaRutasProvider.notifier)
-                  .elegir(PestanaRutas.historial);
-            }),
+            key: claveDeCompletar,
+            onPressed: () {
+              // La navegacion de despues es la misma venga por donde venga:
+              // soltar la ruta elegida e irse al Historial, como la de Next
+              // (`routes/page.tsx:463-464`). Quedarse con ella abierta a la
+              // derecha despues de darla por cerrada deja el detalle de algo que
+              // ya no es de lo que va la pantalla.
+              void luego() {
+                ref.read(rutaElegidaProvider.notifier).elegir(null);
+                ref
+                    .read(pestanaRutasProvider.notifier)
+                    .elegir(PestanaRutas.historial);
+              }
+
+              // CON PARADAS SIN MARCAR, SE PREGUNTA ANTES. El porque esta
+              // escrito en `acciones_rutas.dart` y en `CLAUDE.md` §2: el cierre
+              // viene con el estado de cuando se le va a dar a completado. El
+              // cajon guarda lo marcado **y** completa en el mismo gesto.
+              if (ruta.sinMarcar > 0) {
+                abrirCajon<void>(
+                  context,
+                  (_) => CierreDeRuta(
+                    rutaId: ruta.ruta.id,
+                    modo: ModoDelCierre.alCompletar,
+                    alCompletar: luego,
+                  ),
+                );
+                return;
+              }
+              // Sin nada que preguntar, se completa y ya: abrir un cajon para no
+              // preguntar nada es friccion.
+              hacer(() async {
+                await acciones.completar(ruta.ruta.id);
+                luego();
+              });
+            },
             child: const Text('Marcar como completada'),
           ),
         if (ruta.sobrepeso)
@@ -174,25 +344,38 @@ class _Acciones extends ConsumerWidget {
       (_) => Cajon(
         titulo: 'Paradas y precio por cliente (${ruta.paradas.length})',
         subtitulo: ruta.ruta.routeCode ?? ruta.ruta.id,
-        cuerpo: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < ruta.paradas.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    '${ruta.paradas[i].stopOrder ?? i + 1}. '
-                    '${ruta.paradas[i].customerName} — '
-                    '${ruta.paradas[i].endAddress ?? ruta.paradas[i].address} · '
-                    '${kg(ruta.paradas[i].weight)} · '
-                    '${km(ruta.paradas[i].segmentKm)} desde partida · '
-                    '${usd(ruta.paradas[i].pedidoCosto)}',
-                  ),
-                ),
-            ],
-          ),
+        cuerpo: Consumer(
+          builder: (context, ref, _) {
+            // LO QUE HAY QUE BAJAR EN CADA PARADA.
+            //
+            // Jose, 17/09/2026: «el chofer debe saber qué es lo que se tiene
+            // que bajar en cada parada, ahí no se ve nada de lo que se va a
+            // bajar». Tenía razón y era el agujero grande de esta hoja: decía
+            // cuánto pesa y cuánto se cobra, o sea lo que le importa a la
+            // oficina, y **no decía qué es**, que es lo único que le sirve a
+            // quien descarga el camión delante del cliente.
+            final renglones =
+                ref
+                    .watch(renglonesDeParadasProvider(ruta.ruta.id))
+                    .value ??
+                const <String, List<RenglonConPeso>>{};
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < ruta.paradas.length; i++)
+                    _TarjetaDeParada(
+                      numero: ruta.paradas[i].stopOrder ?? i + 1,
+                      parada: ruta.paradas[i],
+                      lineas:
+                          renglones[ruta.paradas[i].id] ??
+                          const <RenglonConPeso>[],
+                    ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -222,82 +405,6 @@ class _LineaDeDatos extends StatelessWidget {
       'Carga total: ${ruta.paradas.length} · '
       '${duracion(r.startedAt, r.finishedAt)}',
       style: Theme.of(context).textTheme.bodySmall,
-    );
-  }
-}
-
-/// El enlace de Google Maps: origen = almacen, paradas en orden y **destino = el
-/// mismo almacen**, porque el camion vuelve.
-String enlaceDeGoogleMaps(RutaConTodo ruta) {
-  final origen = '${ruta.ruta.originLat},${ruta.ruta.originLng}';
-  final puntos = [
-    for (final parada in ruta.paradas.take(topeDeParadasEnElEnlace))
-      if (parada.endLat != null && parada.endLng != null)
-        '${parada.endLat},${parada.endLng}',
-  ];
-  return 'https://www.google.com/maps/dir/?api=1'
-      '&origin=$origen'
-      '&destination=$origen'
-      '&waypoints=${puntos.join('|')}'
-      '&travelmode=driving&dir_action=navigate';
-}
-
-class _Compartir extends StatefulWidget {
-  const _Compartir({required this.ruta});
-
-  final RutaConTodo ruta;
-
-  @override
-  State<_Compartir> createState() => _CompartirState();
-}
-
-class _CompartirState extends State<_Compartir> {
-  bool _copiado = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final sobran = widget.ruta.paradas.length - topeDeParadasEnElEnlace;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            // `Abrir en Google Maps` necesita `url_launcher`, que hoy no esta en
-            // el `pubspec.yaml` y anadirlo es tocar fuera de esta pantalla. Se
-            // deja el enlace copiable, que hace el mismo trabajo y ademas
-            // funciona para mandarselo al chofer por WhatsApp.
-            OutlinedButton(
-              onPressed: widget.ruta.paradas.isEmpty
-                  ? null
-                  : () async {
-                      await Clipboard.setData(
-                        ClipboardData(text: enlaceDeGoogleMaps(widget.ruta)),
-                      );
-                      if (!mounted) return;
-                      setState(() => _copiado = true);
-                      await Future<void>.delayed(
-                        const Duration(milliseconds: 2500),
-                      );
-                      if (mounted) setState(() => _copiado = false);
-                    },
-              child: Text(_copiado ? 'copiado' : 'copiar enlace'),
-            ),
-            if (sobran > 0)
-              Text(
-                '(Google admite 25 paradas: $sobran quedan fuera del enlace)',
-                style: TextStyle(color: Colores.gris),
-              ),
-          ],
-        ),
-        if (widget.ruta.ruta.originLat == null)
-          const Padding(
-            padding: EdgeInsets.only(top: 6),
-            child: Text('Sin coordenadas GPS para esta ruta'),
-          ),
-      ],
     );
   }
 }
@@ -348,4 +455,141 @@ class _Paradas extends ConsumerWidget {
     }
     return total;
   }
+}
+
+/// UNA PARADA EN LA HOJA DE «VER PARADAS».
+///
+/// Jose, 17/09/2026, con el cajón abierto: «mejora la vista de las paradas,
+/// porque ahí no veo nada; necesito más detalle y que se vea bien, no esa
+/// mierda en texto».
+///
+/// Era literal: los cinco datos de cada parada iban pegados en un párrafo
+/// separado por puntos, así que en una dirección larga el importe acababa en la
+/// tercera línea, detrás de una coma. El dato que se busca de un vistazo en
+/// esta hoja —**cuánto se le cobra a ese cliente**— era el peor colocado de
+/// todos.
+///
+/// Ahora cada parada es una tarjeta con el número a la izquierda, el cliente y
+/// su dirección en el medio, y **el importe en grande a la derecha**, alineado
+/// con los de arriba y abajo para poder recorrerlos con el ojo. El peso y los
+/// kilómetros bajan a dos insignias, que es lo que son: datos de apoyo.
+///
+/// Es la forma del patrón, que aquí acierta: en `delivery.procovar.cloud` la
+/// hoja de paradas se lee de un vistazo y la nuestra no se leía.
+class _TarjetaDeParada extends StatelessWidget {
+  const _TarjetaDeParada({
+    required this.numero,
+    required this.parada,
+    required this.lineas,
+  });
+
+  final int numero;
+  final Pedido parada;
+
+  /// Lo que se baja en esta parada. Vacío mientras no han llegado; entonces no
+  /// se escribe «nada que bajar», que sería mentira.
+  final List<RenglonConPeso> lineas;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: const EdgeInsets.only(bottom: 10),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(Radios.xl),
+      side: BorderSide(color: Colores.linea),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // El número de la parada, el mismo que lleva en el mapa.
+          CircleAvatar(
+            radius: 14,
+            backgroundColor: Colores.enCurso,
+            child: Text(
+              '$numero',
+              style: const TextStyle(
+                color: Colores.blanco,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  parada.customerName,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  parada.endAddress ?? parada.address,
+                  style: TextStyle(color: Colores.gris, fontSize: 12),
+                ),
+                if (lineas.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  // QUÉ SE BAJA, en renglones y con su cantidad. Va **antes**
+                  // que el peso y los kilómetros a propósito: el peso es del
+                  // que planifica, esto es del que descarga.
+                  for (final l in lineas)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${cantidad(l.empaques)}×',
+                            style: Tipos.mono(
+                              tamano: 12,
+                              peso: FontWeight.w700,
+                              color: Colores.tinta,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              l.renglon.description,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    Insignia(kg(parada.weight), color: Colores.gris),
+                    Insignia(
+                      '${km(parada.segmentKm)} desde partida',
+                      color: Colores.gris,
+                    ),
+                    if (parada.operationNumber != null)
+                      Insignia(parada.operationNumber!, color: Colores.enCurso),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          // EL IMPORTE, EN GRANDE Y A LA DERECHA. Es el dato que se viene a
+          // buscar aquí, y alineado a la derecha los de todas las paradas caen
+          // en la misma columna: así se recorren con el ojo sin leer.
+          Text(
+            usd(parada.pedidoCosto),
+            style: Tipos.mono(
+              tamano: 15,
+              peso: FontWeight.w700,
+              color: Colores.primario,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }

@@ -501,7 +501,7 @@ class TextosEs extends Textos {
   String get reportesVehiculo => 'Vehículo';
 
   @override
-  String get rutasActivas => 'Activas';
+  String get rutasActivas => 'Planificadas';
 
   @override
   String get rutasAgregarArticulo => '+ Agregar artículo';

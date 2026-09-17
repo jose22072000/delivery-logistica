@@ -281,6 +281,11 @@ func (d *dobleDeRutas) PedidosParaArmarRuta(_ context.Context, arg sqlc.PedidosP
 			EndLat: p.endLat, EndLng: p.endLng, Weight: p.peso, PedidoCosto: p.costo,
 			FacturaEstado: p.factura, BranchID: pgDeRutas(p.sucursal),
 			ExternalID: p.externalID, Source: p.fuente,
+			// `delivered_at` y `resultado` salen como DATO, no filtran en el `WHERE`:
+			// igual que `factura_estado`, para que el manejador pueda nombrar cuál se
+			// cae y por qué. Sin esto en el doble, la guarda de «ya se entregó» no se
+			// puede ejercitar desde aquí.
+			DeliveredAt: horaOpcionalDeRutas(p.entregadoEn), Resultado: p.resultado,
 		})
 	}
 	return salida, nil
@@ -1441,8 +1446,17 @@ func TestNoSePuedeCerrarUnaParadaDeOtraRuta(t *testing.T) {
 		{"orderId":"no-soy-un-id","resultado":"entregado"}
 	]}`, stg[0], uuid.New())
 	w := llamarRutas(t, h, http.MethodPost, "/api/routes/"+unaRuta.String()+"/results", jwt, cuerpo)
-	if w.Code != http.StatusOK {
-		t.Fatalf("el cierre no aborta: acumula. Código %d", w.Code)
+	// 409 DESDE EL 18/09/2026, y no el 200 de antes.
+	//
+	// «El cierre no aborta: acumula» sigue siendo verdad y se comprueba tres líneas más
+	// abajo: lo que se pudo guardar se guarda y no se deshace. Lo que cambió es el código,
+	// porque un 200 con rechazos dentro no llega a ninguna parte: el sincronizador marca
+	// `aplicado` cualquier 2xx sin mirar el cuerpo, borra el apunte de la cola del aparato
+	// y el rechazo se pierde. Aquí, donde NINGUNA parada entró, un 200 significaba tirar
+	// la hoja entera a la basura sin dejar rastro.
+	if w.Code != http.StatusConflict {
+		t.Fatalf("código %d, se esperaba 409: un cierre con paradas rechazadas no puede "+
+			"salir con un 2xx — %s", w.Code, w.Body.String())
 	}
 	var salida salidaDeCierre
 	if err := json.Unmarshal(w.Body.Bytes(), &salida); err != nil {

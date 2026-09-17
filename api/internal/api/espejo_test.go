@@ -35,6 +35,16 @@ type espejoFalso struct {
 	sync    []pedidoSync
 	salidas []salidaSync
 
+	// Las lápidas de TODO LO DEMÁS (`bajas_de_la_bajada`, 00006): rutas, camiones,
+	// sucursales, catálogo, padrón y las dos del tablero.
+	bajas []bajaSync
+
+	// Las listas que sirve la bajada para esas colecciones. Están aquí y no en
+	// `tableroFalso` porque lo que hace falta comprobar es OTRA cosa: que lo que sigue en
+	// la lista NO salga en `quitados` pase lo que pase.
+	rutasDelEspejo     []sqlc.ListarRutasRow
+	vehiculosDelEspejo []sqlc.ListarVehiculosRow
+
 	// El padrón de clientes de la bajada, entero. El doble lo sirve por tandas
 	// respetando `Limite` y `Desplazamiento`, como el SQL: lo que se comprueba es que el
 	// manejador sepa pedir la tanda siguiente.
@@ -196,6 +206,75 @@ func (q *espejoFalso) PedidosQueSalieronDelAlcance(_ context.Context, arg sqlc.P
 	return filas, nil
 }
 
+// ------------------------------------------------- las lápidas de las demás colecciones
+
+type bajaSync struct {
+	coleccion sqlc.ColeccionDeLaBajada
+	clave     string
+	// nil = lápida SIN sucursal: el catálogo, el padrón y un camión que no tenía ninguna.
+	sucursal *uuid.UUID
+	motivo   sqlc.MotivoDeBaja
+	salioAt  time.Time
+}
+
+// BajasDeLaBajada REPITE EL `WHERE` DEL SQL, condición por condición, y no contesta lo
+// que le pidan. Es lo mismo que hace el doble de los pedidos y por la misma razón: un
+// doble que dijera a todo que sí aprobaría un manejador que acota mal, que es justo el
+// fallo que borra trabajo del teléfono.
+//
+// Las cinco condiciones, en el mismo orden que `db/queries/bajas.sql`:
+// la colección, el `desde` estricto, el `hasta` inclusivo, las dos sucursales en AND
+// —con el `sin_sucursal_tambien` que copia el `OR v.branch_id IS NULL` de los vehículos—
+// y el «sin sucursal ninguna, sólo los borrados».
+func (q *espejoFalso) BajasDeLaBajada(_ context.Context, arg sqlc.BajasDeLaBajadaParams) ([]sqlc.BajasDeLaBajadaRow, error) {
+	var filas []sqlc.BajasDeLaBajadaRow
+	for _, b := range q.bajas {
+		if b.coleccion != arg.Coleccion {
+			continue
+		}
+		if arg.Desde.Valid && !b.salioAt.After(arg.Desde.Time) {
+			continue
+		}
+		if arg.Hasta.Valid && b.salioAt.After(arg.Hasta.Time) {
+			continue
+		}
+		if arg.Sucursal.Valid {
+			cuadra := b.sucursal != nil && [16]byte(*b.sucursal) == arg.Sucursal.Bytes
+			if !cuadra && !(b.sucursal == nil && arg.SinSucursalTambien) {
+				continue
+			}
+		}
+		if arg.BranchID.Valid {
+			if b.sucursal == nil || [16]byte(*b.sucursal) != arg.BranchID.Bytes {
+				continue
+			}
+		}
+		if !arg.Sucursal.Valid && !arg.BranchID.Valid && b.motivo != sqlc.MotivoDeBajaBorrado {
+			continue
+		}
+		fila := sqlc.BajasDeLaBajadaRow{
+			Coleccion: b.coleccion,
+			Clave:     b.clave,
+			Motivo:    b.motivo,
+			SalioAt:   pgtype.Timestamptz{Time: b.salioAt, Valid: true},
+		}
+		if b.sucursal != nil {
+			fila.BranchID = pgtype.UUID{Bytes: [16]byte(*b.sucursal), Valid: true}
+		}
+		filas = append(filas, fila)
+	}
+	sort.Slice(filas, func(i, j int) bool {
+		if filas[i].SalioAt.Time.Equal(filas[j].SalioAt.Time) {
+			return filas[i].Clave < filas[j].Clave
+		}
+		return filas[i].SalioAt.Time.Before(filas[j].SalioAt.Time)
+	})
+	if int(arg.Tope) < len(filas) {
+		filas = filas[:arg.Tope]
+	}
+	return filas, nil
+}
+
 func (q *espejoFalso) ObtenerAjustes(context.Context) (sqlc.Setting, error) { return q.ajustes, nil }
 
 func (q *espejoFalso) MarcarCatalogoTraido(context.Context) error {
@@ -238,11 +317,32 @@ func (q *espejoFalso) ListarSucursales(_ context.Context, persona pgtype.UUID) (
 	return salida, nil
 }
 
-func (q *espejoFalso) ListarVehiculos(context.Context, pgtype.UUID) ([]sqlc.ListarVehiculosRow, error) {
-	return nil, nil
+// ListarVehiculos y ListarRutas REPITEN SU ACOTACIÓN, que NO es la misma en las dos, y
+// ahí está media prueba de este cambio: `ListarVehiculos` lleva `OR v.branch_id IS NULL`
+// —un camión sin sucursal lo ven los ocho aparatos— y `ListarRutas` no lo lleva. Si el
+// doble las acotara igual, una lápida acotada al revés pasaría inadvertida.
+func (q *espejoFalso) ListarVehiculos(_ context.Context, sucursal pgtype.UUID) ([]sqlc.ListarVehiculosRow, error) {
+	var salida []sqlc.ListarVehiculosRow
+	for _, v := range q.vehiculosDelEspejo {
+		if sucursal.Valid && v.BranchID.Valid && v.BranchID.Bytes != sucursal.Bytes {
+			continue
+		}
+		salida = append(salida, v)
+	}
+	return salida, nil
 }
-func (q *espejoFalso) ListarRutas(context.Context, sqlc.ListarRutasParams) ([]sqlc.ListarRutasRow, error) {
-	return nil, nil
+
+func (q *espejoFalso) ListarRutas(_ context.Context, arg sqlc.ListarRutasParams) ([]sqlc.ListarRutasRow, error) {
+	var salida []sqlc.ListarRutasRow
+	for _, rt := range q.rutasDelEspejo {
+		// Sin `OR r.branch_id IS NULL`, a propósito: una ruta sin sucursal NO la ve un
+		// aparato acotado, y el `= NULL` del SQL tampoco es cierto nunca.
+		if arg.Sucursal.Valid && (!rt.BranchID.Valid || rt.BranchID.Bytes != arg.Sucursal.Bytes) {
+			continue
+		}
+		salida = append(salida, rt)
+	}
+	return salida, nil
 }
 func (q *espejoFalso) ListarProductos(_ context.Context, arg sqlc.ListarProductosParams) ([]sqlc.Product, error) {
 	var cuadran []sqlc.Product

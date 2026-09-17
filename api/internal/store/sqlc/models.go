@@ -12,6 +12,53 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ColeccionDeLaBajada string
+
+const (
+	ColeccionDeLaBajadaRoutes          ColeccionDeLaBajada = "routes"
+	ColeccionDeLaBajadaVehicles        ColeccionDeLaBajada = "vehicles"
+	ColeccionDeLaBajadaBranches        ColeccionDeLaBajada = "branches"
+	ColeccionDeLaBajadaProducts        ColeccionDeLaBajada = "products"
+	ColeccionDeLaBajadaCustomers       ColeccionDeLaBajada = "customers"
+	ColeccionDeLaBajadaBoardColumns    ColeccionDeLaBajada = "boardColumns"
+	ColeccionDeLaBajadaBoardPlacements ColeccionDeLaBajada = "boardPlacements"
+)
+
+func (e *ColeccionDeLaBajada) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ColeccionDeLaBajada(s)
+	case string:
+		*e = ColeccionDeLaBajada(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ColeccionDeLaBajada: %T", src)
+	}
+	return nil
+}
+
+type NullColeccionDeLaBajada struct {
+	ColeccionDeLaBajada ColeccionDeLaBajada `json:"coleccion_de_la_bajada"`
+	Valid               bool                `json:"valid"` // Valid is true if ColeccionDeLaBajada is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullColeccionDeLaBajada) Scan(value interface{}) error {
+	if value == nil {
+		ns.ColeccionDeLaBajada, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ColeccionDeLaBajada.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullColeccionDeLaBajada) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ColeccionDeLaBajada), nil
+}
+
 type FacturaEstado string
 
 const (
@@ -53,6 +100,48 @@ func (ns NullFacturaEstado) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.FacturaEstado), nil
+}
+
+type MotivoDeBaja string
+
+const (
+	MotivoDeBajaBorrado MotivoDeBaja = "borrado"
+	MotivoDeBajaMovido  MotivoDeBaja = "movido"
+)
+
+func (e *MotivoDeBaja) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MotivoDeBaja(s)
+	case string:
+		*e = MotivoDeBaja(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MotivoDeBaja: %T", src)
+	}
+	return nil
+}
+
+type NullMotivoDeBaja struct {
+	MotivoDeBaja MotivoDeBaja `json:"motivo_de_baja"`
+	Valid        bool         `json:"valid"` // Valid is true if MotivoDeBaja is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMotivoDeBaja) Scan(value interface{}) error {
+	if value == nil {
+		ns.MotivoDeBaja, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MotivoDeBaja.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMotivoDeBaja) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MotivoDeBaja), nil
 }
 
 type OrderStatus string
@@ -391,6 +480,15 @@ func (ns NullVehicleStatus) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.VehicleStatus), nil
+}
+
+type BajasDeLaBajada struct {
+	ID        uuid.UUID           `json:"id"`
+	Coleccion ColeccionDeLaBajada `json:"coleccion"`
+	Clave     string              `json:"clave"`
+	BranchID  pgtype.UUID         `json:"branch_id"`
+	Motivo    MotivoDeBaja        `json:"motivo"`
+	SalioAt   pgtype.Timestamptz  `json:"salio_at"`
 }
 
 type BoardColumn struct {

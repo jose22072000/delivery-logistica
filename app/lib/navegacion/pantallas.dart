@@ -6,6 +6,7 @@ import '../pantallas/informes/registro.dart';
 import '../pantallas/panel/registro.dart';
 import '../pantallas/pedidos/registro.dart';
 import '../pantallas/rutas/registro.dart';
+import '../pantallas/mapa/registro.dart';
 import '../pantallas/sincronizacion/registro.dart';
 import '../pantallas/tablero/registro.dart';
 import 'pantalla_registrada.dart';
@@ -45,6 +46,11 @@ List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
   // acotado por sucursal desde el servidor. El motivo largo esta en su
   // `registro.dart`.
   registrarSincronizacion(),
+
+  // El mapa de Cuba para trabajar sin conexion. Va en el menu SOLO en la APK y
+  // el escritorio —lo decide su propio `registro.dart`, regla 1— y sin entrada
+  // no se llega a el. El porque entero, en `docs/mapa-sin-conexion.md`.
+  registrarMapaSinConexion(),
 
   // Reportes SI va en el menu, y es un cambio deliberado respecto al patron: en
   // delivery no esta y se llega solo desde las acciones rapidas del Panel. Asi

@@ -483,6 +483,17 @@ func recortar(b []byte, n int) string {
 // Conjunto es la forma de cada colección en la bajada: lo que se puso o cambió, y lo que
 // se fue. `quitados` hace falta DE VERDAD: sin él, un pedido archivado o una ruta borrada
 // se quedan en el aparato para siempre y la lista local sólo crece.
+//
+// HASTA EL 17/09/2026 ESTO ERA VERDAD SÓLO PARA `orders`. Las demás colecciones pasaban
+// por el ayudante `conjunto()`, que devolvía `Quitados: []string{}` siempre, y el
+// comentario de arriba nombraba «una ruta borrada» como ejemplo de lo que no podía pasar
+// mientras exactamente eso pasaba. Jose lo vio en su teléfono: una ruta borrada en el
+// servidor seguía en el aparato, «Completada», con 0 paradas y 2,6 km.
+//
+// Hoy lo llenan de verdad `orders` (lápidas de 00003), `routes`, `vehicles`, `branches`,
+// `products`, `customers`, `boardColumns` y `boardPlacements` (lápidas de 00006). Quedan
+// dos y las dos están razonadas donde se sirven: `settings` es una fila global que nadie
+// borra, y `warehouses` no viaja en `cambios` sino en `faltan`.
 type Conjunto struct {
 	Puestos  []any    `json:"puestos"`
 	Quitados []string `json:"quitados"`
@@ -589,6 +600,22 @@ func (d porDondeSeguir) escribir() string {
 // vuelve a pedir con el `hasta` devuelto.
 const TopeDeBajada = 2000
 
+// HorizonteDeLapidas es CUÁNTO ATRÁS se puede confiar en las lápidas.
+//
+// Las lápidas —`orders_fuera_de_alcance` de 00003 y `bajas_de_la_bajada` de 00006— no
+// pueden guardarse para siempre: un aparato que sincroniza cada día sólo recibe las de
+// ayer, pero la tabla crece sin techo y un aparato que vuelva con una marca de hace dos
+// años se llevaría los borrados de dos años en una sola bajada, por la conexión de allá.
+// Para eso están `PodarBajasDeLaBajada` y `PodarLapidasDePedidos` (`db/queries/bajas.sql`).
+//
+// Y DE AHÍ SALE EL AVISO: en cuanto se poda, un `desde` anterior al horizonte ya no puede
+// contestarse por diferencias —las lápidas de ese trozo ya no están— y lo que toca es una
+// carga entera. Eso se DICE, no se calla: `CLAUDE.md` §4, «nada se descarta en silencio».
+//
+// Noventa días y no dos años: es lo que aguanta un aparato guardado en un cajón entre
+// campañas sin obligar a reinstalar, y a la vez deja la tabla podable.
+const HorizonteDeLapidas = 90 * 24 * time.Hour
+
 func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	a, ok := acotado(w, r)
 	if !ok {
@@ -676,6 +703,26 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	ventana := alcance.VentanaDeBajada{
 		Desde: desde, Hasta: hasta, Sucursal: sucursal, Tope: tope,
 	}
+	// LA MISMA VENTANA PERO SIN LA SUCURSAL PEDIDA, para las colecciones que NO se sirven
+	// por sucursal. No es una copia de más: `ListarRutas`, `ListarVehiculos` y
+	// `ListarSucursalesVisibles` sólo miran el ALCANCE —el `?sucursal=` es del tablero—, y
+	// una lápida acotada distinto que su lista es exactamente cómo se borra de más.
+	ventanaDelAlcance := ventana
+	ventanaDelAlcance.Sucursal = nil
+
+	// anotarCorte junta los cortes de todas las colecciones. Manda EL MÁS ATRASADO: la
+	// marca que se devuelve tiene que ser una que TODAS las listas hayan servido enteras,
+	// o lo que quedó sin mandar de una cae por debajo del próximo `desde` y no se pide
+	// nunca más.
+	anotarCorte := func(corte *time.Time) {
+		if corte == nil {
+			return
+		}
+		truncado = true
+		if corte.Before(salida.Hasta) {
+			salida.Hasta = *corte
+		}
+	}
 
 	// --- Pedidos ------------------------------------------------------------
 	//
@@ -687,16 +734,11 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	salida.Cambios["orders"] = pedidos
-	if corte != nil {
-		// NO CABE TODO. La marca que se devuelve deja de ser el reloj y pasa a ser la de
-		// la última fila servida: el aparato vuelve a pedir desde ahí y se lleva el
-		// resto. Devolverle el reloj entero sería decirle «ya lo tienes todo hasta ahora»
-		// con media tanda sin mandar, y eso no se vuelve a pedir nunca.
-		truncado = true
-		if corte.Before(salida.Hasta) {
-			salida.Hasta = *corte
-		}
-	}
+	// NO CABE TODO. La marca que se devuelve deja de ser el reloj y pasa a ser la de la
+	// última fila servida: el aparato vuelve a pedir desde ahí y se lleva el resto.
+	// Devolverle el reloj entero sería decirle «ya lo tienes todo hasta ahora» con media
+	// tanda sin mandar, y eso no se vuelve a pedir nunca.
+	anotarCorte(corte)
 
 	// --- Sucursales ---------------------------------------------------------
 	sucursales, err := a.ListarSucursalesVisibles(r.Context())
@@ -705,7 +747,12 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var puestos []any
+	// LO QUE SIGUE VIVO, para tachar de `quitados` cualquier lápida que se equivoque.
+	// Se llena con la lista ENTERA y no sólo con lo que cambió: lo que no cambió tampoco
+	// puede borrarse. Ver `quitadosDe`.
+	vivas := make(map[string]bool, len(sucursales))
 	for _, b := range sucursales {
+		vivas[b.ID.String()] = true
 		if !cambioDesde(b.UpdatedAt, desde) {
 			continue
 		}
@@ -737,7 +784,29 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 			"cupRateFresca": b.CupRateFresca,
 		})
 	}
-	salida.Cambios["branches"] = conjunto(puestos)
+	// UNA SUCURSAL BORRADA SÓLO PUEDE ESTAR BORRADA: no se muda a ningún sitio, así que no
+	// hay lápidas `movido` que valorar. `sinSucursalTambien` va en false porque
+	// `ListarSucursalesVisibles` compara `b.id = <la de la persona>` y no deja pasar nada
+	// sin sucursal.
+	//
+	// LA ÚNICA ASIMETRÍA DE TODO ESTO, escrita para que sea una decisión y no un descuido:
+	// esta lista se acota con `personaPg()` —a cuáles PUEDO llegar— y las lápidas con
+	// `sucursalPg()` —cuál estoy MIRANDO—, que es la que lleva además la sucursal elegida
+	// por cabecera. Las dos coinciden salvo en un caso: quien ve las ocho y ha elegido una
+	// arriba. A ése se le mandan las bajas de la elegida y no las de las otras siete, así
+	// que se entera de MENOS, nunca de más. Se deja así a propósito: `sucursalPg()` nunca
+	// es más ancha que `personaPg()`, y de los dos errores posibles —quedarse una sucursal
+	// borrada en la lista, o borrar del aparato una que existe— sólo el segundo destruye
+	// algo. `branches` son ocho filas que se repintan enteras en cuanto se quita la
+	// elección.
+	quitadas, corteSuc, err := s.quitadosDe(r, a,
+		sqlc.ColeccionDeLaBajadaBranches, ventanaDelAlcance, false, vivas)
+	if err != nil {
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	anotarCorte(corteSuc)
+	salida.Cambios["branches"] = conjuntoCon(puestos, quitadas)
 
 	// --- Vehículos ----------------------------------------------------------
 	vehiculos, err := a.ListarVehiculos(r.Context())
@@ -746,7 +815,9 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	puestos = nil
+	vivas = make(map[string]bool, len(vehiculos))
 	for _, v := range vehiculos {
+		vivas[v.ID.String()] = true
 		if !cambioDesde(v.UpdatedAt, desde) {
 			continue
 		}
@@ -756,28 +827,79 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 			"branchId": idOpcional(v.BranchID), "updatedAt": hora(v.UpdatedAt),
 		})
 	}
-	salida.Cambios["vehicles"] = conjunto(puestos)
+	// `sinSucursalTambien` EN TRUE, y es el único sitio donde va en true. `ListarVehiculos`
+	// lleva `OR v.branch_id IS NULL`: un camión sin sucursal lo ven los ocho aparatos, así
+	// que cuando se da de baja hay que quitárselo a los ocho. Puesto en false, ese camión
+	// se queda en los ocho teléfonos para siempre.
+	quitados, corteVeh, err := s.quitadosDe(r, a,
+		sqlc.ColeccionDeLaBajadaVehicles, ventanaDelAlcance, true, vivas)
+	if err != nil {
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	anotarCorte(corteVeh)
+	salida.Cambios["vehicles"] = conjuntoCon(puestos, quitados)
 
 	// --- Rutas --------------------------------------------------------------
+	//
+	// LA QUE EMPEZÓ TODO ESTO. El 17/09/2026 se borró una ruta desde la web y el teléfono
+	// la siguió enseñando: «Completada», 0 paradas, 2,6 km. No había forma de que se
+	// enterara, porque aquí se mandaba `quitados: []`.
 	rutas, err := a.EspejoListarRutas(r.Context())
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
 	puestos = nil
+	vivas = make(map[string]bool, len(rutas))
 	for _, rt := range rutas {
+		vivas[rt.ID.String()] = true
 		if !cambioDesde(rt.UpdatedAt, desde) {
 			continue
 		}
+		// LOS SIETE CAMPOS QUE FALTABAN, y lo que se veía sin ellos.
+		//
+		// Visto el 17/09/2026 con la aplicación delante, contra el entorno local: la
+		// lista de rutas del aparato enseñaba **`$0.00`** en una ruta de 720 USD,
+		// «Sin punto de partida» teniendo almacén, y una raya donde va la fecha. La
+		// fila ya traía los tres —`ListarRutasRow` los tiene desde siempre— y esta
+		// función simplemente no los escribía.
+		//
+		// Es el fallo que más caro sale aquí, y por eso está escrito: un importe en
+		// cero **se lee bien y está mal**, y nadie lo desmiente. No hay pantalla en
+		// blanco, no hay error, no hay tirón. Sólo un número creíble y falso, igual
+		// que los 685 de La Habana que enseñaba Granma.
+		//
+		// `startedAt` y `finishedAt` van por lo mismo: son la línea de «Salida» y
+		// «Regreso» de la hoja del post-despacho, la que firma el chofer. Sin ellos
+		// la hoja sale sin horario y tampoco se nota.
+		//
+		// La guarda está en `TestLaBajadaDeRutasLlevaElImporteYLaDireccion`: si
+		// alguien quita una de estas claves, esa prueba la nombra.
 		puestos = append(puestos, map[string]any{
 			"id": rt.ID, "name": rt.Name, "routeCode": rt.RouteCode,
-			"status": string(rt.Status), "originLat": rt.OriginLat, "originLng": rt.OriginLng,
+			"status": string(rt.Status), "originAddress": rt.OriginAddress,
+			"originLat": rt.OriginLat, "originLng": rt.OriginLng,
 			"totalWeight": rt.TotalWeight, "totalDistance": rt.TotalDistance,
+			"totalPrice": rt.TotalPrice, "deliveryDate": hora(rt.DeliveryDate),
 			"vehicleId": idOpcional(rt.VehicleID), "branchId": idOpcional(rt.BranchID),
-			"paradas": rt.Paradas, "updatedAt": hora(rt.UpdatedAt),
+			"creadoPor": rt.CreadoPor,
+			"startedAt": hora(rt.StartedAt), "finishedAt": hora(rt.FinishedAt),
+			"createdAt": hora(rt.CreatedAt),
+			"paradas":   rt.Paradas, "updatedAt": hora(rt.UpdatedAt),
 		})
 	}
-	salida.Cambios["routes"] = conjunto(puestos)
+	// `sinSucursalTambien` en FALSE: `ListarRutas` filtra `r.branch_id = <la mía>` a secas,
+	// y una ruta sin sucursal no la ve un aparato acotado. Ponerlo en true le mandaría
+	// lápidas de rutas que nunca tuvo.
+	quitadas, corteRut, err := s.quitadosDe(r, a,
+		sqlc.ColeccionDeLaBajadaRoutes, ventanaDelAlcance, false, vivas)
+	if err != nil {
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	anotarCorte(corteRut)
+	salida.Cambios["routes"] = conjuntoCon(puestos, quitadas)
 
 	// --- Catálogo -----------------------------------------------------------
 	productos, err := a.EspejoListarProductos(r.Context(), tope, seguir.Productos, desdeDelPadron)
@@ -803,7 +925,36 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 			"unit": p.Unit, "category": p.Category, "updatedAt": hora(p.UpdatedAt),
 		})
 	}
-	salida.Cambios["products"] = conjunto(puestos)
+	// LAS LÁPIDAS DEL CATÁLOGO VAN SIN SUCURSAL, Y ESO SE DECIDIÓ ASÍ. Merece leerse
+	// entero, porque el catálogo NO es global: `EspejoListarProductos` lo acota por
+	// `sucursal_codigo` (el CÓDIGO —STG, HOL—, no el uuid), así que a un aparato le llegan
+	// ids que su lista nunca le enseñó.
+	//
+	//   · No borra de más, y eso es lo que decide. Una lápida sólo nace de un `DELETE` de
+	//     verdad: esa fila ya no existe para NADIE, así que quitársela a quien no la tenía
+	//     es una orden que no encuentra nada y no hace nada. Cuesta unos cuantos ids por la
+	//     conexión y no cuesta un solo dato.
+	//   · `sinSucursalTambien` EN TRUE es lo que las deja pasar: sus lápidas no llevan
+	//     sucursal y el alcance de quien pregunta sí. En false, a un logístico de Camagüey
+	//     no le llegaría NI UNA baja del catálogo.
+	//   · LO QUE SIGUE SIN CUBRIRSE, dicho para que no se dé por hecho: un producto al que
+	//     le CAMBIAN el `sucursal_codigo` sale del alcance sin borrarse y no lleva lápida,
+	//     así que se le queda puesto al aparato de la sucursal vieja. Es el mismo agujero
+	//     que había antes de esto; taparlo pide guardar el código en la lápida y un
+	//     disparador de `UPDATE OF sucursal_codigo`.
+	//
+	// Y `vivos` va nil: el catálogo se sirve POR TANDAS, así que aquí nunca está la lista
+	// entera contra la que tachar. Se puede prescindir de la red porque la única lápida que
+	// puede nacer aquí es `borrado` —no hay `movido` sin columna de sucursal— y una fila
+	// borrada no puede estar a la vez en `puestos`.
+	quitados, corteProd, err := s.quitadosDe(r, a,
+		sqlc.ColeccionDeLaBajadaProducts, ventanaDelAlcance, true, nil)
+	if err != nil {
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	anotarCorte(corteProd)
+	salida.Cambios["products"] = conjuntoCon(puestos, quitados)
 
 	// --- Clientes -----------------------------------------------------------
 	//
@@ -829,11 +980,40 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 			"municipio": c.Municipio, "zona": c.Zona, "lat": c.Lat, "lng": c.Lng,
 			"sucursalCodigo": c.SucursalCodigo, "codigo": c.Codigo,
 			"vendedor": c.Vendedor, "syncedAt": hora(c.SyncedAt),
+			// `source` FALTABA, y sin él los 8.000 del padrón salían como
+			// «Manual» en el aparato: la insignia de `tabla_clientes.dart` lee
+			// esta columna, y el filtro de origen devolvía **cero** para «de
+			// PEDIDO» y los ocho mil para «manual». Una lista creíble y al
+			// revés, que es el peor fallo de esta casa.
+			"source": textoDe(c.Source),
 		})
 	}
-	salida.Cambios["customers"] = conjunto(puestos)
+	// EL PADRÓN ES EL QUE MÁS FALTA LE HACÍA. `BorrarClientesDelEspejoQueYaNoVienen` borra
+	// de golpe todos los que PEDIDO dejó de mandar, y sin lápida esos clientes se quedaban
+	// en el teléfono del repartidor hasta que alguien reinstalara la aplicación.
+	//
+	// Vale palabra por palabra lo escrito arriba para el catálogo, incluido lo que NO se
+	// cubre: el padrón también se acota por `sucursal_codigo`, las lápidas no lo llevan, y
+	// un cliente al que le cambian el código se le queda puesto al aparato de la sucursal
+	// vieja. Lo que sí queda resuelto —y es lo gordo— es el borrado de verdad.
+	quitados, corteCli, err := s.quitadosDe(r, a,
+		sqlc.ColeccionDeLaBajadaCustomers, ventanaDelAlcance, true, nil)
+	if err != nil {
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	anotarCorte(corteCli)
+	salida.Cambios["customers"] = conjuntoCon(puestos, quitados)
 
 	// --- Ajustes ------------------------------------------------------------
+	//
+	// LA ÚNICA COLECCIÓN QUE SIGUE CON `quitados` VACÍO, y con su razón: `settings` es UNA
+	// fila, global para toda la casa, y no existe ni una sentencia `DELETE FROM settings`
+	// en `db/queries/`. No hay baja que contar. El caso de que la fila no exista todavía ya
+	// está contestado abajo con `pgx.ErrNoRows`, que es distinto de «se borró».
+	//
+	// Si algún día se pudiera borrar, la lápida iría en `bajas_de_la_bajada` como las
+	// demás y este comentario se cambia por la llamada.
 	ajustes, err := a.ObtenerAjustes(r.Context())
 	switch {
 	case err == nil:
@@ -869,7 +1049,9 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		puestos = nil
+		vivas = make(map[string]bool, len(columnas))
 		for _, c := range columnas {
+			vivas[c.ID.String()] = true
 			if !cambioDesde(c.UpdatedAt, desde) {
 				continue
 			}
@@ -879,7 +1061,18 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 				"updatedAt": hora(c.UpdatedAt),
 			})
 		}
-		salida.Cambios["boardColumns"] = conjunto(puestos)
+		// AQUÍ SÍ VA LA SUCURSAL PEDIDA (`ventana`, no `ventanaDelAlcance`): las dos
+		// colecciones del tablero se sirven POR SUCURSAL, igual que sus listas, y una
+		// lápida acotada distinto que su lista es cómo se borra de más. Una zona borrada
+		// desde la web es justo el caso que Jose nombró.
+		quitadas, corteCol, err := s.quitadosDe(r, a,
+			sqlc.ColeccionDeLaBajadaBoardColumns, ventana, false, vivas)
+		if err != nil {
+			httpx.ErrorInterno(w, r, err)
+			return
+		}
+		anotarCorte(corteCol)
+		salida.Cambios["boardColumns"] = conjuntoCon(puestos, quitadas)
 
 		// El origen va en (0,0) A PROPÓSITO: el `km_al_almacen` de esta consulta no se
 		// usa en la bajada. El aparato recalcula la cercanía él mismo con el almacén que
@@ -893,7 +1086,12 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		puestos = nil
+		vivas = make(map[string]bool, len(colocados))
 		for _, p := range colocados {
+			// LA CLAVE DE UNA COLOCACIÓN ES SU PEDIDO, no un id propio: así está la tabla
+			// (`board_placements.order_id` es la clave primaria) y así viaja en `puestos`
+			// (`pedidoId`). La lápida usa la misma o el aparato no sabría qué borrar.
+			vivas[p.OrderID.String()] = true
 			if !cambioDesde(p.UpdatedAt, desde) {
 				continue
 			}
@@ -903,7 +1101,19 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 				"updatedAt": hora(p.UpdatedAt),
 			})
 		}
-		salida.Cambios["boardPlacements"] = conjunto(puestos)
+		// LA RED DE SEGURIDAD IMPORTA MÁS AQUÍ QUE EN NINGÚN SITIO. Una tarjeta sale de una
+		// zona y vuelve a otra la misma tarde —eso son dos filas en `board_placements` con
+		// la MISMA clave— y sin tachar contra lo que está vivo, la bajada diría «tenla» y
+		// «bórrala» a la vez. El disparador de 00006 ya quita la lápida al volver a
+		// colocarla; esto es el segundo cierre, del lado de quien contesta.
+		quitadas, corteColoc, err := s.quitadosDe(r, a,
+			sqlc.ColeccionDeLaBajadaBoardPlacements, ventana, false, vivas)
+		if err != nil {
+			httpx.ErrorInterno(w, r, err)
+			return
+		}
+		anotarCorte(corteColoc)
+		salida.Cambios["boardPlacements"] = conjuntoCon(puestos, quitadas)
 	}
 
 	// --- Lo que todavía no se puede servir -----------------------------------
@@ -937,6 +1147,24 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	}
 	salida.Aviso += "«warehouses» vive en Accesos, que no da marca de cambio ni dice qué " +
 		"borró: se pide allí"
+
+	// --- Una marca demasiado vieja para contestarla por diferencias -----------
+	//
+	// Las lápidas se podan (`HorizonteDeLapidas`, `PodarBajasDeLaBajada`). Pasado ese
+	// horizonte, las bajas de ese trozo YA NO ESTÁN, así que se puede contestar lo que
+	// cambió pero no lo que se fue: el aparato se quedaría con rutas, camiones y clientes
+	// que ya no existen y creyéndose al día. Eso SE DICE —`CLAUDE.md` §4, nada se descarta
+	// en silencio— y no se decide por él: la respuesta sigue siendo válida, y quien tiene
+	// que rehacer la carga entera es el aparato.
+	if desde != nil && desde.Before(hasta.Add(-HorizonteDeLapidas)) {
+		if salida.Aviso != "" {
+			salida.Aviso += "; "
+		}
+		salida.Aviso += fmt.Sprintf(
+			"«desde» es de hace más de %d días y las lápidas de ese trozo ya están podadas: "+
+				"lo que se borró en ese tiempo NO viaja en «quitados». Hace falta una carga "+
+				"entera (sin «desde»)", int(HorizonteDeLapidas.Hours()/24))
+	}
 
 	salida.Truncado = truncado
 	if truncado {
@@ -974,12 +1202,92 @@ func cambioDesde(marca pgtype.Timestamptz, desde *time.Time) bool {
 	return marca.Time.After(*desde)
 }
 
-// conjunto normaliza el nil a lista vacía: el aparato lee JSON y `null` no se recorre.
+// conjunto es para la colección que NO PUEDE TENER BAJAS, hoy sólo `settings`: una fila
+// global que nadie borra. Su nombre dice lo que hace y el que lo use tiene que poder
+// explicar por qué su colección no se da de baja nunca.
+//
+// HASTA EL 17/09/2026 LO USABAN OCHO COLECCIONES, y ése era el agujero entero: `branches`,
+// `vehicles`, `routes`, `products`, `customers`, `boardColumns` y `boardPlacements`
+// contestaban `quitados: []` sin que nadie lo hubiera decidido, y por eso una ruta borrada
+// se quedaba en el teléfono para siempre. Las siete usan ahora `conjuntoCon`.
 func conjunto(puestos []any) Conjunto {
+	return conjuntoCon(puestos, nil)
+}
+
+// conjuntoCon normaliza los dos nil a listas vacías: el aparato lee JSON y `null` no se
+// recorre —en Dart, un nulo donde se espera una lista es una excepción en mitad de la
+// sincronización—.
+func conjuntoCon(puestos []any, quitados []string) Conjunto {
 	if puestos == nil {
 		puestos = []any{}
 	}
-	return Conjunto{Puestos: puestos, Quitados: []string{}}
+	if quitados == nil {
+		quitados = []string{}
+	}
+	return Conjunto{Puestos: puestos, Quitados: quitados}
+}
+
+// quitadosDe arma el `quitados` de una colección que no es `orders`, leyendo las lápidas
+// de `bajas_de_la_bajada` (00006).
+//
+// Devuelve además LA MARCA DE CORTE cuando no cupo todo (nil si cupo), como los pedidos:
+// quien llama la mezcla con las demás y la más atrasada manda, para que la marca que se
+// devuelve sea una que TODAS las listas hayan servido enteras.
+//
+// LAS TRES REGLAS QUE SE CUMPLEN AQUÍ:
+//
+//  1. EN LA CARGA INICIAL NO SE PREGUNTA. El aparato empieza vacío: no hay nada que
+//     quitarle, y mandarle los borrados de los últimos dos años es gastarle la conexión en
+//     decirle que borre lo que nunca tuvo. Mismo criterio que `EspejoPedidosQueSalieron`.
+//  2. EL ALCANCE Y LA SUCURSAL PEDIDA SE COPIAN DE SU LISTA. Una lápida acotada distinto
+//     que su lista es, literalmente, cómo se borra de más. Lo pone quien llama, colección
+//     por colección, y cada uno lleva escrito al lado por qué.
+//  3. LO QUE SIGUE VIVO NO SE BORRA NUNCA. `vivos` es la lista entera que este mismo
+//     manejador acaba de leer, y cualquier lápida que coincida con ella se TACHA y se
+//     registra. Es la red contra el único fallo grave de todo esto —que la misma bajada
+//     diga «tenlo» y «bórralo», y gane el que aplique el aparato— y contra una lápida mal
+//     puesta, que borra trabajo del teléfono. Puede venir nil donde no hay lista entera
+//     que comparar (el catálogo y el padrón se sirven por tandas); quien lo hace lo
+//     explica allí.
+func (s *Servidor) quitadosDe(
+	r *http.Request,
+	a *alcance.Acotado,
+	coleccion sqlc.ColeccionDeLaBajada,
+	v alcance.VentanaDeBajada,
+	sinSucursalTambien bool,
+	vivos map[string]bool,
+) ([]string, *time.Time, error) {
+	if v.Desde == nil {
+		return nil, nil, nil
+	}
+
+	// SE PIDE UNA FILA DE MÁS, como en los pedidos: es la forma barata de distinguir
+	// «caben justo `tope`» de «hay más y no caben». Con exactamente `tope` filas las dos
+	// son indistinguibles, y dar por buena la primera deja al aparato sin volver a pedir.
+	sonda := v
+	sonda.Tope = v.Tope + 1
+
+	filas, err := a.EspejoBajas(r.Context(), coleccion, sonda, sinSucursalTambien)
+	if err != nil {
+		return nil, nil, err
+	}
+	filas, corte := recortarPorMarca(r, filas, int(v.Tope),
+		func(f sqlc.BajasDeLaBajadaRow) time.Time { return f.SalioAt.Time })
+
+	quitados := make([]string, 0, len(filas))
+	for _, f := range filas {
+		if vivos[f.Clave] {
+			// Una lápida de algo que sigue en la lista. No se manda, y se deja dicho: o el
+			// disparador no limpió al volver a entrar, o la lápida se puso mal. Las dos
+			// son fallos que hay que poder encontrar, y ninguno puede costarle al
+			// repartidor el trabajo que tiene en el teléfono.
+			httpx.Registro(r).Warn("lápida de algo que sigue vivo: no se manda en «quitados»",
+				"coleccion", string(coleccion), "clave", f.Clave, "motivo", string(f.Motivo))
+			continue
+		}
+		quitados = append(quitados, f.Clave)
+	}
+	return quitados, corte, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1085,22 +1393,37 @@ func (s *Servidor) pedidosDeLaBajada(r *http.Request, a *alcance.Acotado, v alca
 			"source":             textoDe(f.Source),
 			"externalId":         f.ExternalID,
 			"orderDate":          hora(f.OrderDate),
-			"estado":             textoDe(f.Estado),
-			"archivado":          f.Archivado,
-			"fechaComprometida":  hora(f.FechaComprometida),
-			"requiereDomicilio":  f.RequiereDomicilio,
-			"pedidoCosto":        f.PedidoCosto,
-			"municipio":          f.Municipio,
-			"vendedor":           f.Vendedor,
-			"sucursalCodigo":     f.SucursalCodigo,
-			"facturaEstado":      textoDe(f.FacturaEstado),
-			"facturaNumero":      f.FacturaNumero,
-			"facturaDomicilio":   f.FacturaDomicilio,
-			"stopOrder":          f.StopOrder,
-			"deliveredAt":        hora(f.DeliveredAt),
-			"resultado":          textoDe(f.Resultado),
-			"resultadoNota":      f.ResultadoNota,
-			"items":              items,
+			// `createdAt` FALTABA, y con él se caía una guarda entera.
+			//
+			// `repositorio_pedidos.dart` acota por fecha así: por `orderDate`, y
+			// **si el pedido no lo trae, por `createdAt`** —«o desaparecería de
+			// todos los rangos», dice su comentario—. Como esta clave nunca
+			// viajaba, esa segunda rama no podía ser cierta nunca: todo pedido
+			// que PEDIDO manda sin `order_date` (es `narg`, pasa) se caía de
+			// CUALQUIER filtro por fecha en la APK y el escritorio, mientras el
+			// servidor y la web sí lo devolvían.
+			//
+			// Y no saltaba nada, porque la cabecera y la lista salen del mismo
+			// `donde()`: los dos números se daban la razón entre ellos, los dos
+			// mal. Es el «Sin colocar (722) encima de una lista de 293» al
+			// revés.
+			"createdAt":         hora(f.CreatedAt),
+			"estado":            textoDe(f.Estado),
+			"archivado":         f.Archivado,
+			"fechaComprometida": hora(f.FechaComprometida),
+			"requiereDomicilio": f.RequiereDomicilio,
+			"pedidoCosto":       f.PedidoCosto,
+			"municipio":         f.Municipio,
+			"vendedor":          f.Vendedor,
+			"sucursalCodigo":    f.SucursalCodigo,
+			"facturaEstado":     textoDe(f.FacturaEstado),
+			"facturaNumero":     f.FacturaNumero,
+			"facturaDomicilio":  f.FacturaDomicilio,
+			"stopOrder":         f.StopOrder,
+			"deliveredAt":       hora(f.DeliveredAt),
+			"resultado":         textoDe(f.Resultado),
+			"resultadoNota":     f.ResultadoNota,
+			"items":             items,
 			// La marca que el aparato guarda para la próxima vez. Es `cambiado_at` y NO
 			// `updated_at`: con la del pedido a secas, un pedido al que sólo le cambió un
 			// renglón volvería a salir en cada bajada para siempre.

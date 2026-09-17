@@ -372,14 +372,28 @@ ThemeData temaDeReparto() {
         ),
       ),
     ),
+    // EL ROTULO EMERGENTE. Jose, 17/09/2026: «los tooltips no se ven casi, qué
+    // mierda es esto en negro».
+    //
+    // Era tinta (#17130E, casi negro) con el texto en papel a 12 y peso normal,
+    // encima de un mapa a todo color. Tres cosas contra la lectura a la vez:
+    // pequeño, delgado y sin nada que lo despegue del fondo. Ahora va a 13 con
+    // peso medio, en blanco puro, con su sombra y un reborde tenue — sigue
+    // siendo oscuro, que es lo que toca sobre un mapa claro, pero ya se lee.
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(
         color: Colores.tinta,
         borderRadius: BorderRadius.circular(Radios.sm),
+        border: Border.all(color: Colores.blanco.withValues(alpha: 0.18)),
+        boxShadow: Sombras.sm,
       ),
-      textStyle: Tipos.texto(tamano: 12, color: Colores.papel),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      waitDuration: const Duration(milliseconds: 400),
+      textStyle: Tipos.texto(
+        tamano: 13,
+        color: Colores.blanco,
+        peso: FontWeight.w500,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      waitDuration: const Duration(milliseconds: 300),
     ),
     // Los botones. Radio `xl` (13.6) y la tipografia de texto, no la de titular:
     // en delivery los botones son `text-sm font-medium`.

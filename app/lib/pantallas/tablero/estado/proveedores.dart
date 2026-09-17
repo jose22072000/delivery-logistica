@@ -431,7 +431,9 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
       _faltabanPedidos = r.tarjetasSinPedido > 0;
     } on FalloDeRed catch (e) {
       _porQueNoSeRefresca = null;
-      Registro.info('tablero: sin conexión al abrir, se sigue con lo de aquí ($e)');
+      Registro.info(
+        'tablero: sin conexión al abrir, se sigue con lo de aquí ($e)',
+      );
     } on Rechazo catch (e) {
       // El literal del servidor, que es lo único que le dice a alguien qué hacer.
       _porQueNoSeRefresca = e.mensaje;
@@ -500,9 +502,7 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
     final sucursalId = state.value?.sucursalId;
     if (sucursalId == null || sucursalId.isEmpty) return;
     try {
-      final r = await ref
-          .read(servicioTableroProvider)
-          .descargar(sucursalId);
+      final r = await ref.read(servicioTableroProvider).descargar(sucursalId);
       _porQueNoSeRefresca = r.porQue;
       await refrescar();
     } on FalloDeRed catch (e) {

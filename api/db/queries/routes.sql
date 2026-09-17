@@ -161,6 +161,16 @@ ORDER BY o.stop_order ASC NULLS LAST, oi.linea ASC;
 SELECT
     o.id, o.operation_number, o.customer_name, o.end_lat, o.end_lng,
     o.weight, o.pedido_costo, o.factura_estado, o.branch_id, o.external_id, o.source,
+    -- LO QUE YA SE ENTREGÓ NO VUELVE A SUBIR A UN CAMIÓN, y `route_id IS NULL` no lo
+    -- sabe: un entregado conserva su `route_id`, pero la clave ajena es `ON DELETE SET
+    -- NULL` (`db/migrations/00001_init.sql:446`), así que el día que alguien borre la
+    -- ruta de ayer los entregados amanecen sueltos y este `WHERE` los da por libres.
+    --
+    -- Salen como DATO y no como filtro, exactamente igual que `factura_estado` y por la
+    -- misma razón: filtrarlos aquí los mandaría al «N de los M ya están en otra ruta»,
+    -- que sería FALSO —no están en ninguna ruta, se entregaron— y no se arregla volviendo
+    -- a elegirlos. Los nombra `mensajeYaEntregados` en el manejador.
+    o.delivered_at, o.resultado,
     -- Las dos señales de que el pedido VA A DOMICILIO, y hacen falta las dos.
     --
     -- `requiere_domicilio` es una casilla que se marca al tomar el pedido;

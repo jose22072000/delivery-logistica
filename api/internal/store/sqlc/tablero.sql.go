@@ -190,6 +190,11 @@ WHERE o.id = $3
   AND c.id = $4
   AND o.branch_id = c.branch_id
   AND o.route_id IS NULL
+  -- Y NO SE PUEDE COLOCAR LO QUE YA SE ENTREGÓ. ` + "`" + `route_id IS NULL` + "`" + ` no lo cubre: la
+  -- clave ajena es ` + "`" + `ON DELETE SET NULL` + "`" + `, así que borrar la ruta de ayer deja sueltos a
+  -- los entregados. Quien lo traduce a un 409 con su motivo es ` + "`" + `porQueNoSePudoColocar` + "`" + `.
+  AND o.delivered_at IS NULL
+  AND (o.resultado IS NULL OR o.resultado <> 'entregado')
   AND ($5::uuid IS NULL OR c.branch_id = $5::uuid)
 ON CONFLICT (order_id) DO UPDATE SET
     column_id    = excluded.column_id,
@@ -281,6 +286,21 @@ FROM orders o
 WHERE
     o.source = 'pedido'
     AND o.route_id IS NULL
+    -- ENTREGADO NO SE VUELVE A OFRECER, Y ` + "`" + `route_id IS NULL` + "`" + ` NO BASTA PARA SABERLO.
+    --
+    -- Un entregado CONSERVA su ` + "`" + `route_id` + "`" + ` (ver ` + "`" + `MarcarResultadoDeParada` + "`" + `), así que
+    -- mientras la ruta exista este filtro ya lo deja fuera. Pero la clave ajena de
+    -- ` + "`" + `orders.route_id` + "`" + ` es ` + "`" + `ON DELETE SET NULL` + "`" + ` (` + "`" + `db/migrations/00001_init.sql:446` + "`" + `):
+    -- el dia que alguien borre la ruta de ayer, los pedidos que YA SE ENTREGARON
+    -- amanecen con ` + "`" + `route_id` + "`" + ` nulo y vuelven a esta lista como si nada hubiera pasado.
+    -- El logistico los coloca otra vez, salen en otro camion y se reparten DOS VECES.
+    --
+    -- Nada en la fila grita que ese pedido ya se entrego salvo estas dos columnas, que
+    -- son las que ` + "`" + `MarcarResultadoDeParada` + "`" + ` escribe juntas y limpia juntas cuando se
+    -- corrige a devuelto. Son las mismas dos con las que ` + "`" + `ListarPedidosDisponibles` + "`" + `
+    -- define ` + "`" + `reparto = 'sin_entregar'` + "`" + `, y por eso se escriben igual aqui.
+    AND o.delivered_at IS NULL
+    AND (o.resultado IS NULL OR o.resultado <> 'entregado')
     AND o.end_lat IS NOT NULL
     AND o.end_lng IS NOT NULL
     AND o.factura_estado IN ('igual', 'cambiado')
@@ -809,6 +829,21 @@ FROM orders o
 WHERE
     o.source = 'pedido'
     AND o.route_id IS NULL
+    -- ENTREGADO NO SE VUELVE A OFRECER, Y ` + "`" + `route_id IS NULL` + "`" + ` NO BASTA PARA SABERLO.
+    --
+    -- Un entregado CONSERVA su ` + "`" + `route_id` + "`" + ` (ver ` + "`" + `MarcarResultadoDeParada` + "`" + `), así que
+    -- mientras la ruta exista este filtro ya lo deja fuera. Pero la clave ajena de
+    -- ` + "`" + `orders.route_id` + "`" + ` es ` + "`" + `ON DELETE SET NULL` + "`" + ` (` + "`" + `db/migrations/00001_init.sql:446` + "`" + `):
+    -- el dia que alguien borre la ruta de ayer, los pedidos que YA SE ENTREGARON
+    -- amanecen con ` + "`" + `route_id` + "`" + ` nulo y vuelven a esta lista como si nada hubiera pasado.
+    -- El logistico los coloca otra vez, salen en otro camion y se reparten DOS VECES.
+    --
+    -- Nada en la fila grita que ese pedido ya se entrego salvo estas dos columnas, que
+    -- son las que ` + "`" + `MarcarResultadoDeParada` + "`" + ` escribe juntas y limpia juntas cuando se
+    -- corrige a devuelto. Son las mismas dos con las que ` + "`" + `ListarPedidosDisponibles` + "`" + `
+    -- define ` + "`" + `reparto = 'sin_entregar'` + "`" + `, y por eso se escriben igual aqui.
+    AND o.delivered_at IS NULL
+    AND (o.resultado IS NULL OR o.resultado <> 'entregado')
     AND o.end_lat IS NOT NULL
     AND o.end_lng IS NOT NULL
     AND o.factura_estado IN ('igual', 'cambiado')
@@ -1120,6 +1155,11 @@ SELECT
     o.id, o.operation_number, o.customer_name, o.end_lat, o.end_lng,
     o.weight, o.pedido_costo, o.factura_estado, o.branch_id,
     o.external_id, o.source, o.archivado,
+    -- SE ENTREGA EL DATO, NO SE FILTRA AQUÍ, igual que ` + "`" + `factura_estado` + "`" + ` y por lo mismo:
+    -- un ` + "`" + `WHERE` + "`" + ` que los descarte deja el descarte sin nada que decir, y el logístico se
+    -- queda mirando una columna de doce que produce una ruta de nueve sin explicación.
+    -- El corte lo hace ` + "`" + `armarRutaDeColumna` + "`" + `, que los nombra uno a uno en ` + "`" + `descartados` + "`" + `.
+    o.delivered_at, o.resultado,
     p.posicion
 FROM board_placements p
 JOIN board_columns c ON c.id = p.column_id
@@ -1139,19 +1179,21 @@ type PedidosDeColumnaParaArmarRutaParams struct {
 }
 
 type PedidosDeColumnaParaArmarRutaRow struct {
-	ID              uuid.UUID      `json:"id"`
-	OperationNumber *string        `json:"operation_number"`
-	CustomerName    string         `json:"customer_name"`
-	EndLat          *float64       `json:"end_lat"`
-	EndLng          *float64       `json:"end_lng"`
-	Weight          float64        `json:"weight"`
-	PedidoCosto     *float64       `json:"pedido_costo"`
-	FacturaEstado   *FacturaEstado `json:"factura_estado"`
-	BranchID        pgtype.UUID    `json:"branch_id"`
-	ExternalID      *string        `json:"external_id"`
-	Source          *Procedencia   `json:"source"`
-	Archivado       bool           `json:"archivado"`
-	Posicion        int32          `json:"posicion"`
+	ID              uuid.UUID          `json:"id"`
+	OperationNumber *string            `json:"operation_number"`
+	CustomerName    string             `json:"customer_name"`
+	EndLat          *float64           `json:"end_lat"`
+	EndLng          *float64           `json:"end_lng"`
+	Weight          float64            `json:"weight"`
+	PedidoCosto     *float64           `json:"pedido_costo"`
+	FacturaEstado   *FacturaEstado     `json:"factura_estado"`
+	BranchID        pgtype.UUID        `json:"branch_id"`
+	ExternalID      *string            `json:"external_id"`
+	Source          *Procedencia       `json:"source"`
+	Archivado       bool               `json:"archivado"`
+	DeliveredAt     pgtype.Timestamptz `json:"delivered_at"`
+	Resultado       *StopResult        `json:"resultado"`
+	Posicion        int32              `json:"posicion"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1196,6 +1238,8 @@ func (q *Queries) PedidosDeColumnaParaArmarRuta(ctx context.Context, arg Pedidos
 			&i.ExternalID,
 			&i.Source,
 			&i.Archivado,
+			&i.DeliveredAt,
+			&i.Resultado,
 			&i.Posicion,
 		); err != nil {
 			return nil, err

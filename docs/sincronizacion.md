@@ -34,11 +34,11 @@ Devuelve lo que cambió desde `desde`. Sin `desde`, la primera carga completa.
   "completa": false,                      // true si fue carga inicial
   "cambios": {
     "orders":    { "puestos": [ … ], "quitados": ["id", …] },
-    "routes":    { "puestos": [ … ], "quitados": [] },
-    "customers": { "puestos": [ … ], "quitados": [] },
-    "products":  { "puestos": [ … ], "quitados": [] },
-    "vehicles":  { "puestos": [ … ], "quitados": [] },
-    "branches":  { "puestos": [ … ], "quitados": [] },
+    "routes":    { "puestos": [ … ], "quitados": ["id", …] },
+    "customers": { "puestos": [ … ], "quitados": ["id", …] },
+    "products":  { "puestos": [ … ], "quitados": ["id", …] },
+    "vehicles":  { "puestos": [ … ], "quitados": ["id", …] },
+    "branches":  { "puestos": [ … ], "quitados": ["id", …] },
     "warehouses":{ "puestos": [ … ], "quitados": [] },
     "settings":  { "puestos": [ … ], "quitados": [] }
   },
@@ -53,6 +53,23 @@ cuándo pedir, un reloj atrasado se perdería cambios para siempre sin que nadie
 
 **`quitados` hace falta de verdad.** Sin él, un pedido archivado o una ruta borrada se
 quedan en el aparato para siempre: la lista local sólo crece y nunca se limpia.
+
+**Y hasta el 17/09/2026 se llenaba SÓLO para `orders`.** Este mismo documento pintaba
+`"quitados": []` en las otras siete y nadie lo leyó como lo que era —el ayudante `conjunto()`
+de `espejo.go` devolvía la lista vacía siempre—, sino como un hueco que ya se rellenaría. Se
+vio con un teléfono delante: se borró una ruta desde la web y el aparato la siguió enseñando,
+«Completada», 0 paradas, porque nadie le dijo nunca que ya no existía. Jose: «¿por qué no
+actualiza a partir de lo que tiene el servidor? Eso no puede pasar».
+
+Las lápidas de las demás colecciones viven en `bajas_de_la_bajada`
+(`api/db/migrations/00006_bajas_de_la_bajada.sql`), puestas por disparador y con su motivo:
+`borrado` o `movido` de sucursal, que **no son lo mismo para quien pregunta**. A quien ve las
+ocho sucursales, algo que se mudó de Santiago a Holguín no se le ha ido de la vista: sigue
+ahí, en otra sucursal, y mandárselo en `quitados` le borraría del aparato algo que existe.
+
+Las dos que siguen vacías lo están por decisión escrita, no por olvido: `settings` es UNA
+fila global que no se borra nunca, y `warehouses` vive en Accesos, que no dice qué borró.
+Los dos motivos largos están en `espejo.go`, donde se sirven.
 
 **`truncado`** existe porque la primera bajada de una sucursal grande no cabe de una vez en
 la conexión de allá. Se pide por tandas hasta que venga `false`.

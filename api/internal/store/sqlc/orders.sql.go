@@ -317,6 +317,13 @@ FROM orders o
 WHERE
     o.source = 'pedido'
     AND o.route_id IS NULL
+    -- UN PEDIDO ENTREGADO NO SE VUELVE A OFRECER. ` + "`" + `route_id IS NULL` + "`" + ` no basta: un
+    -- entregado conserva su ` + "`" + `route_id` + "`" + `, pero la clave ajena es ` + "`" + `ON DELETE SET NULL` + "`" + `
+    -- (` + "`" + `db/migrations/00001_init.sql:446` + "`" + `), así que borrar la ruta de ayer deja sueltos
+    -- a los que ya se repartieron y esta lista los volvería a ofrecer para el camión de
+    -- mañana. Es el mismo par de columnas de ` + "`" + `reparto = 'sin_entregar'` + "`" + `, ahí abajo.
+    AND o.delivered_at IS NULL
+    AND (o.resultado IS NULL OR o.resultado <> 'entregado')
     AND o.end_lat IS NOT NULL
     AND o.end_lng IS NOT NULL
     AND o.factura_estado IN ('igual', 'cambiado')
@@ -1269,6 +1276,13 @@ FROM orders o
 WHERE
     o.source = 'pedido'
     AND o.route_id IS NULL
+    -- UN PEDIDO ENTREGADO NO SE VUELVE A OFRECER. ` + "`" + `route_id IS NULL` + "`" + ` no basta: un
+    -- entregado conserva su ` + "`" + `route_id` + "`" + `, pero la clave ajena es ` + "`" + `ON DELETE SET NULL` + "`" + `
+    -- (` + "`" + `db/migrations/00001_init.sql:446` + "`" + `), así que borrar la ruta de ayer deja sueltos
+    -- a los que ya se repartieron y esta lista los volvería a ofrecer para el camión de
+    -- mañana. Es el mismo par de columnas de ` + "`" + `reparto = 'sin_entregar'` + "`" + `, ahí abajo.
+    AND o.delivered_at IS NULL
+    AND (o.resultado IS NULL OR o.resultado <> 'entregado')
     AND o.end_lat IS NOT NULL
     AND o.end_lng IS NOT NULL
     AND o.factura_estado IN ('igual', 'cambiado')

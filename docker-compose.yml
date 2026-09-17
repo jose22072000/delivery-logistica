@@ -104,6 +104,26 @@ services:
       APP_DESCARGA_ANDROID: ${APP_DESCARGA_ANDROID:-}
       APP_DESCARGA_WINDOWS: ${APP_DESCARGA_WINDOWS:-}
       APP_DESCARGA_LINUX: ${APP_DESCARGA_LINUX:-}
+      # El paquete de MAPA de Cuba que la APK y el escritorio se guardan para
+      # dibujar el mapa sin conexión. Es el mismo mecanismo de arriba y la misma
+      # regla: A MEDIAS NO ARRANCA. De cada nivel van las TRES —URL, BYTES y
+      # SHA256— o ninguna: sin BYTES se baja a ciegas y sin SHA256 no hay forma
+      # de saber si llegó entero, y una descarga de 26 MB que se corta al 60 %
+      # y se da por buena es el fallo de los 2.000 clientes otra vez.
+      # Vacías = no se anuncia ningún mapa y ningún aparato ofrece descargar
+      # nada, que es lo correcto mientras no haya un .pmtiles colgado de verdad.
+      # Cómo se generan y se cuelgan: docs/mapa-sin-conexion.md.
+      MAPA_VERSION: ${MAPA_VERSION:-}
+      MAPA_FECHA: ${MAPA_FECHA:-}
+      MAPA_BASICO_URL: ${MAPA_BASICO_URL:-}
+      MAPA_BASICO_BYTES: ${MAPA_BASICO_BYTES:-}
+      MAPA_BASICO_SHA256: ${MAPA_BASICO_SHA256:-}
+      MAPA_COMPLETO_URL: ${MAPA_COMPLETO_URL:-}
+      MAPA_COMPLETO_BYTES: ${MAPA_COMPLETO_BYTES:-}
+      MAPA_COMPLETO_SHA256: ${MAPA_COMPLETO_SHA256:-}
+      MAPA_DETALLADO_URL: ${MAPA_DETALLADO_URL:-}
+      MAPA_DETALLADO_BYTES: ${MAPA_DETALLADO_BYTES:-}
+      MAPA_DETALLADO_SHA256: ${MAPA_DETALLADO_SHA256:-}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:

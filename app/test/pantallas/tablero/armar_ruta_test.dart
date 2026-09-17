@@ -5,6 +5,7 @@ import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/cola/cola_salida.dart';
 import 'package:reparto/pantallas/tablero/datos/consultas.dart';
 import 'package:reparto/pantallas/tablero/datos/modelos.dart';
+import 'package:reparto/pantallas/rutas/datos/geo.dart';
 import 'package:reparto/pantallas/tablero/datos/repositorio.dart';
 
 import '../../apoyo/base_de_prueba.dart';
@@ -82,6 +83,53 @@ void main() {
     expect(ultimo.ruta, '/board/columns/$centro/route');
     expect(ultimo.provisional, rutaId);
     expect(jsonDecode(ultimo.cuerpo), {'vehiculoId': 'v1', 'optimizar': false});
+  });
+
+  test('la ruta nace con SUS KILÓMETROS, también sin conexión', () async {
+    // «Esa ruta, como que cero. Tiene que calcularlo, si eso se calcula sin
+    // necesidad de conexión» — Jose, 17/09/2026, con el teléfono sin señal y una
+    // ruta de tres paradas que decía «0.0 km (incl. regreso)».
+    //
+    // Y tenía razón: los datos están todos en el aparato. Cada tarjeta ya enseña
+    // sus kilómetros al almacén con la misma fórmula, y el asistente de Rutas
+    // —el OTRO camino que crea rutas— ya los calculaba. Eran dos caminos para lo
+    // mismo y sólo uno calculaba.
+    for (var i = 1; i <= 3; i++) {
+      await sembrarPedido(base, id: 'p$i', aGrados: 0.01 * i);
+      await repo.colocar(pedidoId: 'p$i', columnaId: centro);
+    }
+
+    final rutaId = await repo.armarRuta(
+      columnaId: centro,
+      origen: origen,
+      sucursalId: sucursalStg,
+    );
+
+    final ruta = await (base.select(
+      base.routes,
+    )..where((r) => r.id.equals(rutaId))).getSingle();
+
+    expect(
+      ruta.totalDistance,
+      greaterThan(0),
+      reason:
+          'una ruta de tres paradas no puede nacer con cero kilómetros: la '
+          'pantalla enseña ese número encima de las paradas y quien lo lee se '
+          'cree que el camión no se mueve',
+    );
+    // Y el número es el del CIRCUITO —tramos más el regreso al almacén—, que es
+    // lo que dice el rótulo, no la suma de las distancias radiales.
+    expect(
+      ruta.totalDistance,
+      closeTo(
+        kmDelCircuito(Punto(origen.lat, origen.lng), [
+          for (var i = 1; i <= 3; i++)
+            Parada('p$i', almacenLat + 0.01 * i, almacenLng),
+        ]),
+        0.001,
+      ),
+      reason: 'los tramos más el regreso, como dice «(incl. regreso)»',
+    );
   });
 
   test('los que no se pueden repartir se quedan puestos y marcados', () async {

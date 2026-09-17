@@ -104,51 +104,74 @@ class Cajon extends StatelessWidget {
         ? anchoPantalla
         : (ancho.px.isFinite ? ancho.px : anchoPantalla);
 
+    // EL TECLADO NO PUEDE TAPAR EL PIE — 17/09/2026.
+    //
+    // El cajon se abre con `showGeneralDialog`, o sea que vive en el `Overlay`
+    // y **no dentro del `body` del `Scaffold`**. Esa es toda la diferencia: al
+    // `body` el `Scaffold` le quita el alto del teclado (`resizeToAvoidBottom
+    // Inset`), al `Overlay` no le quita nada. Asi que en un telefono, en cuanto
+    // alguien tocaba un campo, el panel seguia midiendo los 844 px de la
+    // pantalla entera y el pie —con el «Guardar»— se quedaba en el pixel 800,
+    // trescientos por debajo del borde del teclado. No se podia pulsar, y
+    // tampoco se llegaba desplazando: el cuerpo no habia encogido, asi que no
+    // habia nada que desplazar.
+    //
+    // Medido a 390x844 con el teclado de 336 px: «Guardar» en y=799..817 y el
+    // teclado tapando desde y=508.
+    //
+    // Se aparta el panel ENTERO y no solo el pie: asi el cuerpo desplazable
+    // encoge con el, y lo ultimo del formulario se alcanza desplazando en vez
+    // de quedar debajo de las teclas.
+    final teclado = MediaQuery.viewInsetsOf(context).bottom;
+
     return Align(
       alignment: Alignment.centerRight,
-      child: DecoratedBox(
-        // `shadow-2xl` y el borde fino a la izquierda: sobre el velo al 40 % un
-        // panel blanco sin sombra se pega al borde de la pantalla y no se lee
-        // como algo que esta POR ENCIMA de la lista.
-        decoration: BoxDecoration(
-          color: Colores.blanco,
-          border: Border(left: BorderSide(color: Colores.linea)),
-          boxShadow: Sombras.xl,
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: SizedBox(
-            width: anchoUtil,
-            height: double.infinity,
-            child: SafeArea(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _Cabecera(titulo: titulo, subtitulo: subtitulo),
-                  Divider(height: 1, thickness: 1, color: Colores.linea),
-                  // El cuerpo es lo unico que se desplaza.
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(
-                        Aire.xl,
-                        Aire.lg,
-                        Aire.xl,
-                        Aire.xl,
-                      ),
-                      child: child,
-                    ),
-                  ),
-                  if (pie != null) ...[
+      child: Padding(
+        padding: EdgeInsets.only(bottom: teclado),
+        child: DecoratedBox(
+          // `shadow-2xl` y el borde fino a la izquierda: sobre el velo al 40 % un
+          // panel blanco sin sombra se pega al borde de la pantalla y no se lee
+          // como algo que esta POR ENCIMA de la lista.
+          decoration: BoxDecoration(
+            color: Colores.blanco,
+            border: Border(left: BorderSide(color: Colores.linea)),
+            boxShadow: Sombras.xl,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: SizedBox(
+              width: anchoUtil,
+              height: double.infinity,
+              child: SafeArea(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _Cabecera(titulo: titulo, subtitulo: subtitulo),
                     Divider(height: 1, thickness: 1, color: Colores.linea),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Aire.xl,
-                        vertical: Aire.md,
+                    // El cuerpo es lo unico que se desplaza.
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(
+                          Aire.xl,
+                          Aire.lg,
+                          Aire.xl,
+                          Aire.xl,
+                        ),
+                        child: child,
                       ),
-                      child: pie,
                     ),
+                    if (pie != null) ...[
+                      Divider(height: 1, thickness: 1, color: Colores.linea),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Aire.xl,
+                          vertical: Aire.md,
+                        ),
+                        child: pie,
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

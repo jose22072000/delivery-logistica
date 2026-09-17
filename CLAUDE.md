@@ -94,6 +94,15 @@ concreto. Ya hay tres así:
   creíble y equivocado. Un hueco se ve y se rellena.
 - **Los avisos del armador son aviso, no bloqueo.** Los datos reales tenían 657
   de 686 domicilios sin costo: bloquear habría dejado la aplicación inservible.
+- **El estado de cada parada se pregunta AL COMPLETAR la ruta, no después.** El
+  Next deja el botón `Cierre` vivo sobre una ruta ya completada, y ahí se
+  equivoca: cerrar una ruta *es* cuadrar lo que bajó del camión, así que la
+  pregunta va antes, no después. Jose, 17/09/2026, viendo el cierre ofrecido
+  sobre una ruta cerrada: «ese estado se pone cuando están en ruta, no
+  completados; ahí el cierre ya viene con el estado de cuando le van a dar a
+  completado, es que se pregunta ese estado». En una ruta `completed` el cierre
+  se mira y no se toca: ni botones de marcar apagados, ni botón de guardar.
+  `ModoDelCierre` en `app/lib/pantallas/rutas/vista/cierre_de_ruta.dart`.
 
 ---
 
@@ -276,6 +285,20 @@ Dos reglas que salieron de ese día:
   mismo: **no se despliega con agentes vivos.**
 - **A cada agente se le dice qué ficheros NO puede tocar**, con la lista de lo que
   tienen los demás. Sin eso se pisan, y el que pierde es el que no se entera.
+- **NO SE MUTA UN FICHERO QUE OTRO AGENTE TIENE ABIERTO, aunque el guion
+  restaure por hash.** El 17/09/2026 se mutaron seis guardas de
+  `detalle_ruta.dart` mientras su agente seguía escribiéndolo. Cinco salieron
+  rojas; la sexta salió **verde sin serlo** —a mano fallaba— y, al acabar, el
+  `if (false)` de otra de las mutaciones **seguía puesto en el árbol**. El guion
+  restauraba, sí, pero el agente escribía encima entre medias y se perdía la
+  carrera. Si eso llega a un `git add`, es la mutación desplegada del 16/09 otra
+  vez, con la diferencia de que esta vez la puso quien audita.
+
+  Las dos señales de que ha pasado, y las dos hay que mirarlas: **una mutación
+  que sale verde** no es una prueba floja hasta que se comprueba a mano, y al
+  terminar se barre el árbol —`grep -rn "if (false)\|if (true)\||| true)"` fuera
+  de las pruebas— **antes** de tocar git. Se muta cuando el fichero es de uno, y
+  si no lo es, se espera.
 - **Cada agente muta lo suyo y nadie muta lo del vecino.** Por eso la auditoría
   del final tiene que romper guardas que NO escribió quien las audita. El
   17/09/2026, con todo «en verde» y cinco agentes que habían mutado cada uno su
@@ -298,9 +321,18 @@ Dos reglas que salieron de ese día:
 `sync/`, y `analyze` + `test` en `app/`. Tiene que decir **«Todo en verde»**.
 
 - `sqlc` está en `~/go/bin/sqlc`. **El código generado no se escribe a mano.**
-- **Pruebas colgadas**: nada de `await` sobre el primer valor de un stream de
-  Drift dentro de un widget test — el tiempo no avanza y la prueba se cuelga en
-  vez de fallar. Usa `timeout 300` siempre.
+- **Pruebas colgadas**, y son DOS trampas hermanas, las dos de lo mismo: dentro
+  de un widget test el tiempo lo manda el `tester` y no avanza solo.
+  1. Nada de `await` sobre el primer valor de un stream de Drift ahí dentro: la
+     prueba **se cuelga en vez de fallar**, que es lo peor que puede hacer una
+     prueba.
+  2. **Nada de sembrar la base en el `setUp` de un `testWidgets`.** El `setUp`
+     corre fuera del reloj falso, y lo que Drift deja empezado allí no avanza
+     dentro: el 17/09/2026 un cajón se quedó girando diciendo «no hay ninguna
+     zona» encima de un tablero con dos, y la prueba no fallaba, se colgaba. La
+     base se abre donde sea, pero **se escribe y se lee dentro del cuerpo**.
+
+  Usa `timeout 300` siempre: es lo único que convierte un cuelgue en un fallo.
 - **Una prueba que copia la dirección del código que prueba no comprueba la
   dirección.** Las del Tablero repetían `/api/api/board` y todo salía verde
   mientras las diez llamadas daban 404.

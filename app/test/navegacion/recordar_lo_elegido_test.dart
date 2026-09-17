@@ -67,7 +67,8 @@ void main() {
     expect(
       contenedor.read(monedaMiradaProvider),
       'USD',
-      reason: 'un aparato nuevo no puede arrancar en una moneda que nadie eligió',
+      reason:
+          'un aparato nuevo no puede arrancar en una moneda que nadie eligió',
     );
   });
 
@@ -86,7 +87,8 @@ void main() {
     expect(
       otro.read(sucursalMiradaProvider),
       isNull,
-      reason: 'si «Todas» no se guardara, quitar el filtro no duraría hasta mañana',
+      reason:
+          'si «Todas» no se guardara, quitar el filtro no duraría hasta mañana',
     );
   });
 

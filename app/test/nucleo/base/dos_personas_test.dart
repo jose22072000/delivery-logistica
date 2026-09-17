@@ -275,7 +275,8 @@ void main() {
       expect(
         montaje.servidor.cuantas('POST', '/subida'),
         1,
-        reason: 'sin esto, la web no sube nada y su tablero no se actualiza nunca',
+        reason:
+            'sin esto, la web no sube nada y su tablero no se actualiza nunca',
       );
     });
 

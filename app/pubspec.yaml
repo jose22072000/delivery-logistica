@@ -70,10 +70,26 @@ dependencies:
   # paquete mira ahi primero y no sale a la red, que es lo unico que sirve en el
   # patio de un almacen. La version, exacta como todas.
   google_fonts: 8.2.1
-  # Abrir OTRA aplicacion de Procovar desde el menu de la cuenta. Hace falta un
-  # plugin porque el mismo codigo corre en web y en la APK: en web es una
-  # pestana nueva, en Android es el navegador del telefono. La version, exacta.
+  # Abrir OTRA aplicacion de Procovar desde el menu de la cuenta, y **abrir la
+  # ruta en Google Maps** desde el detalle de Rutas. Hace falta un plugin porque
+  # el mismo codigo corre en web y en la APK: en web es una pestana nueva, en
+  # Android es la aplicacion de Google Maps. La version, exacta.
   url_launcher: 6.3.2
+
+  # COMPARTIR la ruta con el chofer: el cajon de compartir del sistema.
+  #
+  # Por que un plugin y no `url_launcher` a secas: el boton de WhatsApp SI se
+  # resuelve con un enlace `wa.me` y no necesita nada (y asi esta hecho, ver
+  # `rutas/datos/abrir_y_compartir.dart`), pero «lo que ofrezca el aparato» —el
+  # cajon con Telegram, el correo, Archivos, Bluetooth— es un `Intent` de
+  # Android y `navigator.share` en el navegador, y eso no se alcanza desde Dart
+  # puro. Es el unico plugin que hace falta para esto; el mapa NO trae ninguna
+  # biblioteca de mapas, se dibuja con un `CustomPainter` (ver
+  # `rutas/vista/croquis_de_ruta.dart`).
+  #
+  # Trae los seis destinos (android, ios, linux, macos, web, windows), asi que
+  # no rompe ni la web ni el escritorio. La version, exacta como todas.
+  share_plus: 13.3.0
 
 dev_dependencies:
   flutter_test:

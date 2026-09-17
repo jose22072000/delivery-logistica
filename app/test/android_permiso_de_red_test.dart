@@ -19,9 +19,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// fallo que sólo se ve con un teléfono en la mano.
 void main() {
   test('el manifiesto de release declara INTERNET y ACCESS_NETWORK_STATE', () {
-    final manifiesto = File(
-      'android/app/src/main/AndroidManifest.xml',
-    ).readAsStringSync();
+    final manifiesto = File('android/app/src/main/AndroidManifest.xml')
+        .readAsStringSync();
 
     for (final permiso in ['INTERNET', 'ACCESS_NETWORK_STATE']) {
       expect(

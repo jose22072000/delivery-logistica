@@ -96,7 +96,8 @@ void main() {
     expect(
       peticionesDelTablero(),
       1,
-      reason: 'tres filtros son tres idas y vueltas de balde: los datos ya están '
+      reason:
+          'tres filtros son tres idas y vueltas de balde: los datos ya están '
           'en el aparato y la pantalla se queda en blanco mientras tanto',
     );
   });
@@ -116,32 +117,37 @@ void main() {
     );
   });
 
-  test('un 403 NO deja la pantalla girando: se pinta lo que hay y se dice', () async {
-    // `on FalloDeRed` sólo tapa red y 5xx. Un 403 —«esa sucursal no es tuya»— salía de
-    // `build` y el future del provider no se completaba NUNCA: la rueda para siempre, sin
-    // el mensaje del servidor y sin pintar la copia local, que lo tenía todo.
-    servidor = ServidorFalso(
-      (p) async => RespuestaFalsa(403, const {'error': 'Esa sucursal no es tuya.'}),
-    );
-    vistas = servidor.vistas;
-    contenedor.dispose();
-    contenedor = montar();
+  test(
+    'un 403 NO deja la pantalla girando: se pinta lo que hay y se dice',
+    () async {
+      // `on FalloDeRed` sólo tapa red y 5xx. Un 403 —«esa sucursal no es tuya»— salía de
+      // `build` y el future del provider no se completaba NUNCA: la rueda para siempre, sin
+      // el mensaje del servidor y sin pintar la copia local, que lo tenía todo.
+      servidor = ServidorFalso(
+        (p) async =>
+            RespuestaFalsa(403, const {'error': 'Esa sucursal no es tuya.'}),
+      );
+      vistas = servidor.vistas;
+      contenedor.dispose();
+      contenedor = montar();
 
-    final tablero = await contenedor
-        .read(tableroProvider.future)
-        .timeout(const Duration(seconds: 5));
+      final tablero = await contenedor
+          .read(tableroProvider.future)
+          .timeout(const Duration(seconds: 5));
 
-    expect(tablero.sucursalId, sucursalStg, reason: 'se pinta lo de aquí');
-    expect(
-      contenedor.read(tableroProvider.notifier).porQueNoSeRefresca,
-      contains('sucursal'),
-      reason: 'y se dice el literal del servidor, que es lo único que dice qué hacer',
-    );
-  });
+      expect(tablero.sucursalId, sucursalStg, reason: 'se pinta lo de aquí');
+      expect(
+        contenedor.read(tableroProvider.notifier).porQueNoSeRefresca,
+        contains('sucursal'),
+        reason: 'y se dice el literal del servidor, que es lo único que dice qué hacer',
+      );
+    },
+  );
 
   test('un cuerpo que no se entiende tampoco cuelga la pantalla', () async {
     servidor = ServidorFalso(
-      (p) async => RespuestaFalsa(200, const {'columnas': 'esto no es una lista'}),
+      (p) async =>
+          RespuestaFalsa(200, const {'columnas': 'esto no es una lista'}),
     );
     vistas = servidor.vistas;
     contenedor.dispose();
@@ -214,7 +220,8 @@ void main() {
     expect(
       mando.porQueNoSeRefresca,
       isNotNull,
-      reason: 'el aviso que costó el incidente del 16/09 no puede irse solo al '
+      reason:
+          'el aviso que costó el incidente del 16/09 no puede irse solo al '
           'tocar un desplegable',
     );
   });
@@ -237,7 +244,8 @@ void main() {
       expect(
         peticionesDelTablero(),
         2,
-        reason: 'lo que hizo el otro en su teléfono tiene que aparecer aquí solo',
+        reason:
+            'lo que hizo el otro en su teléfono tiene que aparecer aquí solo',
       );
     });
 
@@ -252,7 +260,8 @@ void main() {
       expect(
         peticionesDelTablero(),
         1,
-        reason: 'un cambio de clientes no tiene por qué costar una ida y vuelta '
+        reason:
+            'un cambio de clientes no tiene por qué costar una ida y vuelta '
             'por la conexión de allá',
       );
     });

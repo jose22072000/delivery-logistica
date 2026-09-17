@@ -107,10 +107,7 @@ void main() {
     );
     expect(find.text('Nuevo almacén'), findsWidgets);
     // NO el texto de «no se ha descargado»: Accesos contestó.
-    expect(
-      find.textContaining('no ha descargado los almacenes'),
-      findsNothing,
-    );
+    expect(find.textContaining('no ha descargado los almacenes'), findsNothing);
 
     await desmontar(tester);
   });
@@ -161,8 +158,9 @@ void main() {
     tester,
   ) async {
     final banco = Banco(
-      (_) async =>
-          RespuestaFalsa(200, const <String, Object?>{'sucursales': <Object?>[]}),
+      (_) async => RespuestaFalsa(200, const <String, Object?>{
+        'sucursales': <Object?>[],
+      }),
     );
     addTearDown(banco.cerrar);
     await pintar(tester, banco);

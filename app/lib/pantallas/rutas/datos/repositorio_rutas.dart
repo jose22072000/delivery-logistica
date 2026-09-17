@@ -10,7 +10,7 @@ import '../../pedidos/datos/repositorio_pedidos.dart';
 
 /// Las tres pestanas, con los estados que agrupa cada una y su texto de vacio.
 enum PestanaRutas {
-  activas('Activas', 'Sin rutas activas. Crea la primera.'),
+  activas('Planificadas', 'Sin rutas planificadas. Crea la primera.'),
   enCurso('En curso', 'Sin rutas en curso.'),
   historial('Historial', 'Sin rutas completadas aún.');
 
@@ -19,9 +19,21 @@ enum PestanaRutas {
   final String etiqueta;
   final String vacio;
 
-  /// `Activas` es «ni completada ni en curso», no «planificada»: una ruta con un
-  /// estado que todavia no conocemos tiene que salir en algun sitio, y el sitio
-  /// es donde se trabaja.
+  /// LA PRIMERA PESTAÑA SE LLAMA «PLANIFICADAS» — 17/09/2026.
+  ///
+  /// Se llamaba «Activas» y esa palabra estaba mal: la ruta que esta ACTIVA es
+  /// la que va en el camion, y esa es «En curso». Una ruta que todavia no ha
+  /// salido no esta activa, esta planificada.
+  ///
+  /// Jose, mirandolo: «ahi en activas, que no son activas, son planificadas».
+  /// Y la confusion no es de palabras: quien lee «Activas (1)» cree que tiene un
+  /// camion en la calle.
+  ///
+  /// Lo que AGRUPA no cambia y sigue siendo «ni completada ni en curso», no
+  /// «estado == planificada»: una ruta con un estado que todavia no conocemos
+  /// tiene que salir en algun sitio, y el sitio es donde se trabaja. Si se
+  /// filtrara por el estado exacto, un estado nuevo del servidor dejaria rutas
+  /// invisibles en las tres pestañas.
   bool agrupa(String estado) => switch (this) {
     PestanaRutas.activas =>
       estado != EstadoRuta.completada && estado != EstadoRuta.enCurso,
@@ -167,6 +179,31 @@ class ConsultasRutas {
         (o) => OrderingTerm.asc(o.customerName),
       ]);
     return consulta.get();
+  }
+
+  /// CUANTAS PARADAS LLEVA CADA RUTA, todas de una vez.
+  ///
+  /// La lista de rutas lo enseña en cada tarjeta —«2 paradas · 68.0 km»,
+  /// igual que el patrón—, y son **una consulta agrupada, no una por
+  /// tarjeta**: con veinte rutas en pantalla, veinte `watch` sobre la misma
+  /// tabla es veinte veces el mismo trabajo cada vez que cambia un pedido.
+  ///
+  /// Se cuenta por `ultimaRutaId` y no por `routeId`, por lo mismo que las
+  /// paradas del detalle: lo que no se entrega suelta su `routeId` para poder
+  /// ir en la ruta de mañana, y contando esa columna una ruta cerrada iría
+  /// perdiendo paradas según se marcan los devueltos.
+  Stream<Map<String, int>> paradasPorRuta() {
+    final cuantas = _base.orders.id.count();
+    final consulta = _base.selectOnly(_base.orders)
+      ..addColumns([_base.orders.ultimaRutaId, cuantas])
+      ..where(_base.orders.ultimaRutaId.isNotNull())
+      ..groupBy([_base.orders.ultimaRutaId]);
+    return consulta.watch().map(
+      (filas) => <String, int>{
+        for (final fila in filas)
+          fila.read(_base.orders.ultimaRutaId)!: fila.read(cuantas) ?? 0,
+      },
+    );
   }
 
   /// Las paradas se miran en vivo para que el cierre se vea marcado en el

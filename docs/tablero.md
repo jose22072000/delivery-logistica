@@ -146,6 +146,34 @@ una lista de casillas marcadas:
 Si la columna se queda sin ningún pedido repartible, no se crea una ruta vacía: `409` con la
 lista de por qué se cayó cada uno.
 
+### 5-bis · La lista de pedidos del cuerpo (18/09/2026)
+
+El cuerpo acepta, **opcionalmente**, `pedidoIds` (o `orderIds`, se admiten los dos nombres):
+los pedidos que el aparato decidió que iban en esa ruta.
+
+**Por qué.** Una ruta armada sin señal sube horas después. Sin esa lista, el servidor la
+arma con *lo que él tenga puesto en esa zona en el instante en que le llega el apunte*, que
+para entonces puede ser otra cosa —la web siguió moviendo tarjetas—. Y entonces: la ruta
+nace sin un pedido que el repartidor ya entregó, el resultado de esa parada se rechaza al
+cerrar, y el pedido se queda suelto en el tablero para que la web lo meta en **otro camión**.
+
+**Cómo se comporta:**
+
+- **Si no viene** (las APK instaladas hoy no la mandan): todo igual que antes, se arma con
+  lo que haya puesto. El campo no puede volverse obligatorio sin dejar sin armar rutas a los
+  aparatos que ya están en la calle.
+- **Si viene**: la ruta lleva **exactamente** lo que el aparato eligió y que todavía puede
+  ir, y la respuesta **dice la diferencia** en `descartados`:
+  - lo que él eligió y ya no está en la zona → `motivo:"ya no estaba en esa zona cuando
+    llegó tu apunte"`. **Es el que su repartidor puede llevar entregado**, así que el
+    `queHacer` avisa de mirarlo antes de que salga en otra ruta;
+  - lo que hay ahora en la zona y él no eligió → `motivo:"lo pusieron en la zona después de
+    que armaras"`. No sube a ese camión y la tarjeta se queda puesta.
+- **La lista sólo QUITA, nunca añade**: un id de otra sucursal, o de un pedido que ya va en
+  otra ruta, no entra por venir escrito en el cuerpo. El universo sigue siendo la columna.
+- **`"pedidoIds": []` es un `400`**, no «arma con todo»: una lista vacía es un cuerpo mal
+  formado, y armar entonces con lo que haya es justo el fallo que esto viene a tapar.
+
 ## 6 · Sin conexión
 
 El tablero es **lo que más sentido tiene sin red** de toda la aplicación: preparar es mover
@@ -355,6 +383,8 @@ Errores propios, literales:
 | La sucursal no tiene almacén con coordenadas | `409 {"error":"<Sucursal> no tiene ningún almacén con coordenadas"}` |
 | Columna con pedidos y sin decir qué hacer | `409 {"error":"«<nombre>» tiene N pedidos puestos","pedidos":N}` |
 | Colocar un pedido que ya va en una ruta | `409 {"error":"Ese pedido ya está en una ruta"}` |
+| Colocar un pedido que YA SE ENTREGÓ | `409 {"error":"Ese pedido ya se entregó"}` — se mira ANTES que la ruta: un entregado conserva su `route_id`, y decir «ya está en una ruta» manda a esperar a que se cierre un camión que puede que ya no exista |
+| Armar la zona con una tarjeta ya entregada | `201`, y la tarjeta sale en `descartados` con `motivo:"ya se entregó"`. No bloquea la zona |
 | Colocar un pedido de otra sucursal | `404 {"error":"Not found"}` — no se dice que existe |
 | Armar una columna sin nada repartible | `409` con la lista de por qué se cayó cada uno |
 | Dos columnas con el mismo nombre | `409 {"error":"Ya hay una columna «<nombre>» en este tablero"}` |

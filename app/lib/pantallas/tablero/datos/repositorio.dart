@@ -4,6 +4,7 @@ import '../../../nucleo/base/base.dart';
 import '../../../nucleo/cola/cola_salida.dart';
 import '../../../nucleo/cola/provisionales.dart';
 import '../../../nucleo/reloj.dart';
+import '../../rutas/datos/geo.dart';
 import 'consultas.dart';
 import 'esquema.dart';
 import 'modelos.dart';
@@ -501,6 +502,28 @@ class RepositorioTablero {
     final columna = (await consultas.columnas(sucursalId))
         .where((c) => c.id == columnaId)
         .firstOrNull;
+    // LAS COORDENADAS DE CADA PARADA, para poder medir el recorrido.
+    //
+    // La tarjeta sólo lleva `kmAlAlmacen`, que es la distancia RADIAL desde el
+    // almacén y no sirve para sumar un circuito: tres pedidos a 0,1 km del
+    // almacén pueden estar en tres direcciones distintas. El recorrido se mide
+    // de parada a parada, y esos puntos están en la base.
+    final coordenadas = <String, Punto>{
+      for (final o
+          in await (_base.select(_base.orders)..where(
+                (o) => o.id.isIn([for (final t in buenos) t.pedido.pedidoId]),
+              ))
+              .get())
+        if (o.endLat != null && o.endLng != null)
+          o.id: Punto(o.endLat!, o.endLng!),
+    };
+    // En el ORDEN que puso el logístico, que es el que va a recorrer el camión.
+    final paradas = <Parada>[
+      for (final t in buenos)
+        if (coordenadas[t.pedido.pedidoId] case final p?)
+          Parada(t.pedido.pedidoId, p.lat, p.lng),
+    ];
+
     final rutaId = Provisionales.nuevoId();
 
     await _base.transaction(() async {
@@ -514,6 +537,25 @@ class RepositorioTablero {
               originLat: Value(origen.lat),
               originLng: Value(origen.lng),
               originAddress: Value(origen.nombre),
+              // LOS KILOMETROS, CALCULADOS AQUI — 17/09/2026.
+              //
+              // Esto no se ponia, asi que una ruta armada desde el tablero nacia
+              // con `0.0 km` y la pantalla enseñaba «0.0 km (incl. regreso)»
+              // encima de tres paradas. Jose, con el telefono sin señal: «esa
+              // ruta como que cero, tiene que calcularlo, si eso se calcula sin
+              // necesidad de conexion».
+              //
+              // Y tiene razon: los datos estan todos aqui. Cada tarjeta ya
+              // enseña sus «0,1 km» calculados con la misma formula, y el
+              // asistente de Rutas —el OTRO camino que crea rutas— ya lo hacia
+              // (`rutas/datos/acciones_rutas.dart:187`). Eran dos caminos para
+              // lo mismo y sólo uno calculaba.
+              //
+              // `kmDelCircuito` son los tramos MAS el regreso al almacen, que es
+              // justo lo que dice el rotulo de la pantalla.
+              totalDistance: Value(
+                kmDelCircuito(Punto(origen.lat, origen.lng), paradas),
+              ),
               totalWeight: Value(
                 buenos.fold<double>(0, (a, t) => a + t.pedido.weight),
               ),

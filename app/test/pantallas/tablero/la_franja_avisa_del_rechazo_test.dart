@@ -118,63 +118,62 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   }
 
-  testWidgets(
-    'la web: el rechazo llega CON LA PANTALLA YA ABIERTA y la franja se '
-    'repinta sola con el motivo',
-    (tester) async {
-      await Destino.comoSiFueraWeb(() async {
-        await tester.binding.setSurfaceSize(const Size(1400, 900));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('la web: el rechazo llega CON LA PANTALLA YA ABIERTA y la franja se '
+      'repinta sola con el motivo', (tester) async {
+    await Destino.comoSiFueraWeb(() async {
+      await tester.binding.setSurfaceSize(const Size(1400, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        // 1. La pantalla se abre, y todavía no ha pasado nada.
-        await tester.pumpWidget(montar());
-        await tester.pumpAndSettle(
-          const Duration(milliseconds: 100),
-          EnginePhase.sendSemanticsUpdate,
-          const Duration(seconds: 10),
-        );
+      // 1. La pantalla se abre, y todavía no ha pasado nada.
+      await tester.pumpWidget(montar());
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 10),
+      );
 
-        final elAviso = find.textContaining('Ese pedido ya va en otra ruta');
-        expect(
-          elAviso,
-          findsNothing,
-          reason: 'todavía no se ha rechazado nada; avisar aquí es avisar '
-              'siempre, y un aviso que sale siempre deja de leerse',
-        );
+      final elAviso = find.textContaining('Ese pedido ya va en otra ruta');
+      expect(
+        elAviso,
+        findsNothing,
+        reason:
+            'todavía no se ha rechazado nada; avisar aquí es avisar '
+            'siempre, y un aviso que sale siempre deja de leerse',
+      );
 
-        // 2. Se arrastra la tarjeta y el servidor dice que no. NADIE vuelve a
-        //    montar, nadie recarga y nadie cambia de sucursal: es lo que pasa
-        //    en un navegador con la pantalla delante.
-        await elServidorRechazo('Ese pedido ya va en otra ruta');
+      // 2. Se arrastra la tarjeta y el servidor dice que no. NADIE vuelve a
+      //    montar, nadie recarga y nadie cambia de sucursal: es lo que pasa
+      //    en un navegador con la pantalla delante.
+      await elServidorRechazo('Ese pedido ya va en otra ruta');
 
-        // 3. Y la franja tiene que enterarse ella sola.
-        final salio = await esperarATexto(tester, elAviso);
-        expect(
-          salio,
-          isTrue,
-          reason:
-              'LA FRANJA DEL TABLERO NO SE ENTERÓ DEL RECHAZO.\n'
-              'El apunte está rechazado en la base y '
-              '`loQueElServidorRechazoProvider` lo emite —eso ya lo prueba '
-              '`la_web_avisa_si_no_subio_test.dart`—, pero la pantalla no se '
-              'repintó. Es lo que pasa si ese `case` de '
-              '`pantalla_tablero.dart` se lee con `ref.read` en vez de con '
-              '`ref.watch`: el valor se mira UNA vez, al pintar, y el rechazo '
-              'llega después.\n'
-              'En la web no hay cola que lo guarde para luego: la tarjeta se ve '
-              'movida en la pantalla, el servidor la rechazó, y no se entera '
-              'nadie hasta que alguien recarga y la ve volver a su sitio.',
-        );
+      // 3. Y la franja tiene que enterarse ella sola.
+      final salio = await esperarATexto(tester, elAviso);
+      expect(
+        salio,
+        isTrue,
+        reason:
+            'LA FRANJA DEL TABLERO NO SE ENTERÓ DEL RECHAZO.\n'
+            'El apunte está rechazado en la base y '
+            '`loQueElServidorRechazoProvider` lo emite —eso ya lo prueba '
+            '`la_web_avisa_si_no_subio_test.dart`—, pero la pantalla no se '
+            'repintó. Es lo que pasa si ese `case` de '
+            '`pantalla_tablero.dart` se lee con `ref.read` en vez de con '
+            '`ref.watch`: el valor se mira UNA vez, al pintar, y el rechazo '
+            'llega después.\n'
+            'En la web no hay cola que lo guarde para luego: la tarjeta se ve '
+            'movida en la pantalla, el servidor la rechazó, y no se entera '
+            'nadie hasta que alguien recarga y la ve volver a su sitio.',
+      );
 
-        expect(
-          find.textContaining('El servidor no aceptó el último cambio'),
-          findsOneWidget,
-          reason: 'con el motivo LITERAL del servidor delante: «ya va en otra '
-              'ruta» le dice a alguien qué hacer, «no se pudo guardar» no',
-        );
+      expect(
+        find.textContaining('El servidor no aceptó el último cambio'),
+        findsOneWidget,
+        reason:
+            'con el motivo LITERAL del servidor delante: «ya va en otra '
+            'ruta» le dice a alguien qué hacer, «no se pudo guardar» no',
+      );
 
-        await desmontar(tester);
-      });
-    },
-  );
+      await desmontar(tester);
+    });
+  });
 }

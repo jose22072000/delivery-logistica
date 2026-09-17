@@ -55,9 +55,12 @@ void main() {
     );
   });
 
-  test('una preferencia que nadie escribió es null, no una excepción', () async {
-    expect(await base.preferencia(ClaveDePreferencia.monedaMirada), isNull);
-  });
+  test(
+    'una preferencia que nadie escribió es null, no una excepción',
+    () async {
+      expect(await base.preferencia(ClaveDePreferencia.monedaMirada), isNull);
+    },
+  );
 
   test('cada preferencia va por su lado', () async {
     await base.anotarPreferencia(ClaveDePreferencia.monedaMirada, 'CUP');

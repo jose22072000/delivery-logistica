@@ -107,31 +107,28 @@ void main() {
     },
   );
 
-  testWidgets(
-    'en la WEB, mientras baja, dice «Cargando» y NO acusa de que no se ha '
-    'descargado',
-    (tester) async {
-      // Esta pantalla se quedó fuera de la pasada que separó los tres casos, y
-      // lo dejó dicho quien la hizo. Sin esto, la web enseña «Esta pantalla no
-      // se ha descargado todavía. Con conexión baja sola» durante el primer
-      // segundo de CADA carga —su base nace vacía— y eso es un diagnóstico
-      // falso, y además en el idioma del aparato.
-      await Destino.comoSiFueraWeb(() async {
-        await pintar(tester);
+  testWidgets('en la WEB, mientras baja, dice «Cargando» y NO acusa de que no se ha '
+      'descargado', (tester) async {
+    // Esta pantalla se quedó fuera de la pasada que separó los tres casos, y
+    // lo dejó dicho quien la hizo. Sin esto, la web enseña «Esta pantalla no
+    // se ha descargado todavía. Con conexión baja sola» durante el primer
+    // segundo de CADA carga —su base nace vacía— y eso es un diagnóstico
+    // falso, y además en el idioma del aparato.
+    await Destino.comoSiFueraWeb(() async {
+      await pintar(tester);
 
-        expect(
-          find.text(SinDescargar.textoDeLaPantallaVacia),
-          findsNothing,
-          reason:
-              'en un navegador no hay nada que «bajar solo»: está bajando ahora '
-              'mismo y todavía no se ha mirado nada que acusar',
-        );
-        expect(find.textContaining('Cargando'), findsOneWidget);
+      expect(
+        find.text(SinDescargar.textoDeLaPantallaVacia),
+        findsNothing,
+        reason:
+            'en un navegador no hay nada que «bajar solo»: está bajando ahora '
+            'mismo y todavía no se ha mirado nada que acusar',
+      );
+      expect(find.textContaining('Cargando'), findsOneWidget);
 
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 1));
-      });
-    },
-  );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+    });
+  });
 }

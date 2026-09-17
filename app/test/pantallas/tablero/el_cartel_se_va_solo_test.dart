@@ -71,52 +71,49 @@ void main() {
     );
   }
 
-  test(
-    'el cartel de «hay un cambio sin subir» se va SOLO cuando ese cambio sube',
-    () async {
-      // 1. Hay trabajo sin subir, así que el tablero se niega a bajar y lo dice.
-      final cola = ColaDeSalida(base);
-      final clave = await cola.encolar(
-        metodo: 'PUT',
-        ruta: '/board/placements/p-1',
-        cuerpo: const {'columnaId': 'c-1', 'posicion': 1},
-      );
+  test('el cartel de «hay un cambio sin subir» se va SOLO cuando ese cambio sube', () async {
+    // 1. Hay trabajo sin subir, así que el tablero se niega a bajar y lo dice.
+    final cola = ColaDeSalida(base);
+    final clave = await cola.encolar(
+      metodo: 'PUT',
+      ruta: '/board/placements/p-1',
+      cuerpo: const {'columnaId': 'c-1', 'posicion': 1},
+    );
 
-      final contenedor = montar();
-      addTearDown(contenedor.dispose);
-      await contenedor.read(tableroProvider.future);
-      final mando = contenedor.read(tableroProvider.notifier);
+    final contenedor = montar();
+    addTearDown(contenedor.dispose);
+    await contenedor.read(tableroProvider.future);
+    final mando = contenedor.read(tableroProvider.notifier);
 
-      expect(
-        mando.porQueNoSeRefresca,
-        isNotNull,
-        reason:
-            'con trabajo sin subir el tablero NO baja, para no pisarlo. Eso '
-            'está bien y no se toca',
-      );
+    expect(
+      mando.porQueNoSeRefresca,
+      isNotNull,
+      reason:
+          'con trabajo sin subir el tablero NO baja, para no pisarlo. Eso '
+          'está bien y no se toca',
+    );
 
-      // 2. El apunte sube. Nadie pulsa nada, nadie cambia de sucursal: es el
-      //    ciclo, por detrás, cuatro segundos después del gesto.
-      await cola.resolver(
-        clave,
-        const ResultadoApunte(estado: EstadoResultado.aplicado),
-      );
+    // 2. El apunte sube. Nadie pulsa nada, nadie cambia de sucursal: es el
+    //    ciclo, por detrás, cuatro segundos después del gesto.
+    await cola.resolver(
+      clave,
+      const ResultadoApunte(estado: EstadoResultado.aplicado),
+    );
 
-      for (var i = 0; i < 50 && mando.porQueNoSeRefresca != null; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 40));
-      }
+    for (var i = 0; i < 50 && mando.porQueNoSeRefresca != null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+    }
 
-      // 3. Y el cartel se va solo.
-      expect(
-        mando.porQueNoSeRefresca,
-        isNull,
-        reason:
-            'ya no queda nada sin subir: dejar el cartel puesto es decirle a '
-            'quien está delante algo que dejó de ser verdad, y encima deja el '
-            'tablero sin bajar hasta que pulse refrescar',
-      );
-    },
-  );
+    // 3. Y el cartel se va solo.
+    expect(
+      mando.porQueNoSeRefresca,
+      isNull,
+      reason:
+          'ya no queda nada sin subir: dejar el cartel puesto es decirle a '
+          'quien está delante algo que dejó de ser verdad, y encima deja el '
+          'tablero sin bajar hasta que pulse refrescar',
+    );
+  });
 
   test('mientras siga sin subir, el cartel se queda: la guarda no se ha '
       'aflojado', () async {
@@ -141,7 +138,8 @@ void main() {
     expect(
       mando.porQueNoSeRefresca,
       isNotNull,
-      reason: 'sigue habiendo trabajo sin subir: la foto del servidor lo pisaría',
+      reason:
+          'sigue habiendo trabajo sin subir: la foto del servidor lo pisaría',
     );
   });
 }

@@ -126,6 +126,20 @@ type Config struct {
 	// haya una descarga de verdad colgada: inventarse una versión haría que diez
 	// aparatos mandaran a diez personas a un enlace que no existe.
 	Publicada *Publicada
+
+	// --- El PAQUETE DE MAPA que hay colgado ---------------------------------
+	//
+	// La tercera cosa que se anuncia y que este servicio no sirve: el `.pmtiles`
+	// de Cuba que la APK y el escritorio se guardan para dibujar el mapa sin
+	// conexión. Va aparte de `Publicada` porque se publica aparte —el mapa
+	// cambia cuando cambia OpenStreetMap, no cuando cambia la aplicación— y
+	// mezclarlos obligaría a volver a publicar la APK cada vez que se refresca
+	// el mapa.
+	//
+	// Nil significa «no hay ninguno colgado», y entonces `/api/mapa` devuelve
+	// `"niveles": null` y ningún aparato ofrece descargar nada. Ver
+	// `internal/config/mapa.go` y `docs/mapa-sin-conexion.md`.
+	Mapa *Mapa
 }
 
 // Publicada es la última versión de la aplicación que está colgada para descargar.
@@ -289,6 +303,10 @@ func Cargar(version string) (*Config, error) {
 	pub, errsPub := leerPublicada()
 	c.Publicada = pub
 	errs = append(errs, errsPub...)
+
+	mapa, errsMapa := leerMapa()
+	c.Mapa = mapa
+	errs = append(errs, errsMapa...)
 
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("configuración no válida:\n  - %s", unirErrores(errs))

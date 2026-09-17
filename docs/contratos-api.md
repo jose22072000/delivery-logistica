@@ -248,6 +248,15 @@ endLng IS NOT NULL` y, si hay sucursal de ruta, `AND branchId = <sucursal>`.
 ## `DELETE /api/routes/[id]`
 
 - **Auth**: usuario. **Alcance**: sí. `404 {"error":"No encontrado"}`.
+- **Una ruta con paradas ya cerradas NO se borra** (18/09/2026):
+  `409 {"error":"Esa ruta ya tiene N parada(s) cerradas y no se puede borrar: se perdería
+  la hoja de lo que bajó del camión. Márcala como cancelada si hace falta."}`.
+  Se comprueba ANTES de tocar nada: ni se libera el vehículo ni se sueltan los pedidos.
+  Motivo: `orders.ultima_ruta_id` es `ON DELETE SET NULL` pese a que el esquema promete que
+  «esto no se libera nunca», así que borrar la ruta borra la hoja de lo que viajó en ella;
+  y el cierre que suba el aparato después recibe un 404, que el sincronizador anota como
+  `rechazado` y por contrato no se reintenta. Una ruta armada por error (sin resultados) se
+  sigue borrando igual.
 - Si la ruta tiene vehículo `in_use` → pasa a `available`.
 - **No borra pedidos**: `updateMany` sobre `Order where routeId=id` →
   `routeId=null, stopOrder=null, segmentKm=null, tripLeg='outbound'`
@@ -272,6 +281,15 @@ endLng IS NOT NULL` y, si hay sucursal de ruta, `AND branchId = <sucursal>`.
 - **Universo de pedidos válidos**: `Order where ultimaRutaId = id` (**no** `routeId`, para
   poder corregir el resultado de uno ya devuelto que soltó su `routeId`). Se seleccionan
   `id, externalId, source, customerName`.
+- **Respuesta (18/09/2026): `200` sólo si NO hubo ningún rechazo.** Con una sola parada
+  rechazada la respuesta es `409`, con el mismo cuerpo más un campo `error` que resume
+  «Se guardaron N de las M paradas de esta hoja. K no se pudieron guardar: …».
+  Lo aplicado **sigue aplicado**: el 409 no deshace nada y `aplicados` viaja entero.
+  Motivo: el sincronizador marca `aplicado` cualquier 2xx **sin mirar el cuerpo**
+  (`sync/internal/reparto/reparto.go`), así que un rechazo dentro de un 200 no llega a
+  ninguna bandeja y el apunte se borra de la cola del aparato — una entrega de verdad
+  desaparecía sin rastro. Con un 4xx queda `rechazado` con su motivo, que «no se reintenta
+  y no se borra».
 - **Por cada entrada** (no aborta; acumula):
   - `orderId` ausente o no pertenece a esa ruta → rechazado con
     `motivo: "ese pedido no va en esta ruta"`.

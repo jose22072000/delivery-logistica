@@ -46,7 +46,8 @@ void main() {
     expect(
       ciclos,
       ['se hizo algo'],
-      reason: 'sin esto, lo que se hace con señal espera al temporizador o a que '
+      reason:
+          'sin esto, lo que se hace con señal espera al temporizador o a que '
           'alguien pulse un botón',
     );
   });
@@ -66,7 +67,8 @@ void main() {
     expect(
       ciclos,
       isEmpty,
-      reason: 'un aviso vivo después de salir es trabajo corriendo sobre una '
+      reason:
+          'un aviso vivo después de salir es trabajo corriendo sobre una '
           'sesión muerta',
     );
   });

@@ -29,6 +29,7 @@ import '../datos/formato.dart';
 import '../datos/repositorio_pedidos.dart';
 import '../estado/proveedores_pedidos.dart';
 import 'cajon_detalle_pedido.dart';
+import 'cajon_mandar_al_tablero.dart';
 import 'kit.dart';
 import 'tabla_pedidos.dart';
 
@@ -40,6 +41,10 @@ class PantallaPedidos extends ConsumerWidget {
       'Enseñando sólo lo que puede subir a un camión: lo que tiene factura '
       '—cuadre o no— y sin archivar. Lo que cambió también sube: se carga con '
       'las líneas de la factura, no con las del pedido.';
+
+  /// El gesto de la barra de lo marcado que abre el cajón del tablero. Literal
+  /// aquí arriba para que la prueba busque lo que lee quien está delante.
+  static const mandarAUnaZona = 'Mandar a una zona';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -431,6 +436,17 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
                       color: Colores.tinta,
                     ),
                   ),
+                ),
+                // EL GESTO QUE CERRABA EL FLUJO Y NO ESTABA.
+                //
+                // Se marca aqui lo que se va a repartir —con los nueve filtros,
+                // que es como se decide— y se manda de golpe a una zona del
+                // tablero. Sin esto habia que irse al tablero y colocarlos uno a
+                // uno, y Jose lo pregunto tal cual: «sigo sin ver, cuando escojo
+                // los pedidos, seleccionar un tablero».
+                TextButton(
+                  onPressed: () => abrirCajonMandarAlTablero(context),
+                  child: const Text(PantallaPedidos.mandarAUnaZona),
                 ),
                 // Sin esto no hay papel para el almacen: el PDF existia y
                 // estaba probado, y no habia ningun boton que lo llamara.

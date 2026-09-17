@@ -44,41 +44,38 @@ void main() {
     },
   );
 
-  test(
-    'en la WEB el mismo fallo se cuenta con otras palabras: no se manda a '
-    'mirar la señal a quien está en la oficina',
-    () async {
-      // «Inténtalo otra vez cuando haya red» es lo correcto en el patio de un
-      // almacén, donde la red vuelve sola. En un navegador no: si la página
-      // cargó, conexión hay, y el que no contesta es Accesos. Mandar a mirar la
-      // señal ahí es mandar a mirar donde no es — el mismo razonamiento que ya
-      // tenía resuelto `TextosDeCaida.queHacer` para la puerta.
-      await Destino.comoSiFueraWeb(() async {
-        final banco = Banco.sinRed();
-        addTearDown(banco.cerrar);
+  test('en la WEB el mismo fallo se cuenta con otras palabras: no se manda a '
+      'mirar la señal a quien está en la oficina', () async {
+    // «Inténtalo otra vez cuando haya red» es lo correcto en el patio de un
+    // almacén, donde la red vuelve sola. En un navegador no: si la página
+    // cargó, conexión hay, y el que no contesta es Accesos. Mandar a mirar la
+    // señal ahí es mandar a mirar donde no es — el mismo razonamiento que ya
+    // tenía resuelto `TextosDeCaida.queHacer` para la puerta.
+    await Destino.comoSiFueraWeb(() async {
+      final banco = Banco.sinRed();
+      addTearDown(banco.cerrar);
 
-        await banco.contenedor
-            .read(controlAlmacenesProvider.notifier)
-            .guardar('STG', almacenes);
+      await banco.contenedor
+          .read(controlAlmacenesProvider.notifier)
+          .guardar('STG', almacenes);
 
-        final aviso = banco.contenedor.read(controlAlmacenesProvider)!;
-        expect(aviso.esFallo, isTrue);
-        // La mitad que NO cambia, y es la que importa.
-        expect(
-          aviso.texto,
-          contains('no se guardó nada'),
-          reason: 'lo único que no se puede dejar de decir en ningún destino',
-        );
-        // Y la que sí.
-        expect(
-          aviso.texto,
-          isNot(contains('cuando haya red')),
-          reason: 'en un navegador la red ya está: la página cargó',
-        );
-        expect(aviso.texto, contains('La página cargó'));
-      });
-    },
-  );
+      final aviso = banco.contenedor.read(controlAlmacenesProvider)!;
+      expect(aviso.esFallo, isTrue);
+      // La mitad que NO cambia, y es la que importa.
+      expect(
+        aviso.texto,
+        contains('no se guardó nada'),
+        reason: 'lo único que no se puede dejar de decir en ningún destino',
+      );
+      // Y la que sí.
+      expect(
+        aviso.texto,
+        isNot(contains('cuando haya red')),
+        reason: 'en un navegador la red ya está: la página cargó',
+      );
+      expect(aviso.texto, contains('La página cargó'));
+    });
+  });
 
   test('con conexión manda la LISTA COMPLETA de la sucursal', () async {
     final banco = Banco(

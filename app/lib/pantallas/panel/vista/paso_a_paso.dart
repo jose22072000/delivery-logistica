@@ -106,7 +106,7 @@ class PasoAPaso extends ConsumerWidget {
                   // la bajada, no la configuracion, y mandar a alguien a dar de
                   // alta un almacen que ya existe es justo lo que esto evita.
                   estado.faltaAlgoDeVerdad
-                      ? 'Falta configurar esta sucursal'
+                      ? tituloDeLoQueFalta(estado)
                       : tituloDeLoQueFaltaPorBajar(porQue),
                   style: Tipos.texto(
                     tamano: 17,
@@ -127,8 +127,15 @@ class PasoAPaso extends ConsumerWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            'Sin esto no se puede armar una ruta. Van en este orden: cada uno '
-            'necesita el anterior.',
+            // Con varias a la vista se dice que la cuenta es por sucursal: sin
+            // eso, «Al menos un vehículo» en rojo teniendo camiones delante se
+            // lee como un fallo de la pantalla, y se deja de leer.
+            estado.sucursales > 1
+                ? 'Un paso sólo está hecho cuando lo está en TODAS las '
+                      'sucursales que estás mirando. Van en este orden: cada '
+                      'uno necesita el anterior.'
+                : 'Sin esto no se puede armar una ruta. Van en este orden: cada '
+                      'uno necesita el anterior.',
             style: Theme.of(context).textTheme.bodySmall
                 ?.copyWith(color: Colores.tintaSuave),
           ),
@@ -160,6 +167,21 @@ class PasoAPaso extends ConsumerWidget {
     );
   }
 }
+
+/// EL TITULO CUANDO ALGO FALTA DE VERDAD.
+///
+/// **Con una sola sucursal a la vista es el de siempre, palabra por palabra.**
+/// Ese es el caso que usa todo el mundo —cinco de los siete roles pertenecen a
+/// una sucursal— y arreglar el de «todas» no puede rozarlo.
+///
+/// Con varias, «esta sucursal» es mentira dos veces: no hay ninguna «esta», y
+/// no dice en cual falta que. Un aviso que no nombra a nadie no lo arregla
+/// nadie. Asi que se dice **en cuantas de cuantas**, y cada paso dice luego en
+/// cuantas falta el (`PasoDeConfiguracion.enCuantasFalta`).
+String tituloDeLoQueFalta(ElPasoAPaso estado) => estado.sucursales > 1
+    ? 'Faltan cosas por configurar en ${estado.sucursalesConAlgoQueFalta} '
+          'de las ${estado.sucursales} sucursales'
+    : 'Falta configurar esta sucursal';
 
 /// EL TITULO CUANDO LO UNICO PENDIENTE ES QUE BAJE.
 ///

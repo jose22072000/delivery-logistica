@@ -53,12 +53,25 @@ class Cajon extends StatelessWidget {
     this.subtitulo,
     this.ancho = AnchoCajon.lg,
     this.pie,
+    this.bajoLaCabecera,
     super.key,
   });
 
   final String titulo;
   final String? subtitulo;
   final Widget cuerpo;
+
+  /// LO QUE VA PEGADO DEBAJO DE LA CABECERA Y NO SE DESPLAZA NUNCA.
+  ///
+  /// Es el hermano del [pie] por arriba: el armazon del panel se queda quieto y
+  /// lo unico que se mueve es el cuerpo. Lo pide el asistente de rutas para su
+  /// barra de pasos, que es por donde se vuelve a un paso anterior: si se va
+  /// con el desplazamiento, en un telefono hay que subir por toda la lista de
+  /// pedidos para poder retroceder, que es justo lo que se estaba arreglando.
+  ///
+  /// Opcional, y los demas cajones no lo usan: sin el, el panel es exactamente
+  /// el de antes.
+  final Widget? bajoLaCabecera;
 
   /// Pegado abajo, con los botones de accion **siempre a la vista**.
   final Widget? pie;
@@ -73,97 +86,141 @@ class Cajon extends StatelessWidget {
         ? pantalla.width
         : ancho.px.clamp(0.0, pantalla.width);
 
+    // El teclado, igual que en `diseno/cajon.dart`: este cajon tambien se abre
+    // con `showGeneralDialog`, o sea fuera del `body` del `Scaffold`, y sin esto
+    // el pie y el final del cuerpo se quedan por debajo de las teclas.
+    final teclado = MediaQuery.viewInsetsOf(context).bottom;
+
     return Align(
       alignment: Alignment.centerRight,
-      child: DecoratedBox(
-        // `shadow-2xl` y borde fino a la izquierda, como el `Drawer.tsx` de
-        // delivery: sobre el velo al 40 %, un panel sin sombra se pega al borde
-        // y no se lee como algo que esta por encima de la lista.
-        decoration: BoxDecoration(
-          color: Colores.blanco,
-          border: Border(left: BorderSide(color: Colores.linea)),
-          boxShadow: Sombras.xl,
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: SizedBox(
-            width: anchoFinal,
-            height: double.infinity,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      Aire.xl,
-                      Aire.lg,
-                      Aire.sm,
-                      Aire.lg,
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                titulo,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: tema.textTheme.titleMedium,
-                              ),
-                              if (subtitulo != null)
+      child: Padding(
+        padding: EdgeInsets.only(bottom: teclado),
+        child: DecoratedBox(
+          // `shadow-2xl` y borde fino a la izquierda, como el `Drawer.tsx` de
+          // delivery: sobre el velo al 40 %, un panel sin sombra se pega al borde
+          // y no se lee como algo que esta por encima de la lista.
+          decoration: BoxDecoration(
+            color: Colores.blanco,
+            border: Border(left: BorderSide(color: Colores.linea)),
+            boxShadow: Sombras.xl,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: SizedBox(
+              width: anchoFinal,
+              height: double.infinity,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        Aire.xl,
+                        Aire.lg,
+                        Aire.sm,
+                        Aire.lg,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
                                 Text(
-                                  subtitulo!,
+                                  titulo,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: tema.textTheme.bodySmall?.copyWith(
-                                    color: Colores.tintaSuave,
-                                  ),
+                                  style: tema.textTheme.titleMedium,
                                 ),
-                            ],
+                                if (subtitulo != null)
+                                  Text(
+                                    subtitulo!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: tema.textTheme.bodySmall?.copyWith(
+                                      color: Colores.tintaSuave,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                        // La ✕: fuera del cuerpo desplazable, para que no se pueda
-                        // ir de la vista por mucho que se baje.
-                        IconButton(
-                          tooltip: 'Cerrar',
-                          icon: const Icon(Icons.close, size: 20),
-                          color: Colores.tintaSuave,
-                          onPressed: () => Navigator.of(context).maybePop(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Divider(height: 1, thickness: 1, color: Colores.linea),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(
-                      Aire.xl,
-                      Aire.lg,
-                      Aire.xl,
-                      Aire.xl,
-                    ),
-                    child: cuerpo,
-                  ),
-                ),
-                if (pie != null) ...[
-                  Divider(height: 1, thickness: 1, color: Colores.linea),
-                  SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Aire.xl,
-                        vertical: Aire.md,
+                          // La ✕: fuera del cuerpo desplazable, para que no se pueda
+                          // ir de la vista por mucho que se baje.
+                          IconButton(
+                            tooltip: 'Cerrar',
+                            icon: const Icon(Icons.close, size: 20),
+                            color: Colores.tintaSuave,
+                            onPressed: () => Navigator.of(context).maybePop(),
+                          ),
+                        ],
                       ),
-                      child: pie,
                     ),
                   ),
+                  Divider(height: 1, thickness: 1, color: Colores.linea),
+                  if (bajoLaCabecera != null) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        Aire.xl,
+                        Aire.md,
+                        Aire.xl,
+                        Aire.md,
+                      ),
+                      child: bajoLaCabecera,
+                    ),
+                    Divider(height: 1, thickness: 1, color: Colores.linea),
+                  ],
+                  Expanded(
+                    child: SingleChildScrollView(
+                      // LO ULTIMO DEL CUERPO NO PUEDE QUEDAR DEBAJO DE LA BARRA
+                      // DE GESTOS — 17/09/2026.
+                      //
+                      // La cabecera lleva `SafeArea(bottom: false)` y el pie
+                      // `SafeArea(top: false)`: entre los dos apartan el panel del
+                      // reloj de arriba y de la barra de abajo. Pero **sin pie no
+                      // hay quien aparte nada por abajo**, y el cuerpo es lo unico
+                      // que queda: el cajon de detalle de un pedido no tiene pie,
+                      // asi que su ultimo renglon se metia por debajo de la barra
+                      // de gestos.
+                      //
+                      // Medido a 390x844 con una barra de 34 px: el ultimo renglon
+                      // terminaba en y=819 con la barra empezando en y=810. No es
+                      // que se viera raro — es que la ultima linea no se leia y no
+                      // habia forma de bajar mas, porque el desplazamiento ya
+                      // estaba al final.
+                      //
+                      // Va en el relleno del desplazable y no en un `SafeArea`
+                      // alrededor: asi el contenido sigue pudiendo pasar POR
+                      // DEBAJO de la barra mientras se desplaza, y lo unico que
+                      // cambia es donde se para.
+                      padding: EdgeInsets.fromLTRB(
+                        Aire.xl,
+                        Aire.lg,
+                        Aire.xl,
+                        Aire.xl +
+                            (pie == null
+                                ? MediaQuery.paddingOf(context).bottom
+                                : 0),
+                      ),
+                      child: cuerpo,
+                    ),
+                  ),
+                  if (pie != null) ...[
+                    Divider(height: 1, thickness: 1, color: Colores.linea),
+                    SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Aire.xl,
+                          vertical: Aire.md,
+                        ),
+                        child: pie,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -537,7 +594,15 @@ class _MenuConBuscadorState<T> extends State<_MenuConBuscador<T>> {
             Divider(height: 1, thickness: 1, color: Colores.linea),
           ],
           Flexible(
+            // `primary: false`: el desplazamiento de un menu es SUYO y nunca el
+            // principal de la pantalla. Sin esto, abrir un selector dentro de un
+            // `Cajon` deja dos desplazamientos colgados del mismo
+            // `PrimaryScrollController` —el del cuerpo del cajon y el del
+            // menu— y Flutter lo corta en seco: «The PrimaryScrollController is
+            // attached to more than one ScrollPosition». Se ve abriendo el
+            // selector de vehiculo del asistente de rutas.
             child: SingleChildScrollView(
+              primary: false,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [

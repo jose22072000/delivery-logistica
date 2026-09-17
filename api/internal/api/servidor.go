@@ -102,6 +102,11 @@ func (s *Servidor) Rutas() http.Handler {
 	rt.ManejarFunc(http.MethodGet, "/health", s.salud_)
 	rt.ManejarFunc(http.MethodGet, "/version", s.version)
 	rt.ManejarFunc(http.MethodGet, "/api/version", s.version)
+	// /mapa dice qué paquete de mapa de Cuba hay colgado para trabajar sin
+	// conexión. Sin sesión por lo mismo: se consulta al arrancar. Ver
+	// `internal/api/mapa.go` y `docs/mapa-sin-conexion.md`.
+	rt.ManejarFunc(http.MethodGet, "/mapa", s.mapa)
+	rt.ManejarFunc(http.MethodGet, "/api/mapa", s.mapa)
 
 	// --- Con sesión y con alcance ----------------------------------------------
 	conSesion := s.verif.Exigir

@@ -47,7 +47,11 @@ void main() {
     OpcionSelector<String>(valor: 'hol', etiqueta: 'Holguín', nota: 'HOL'),
     OpcionSelector<String>(valor: 'hab', etiqueta: 'La Habana', nota: 'HAB'),
     OpcionSelector<String>(valor: 'tun', etiqueta: 'Las Tunas', nota: 'TUN'),
-    OpcionSelector<String>(valor: 'ss', etiqueta: 'Sancti Spíritus', nota: 'SS'),
+    OpcionSelector<String>(
+      valor: 'ss',
+      etiqueta: 'Sancti Spíritus',
+      nota: 'SS',
+    ),
     OpcionSelector<String>(valor: 'stg', etiqueta: 'Santiago', nota: 'STG'),
   ];
 
@@ -89,7 +93,11 @@ void main() {
 
     await tester.tap(find.text('Todas las sucursales (8)'));
     await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsOneWidget, reason: 'no salio el buscador');
+    expect(
+      find.byType(TextField),
+      findsOneWidget,
+      reason: 'no salio el buscador',
+    );
 
     await tester.tap(find.text('Holguín'));
     await tester.pumpAndSettle();

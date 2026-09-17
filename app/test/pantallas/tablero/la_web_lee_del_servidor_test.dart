@@ -69,7 +69,11 @@ void main() {
 
     final r = await servicio.descargar(sucursal);
 
-    expect(r.seBajo, isFalse, reason: 'en la APK el trabajo manda sobre la foto');
+    expect(
+      r.seBajo,
+      isFalse,
+      reason: 'en la APK el trabajo manda sobre la foto',
+    );
     expect(await cuantasZonas(), 1);
     expect(llamadas, 0);
   });
@@ -91,7 +95,11 @@ void main() {
       reason: 'un apunte atascado no puede congelar el tablero de la web',
     );
     expect(llamadas, 1, reason: 'le pregunta al servidor, que es la verdad');
-    expect(await cuantasZonas(), 0, reason: 'lo que manda es la foto de la nube');
+    expect(
+      await cuantasZonas(),
+      0,
+      reason: 'lo que manda es la foto de la nube',
+    );
   });
 
   test('y con la cola llena, en la WEB, también', () async {

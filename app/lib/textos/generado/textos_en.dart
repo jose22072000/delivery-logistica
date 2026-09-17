@@ -498,7 +498,7 @@ class TextosEn extends Textos {
   String get reportesVehiculo => 'Vehicle';
 
   @override
-  String get rutasActivas => 'Active';
+  String get rutasActivas => 'Planned';
 
   @override
   String get rutasAgregarArticulo => '+ Add item';

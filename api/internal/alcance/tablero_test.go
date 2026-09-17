@@ -202,6 +202,11 @@ func (q *registrador) DiferenciasDePedidos(_ context.Context, arg sqlc.Diferenci
 	return nil, nil
 }
 
+func (q *registrador) BajasDeLaBajada(_ context.Context, arg sqlc.BajasDeLaBajadaParams) ([]sqlc.BajasDeLaBajadaRow, error) {
+	q.apuntar(arg.Sucursal)
+	return nil, nil
+}
+
 func (q *registrador) PedidosQueSalieronDelAlcance(_ context.Context, arg sqlc.PedidosQueSalieronDelAlcanceParams) ([]sqlc.PedidosQueSalieronDelAlcanceRow, error) {
 	q.apuntar(arg.Sucursal)
 	return nil, nil
@@ -351,6 +356,15 @@ var consultasDelTablero = []struct {
 		_, err := a.EspejoPedidosQueSalieron(ctx, ventanaPidiendoHolguin())
 		return err
 	}},
+
+	// Y LA CUARTA, de 00006: las lápidas de todo lo que no son pedidos. Misma trampa que
+	// las dos de arriba y peor consecuencia, porque lo que viaja por aquí no es un dato
+	// que se ve de más: es una orden de BORRAR. Sin el narg, a un GESTOR de Santiago que
+	// pida `?sucursal=<Holguín>` se le manda quitar del teléfono las rutas de Holguín.
+	{"EspejoBajas", func(ctx context.Context, a *alcance.Acotado) error {
+		_, err := a.EspejoBajas(ctx, sqlc.ColeccionDeLaBajadaRoutes, ventanaPidiendoHolguin(), false)
+		return err
+	}},
 }
 
 // ventanaPidiendoHolguin: la bajada tal y como la arma `sucursalDeLaBajada` cuando en la
@@ -445,7 +459,7 @@ func porQueDuele(nombre string) string {
 		return "Aquí el alcance es el ÚNICO filtro: esta consulta no tiene `BranchID`. " +
 			"Sin narg, CADA APARATO se baja en su sincronización las rutas de las ocho " +
 			"sucursales."
-	case "EspejoDiferenciasDePedidos", "EspejoPedidosQueSalieron":
+	case "EspejoDiferenciasDePedidos", "EspejoPedidosQueSalieron", "EspejoBajas":
 		return "Esta lleva además `BranchID`, pero ése es el `?sucursal=` DEL CLIENTE tal " +
 			"cual (`api/espejo.go`, `sucursalDeLaBajada`), que no comprueba nada porque " +
 			"da por hecho que el alcance se vuelve a aplicar aquí. Sin narg, un GESTOR " +

@@ -1,4 +1,4 @@
-/// QUE LE FALTA A ESTA SUCURSAL PARA PODER ARMAR UNA RUTA.
+/// QUE LE FALTA A ESTA SUCURSAL —O A LAS OCHO— PARA PODER ARMAR UNA RUTA.
 ///
 /// No es una lista de tareas inventada. Son las cuatro cosas **sin las cuales el
 /// trabajo del dia no se puede hacer**, y las cuatro se saben mirando la base
@@ -20,14 +20,34 @@
 /// El orden es el de dependencia y **no se toca**: sin punto de partida no sirve
 /// de nada tener camion, y sin almacen no sirve de nada tener tasa.
 ///
+/// ## SE CUENTAN SUCURSALES, NO FILAS
+///
+/// Con «Todas las sucursales» arriba, un paso esta **hecho sólo si lo esta en
+/// todas**, y eso obliga a contar **cuantas sucursales lo tienen**, no cuantas
+/// filas hay en la tabla. `COUNT(*) FROM vehicles > 0` decia «hecho» porque
+/// habia un camion en Santiago y dejaba a las otras siete sin poder armar una
+/// ruta, sin que nada lo dijera. Por eso cada sucursal del alcance trae aqui sus
+/// cuatro respuestas —una fila por sucursal— y el paso se resuelve con ellas.
+///
+/// Y de ahi sale tambien **en cuantas falta**: un aviso que dice «falta
+/// configurar esta sucursal» cuando hay ocho a la vista no nombra ninguna, y el
+/// que lo lee no sabe ni por donde empezar.
+///
+/// Con UNA sola sucursal elegida el resultado es exactamente el de antes: una
+/// fila, un «lo tiene / no lo tiene». Lo ata una prueba, no este parrafo.
+///
 /// ## Las consultas son LAS MISMAS que las de quien luego se queja
 ///
 /// El conteo de vehiculos filtra por `branch_id` exactamente como
-/// `RepositorioRutas.vehiculos`, y el de almacenes pide activo y con
-/// coordenadas exactamente como el paso 2 del asistente. Si aqui se contara de
-/// otra forma, el paso a paso diria «hecho» y el asistente diria «no hay
-/// ninguno» — dos respuestas para la misma pregunta, y la que alguien cree es
-/// siempre la equivocada.
+/// `ConsultasRutas.vehiculos`, y el de almacenes pide activo y con coordenadas
+/// exactamente como el paso 2 del asistente. Si aqui se contara de otra forma,
+/// el paso a paso diria «hecho» y el asistente diria «no hay ninguno» — dos
+/// respuestas para la misma pregunta, y la que alguien cree es siempre la
+/// equivocada.
+///
+/// **Y eso ya no es un comentario suelto** (`CLAUDE.md` §3-bis: un comentario no
+/// falla). `test/pantallas/panel/paso_a_paso_test.dart` pregunta las dos cosas
+/// sucursal por sucursal y exige la misma respuesta.
 library;
 
 import 'package:drift/drift.dart';
@@ -49,6 +69,14 @@ enum ClaveDePaso { puntoDePartida, vehiculo, almacen, tasa }
 ///    manda a alguien a crear un camion que ya existe.
 enum ComoVa { hecho, falta, sinSaber }
 
+/// «Granma», «Granma y Las Tunas», «Granma, Holguin y Las Tunas».
+String enumerarSucursales(List<String> nombres) => switch (nombres.length) {
+  0 => '',
+  1 => nombres.single,
+  _ =>
+    '${nombres.sublist(0, nombres.length - 1).join(', ')} y ${nombres.last}',
+};
+
 /// Uno de los cuatro pasos, ya resuelto contra la base.
 class PasoDeConfiguracion {
   const PasoDeConfiguracion({
@@ -58,6 +86,8 @@ class PasoDeConfiguracion {
     required this.paraQue,
     required this.siFalta,
     required this.coleccion,
+    required this.sucursales,
+    required this.lasQueFaltan,
     this.ruta,
     this.textoDelBoton,
     this.dondeSeArregla,
@@ -74,11 +104,25 @@ class PasoDeConfiguracion {
 
   /// Que pasa si falta. Es la que decide si alguien lo hace hoy o el mes que
   /// viene.
+  ///
+  /// **Se escribe sin «esta sucursal»**: con las ocho a la vista no hay
+  /// ninguna «esta», y el que lo lee acaba abriendo la que no era. Cual es se
+  /// dice aparte, en [enCuantasFalta].
   final String siFalta;
 
   /// La coleccion de la bajada de la que sale el dato. Es lo que permite decir
   /// «no se ha descargado» en vez de «no hay».
   final String coleccion;
+
+  /// Cuantas sucursales hay **en el alcance que se esta mirando**: 1 con una
+  /// elegida en la barra, 8 con «Todas las sucursales».
+  final int sucursales;
+
+  /// Las del alcance a las que les falta ESTE paso, por su nombre.
+  ///
+  /// Vacia = lo tienen todas. Sólo se usa para contar y para nombrarlas; quien
+  /// decide si el paso esta hecho es [como], que ya viene resuelto.
+  final List<String> lasQueFaltan;
 
   /// A donde lleva. **`null` = no se arregla en esta aplicacion**, y entonces
   /// NO se pinta boton: uno que no lleva a ningun sitio ensena a desconfiar del
@@ -90,6 +134,27 @@ class PasoDeConfiguracion {
   /// Donde se arregla cuando [ruta] es `null`.
   final String? dondeSeArregla;
 
+  /// EN CUANTAS FALTA, y con pocas, **en cuales**.
+  ///
+  /// `null` con una sola sucursal a la vista: ahi «en 1 de las 1» es ruido, y
+  /// ademas el titulo ya dice de cual se habla. Con varias es lo unico que
+  /// convierte un rojo permanente —hoy sólo Habana y Santiago tienen tasa, asi
+  /// que ese paso esta pendiente todos los dias— en algo que se puede ir
+  /// tachando: seis, luego cuatro, luego ninguna.
+  ///
+  /// Se nombran hasta tres. Mas es una lista que nadie lee, y con seis de ocho
+  /// lo util es el numero.
+  String? get enCuantasFalta {
+    if (sucursales <= 1 || como != ComoVa.falta || lasQueFaltan.isEmpty) {
+      return null;
+    }
+    final cuenta = 'Falta en ${lasQueFaltan.length} de las $sucursales '
+        'sucursales';
+    return lasQueFaltan.length > 3
+        ? '$cuenta.'
+        : '$cuenta: ${enumerarSucursales(lasQueFaltan)}.';
+  }
+
   /// Lo que se lee debajo del titulo segun como este, **en el aparato**.
   String get explicacion => explicacionEn(PorQueEstaVacio.noSeDescargo);
 
@@ -100,7 +165,12 @@ class PasoDeConfiguracion {
   /// destinos: un almacen que falta, falta en el navegador y en el telefono.
   String explicacionEn(PorQueEstaVacio porQue) => switch (como) {
     ComoVa.hecho => paraQue,
-    ComoVa.falta => siFalta,
+    // Primero EN CUANTAS y luego POR QUE IMPORTA. El porque nunca se quita: es
+    // lo que hace que alguien lo arregle hoy y no el mes que viene.
+    ComoVa.falta => switch (enCuantasFalta) {
+      null => siFalta,
+      final donde => '$donde $siFalta',
+    },
     ComoVa.sinSaber => switch (porQue) {
       PorQueEstaVacio.noSeDescargo => textoSinDescargar,
       // En la web no hay «aparato» ni gesto de traer el dia: la unica verdad es
@@ -131,9 +201,24 @@ class PasoDeConfiguracion {
 
 /// Los cuatro pasos y la regla de cuando se ensenan.
 class ElPasoAPaso {
-  const ElPasoAPaso(this.pasos);
+  const ElPasoAPaso(
+    this.pasos, {
+    required this.sucursales,
+    required this.sucursalesConAlgoQueFalta,
+  });
 
   final List<PasoDeConfiguracion> pasos;
+
+  /// Cuantas sucursales se estan mirando: 1 con una elegida arriba, 8 con
+  /// «Todas las sucursales».
+  final int sucursales;
+
+  /// A cuantas de ellas les falta **algo que se miro y no estaba**.
+  ///
+  /// No cuenta lo que todavia no ha bajado, por lo mismo que [faltaAlgoDeVerdad]
+  /// no lo cuenta: acusar de estar a medio configurar a una sucursal cuya
+  /// coleccion no ha llegado manda a alguien a dar de alta lo que ya existe.
+  final int sucursalesConAlgoQueFalta;
 
   PasoDeConfiguracion paso(ClaveDePaso clave) =>
       pasos.firstWhere((p) => p.clave == clave);
@@ -185,7 +270,23 @@ class ConfiguracionPendiente {
   /// esta persona ve. Con varias a la vista, un paso esta **hecho sólo si lo
   /// esta en todas**: decir que esta hecho porque lo esta en una deja a las
   /// otras siete sin cotizar y sin que nada lo diga.
+  ///
+  /// El alcance sale de la base, no del parametro: en `branches` sólo estan las
+  /// sucursales que esta persona ve, porque es lo unico que bajo. Un GERENTE de
+  /// Camaguey tiene una fila; un SUPER ADMIN, ocho.
   Stream<ElPasoAPaso> mirar({String? sucursalId}) {
+    // UNA FILA POR SUCURSAL DEL ALCANCE, con sus cuatro respuestas.
+    //
+    // No se agregan aqui a proposito: quien decide si un paso esta «hecho»,
+    // «falta» o «no se sabe» es `_leer`, en un sitio y con las mismas tres
+    // reglas para los cuatro pasos. Sumar en SQL obligaria a repetir alli la
+    // regla de la bajada y serian dos sitios que se separan.
+    //
+    // El `LEFT JOIN` contra la sub-consulta de frescura es lo que garantiza
+    // **una fila aunque no haya ni una sucursal**: en un aparato recien puesto
+    // no hay `branches` todavia, y aun asi hay que poder decir «esto no ha
+    // bajado» en vez de «no hay».
+    //
     // `?1 IS NULL OR …` en vez de dos consultas, como en `consultas_panel.dart`:
     // una sola sentencia, y la version «todas las sucursales» no puede quedarse
     // atras de la filtrada porque son el mismo SQL.
@@ -196,18 +297,27 @@ class ConfiguracionPendiente {
     final sql =
         '''
 SELECT
-  (SELECT COUNT(*) FROM branches b
-     WHERE (?1 IS NULL OR b.id = ?1)) AS sucursales,
-  (SELECT COUNT(*) FROM branches b
-     WHERE (?1 IS NULL OR b.id = ?1) AND b.origin_configured = 1) AS con_punto,
-  (SELECT COUNT(*) FROM vehicles v
-     WHERE (?1 IS NULL OR v.branch_id = ?1)) AS vehiculos,
-  (SELECT COUNT(*) FROM warehouses w
-     WHERE w.activo = 1 AND w.lat IS NOT NULL AND w.lng IS NOT NULL
-       AND w.sucursal_codigo IN (
-         SELECT b.external_id FROM branches b
-          WHERE b.external_id IS NOT NULL
-            AND (?1 IS NULL OR b.id = ?1))) AS almacenes,
+  baj.bajo_sucursales AS bajo_sucursales,
+  baj.bajo_vehiculos  AS bajo_vehiculos,
+  baj.bajo_almacenes  AS bajo_almacenes,
+  baj.bajo_ajustes    AS bajo_ajustes,
+  b.id   AS sucursal_id,
+  b.name AS sucursal_nombre,
+  (b.origin_configured = 1) AS con_punto,
+  -- EL MISMO FILTRO QUE `ConsultasRutas.vehiculos`: por `branch_id` y nada mas.
+  -- Un camion de otra sucursal no tapa este hueco, ni aqui ni en el asistente.
+  EXISTS (
+    SELECT 1 FROM vehicles v WHERE v.branch_id = b.id
+  ) AS con_vehiculo,
+  -- EL MISMO FILTRO QUE EL PASO 2 DEL ASISTENTE: activo y con coordenadas. Un
+  -- almacen sin punto no sirve para medir, asi que no cuenta como almacen.
+  EXISTS (
+    SELECT 1 FROM warehouses w
+     WHERE b.external_id IS NOT NULL
+       AND w.sucursal_codigo = b.external_id
+       AND w.activo = 1
+       AND w.lat IS NOT NULL AND w.lng IS NOT NULL
+  ) AS con_almacen,
   -- LA TASA ES DE LA SUCURSAL, y por eso sale de `branches` y no de `settings`.
   --
   -- Este paso se llama «la tasa de cambio de la sucursal» y miraba
@@ -216,28 +326,26 @@ SELECT
   -- (`api/internal/api/ajustes.go`): «los ajustes son GLOBALES… la tasa POR
   -- SUCURSAL es otra cosa y vive en Accesos, no aquí».
   --
-  -- Va con el mismo filtro `?1` que los otros tres pasos, así que con varias
-  -- sucursales a la vista sólo cuenta como hecho si lo está **en todas**: decir
-  -- «hecho» porque una de las ocho tiene tasa deja a las otras siete en dólares
-  -- sin que nadie lo sepa.
-  --
   -- Y se exige la FECHA, no el número: `cup_rate` puede traer un valor sin que
   -- nadie haya puesto nada, y un número sin fecha no es una tasa.
-  (SELECT COUNT(*) FROM branches b
-     WHERE (?1 IS NULL OR b.id = ?1)
-       AND b.cup_rate_traido_at IS NOT NULL AND b.cup_rate > 0) AS tasa,
-  (SELECT COUNT(*) FROM frescura f
-     WHERE f.bajada_at IS NOT NULL
-       AND f.coleccion = '${Colecciones.sucursales}') AS bajo_sucursales,
-  (SELECT COUNT(*) FROM frescura f
-     WHERE f.bajada_at IS NOT NULL
-       AND f.coleccion = '${Colecciones.vehiculos}') AS bajo_vehiculos,
-  (SELECT COUNT(*) FROM frescura f
-     WHERE f.bajada_at IS NOT NULL
-       AND f.coleccion = '${Colecciones.almacenes}') AS bajo_almacenes,
-  (SELECT COUNT(*) FROM frescura f
-     WHERE f.bajada_at IS NOT NULL
-       AND f.coleccion = '${Colecciones.ajustes}') AS bajo_ajustes
+  (b.cup_rate_traido_at IS NOT NULL AND b.cup_rate > 0) AS con_tasa
+FROM (
+  SELECT
+    (SELECT COUNT(*) FROM frescura f
+      WHERE f.bajada_at IS NOT NULL
+        AND f.coleccion = '${Colecciones.sucursales}') AS bajo_sucursales,
+    (SELECT COUNT(*) FROM frescura f
+      WHERE f.bajada_at IS NOT NULL
+        AND f.coleccion = '${Colecciones.vehiculos}') AS bajo_vehiculos,
+    (SELECT COUNT(*) FROM frescura f
+      WHERE f.bajada_at IS NOT NULL
+        AND f.coleccion = '${Colecciones.almacenes}') AS bajo_almacenes,
+    (SELECT COUNT(*) FROM frescura f
+      WHERE f.bajada_at IS NOT NULL
+        AND f.coleccion = '${Colecciones.ajustes}') AS bajo_ajustes
+) baj
+LEFT JOIN branches b ON (?1 IS NULL OR b.id = ?1)
+ORDER BY b.name
 ''';
 
     return _base
@@ -252,13 +360,37 @@ SELECT
             _base.frescura,
           },
         )
-        .watchSingle()
+        .watch()
         .map(_leer);
   }
 
-  ElPasoAPaso _leer(QueryRow fila) {
-    final sucursales = fila.read<int>('sucursales');
-    final conPunto = fila.read<int>('con_punto');
+  ElPasoAPaso _leer(List<QueryRow> filas) {
+    // La frescura viene repetida en todas las filas —es la misma sub-consulta—,
+    // asi que se lee de la primera. Si no hubiera ni una fila (no puede pasar
+    // con el `LEFT JOIN`), «no ha bajado nada», que es el estado prudente.
+    final cabecera = filas.isEmpty ? null : filas.first;
+    bool bajo(String columna) => (cabecera?.read<int>(columna) ?? 0) > 0;
+
+    final bajoSucursales = bajo('bajo_sucursales');
+    final bajoVehiculos = bajo('bajo_vehiculos');
+    final bajoAlmacenes = bajo('bajo_almacenes');
+
+    // Una fila por sucursal del alcance. Sin ninguna sucursal, el `LEFT JOIN`
+    // deja una fila con el id a nulo: es la de la frescura, no una sucursal.
+    final deLasSucursales = [
+      for (final f in filas)
+        if (f.read<String?>('sucursal_id') != null) f,
+    ];
+    final sucursales = deLasSucursales.length;
+
+    bool leFalta(QueryRow f, String columna) => f.read<int?>(columna) != 1;
+
+    /// Los nombres de las sucursales del alcance a las que les falta [columna].
+    List<String> sinEsto(String columna) => [
+      for (final f in deLasSucursales)
+        if (leFalta(f, columna))
+          f.read<String?>('sucursal_nombre') ?? 'sin nombre',
+    ];
 
     ComoVa como({required bool bajada, required bool esta}) => !bajada
         ? ComoVa.sinSaber
@@ -266,96 +398,136 @@ SELECT
         ? ComoVa.hecho
         : ComoVa.falta;
 
-    return ElPasoAPaso([
-      PasoDeConfiguracion(
-        clave: ClaveDePaso.puntoDePartida,
-        coleccion: Colecciones.sucursales,
-        como: como(
-          bajada: fila.read<int>('bajo_sucursales') > 0,
-          // Con cero sucursales bajadas no hay ninguna con punto: falta, y se
-          // dice. Una division por cero disfrazada de «hecho» seria peor.
-          esta: sucursales > 0 && conPunto == sucursales,
+    // HECHO = LO TIENEN TODAS. Con cero sucursales no lo tiene ninguna: falta, y
+    // se dice. Un «hecho» sobre una lista vacia seria una division por cero
+    // disfrazada de buena noticia.
+    final sinPunto = sinEsto('con_punto');
+    final sinVehiculo = sinEsto('con_vehiculo');
+    final sinAlmacen = sinEsto('con_almacen');
+    final sinTasa = sinEsto('con_tasa');
+
+    // A CUANTAS SUCURSALES LES FALTA ALGO QUE SE MIRO.
+    //
+    // Sólo cuentan las columnas cuya coleccion bajo, exactamente las mismas que
+    // pueden acabar en `ComoVa.falta`. Asi el titulo y los cuatro pasos cuentan
+    // lo mismo: si el titulo dijera «en 6 de las 8» y ningun paso estuviera en
+    // rojo, el numero no lo podria comprobar nadie.
+    final miradas = <String>[
+      if (bajoSucursales) 'con_punto',
+      if (bajoVehiculos) 'con_vehiculo',
+      if (bajoAlmacenes) 'con_almacen',
+      // La tasa viaja con la SUCURSAL, no con los ajustes.
+      if (bajoSucursales) 'con_tasa',
+    ];
+    final conAlgoQueFalta = deLasSucursales
+        .where((f) => miradas.any((c) => leFalta(f, c)))
+        .length;
+
+    return ElPasoAPaso(
+      [
+        PasoDeConfiguracion(
+          clave: ClaveDePaso.puntoDePartida,
+          coleccion: Colecciones.sucursales,
+          sucursales: sucursales,
+          lasQueFaltan: sinPunto,
+          como: como(
+            bajada: bajoSucursales,
+            esta: sucursales > 0 && sinPunto.isEmpty,
+          ),
+          titulo: 'El punto de partida de la sucursal',
+          paraQue:
+              'Es el sitio desde el que se mide la distancia hasta cada cliente.',
+          siFalta:
+              'Sin él no hay desde dónde medir: esos domicilios se quedan sin '
+              'cotizar y los pedidos salen sin precio.',
+          // NO lleva a ningun sitio, y por eso no hay boton: el punto de partida
+          // lo deja puesto quien da de alta la sucursal en delivery
+          // (`POST /api/branches` pone `originConfigured: true`). Ni Almacenes ni
+          // ninguna otra pantalla de esta aplicacion lo toca — mandar ahi seria un
+          // boton que lleva a un sitio donde el problema no se arregla, que es
+          // peor que no tener boton.
+          dondeSeArregla:
+              'No se pone aquí: lo deja hecho quien da de alta la sucursal. '
+              'Pídelo a administración y baja solo con el día.',
         ),
-        titulo: 'El punto de partida de la sucursal',
-        paraQue:
-            'Es el sitio desde el que se mide la distancia hasta cada cliente.',
-        siFalta:
-            'Sin él no hay desde dónde medir: los domicilios de esta sucursal '
-            'se quedan sin cotizar y los pedidos salen sin precio.',
-        // NO lleva a ningun sitio, y por eso no hay boton: el punto de partida
-        // lo deja puesto quien da de alta la sucursal en delivery
-        // (`POST /api/branches` pone `originConfigured: true`). Ni Almacenes ni
-        // ninguna otra pantalla de esta aplicacion lo toca — mandar ahi seria un
-        // boton que lleva a un sitio donde el problema no se arregla, que es
-        // peor que no tener boton.
-        dondeSeArregla:
-            'No se pone aquí: lo deja hecho quien da de alta la sucursal. '
-            'Pídelo a administración y baja solo con el día.',
-      ),
-      PasoDeConfiguracion(
-        clave: ClaveDePaso.vehiculo,
-        coleccion: Colecciones.vehiculos,
-        como: como(
-          bajada: fila.read<int>('bajo_vehiculos') > 0,
-          esta: fila.read<int>('vehiculos') > 0,
+        PasoDeConfiguracion(
+          clave: ClaveDePaso.vehiculo,
+          coleccion: Colecciones.vehiculos,
+          sucursales: sucursales,
+          lasQueFaltan: sinVehiculo,
+          // **CUANTAS SUCURSALES TIENEN CAMION, no cuantos camiones hay.** Esto
+          // era `COUNT(*) FROM vehicles > 0`: con las ocho a la vista, un solo
+          // camion en Santiago daba el paso por hecho para las otras siete.
+          como: como(
+            bajada: bajoVehiculos,
+            esta: sucursales > 0 && sinVehiculo.isEmpty,
+          ),
+          titulo: 'Al menos un vehículo',
+          paraQue: 'Es el camión al que se le carga la ruta del día.',
+          siFalta:
+              'Sin ninguno no se puede terminar el paso 3 del asistente de rutas, '
+              'y una columna del tablero no puede llevar camión.',
+          ruta: '/vehicles',
+          textoDelBoton: 'Agregar el primer vehículo',
         ),
-        titulo: 'Al menos un vehículo',
-        paraQue: 'Es el camión al que se le carga la ruta del día.',
-        siFalta:
-            'Sin ninguno no se puede terminar el paso 3 del asistente de rutas, '
-            'y una columna del tablero no puede llevar camión.',
-        ruta: '/vehicles',
-        textoDelBoton: 'Agregar el primer vehículo',
-      ),
-      PasoDeConfiguracion(
-        clave: ClaveDePaso.almacen,
-        coleccion: Colecciones.almacenes,
-        como: como(
-          bajada: fila.read<int>('bajo_almacenes') > 0,
-          esta: fila.read<int>('almacenes') > 0,
+        PasoDeConfiguracion(
+          clave: ClaveDePaso.almacen,
+          coleccion: Colecciones.almacenes,
+          sucursales: sucursales,
+          lasQueFaltan: sinAlmacen,
+          // Igual que el vehiculo: sucursales cubiertas, no filas de
+          // `warehouses`.
+          como: como(
+            bajada: bajoAlmacenes,
+            esta: sucursales > 0 && sinAlmacen.isEmpty,
+          ),
+          titulo: 'Al menos un almacén con su punto puesto',
+          paraQue:
+              'Del almacén sale lo que se le cobra al cliente por el domicilio, '
+              'y de ahí arranca el camión.',
+          siFalta:
+              'Sin él se cobra desde el sitio equivocado y el asistente de rutas '
+              'no tiene de dónde salir. Un almacén sin coordenadas tampoco sirve.',
+          ruta: '/warehouses',
+          textoDelBoton: 'Poner el almacén',
         ),
-        titulo: 'Al menos un almacén con su punto puesto',
-        paraQue:
-            'Del almacén sale lo que se le cobra al cliente por el domicilio, '
-            'y de ahí arranca el camión.',
-        siFalta:
-            'Sin él se cobra desde el sitio equivocado y el asistente de rutas '
-            'no tiene de dónde salir. Un almacén sin coordenadas tampoco sirve.',
-        ruta: '/warehouses',
-        textoDelBoton: 'Poner el almacén',
-      ),
-      PasoDeConfiguracion(
-        clave: ClaveDePaso.tasa,
-        coleccion: Colecciones.ajustes,
-        como: como(
-          // La tasa viaja con la SUCURSAL, no con los ajustes: se mira si
-          // bajaron las sucursales.
-          bajada: fila.read<int>('bajo_sucursales') > 0,
-          // **La marca de cuando, no el numero.** `cup_rate` puede traer un
-          // valor sin que nadie haya puesto nada; sólo `cup_rate_traido_at`
-          // —el `traidoAt` que da Accesos— demuestra que hay tasa de verdad.
-          //
-          // Y `== sucursales`, no `> 0`, por lo mismo que el punto de partida:
-          // hoy en Accesos sólo tienen tasa Habana y Santiago. Con «todas» a la
-          // vista, decir «hecho» porque dos de las ocho la tienen deja a las
-          // otras seis en dolares sin que nadie lo sepa.
-          esta: sucursales > 0 && fila.read<int>('tasa') == sucursales,
+        PasoDeConfiguracion(
+          clave: ClaveDePaso.tasa,
+          coleccion: Colecciones.ajustes,
+          sucursales: sucursales,
+          lasQueFaltan: sinTasa,
+          como: como(
+            // La tasa viaja con la SUCURSAL, no con los ajustes: se mira si
+            // bajaron las sucursales.
+            bajada: bajoSucursales,
+            // **La marca de cuando, no el numero.** `cup_rate` puede traer un
+            // valor sin que nadie haya puesto nada; sólo `cup_rate_traido_at`
+            // —el `traidoAt` que da Accesos— demuestra que hay tasa de verdad.
+            //
+            // Y todas, no alguna: hoy en Accesos sólo tienen tasa Habana y
+            // Santiago. Con «todas» a la vista, decir «hecho» porque dos de las
+            // ocho la tienen deja a las otras seis en dolares sin que nadie lo
+            // sepa.
+            esta: sucursales > 0 && sinTasa.isEmpty,
+          ),
+          titulo: 'La tasa de cambio de la sucursal',
+          paraQue: 'Es lo que pasa los importes de USD a CUP.',
+          siFalta:
+              'Sin ella los importes sólo se ven en USD. No se convierte nada: '
+              'convertir sin tasa es inventarse un número, y un número inventado '
+              'acaba cobrado.',
+          // Tampoco lleva a ningun sitio, y es la razon por la que existe la
+          // regla: la tasa la mantiene Accesos, que la trae de Entrega. Aqui no
+          // hay ninguna copia editable a proposito (`reglas-negocio.md` §8): dos
+          // tasas para lo mismo se separan en cuanto una se olvida, y el mismo
+          // domicilio vale distinto segun donde se mire.
+          dondeSeArregla:
+              'No se pone aquí: la mantiene Accesos, que la trae de Entrega. '
+              'Se arregla allí y baja sola con el día.',
         ),
-        titulo: 'La tasa de cambio de la sucursal',
-        paraQue: 'Es lo que pasa los importes de USD a CUP.',
-        siFalta:
-            'Sin ella los importes sólo se ven en USD. No se convierte nada: '
-            'convertir sin tasa es inventarse un número, y un número inventado '
-            'acaba cobrado.',
-        // Tampoco lleva a ningun sitio, y es la razon por la que existe la
-        // regla: la tasa la mantiene Accesos, que la trae de Entrega. Aqui no
-        // hay ninguna copia editable a proposito (`reglas-negocio.md` §8): dos
-        // tasas para lo mismo se separan en cuanto una se olvida, y el mismo
-        // domicilio vale distinto segun donde se mire.
-        dondeSeArregla:
-            'No se pone aquí: la mantiene Accesos, que la trae de Entrega. '
-            'Se arregla allí y baja sola con el día.',
-      ),
-    ]);
+      ],
+      sucursales: sucursales,
+      sucursalesConAlgoQueFalta: conAlgoQueFalta,
+    );
   }
 }

@@ -42,7 +42,12 @@ void main() {
       ..httpClientAdapter = ServidorFalso(
         (p) async => RespuestaFalsa(200, const {
           'columnas': <Object?>[
-            {'id': zona, 'branchId': sucursal, 'nombre': 'Vista', 'posicion': 1},
+            {
+              'id': zona,
+              'branchId': sucursal,
+              'nombre': 'Vista',
+              'posicion': 1,
+            },
           ],
           'colocados': <Object?>[
             {'pedidoId': pedido, 'columnaId': zona, 'posicion': 1},
@@ -97,15 +102,18 @@ void main() {
     expect(zonas.read<int>('n'), 1);
   });
 
-  test('con el pedido ya aquí, la tarjeta entra y no se queda nada fuera', () async {
-    await sembrarElPedido();
+  test(
+    'con el pedido ya aquí, la tarjeta entra y no se queda nada fuera',
+    () async {
+      await sembrarElPedido();
 
-    final r = await servicio.descargar(sucursal);
+      final r = await servicio.descargar(sucursal);
 
-    expect(await cuantasTarjetas(), 1);
-    expect(r.tarjetasSinPedido, 0);
-    expect(r.seBajo, isTrue);
-  });
+      expect(await cuantasTarjetas(), 1);
+      expect(r.tarjetasSinPedido, 0);
+      expect(r.seBajo, isTrue);
+    },
+  );
 
   test('volver a pedirla cuando el pedido ya llegó la coloca: ésa es la '
       'salida del atasco', () async {

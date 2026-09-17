@@ -47,8 +47,10 @@ CREATE TABLE board_placements (
 
   Future<int> marcaDe(String tabla, String columna, String valor) async {
     final f = await base
-        .customSelect('SELECT nacio_aqui AS n FROM $tabla WHERE $columna = ?1',
-            variables: [Variable<String>(valor)])
+        .customSelect(
+          'SELECT nacio_aqui AS n FROM $tabla WHERE $columna = ?1',
+          variables: [Variable<String>(valor)],
+        )
         .getSingle();
     return f.read<int>('n');
   }
@@ -56,32 +58,36 @@ CREATE TABLE board_placements (
   setUp(() => base = baseDePrueba());
   tearDown(() => base.close());
 
-  test('una zona «local-…» del esquema viejo se rescata: NO está arriba', () async {
-    await esquemaViejo();
-    await base.customStatement(
-      "INSERT INTO board_columns (id, branch_id, nombre, posicion) "
-      "VALUES ('local-vista', 'hab-1', 'Vista', 1)",
-    );
-    await pedido('p1');
-    await base.customStatement(
-      "INSERT INTO board_placements (order_id, column_id, posicion) "
-      "VALUES ('p1', 'local-vista', 0)",
-    );
+  test(
+    'una zona «local-…» del esquema viejo se rescata: NO está arriba',
+    () async {
+      await esquemaViejo();
+      await base.customStatement(
+        "INSERT INTO board_columns (id, branch_id, nombre, posicion) "
+        "VALUES ('local-vista', 'hab-1', 'Vista', 1)",
+      );
+      await pedido('p1');
+      await base.customStatement(
+        "INSERT INTO board_placements (order_id, column_id, posicion) "
+        "VALUES ('p1', 'local-vista', 0)",
+      );
 
-    // La actualización de la aplicación.
-    await EsquemaTablero.asegurar(base);
+      // La actualización de la aplicación.
+      await EsquemaTablero.asegurar(base);
 
-    expect(
-      await marcaDe('board_columns', 'id', 'local-vista'),
-      1,
-      reason: 'un id «local-…» significa que el servidor nunca devolvió el suyo',
-    );
-    expect(
-      await marcaDe('board_placements', 'order_id', 'p1'),
-      1,
-      reason: 'su zona no existe arriba, así que la tarjeta tampoco',
-    );
-  });
+      expect(
+        await marcaDe('board_columns', 'id', 'local-vista'),
+        1,
+        reason:
+            'un id «local-…» significa que el servidor nunca devolvió el suyo',
+      );
+      expect(
+        await marcaDe('board_placements', 'order_id', 'p1'),
+        1,
+        reason: 'su zona no existe arriba, así que la tarjeta tampoco',
+      );
+    },
+  );
 
   test('una zona que SÍ vino del servidor se queda a 0', () async {
     // Marcar de más pide subir de balde; marcarlo todo bloquearía el tablero de
@@ -127,9 +133,7 @@ CREATE TABLE board_placements (
     // repetido da «duplicate column name».
     await EsquemaTablero.asegurar(base);
     await EsquemaTablero.asegurar(baseDePrueba());
-    await base.customStatement(
-      'ALTER TABLE board_columns ADD COLUMN zz TEXT',
-    );
+    await base.customStatement('ALTER TABLE board_columns ADD COLUMN zz TEXT');
     // Y sobre la misma base, forzando el camino del ALTER otra vez.
     await expectLater(EsquemaTablero.asegurar(base), completes);
   });

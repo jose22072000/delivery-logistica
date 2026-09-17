@@ -189,7 +189,10 @@ void main() {
       expect(v.map((f) => f.id).toSet(), {'v1', 'v3'});
       // Y cada uno con lo suyo, no con la suma de los dos.
       expect({for (final f in v) f.id: f.ingresos}, {'v1': 30.0, 'v3': 70.0});
-      expect({for (final f in v) f.id: f.placa}, {'v1': 'B-123', 'v3': 'B-777'});
+      expect(
+        {for (final f in v) f.id: f.placa},
+        {'v1': 'B-123', 'v3': 'B-777'},
+      );
     });
 
     test('los pedidos sin vehiculo NO hacen una fila propia', () async {

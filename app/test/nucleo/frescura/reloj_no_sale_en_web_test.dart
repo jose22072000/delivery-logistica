@@ -17,14 +17,17 @@ import 'package:reparto/nucleo/plataforma.dart';
 /// Se prueba aquí, en el widget, y no en las siete pantallas que lo llaman: en
 /// siete sitios se olvida uno, y el que se olvide es el que él verá.
 void main() {
-  Future<void> pintar(WidgetTester tester, EstadoFrescura estado, int sinSubir) =>
-      tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: RelojDeDatos(estado: estado, sinSubir: sinSubir),
-          ),
-        ),
-      );
+  Future<void> pintar(
+    WidgetTester tester,
+    EstadoFrescura estado,
+    int sinSubir,
+  ) => tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: RelojDeDatos(estado: estado, sinSubir: sinSubir),
+      ),
+    ),
+  );
 
   testWidgets('en la web no pinta NADA, ni la hora ni lo que falta por subir', (
     tester,
@@ -58,15 +61,16 @@ void main() {
     });
   });
 
-  testWidgets('en la APK sigue saliendo entero: ahí sí hay copia y sí hay cola', (
-    tester,
-  ) async {
-    // El otro mundo, que es su razón de ser y no se toca.
-    await pintar(tester, DatosRecientes(DateTime(2026, 9, 17, 10, 36)), 3);
+  testWidgets(
+    'en la APK sigue saliendo entero: ahí sí hay copia y sí hay cola',
+    (tester) async {
+      // El otro mundo, que es su razón de ser y no se toca.
+      await pintar(tester, DatosRecientes(DateTime(2026, 9, 17, 10, 36)), 3);
 
-    expect(find.text('Datos de las 10:36'), findsOneWidget);
-    expect(find.text('3 sin subir'), findsOneWidget);
-  });
+      expect(find.text('Datos de las 10:36'), findsOneWidget);
+      expect(find.text('3 sin subir'), findsOneWidget);
+    },
+  );
 
   testWidgets('en la APK, «sin descargar» sigue avisando', (tester) async {
     await pintar(tester, const SinDescargar(), 0);

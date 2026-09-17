@@ -374,17 +374,40 @@ class Bajada {
         await _base
             .into(_base.routes)
             .insertOnConflictUpdate(
+              // LOS CAMPOS QUE FALTABAN, y lo que se veia sin ellos.
+              //
+              // Visto el 17/09/2026 con la aplicacion delante, contra el entorno
+              // local: la lista de rutas ensenaba **`$0.00`** en una ruta de 720
+              // USD, «Sin punto de partida» teniendo almacen, y una raya donde
+              // va la fecha. El servidor los mandaba los tres —comprobado en la
+              // respuesta de `/api/routes`— y **esta funcion no los leia**.
+              //
+              // Es el fallo que mas caro sale aqui: un importe en cero se lee
+              // bien y esta mal, y nadie lo desmiente. No habia forma de cazarlo
+              // sin ejecutar, porque lo que no se lee no falla — sale un cero,
+              // que es un numero perfectamente creible.
+              //
+              // `startedAt` y `finishedAt` van por lo mismo: son la linea de
+              // «Salida» y «Regreso» de la hoja del post-despacho, la que firma
+              // el chofer. Sin ellos la hoja sale sin horario y no se nota.
               RoutesCompanion.insert(
                 id: _texto(j['id'])!,
                 name: Value(_texto(j['name'])),
                 routeCode: Value(_texto(j['routeCode'])),
                 status: Value(_texto(j['status']) ?? EstadoRuta.planificada),
+                originAddress: Value(_texto(j['originAddress'])),
                 originLat: Value(_numero(j['originLat'])),
                 originLng: Value(_numero(j['originLng'])),
                 totalDistance: Value(_numero(j['totalDistance']) ?? 0),
                 totalWeight: Value(_numero(j['totalWeight']) ?? 0),
+                totalPrice: Value(_numero(j['totalPrice']) ?? 0),
+                deliveryDate: Value(_fecha(j['deliveryDate'])),
                 vehicleId: Value(_texto(j['vehicleId'])),
+                creadoPor: Value(_texto(j['creadoPor'])),
                 branchId: Value(_texto(j['branchId'])),
+                startedAt: Value(_fecha(j['startedAt'])),
+                finishedAt: Value(_fecha(j['finishedAt'])),
+                createdAt: Value(_fecha(j['createdAt'])),
                 updatedAt: Value(_fecha(j['updatedAt'])),
               ),
             );
@@ -404,6 +427,10 @@ class Bajada {
                 lat: _numero(j['lat']) ?? 0,
                 lng: _numero(j['lng']) ?? 0,
                 sucursalCodigo: Value(_texto(j['sucursalCodigo'])),
+                // `source` FALTABA. Sin el, los 8.000 del padron salian con la
+                // insignia «Manual» y el filtro de origen contestaba al reves:
+                // cero para «de PEDIDO» y los ocho mil para «manual».
+                source: Value(_texto(j['source'])),
                 syncedAt: Value(_fecha(j['syncedAt'])),
               ),
             );
@@ -526,6 +553,17 @@ class Bajada {
             source: Value(_texto(j['source'])),
             externalId: Value(_texto(j['externalId'])),
             orderDate: Value(_fecha(j['orderDate'])),
+            // `createdAt` FALTABA, y con el se caia una guarda entera: un
+            // pedido sin `orderDate` se acota por esta fecha, «o desapareceria
+            // de todos los rangos» (`repositorio_pedidos.dart`). Como nunca
+            // llegaba, siempre era nulo y esa rama no podia ser cierta: todo
+            // pedido que PEDIDO manda sin fecha se caia de CUALQUIER filtro por
+            // fecha, aqui y en el escritorio, mientras la web si lo ensenaba.
+            //
+            // Tambien es el desempate del orden (`orderDate desc, createdAt
+            // desc`): con esto nulo, dos pedidos del mismo dia salian en un
+            // orden distinto al del servidor.
+            createdAt: Value(_fecha(j['createdAt'])),
             estado: Value(_texto(j['estado'])),
             archivado: Value(j['archivado'] == true),
             fechaComprometida: Value(_fecha(j['fechaComprometida'])),

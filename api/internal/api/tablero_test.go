@@ -82,6 +82,30 @@ type pedidoFalso struct {
 	// cursor. Nil es un pedido SIN fecha, que va al final (`DESC NULLS LAST`) y es donde
 	// un cursor mal escrito se repite a sí mismo o se salta filas.
 	fecha *time.Time
+	// entregado es `delivered_at` + `resultado = 'entregado'`, las dos columnas que
+	// `MarcarResultadoDeParada` escribe y limpia JUNTAS. Con `ruta` a nil es el caso que
+	// da miedo y que en producción llega solo: la clave ajena de `orders.route_id` es
+	// `ON DELETE SET NULL`, así que basta con que alguien borre la ruta de ayer para que
+	// un pedido ya repartido aparezca suelto y sin una sola marca en el `WHERE` de
+	// siempre. Ver `db/migrations/00001_init.sql:446`.
+	entregado bool
+}
+
+// entregadoEn: lo que el SQL devuelve en `delivered_at`.
+func (p pedidoFalso) entregadoEn() pgtype.Timestamptz {
+	if !p.entregado {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: time.Now().Add(-3 * time.Hour), Valid: true}
+}
+
+// suResultado: lo que el SQL devuelve en `resultado`.
+func (p pedidoFalso) suResultado() *sqlc.StopResult {
+	if !p.entregado {
+		return nil
+	}
+	e := sqlc.StopResultEntregado
+	return &e
 }
 
 // tieneCoordenadas: lo que en la base es `end_lat IS NOT NULL AND end_lng IS NOT NULL`.
@@ -465,8 +489,9 @@ func (q *tableroFalso) BorrarColumna(_ context.Context, arg sqlc.BorrarColumnaPa
 func (q *tableroFalso) ColocarPedido(_ context.Context, arg sqlc.ColocarPedidoParams) (sqlc.BoardPlacement, error) {
 	p, ok := q.pedidos[arg.PedidoID]
 	c, ok2 := q.columnas[arg.ColumnaID]
-	// Las cuatro condiciones del `WHERE` del INSERT de verdad.
-	if !ok || !ok2 || p.sucursal != c.BranchID || p.ruta != nil {
+	// Las condiciones del `WHERE` del INSERT de verdad. La de `delivered_at` es la que
+	// `route_id IS NULL` no cubre: un entregado cuya ruta se borró está suelto.
+	if !ok || !ok2 || p.sucursal != c.BranchID || p.ruta != nil || p.entregado {
 		return sqlc.BoardPlacement{}, pgx.ErrNoRows
 	}
 	if arg.Sucursal.Valid && c.BranchID != uuid.UUID(arg.Sucursal.Bytes) {
@@ -566,7 +591,8 @@ func (q *tableroFalso) ObtenerPedido(_ context.Context, arg sqlc.ObtenerPedidoPa
 	if arg.Sucursal.Valid && p.sucursal != uuid.UUID(arg.Sucursal.Bytes) {
 		return sqlc.ObtenerPedidoRow{}, pgx.ErrNoRows
 	}
-	fila := sqlc.ObtenerPedidoRow{ID: p.id, CustomerName: p.nombre, Weight: p.peso}
+	fila := sqlc.ObtenerPedidoRow{ID: p.id, CustomerName: p.nombre, Weight: p.peso,
+		DeliveredAt: p.entregadoEn(), Resultado: p.suResultado()}
 	if p.ruta != nil {
 		fila.RouteID = pgtype.UUID{Bytes: [16]byte(*p.ruta), Valid: true}
 	}
@@ -587,8 +613,8 @@ func (q *tableroFalso) ListarPedidosColocados(_ context.Context, arg sqlc.Listar
 		fila := sqlc.ListarPedidosColocadosRow{
 			OrderID: ped, ColumnID: c.columna, Posicion: c.posicion,
 			ColumnaNombre: col.Nombre, CustomerName: p.nombre, Weight: p.peso,
-			FacturaEstado: p.factura,
-			KmAlAlmacen:   kmHaversine(arg.OrigenLat, arg.OrigenLng, p.lat, p.lng),
+			FacturaEstado: p.factura, Resultado: p.suResultado(),
+			KmAlAlmacen: kmHaversine(arg.OrigenLat, arg.OrigenLng, p.lat, p.lng),
 		}
 		// LO QUE **NO** LLEVA EL `WHERE` DE ESTA CONSULTA: aquí sale TODO lo puesto, se
 		// pueda repartir o no, y por eso se devuelven crudos `route_id`, las coordenadas y
@@ -632,7 +658,7 @@ func (q *tableroFalso) AvisosDelTablero(_ context.Context, arg sqlc.AvisosDelTab
 func (q *tableroFalso) ListarPedidosSinColocar(_ context.Context, arg sqlc.ListarPedidosSinColocarParams) ([]sqlc.ListarPedidosSinColocarRow, error) {
 	var salida []sqlc.ListarPedidosSinColocarRow
 	for _, p := range q.pedidos {
-		if p.sucursal != arg.BranchID || p.ruta != nil {
+		if p.sucursal != arg.BranchID || p.ruta != nil || p.entregado {
 			continue
 		}
 		if !deLaSucursal(p.sucursal, arg.Sucursal) {
@@ -716,7 +742,9 @@ func despuesDelCursor(f sqlc.ListarPedidosSinColocarRow, arg sqlc.ListarPedidosS
 func (q *tableroFalso) ContarPedidosSinColocar(_ context.Context, arg sqlc.ContarPedidosSinColocarParams) (int64, error) {
 	var n int64
 	for _, p := range q.pedidos {
-		if p.sucursal != arg.BranchID || p.ruta != nil {
+		// EL MISMO FILTRO QUE LA LISTA, entregados incluidos: si aquí se olvidara,
+		// el doble reproduciría el «Sin colocar (722) encima de una lista de 293».
+		if p.sucursal != arg.BranchID || p.ruta != nil || p.entregado {
 			continue
 		}
 		if !deLaSucursal(p.sucursal, arg.Sucursal) {
@@ -1177,6 +1205,9 @@ func (q *tableroFalso) PedidosDeColumnaParaArmarRuta(_ context.Context, arg sqlc
 		fila := sqlc.PedidosDeColumnaParaArmarRutaRow{
 			ID: p.id, CustomerName: p.nombre, Weight: p.peso,
 			EndLat: &lat, EndLng: &lng, FacturaEstado: p.factura, Posicion: c.posicion,
+			// Como en el SQL: `delivered_at` y `resultado` salen como DATO y no
+			// filtran aquí. Quien corta y nombra la tarjeta es `armarRutaDeColumna`.
+			DeliveredAt: p.entregadoEn(), Resultado: p.suResultado(),
 		}
 		if p.folio != "" {
 			folio := p.folio

@@ -345,8 +345,16 @@ class AccionesDeRuta {
 
   /// `Marcar como completada`. Libera el vehiculo.
   ///
-  /// Ojo: completar NO cierra la ruta. El camion vuelve despues, y por eso el
-  /// boton `Cierre` sigue disponible en `completed`.
+  /// **El estado de cada parada se pregunta AL COMPLETAR, no despues.** Si
+  /// quedan paradas sin marcar, `detalle_ruta.dart` abre el cierre en modo
+  /// `alCompletar` y esto se llama al guardar, en el mismo gesto. Una ruta ya
+  /// `completed` ensena su cierre en solo lectura.
+  ///
+  /// Aqui nos separamos del patron de Next a proposito (`CLAUDE.md` §2): el
+  /// Next deja el boton `Cierre` vivo sobre una ruta completada, y Jose lo vio
+  /// el 17/09/2026 — «ese estado se pone cuando estan en ruta, no completados».
+  /// Lo que baja del camion se cuadra antes de dar la ruta por cerrada, que es
+  /// justo lo que significa cerrarla.
   Future<void> completar(String rutaId) async {
     final ahora = _reloj();
     final ruta = await _ruta(rutaId);

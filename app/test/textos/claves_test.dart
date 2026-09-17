@@ -140,69 +140,74 @@ void main() {
   // silencio.
   final hayPatron = File(_fuenteNext).existsSync();
 
-  group('el traslado desde la de Next está completo', () {
-    // Las claves originales, leídas del propio fichero de Next. Es la única
-    // forma de que esto siga siendo verdad cuando alguien añada una allí.
-    final crudo = hayPatron ? File(_fuenteNext).readAsStringSync() : '';
-    final original = RegExp(r"^\s*'([a-zA-Z]+\.[a-zA-Z0-9_.]+)':\s*'")
-        .allMatches(
-          RegExp(
-            r'const es: Dict = \{\n(.*?)\n\}\n',
-            dotAll: true,
-          ).firstMatch(crudo)?.group(1) ??
-              '',
-        )
-        .map((m) => m.group(1)!)
-        .toSet();
+  group(
+    'el traslado desde la de Next está completo',
+    () {
+      // Las claves originales, leídas del propio fichero de Next. Es la única
+      // forma de que esto siga siendo verdad cuando alguien añada una allí.
+      final crudo = hayPatron ? File(_fuenteNext).readAsStringSync() : '';
+      final original = RegExp(r"^\s*'([a-zA-Z]+\.[a-zA-Z0-9_.]+)':\s*'")
+          .allMatches(
+            RegExp(
+                  r'const es: Dict = \{\n(.*?)\n\}\n',
+                  dotAll: true,
+                ).firstMatch(crudo)?.group(1) ??
+                '',
+          )
+          .map((m) => m.group(1)!)
+          .toSet();
 
-    test('está trasladado TODO lo que tiene la de Next', () {
-      // Cada clave de Next deja su rastro en el `@description` del ARB.
-      final trasladadas = <String>{
-        for (final k in _claves(es))
-          ...RegExp(r'De `([^`]+)` en delivery')
-              .allMatches(
-                (es['@$k']! as Map<String, Object?>)['description']! as String,
-              )
-              .map((m) => m.group(1)!),
-      };
-      final sinTrasladar = original.difference(trasladadas);
-      expect(
-        sinTrasladar,
-        isEmpty,
-        reason: 'se quedaron sin pasar: $sinTrasladar',
-      );
-    });
-
-    test('lo que NO viene de Next lleva el prefijo `nuevo`', () {
-      // Regla 5 de PLAN.md §4.3: así se sabe siempre qué se comparó con la de
-      // Next y qué es invención de esta aplicación.
-      for (final k in _claves(es)) {
-        final desc =
-            (es['@$k']! as Map<String, Object?>)['description']! as String;
-        if (desc.contains('en delivery/src/lib/i18n.ts')) continue;
+      test('está trasladado TODO lo que tiene la de Next', () {
+        // Cada clave de Next deja su rastro en el `@description` del ARB.
+        final trasladadas = <String>{
+          for (final k in _claves(es))
+            ...RegExp(r'De `([^`]+)` en delivery')
+                .allMatches(
+                  (es['@$k']! as Map<String, Object?>)['description']!
+                      as String,
+                )
+                .map((m) => m.group(1)!),
+        };
+        final sinTrasladar = original.difference(trasladadas);
         expect(
-          k.startsWith('nuevo'),
-          isTrue,
-          reason: '$k no viene de Next y no lleva el prefijo `nuevo`',
+          sinTrasladar,
+          isEmpty,
+          reason: 'se quedaron sin pasar: $sinTrasladar',
         );
-        expect(
-          desc.toUpperCase(),
-          contains('NUEVO'),
-          reason: '$k no explica por qué existe',
-        );
-      }
-    });
+      });
 
-    test('ninguna clave `nuevo` se cuela como traslado', () {
-      for (final k in _claves(es).where((k) => k.startsWith('nuevo'))) {
-        final desc =
-            (es['@$k']! as Map<String, Object?>)['description']! as String;
-        expect(desc, isNot(contains('en delivery/src/lib/i18n.ts')));
-      }
-    });
-  }, skip: hayPatron
-      ? null
-      : 'no está «$_fuenteNext»: la de Next vive en el repositorio de al lado y '
-            'no viaja en la imagen. Esta paridad se comprueba en la máquina de '
-            'trabajo, con los dos repos clonados.');
+      test('lo que NO viene de Next lleva el prefijo `nuevo`', () {
+        // Regla 5 de PLAN.md §4.3: así se sabe siempre qué se comparó con la de
+        // Next y qué es invención de esta aplicación.
+        for (final k in _claves(es)) {
+          final desc =
+              (es['@$k']! as Map<String, Object?>)['description']! as String;
+          if (desc.contains('en delivery/src/lib/i18n.ts')) continue;
+          expect(
+            k.startsWith('nuevo'),
+            isTrue,
+            reason: '$k no viene de Next y no lleva el prefijo `nuevo`',
+          );
+          expect(
+            desc.toUpperCase(),
+            contains('NUEVO'),
+            reason: '$k no explica por qué existe',
+          );
+        }
+      });
+
+      test('ninguna clave `nuevo` se cuela como traslado', () {
+        for (final k in _claves(es).where((k) => k.startsWith('nuevo'))) {
+          final desc =
+              (es['@$k']! as Map<String, Object?>)['description']! as String;
+          expect(desc, isNot(contains('en delivery/src/lib/i18n.ts')));
+        }
+      });
+    },
+    skip: hayPatron
+        ? null
+        : 'no está «$_fuenteNext»: la de Next vive en el repositorio de al lado y '
+              'no viaja en la imagen. Esta paridad se comprueba en la máquina de '
+              'trabajo, con los dos repos clonados.',
+  );
 }

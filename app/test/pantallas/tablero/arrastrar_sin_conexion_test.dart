@@ -77,116 +77,110 @@ void main() {
     );
   }
 
-  test(
-    'arrastrar sin conexión: se escribe aquí, va a la cola, no llama a nadie '
-    'y sobrevive a cerrar y reabrir la aplicación',
-    () async {
-      // ---- Por la mañana, con red: bajó el día. -------------------------
-      var base = abrirBase();
-      await sembrarSucursal(base);
-      await sembrarAlmacen(base);
-      await sembrarPedido(base, id: 'p-cerca', aGrados: 0.01, peso: 120);
-      await sembrarPedido(base, id: 'p-medio', aGrados: 0.05, peso: 80);
-      await sembrarPedido(base, id: 'p-lejos', aGrados: 0.40, peso: 60);
+  test('arrastrar sin conexión: se escribe aquí, va a la cola, no llama a nadie '
+      'y sobrevive a cerrar y reabrir la aplicación', () async {
+    // ---- Por la mañana, con red: bajó el día. -------------------------
+    var base = abrirBase();
+    await sembrarSucursal(base);
+    await sembrarAlmacen(base);
+    await sembrarPedido(base, id: 'p-cerca', aGrados: 0.01, peso: 120);
+    await sembrarPedido(base, id: 'p-medio', aGrados: 0.05, peso: 80);
+    await sembrarPedido(base, id: 'p-lejos', aGrados: 0.40, peso: 60);
 
-      var contenedor = montar(base);
-      var tablero = await contenedor.read(tableroProvider.future);
-      expect(tablero.sinColocar.total, 3);
-      expect(tablero.sinColocar.pedidos.map((p) => p.pedidoId).toList(), [
-        'p-cerca',
-        'p-medio',
-        'p-lejos',
-      ], reason: 'el más cerca del almacén primero');
+    var contenedor = montar(base);
+    var tablero = await contenedor.read(tableroProvider.future);
+    expect(tablero.sinColocar.total, 3);
+    expect(tablero.sinColocar.pedidos.map((p) => p.pedidoId).toList(), [
+      'p-cerca',
+      'p-medio',
+      'p-lejos',
+    ], reason: 'el más cerca del almacén primero');
 
-      // ---- Por la tarde, en el patio y sin señal. -----------------------
-      //
-      // Se olvida lo que se haya intentado hasta aquí: al ABRIR el tablero sí se
-      // le pide la foto al servidor —con conexión manda el servidor y no la
-      // copia—, y eso es correcto. Lo que esta prueba vigila es el GESTO: que
-      // arrastrar no hable con nadie. Sin este borrado se estaría midiendo la
-      // apertura y no el arrastre.
-      servidor.vistas.clear();
+    // ---- Por la tarde, en el patio y sin señal. -----------------------
+    //
+    // Se olvida lo que se haya intentado hasta aquí: al ABRIR el tablero sí se
+    // le pide la foto al servidor —con conexión manda el servidor y no la
+    // copia—, y eso es correcto. Lo que esta prueba vigila es el GESTO: que
+    // arrastrar no hable con nadie. Sin este borrado se estaría midiendo la
+    // apertura y no el arrastre.
+    servidor.vistas.clear();
 
-      final mando = contenedor.read(tableroProvider.notifier);
-      final columnaId = await mando.crearColumna('Centro');
-      // El id lo pone el APARATO, aquí mismo y sin señal: un UUIDv7 definitivo.
-      // No hay nada que sustituir después, y subirlo dos veces no crea dos zonas.
-      expect(
-        columnaId,
-        matches(
-          RegExp(
-            r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
-          ),
+    final mando = contenedor.read(tableroProvider.notifier);
+    final columnaId = await mando.crearColumna('Centro');
+    // El id lo pone el APARATO, aquí mismo y sin señal: un UUIDv7 definitivo.
+    // No hay nada que sustituir después, y subirlo dos veces no crea dos zonas.
+    expect(
+      columnaId,
+      matches(
+        RegExp(
+          r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
         ),
-      );
+      ),
+    );
 
-      await mando.colocar(pedidoId: 'p-cerca', columnaId: columnaId);
-      await mando.colocar(pedidoId: 'p-medio', columnaId: columnaId);
+    await mando.colocar(pedidoId: 'p-cerca', columnaId: columnaId);
+    await mando.colocar(pedidoId: 'p-medio', columnaId: columnaId);
 
-      // 1. EL GESTO NO LLAMA A NADIE. Arrastrar escribe aquí y va a la cola.
-      //
-      // Sobre TODAS las peticiones y no sólo las de `/board`: se probó a filtrar por
-      // esa ruta y no cazaba nada que no cazara ya el `clear()` de arriba — lo único
-      // que hacía era dejar de vigilar todo lo demás, como un `/auth/refresh` que un
-      // gesto disparara sin querer.
-      expect(
-        servidor.vistas,
-        isEmpty,
-        reason: 'arrastrar escribe aquí; la subida va por detrás',
-      );
+    // 1. EL GESTO NO LLAMA A NADIE. Arrastrar escribe aquí y va a la cola.
+    //
+    // Sobre TODAS las peticiones y no sólo las de `/board`: se probó a filtrar por
+    // esa ruta y no cazaba nada que no cazara ya el `clear()` de arriba — lo único
+    // que hacía era dejar de vigilar todo lo demás, como un `/auth/refresh` que un
+    // gesto disparara sin querer.
+    expect(
+      servidor.vistas,
+      isEmpty,
+      reason: 'arrastrar escribe aquí; la subida va por detrás',
+    );
 
-      // 2. Se ve movido, ya.
-      tablero = await contenedor.read(tableroProvider.future);
-      expect(tablero.columnas.single.pedidos, 2);
-      expect(tablero.columnas.single.pesoKg, 200);
-      expect(tablero.sinColocar.total, 1);
-      expect(
-        tablero.deColumna(columnaId).map((t) => t.pedido.pedidoId).toList(),
-        ['p-cerca', 'p-medio'],
-      );
+    // 2. Se ve movido, ya.
+    tablero = await contenedor.read(tableroProvider.future);
+    expect(tablero.columnas.single.pedidos, 2);
+    expect(tablero.columnas.single.pesoKg, 200);
+    expect(tablero.sinColocar.total, 1);
+    expect(
+      tablero.deColumna(columnaId).map((t) => t.pedido.pedidoId).toList(),
+      ['p-cerca', 'p-medio'],
+    );
 
-      // 3. Y está en la cola, en orden, con el cuerpo del contrato.
-      final cola = ColaDeSalida(base);
-      var lote = await cola.lote();
-      expect(lote.map((a) => a.ruta).toList(), [
-        '/board/columns?branchId=$sucursalStg',
-        '/board/placements/p-cerca',
-        '/board/placements/p-medio',
-      ]);
-      expect(lote.first.provisional, columnaId);
-      expect(jsonDecode(lote[1].cuerpo), {
-        'columnaId': columnaId,
-        'posicion': 1,
-      });
-      final claves = lote.map((a) => a.clave).toList();
+    // 3. Y está en la cola, en orden, con el cuerpo del contrato.
+    final cola = ColaDeSalida(base);
+    var lote = await cola.lote();
+    expect(lote.map((a) => a.ruta).toList(), [
+      '/board/columns?branchId=$sucursalStg',
+      '/board/placements/p-cerca',
+      '/board/placements/p-medio',
+    ]);
+    expect(lote.first.provisional, columnaId);
+    expect(jsonDecode(lote[1].cuerpo), {'columnaId': columnaId, 'posicion': 1});
+    final claves = lote.map((a) => a.clave).toList();
 
-      // ---- Se cierra la aplicación del todo y se vuelve a abrir. --------
-      contenedor.dispose();
-      await base.close();
+    // ---- Se cierra la aplicación del todo y se vuelve a abrir. --------
+    contenedor.dispose();
+    await base.close();
 
-      base = abrirBase();
-      contenedor = montar(base);
-      tablero = await contenedor.read(tableroProvider.future);
+    base = abrirBase();
+    contenedor = montar(base);
+    tablero = await contenedor.read(tableroProvider.future);
 
-      // Las tarjetas siguen donde se dejaron…
-      expect(tablero.columnas.single.nombre, 'Centro');
-      expect(tablero.columnas.single.pedidos, 2);
-      expect(
-        tablero.deColumna(columnaId).map((t) => t.pedido.pedidoId).toList(),
-        ['p-cerca', 'p-medio'],
-      );
-      expect(tablero.sinColocar.pedidos.single.pedidoId, 'p-lejos');
+    // Las tarjetas siguen donde se dejaron…
+    expect(tablero.columnas.single.nombre, 'Centro');
+    expect(tablero.columnas.single.pedidos, 2);
+    expect(
+      tablero.deColumna(columnaId).map((t) => t.pedido.pedidoId).toList(),
+      ['p-cerca', 'p-medio'],
+    );
+    expect(tablero.sinColocar.pedidos.single.pedidoId, 'p-lejos');
 
-      // …y la cola también, con las mismas claves: nada se subió dos veces ni
-      // se perdió por el camino.
-      lote = await ColaDeSalida(base).lote();
-      expect(lote.map((a) => a.clave).toList(), claves);
-      expect(lote.every((a) => a.estado == EstadoApunte.pendiente), isTrue);
-      expect(servidor.vistas, isEmpty);
+    // …y la cola también, con las mismas claves: nada se subió dos veces ni
+    // se perdió por el camino.
+    lote = await ColaDeSalida(base).lote();
+    expect(lote.map((a) => a.clave).toList(), claves);
+    expect(lote.every((a) => a.estado == EstadoApunte.pendiente), isTrue);
+    expect(servidor.vistas, isEmpty);
 
-      await base.close();
-    },
-  );
+    await base.close();
+  });
 
   test('cuando la columna sube, su «local-…» se sustituye en la cola y en el '
       'tablero', () async {

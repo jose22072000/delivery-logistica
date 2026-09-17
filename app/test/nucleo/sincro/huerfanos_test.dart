@@ -124,11 +124,14 @@ void main() {
     );
   });
 
-  test('una zona YA SUBIDA no es huérfana: la bajada le quitó la marca', () async {
-    await zonaLocal('col-de-verdad-1');
-    await base.customStatement('UPDATE board_columns SET nacio_aqui = 0');
-    expect((await huerfanos.mirar()).hayAlguno, isFalse);
-  });
+  test(
+    'una zona YA SUBIDA no es huérfana: la bajada le quitó la marca',
+    () async {
+      await zonaLocal('col-de-verdad-1');
+      await base.customStatement('UPDATE board_columns SET nacio_aqui = 0');
+      expect((await huerfanos.mirar()).hayAlguno, isFalse);
+    },
+  );
 
   test('una zona con UUIDv7 creada aquí SÍ es huérfana', () async {
     // El caso que el prefijo `local-…` dejaba pasar, y que dejaba el tablero en
@@ -141,24 +144,28 @@ void main() {
     expect(
       await huerfanos.volverAEncolar(cola),
       2,
-      reason: 'el ciclo la reencola, sube, la bajada la limpia y el atasco se '
+      reason:
+          'el ciclo la reencola, sube, la bajada la limpia y el atasco se '
           'deshace solo',
     );
   });
 
-  test('en un aparato sin Tablero no revienta: contesta que no hay nada', () async {
-    // Las tablas del Tablero las crea la propia pantalla la primera vez que se abre, así
-    // que en un aparato recién estrenado NO EXISTEN. Sin esta guarda, el ciclo entero
-    // moría con «no such table: board_columns» en cuanto alguien entraba sin pasar por
-    // ahí: ni subía su cola, ni bajaba el día. Comprobar la diferencia es una ayuda;
-    // subir y bajar es la razón de ser, y una ayuda no puede tumbar la razón de ser.
-    final virgen = baseDePrueba();
-    addTearDown(virgen.close);
-    final sinTablero = Huerfanos(virgen);
+  test(
+    'en un aparato sin Tablero no revienta: contesta que no hay nada',
+    () async {
+      // Las tablas del Tablero las crea la propia pantalla la primera vez que se abre, así
+      // que en un aparato recién estrenado NO EXISTEN. Sin esta guarda, el ciclo entero
+      // moría con «no such table: board_columns» en cuanto alguien entraba sin pasar por
+      // ahí: ni subía su cola, ni bajaba el día. Comprobar la diferencia es una ayuda;
+      // subir y bajar es la razón de ser, y una ayuda no puede tumbar la razón de ser.
+      final virgen = baseDePrueba();
+      addTearDown(virgen.close);
+      final sinTablero = Huerfanos(virgen);
 
-    expect((await sinTablero.mirar()).hayAlguno, isFalse);
-    expect(await sinTablero.volverAEncolar(ColaDeSalida(virgen)), 0);
-  });
+      expect((await sinTablero.mirar()).hayAlguno, isFalse);
+      expect(await sinTablero.volverAEncolar(ColaDeSalida(virgen)), 0);
+    },
+  );
 
   group('volver a encolar', () {
     test('rehace la zona Y sus pedidos, en su orden', () async {
@@ -179,7 +186,11 @@ void main() {
       );
       expect(
         apuntes.skip(1).map((a) => a.ruta).toList(),
-        ['/board/placements/p1', '/board/placements/p2', '/board/placements/p3'],
+        [
+          '/board/placements/p1',
+          '/board/placements/p2',
+          '/board/placements/p3',
+        ],
         reason: 'y en el orden en que se colocaron, que es el orden de visita',
       );
     });
@@ -214,8 +225,9 @@ void main() {
       await zonaLocal('local-huerfana', nombre: 'Otra');
 
       expect(await huerfanos.volverAEncolar(cola), 1);
-      final nuevos = (await base.select(base.apuntes).get())
-          .where((a) => a.provisional == 'local-huerfana');
+      final nuevos = (await base.select(base.apuntes).get()).where(
+        (a) => a.provisional == 'local-huerfana',
+      );
       expect(nuevos.length, 1);
     });
   });

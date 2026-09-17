@@ -44,13 +44,16 @@ void main() {
     );
   }
 
-  test('con el tope corto se avisa, y el total sigue diciendo la verdad', () async {
-    final vista = await conTope(5);
+  test(
+    'con el tope corto se avisa, y el total sigue diciendo la verdad',
+    () async {
+      final vista = await conTope(5);
 
-    expect(vista.pedidos.length, 5);
-    expect(vista.total, 12, reason: 'el total NO es lo que se pinta');
-    expect(vista.truncada, isTrue);
-  });
+      expect(vista.pedidos.length, 5);
+      expect(vista.total, 12, reason: 'el total NO es lo que se pinta');
+      expect(vista.truncada, isTrue);
+    },
+  );
 
   test('subiendo el tope una tanda salen los que faltaban, y son los más '
       'lejanos', () async {

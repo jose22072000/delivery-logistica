@@ -140,16 +140,27 @@ void main() {
     expect(find.text('Desde'), findsOneWidget);
     expect(find.text('Hasta'), findsOneWidget);
     expect(find.text('Todos los vehículos'), findsOneWidget);
+    // LAS TRES PESTANAS DEL PLIEGO, Y AQUI SALEN LAS TRES: esto se monta a
+    // 1440, o sea un monitor. El carrusel —el rotulo de una y unas bolitas— es
+    // del telefono, donde tres etiquetas no caben. Jose, 17/09/2026: «los tabs
+    // así como están eran para el móvil, que casi no tiene espacio».
     expect(find.text('Resumen'), findsOneWidget);
     expect(find.text('Por Vehículo'), findsOneWidget);
     expect(find.text('Detalle de Órdenes'), findsOneWidget);
-    // Las cuatro tarjetas del resumen.
+    // Las cuatro tarjetas del resumen, que es la pestana en la que se entra.
     expect(find.text('Total Órdenes'), findsOneWidget);
     expect(find.text('Ingresos Totales'), findsOneWidget);
     expect(find.text('Precio Promedio'), findsOneWidget);
     expect(find.text('Peso Total'), findsOneWidget);
     // `Limpiar` no sale si no hay ningun filtro puesto.
     expect(find.text('Limpiar'), findsNothing);
+    // Y se cambia pulsandolas, que es lo que se hace en un monitor.
+    for (final siguiente in ['Por Vehículo', 'Detalle de Órdenes']) {
+      await tester.tap(find.widgetWithText(OutlinedButton, siguiente));
+      await tester.pumpAndSettle();
+      // La marcada es la que se acaba de pulsar.
+      expect(find.widgetWithText(FilledButton, siguiente), findsOneWidget);
+    }
 
     await desmontar(tester);
   });
@@ -165,7 +176,9 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.text('Por Vehículo'));
+    // A 1440 las tres pestañas están a la vista, así que se pulsa la suya. El
+    // carrusel con flechas es del teléfono.
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Por Vehículo'));
     await tester.pumpAndSettle();
     expect(
       find.text('No hay datos de vehículos para los filtros seleccionados.'),

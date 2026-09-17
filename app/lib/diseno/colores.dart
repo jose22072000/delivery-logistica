@@ -318,3 +318,48 @@ abstract final class Colores {
   /// El fondo de la aplicacion. Alias de [papel].
   static const fondo = Paleta.papel;
 }
+
+/// LOS COLORES DEL MAPA, y por qué no salen de la paleta de la marca.
+///
+/// La paleta de Procovar nace del oro: funciona en un botón, en una insignia y
+/// en una cabecera, que es para lo que se eligió. **Sobre un mapa no funciona**,
+/// y por dos motivos distintos:
+///
+///  * El fondo ya tiene sus colores. OSM pinta las carreteras principales en
+///    rosa y naranja y los parques en verde; una línea de recorrido en la
+///    ciruela de la casa se confunde con una autopista. Jose, 17/09/2026: «ese
+///    morado, ¿quién te mandó a ponerlo?, sigue sin entenderse cuándo se va y
+///    cuándo se vira».
+///  * Un mapa pintado en oro y tinta no se lee como un mapa. El agua tiene que
+///    verse como agua.
+///
+/// Viven AQUÍ y no sueltos en la pantalla del mapa por la misma razón que todo
+/// lo demás: la paleta sólo sirve de algo si es el único sitio donde hay
+/// colores, y un `Color(0x…)` escrito en una vista sobrevive a cambiar la
+/// paleta. Lo vigila `test/diseno/paleta_test.dart`.
+///
+/// Lo único que se comparte con la marca es el papel del fondo, para que el
+/// mapa no parezca una ventana de otra aplicación pegada dentro.
+abstract final class ColoresDelMapa {
+  /// El recorrido de ida, y sus flechas de sentido.
+  static const recorrido = Color(0xFF2563EB);
+
+  /// El regreso al depósito, a rayas.
+  static const regreso = Color(0xFFF97316);
+
+  /// El alfiler de salida y las paradas ya entregadas.
+  static const salida = Color(0xFF16A34A);
+
+  /// El importe dentro del globo negro de una parada. Es un verde **claro**: el
+  /// de la paleta está elegido para leerse sobre papel y sobre negro se apaga.
+  static const importeEnGlobo = Color(0xFF7BE29A);
+
+  // --- El dibujo del paquete de Cuba -------------------------------------
+  static const fondo = Colores.papel;
+  static const agua = Color(0xFFCFE0EA);
+  static const costa = Color(0xFF7FA3B5);
+  static const calle = Color(0xFFBCB2A4);
+  static const via = Color(0xFF9A8C77);
+  static const troncal = Color(0xFFD9A441);
+  static const nucleo = Colores.tinta;
+}

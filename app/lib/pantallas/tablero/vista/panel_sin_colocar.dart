@@ -20,6 +20,7 @@ class PanelSinColocar extends ConsumerStatefulWidget {
     required this.tablero,
     required this.alPulsarTarjeta,
     required this.alDevolver,
+    this.conRotulo = true,
     super.key,
   });
 
@@ -29,6 +30,19 @@ class PanelSinColocar extends ConsumerStatefulWidget {
   /// Arrastrar de vuelta a la izquierda: vuelve a «sin colocar» y la lista lo
   /// recoloca sola por cercania.
   final void Function(TarjetaArrastrada datos) alDevolver;
+
+  /// SI ESTA CABECERA DICE «Sin colocar (308)» O SE CALLA.
+  ///
+  /// En el movil se calla, porque el rotulo del carrusel de arriba ya lo dice y
+  /// repetir el mismo numero dos dedos mas abajo es escribirlo dos veces. En
+  /// escritorio no hay carrusel —se ven las dos mitades a la vez— y esta
+  /// cabecera es lo unico que dice de que va esta columna.
+  ///
+  /// Lo decide QUIEN LLAMA y no un `MediaQuery` de aqui dentro: el que parte la
+  /// pantalla es un `LayoutBuilder` que mide de verdad lo que hay, y preguntarle
+  /// al `MediaQuery` por su cuenta es como se acaba con la cabecera escondida en
+  /// una pantalla ancha.
+  final bool conRotulo;
 
   @override
   ConsumerState<PanelSinColocar> createState() => _PanelSinColocarState();
@@ -64,12 +78,16 @@ class _PanelSinColocarState extends ConsumerState<PanelSinColocar> {
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      'Sin colocar (${izquierda.total})',
-                      style: tema.textTheme.titleSmall,
-                    ),
-                  ),
+                  // El rotulo, si toca. El porque, en `conRotulo`.
+                  if (widget.conRotulo)
+                    Expanded(
+                      child: Text(
+                        'Sin colocar (${izquierda.total})',
+                        style: tema.textTheme.titleSmall,
+                      ),
+                    )
+                  else
+                    const Spacer(),
                   IconButton(
                     icon: Badge(
                       isLabelVisible: filtros.hayAlguno,

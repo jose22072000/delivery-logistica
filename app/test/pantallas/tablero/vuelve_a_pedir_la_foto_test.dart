@@ -118,9 +118,11 @@ void main() {
           );
 
       // El aviso de Drift y la bajada que dispara son asíncronos.
-      for (var i = 0;
-          i < 50 && servidor.cuantas('GET', '/board') == fotosAlPrincipio;
-          i++) {
+      for (
+        var i = 0;
+        i < 50 && servidor.cuantas('GET', '/board') == fotosAlPrincipio;
+        i++
+      ) {
         await Future<void>.delayed(const Duration(milliseconds: 40));
       }
 

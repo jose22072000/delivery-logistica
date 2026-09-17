@@ -146,7 +146,10 @@ void main() {
 
     await pintar(tester);
 
-    expect(find.text('Paso 3 de 4'), findsOneWidget);
+    // En qué paso se está lo dice la tarjeta que se pinta, no un subtítulo: ahí
+    // arriba va ahora la sucursal, que es el dato que manda sobre todo lo demás.
+    expect(find.byKey(AsistenteNuevaRuta.claveDelPaso(3)), findsOneWidget);
+    expect(find.text('Camagüey'), findsOneWidget);
     expect(find.text(AsistenteNuevaRuta.sinVehiculos), findsOneWidget);
 
     await tester.tap(

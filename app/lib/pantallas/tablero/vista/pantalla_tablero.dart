@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../diseno/pestanas.dart';
 import '../../../nucleo/plataforma.dart';
 
 import '../datos/modelos.dart';
@@ -40,8 +42,17 @@ class PantallaTablero extends ConsumerStatefulWidget {
 }
 
 class _PantallaTableroState extends ConsumerState<PantallaTablero> {
-  /// En el movil las dos mitades no caben a la vez. Se ensena una y se cambia.
-  bool _verColumnas = false;
+  /// EN EL MOVIL, EN QUE PAGINA SE ESTA.
+  ///
+  /// `0` es «sin colocar»; de `1` en adelante, las zonas una a una y al final la
+  /// de crear otra. Es UN numero y no un si/no porque el gesto que pidio Jose es
+  /// el mismo para las dos cosas: deslizar pasa de «sin colocar» a la primera
+  /// zona igual que pasa de una zona a la siguiente.
+  int _pagina = 0;
+
+  /// La pagina de «sin colocar». Con nombre porque se lee en cuatro sitios y
+  /// `0` suelto no dice cual de las dos mitades es.
+  static const _sinColocar = 0;
 
   /// Por debajo de esto, las dos mitades no caben una al lado de la otra.
   static const _anchoDeDosMitades = anchoDeDosMitades;
@@ -116,44 +127,43 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
                     ),
                   ),
                   const VerticalDivider(width: 1),
-                  Expanded(child: _Tira(tablero: tablero, alto: true)),
+                  Expanded(child: _Tira(tablero: tablero)),
                 ],
               );
             }
+            // EL MOVIL: UNA SOLA TIRA DE PAGINAS.
+            //
+            // «Sin colocar» es la primera y DESPUES van las zonas, una a una.
+            // Puestas en fila, el mismo gesto sirve para las dos cosas que
+            // pidio Jose: pasar de una pestana a la otra, y ya dentro de zonas
+            // ir de una zona a la siguiente sin volver a la pestana.
+            //
+            // Y por eso NO van anidadas —las pestanas por fuera, las zonas por
+            // dentro—, que era lo primero que salia: dos deslizamientos en el
+            // mismo eje no se turnan. Manda el de dentro, y cuando llega a su
+            // extremo el de fuera no recoge el gesto: quedaria una zona de la
+            // que no se puede salir con el dedo.
+            final cuantas = 1 + _cuantasZonas(tablero);
+            final pagina = _pagina.clamp(_sinColocar, cuantas - 1);
             return Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  child: SegmentedButton<bool>(
-                    segments: [
-                      ButtonSegment<bool>(
-                        value: false,
-                        label: Text(
-                          'Sin colocar (${tablero.sinColocar.total})',
-                        ),
-                      ),
-                      ButtonSegment<bool>(
-                        value: true,
-                        label: Text('Zonas (${tablero.columnas.length})'),
-                      ),
-                    ],
-                    selected: {_verColumnas},
-                    onSelectionChanged: (cual) =>
-                        setState(() => _verColumnas = cual.first),
+                  padding: const EdgeInsets.fromLTRB(4, 6, 4, 2),
+                  child: CarruselDePestanas(
+                    indice: pagina,
+                    cuantas: cuantas,
+                    titulo: _tituloDePagina(tablero, pagina),
+                    etiquetas: _nombresDePagina(tablero),
+                    alCambiar: _irA,
                   ),
                 ),
                 Expanded(
-                  child: _verColumnas
-                      ? _Tira(tablero: tablero, alto: false)
-                      : PanelSinColocar(
-                          tablero: tablero,
-                          alPulsarTarjeta: (pedido) =>
-                              _moverTarjeta(tablero, pedido),
-                          alDevolver: _devolver,
-                        ),
+                  child: CuerpoDeslizable(
+                    indice: pagina,
+                    cuantas: cuantas,
+                    alCambiar: _irA,
+                    pagina: (contexto, i) => _paginaDelMovil(tablero, i),
+                  ),
                 ),
               ],
             );
@@ -162,6 +172,63 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
       ),
     ],
   );
+
+  /// EL ROTULO DE LA PAGINA EN LA QUE SE ESTA — el unico que se pinta.
+  ///
+  /// Es el de la MITAD en la que se esta, no el de la zona concreta: dentro de
+  /// zonas pone «Zonas (12)» y no «Centro (3)», porque el nombre y la cuenta de
+  /// la zona ya los dice a lo grande la cabecera de la propia columna, dos
+  /// dedos mas abajo. Dos sitios con el mismo texto es el sitio perfecto para
+  /// que un dia digan cosas distintas.
+  ///
+  /// Cual de las doce zonas es lo dicen las bolitas y la cabecera de la columna.
+  String _tituloDePagina(Tablero tablero, int pagina) {
+    if (pagina == _sinColocar) {
+      return 'Sin colocar (${tablero.sinColocar.total})';
+    }
+    if (tablero.columnas.isNotEmpty && pagina - 1 >= tablero.columnas.length) {
+      return 'Nueva columna';
+    }
+    return 'Zonas (${tablero.columnas.length})';
+  }
+
+  /// CUANTAS PAGINAS DE ZONAS HAY EN EL MOVIL: una por columna, mas la de crear
+  /// otra. Sin ninguna columna es una sola, la que explica que las pone el.
+  int _cuantasZonas(Tablero tablero) =>
+      tablero.columnas.isEmpty ? 1 : tablero.columnas.length + 1;
+
+  /// El nombre de cada pagina, que es lo que dice la flecha a donde lleva.
+  List<String> _nombresDePagina(Tablero tablero) => [
+    'Sin colocar',
+    if (tablero.columnas.isEmpty)
+      'Zonas'
+    else ...[
+      for (final columna in tablero.columnas) columna.nombre,
+      'Nueva columna',
+    ],
+  ];
+
+  Widget _paginaDelMovil(Tablero tablero, int i) {
+    if (i == _sinColocar) {
+      return PanelSinColocar(
+        tablero: tablero,
+        alPulsarTarjeta: (pedido) => _moverTarjeta(tablero, pedido),
+        alDevolver: _devolver,
+        // Sin rotulo: lo dice el carrusel, justo encima.
+        conRotulo: false,
+      );
+    }
+    if (tablero.columnas.isEmpty) return const _SinColumnas();
+    final cual = i - 1;
+    if (cual >= tablero.columnas.length) return const _PaginaNuevaColumna();
+    // `ancho: null` = que ocupe la pagina entera, que es justo lo que hay.
+    return _Zona(tablero: tablero, cual: cual);
+  }
+
+  void _irA(int pagina) {
+    if (pagina == _pagina) return;
+    setState(() => _pagina = pagina);
+  }
 
   void _moverTarjeta(Tablero tablero, TarjetaPedido pedido) {
     unawaited(
@@ -192,49 +259,19 @@ String _texto(Object fallo) => switch (fallo) {
 };
 
 /// La tira de columnas, que se desplaza a lo ancho, con el «+» al final.
+///
+/// **Solo en pantalla ancha.** En el movil las zonas ya no van en una tira que
+/// se empuja: van una por pagina y se pasa deslizando (`_paginaDelMovil`). En
+/// una tira, para llegar a la zona seis hay que arrastrar cinco veces sin que
+/// nada enganche; en paginas, cada deslizamiento cae en una zona entera.
 class _Tira extends ConsumerWidget {
-  const _Tira({required this.tablero, required this.alto});
+  const _Tira({required this.tablero});
 
   final Tablero tablero;
 
-  /// En pantalla ancha las columnas llevan ancho fijo; en el movil, una ocupa
-  /// todo.
-  final bool alto;
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final ancho = alto ? 300.0 : MediaQuery.sizeOf(context).width - 24;
-    if (tablero.columnas.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Las zonas las pones tú.',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Cada sucursal divide su territorio a su manera: por distritos, '
-                'por carreteras o por barrios de toda la vida. Crea la primera '
-                'columna con el «+».',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () =>
-                    unawaited(AccionesTablero.crearColumna(context, ref)),
-                icon: const Icon(Icons.add),
-                label: const Text('Nueva columna'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    if (tablero.columnas.isEmpty) return const _SinColumnas();
 
     return ListView.builder(
       scrollDirection: Axis.horizontal,
@@ -242,57 +279,147 @@ class _Tira extends ConsumerWidget {
       // Una mas: el «+» del final, que es como dice el pliego que se crea una
       // columna.
       itemCount: tablero.columnas.length + 1,
-      itemBuilder: (contexto, i) {
-        if (i == tablero.columnas.length) {
-          return _BotonNuevaColumna(ancho: alto ? 140 : ancho);
-        }
-        final columna = tablero.columnas[i];
-        return ColumnaDelTablero(
-          columna: columna,
-          ancho: ancho,
-          tarjetas: tablero.deColumna(columna.id),
-          alSoltar: (datos, posicion) {
-            // Soltar una tarjeta donde ya estaba no es una orden: es un dedo
-            // que se escapo. Sin esto, cada roce deja un apunte en la cola.
-            if (datos.desdeColumnaId == columna.id && posicion == null) return;
-            unawaited(
-              ref
-                  .read(tableroProvider.notifier)
-                  .colocar(
-                    pedidoId: datos.pedidoId,
-                    columnaId: columna.id,
-                    posicion: posicion,
-                  ),
-            );
-          },
-          alSoltarColumna: (arrastrada) {
-            final ids = tablero.columnas.map((c) => c.id).toList()
-              ..remove(arrastrada.columnaId);
-            ids.insert(i.clamp(0, ids.length), arrastrada.columnaId);
-            unawaited(ref.read(tableroProvider.notifier).reordenar(ids));
-          },
-          alPulsarTarjeta: (tarjeta) => unawaited(
-            AccionesTablero.moverTarjeta(
-              contexto,
-              ref,
-              pedido: tarjeta.pedido,
-              tablero: tablero,
-              columnaActual: tarjeta.columnaId,
-              posicionActual: tarjeta.posicion,
-            ),
-          ),
-          alAbrirMenu: () => unawaited(
-            AccionesTablero.menuDeColumna(
-              contexto,
-              ref,
-              columna: columna,
-              tablero: tablero,
-            ),
-          ),
-        );
-      },
+      itemBuilder: (contexto, i) => i == tablero.columnas.length
+          ? const _BotonNuevaColumna(ancho: 140)
+          : _Zona(tablero: tablero, cual: i, ancho: 300),
     );
   }
+}
+
+/// UNA ZONA, con todo lo que se puede hacer sobre ella.
+///
+/// Vive suelta porque la usan los dos mundos: la tira de escritorio y la pagina
+/// del movil. Tenerla dos veces era tener dos sitios donde arreglar la misma
+/// regla de «soltar donde ya estaba no es una orden», y uno de los dos se
+/// olvida.
+class _Zona extends ConsumerWidget {
+  const _Zona({required this.tablero, required this.cual, this.ancho});
+
+  final Tablero tablero;
+
+  /// Cual de `tablero.columnas`, por su sitio: hace falta el numero y no solo la
+  /// columna, porque reordenar es «ponla donde esta esta».
+  final int cual;
+
+  /// `null` = que ocupe lo que le den. Es lo del movil, donde la zona es la
+  /// pagina entera.
+  final double? ancho;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final columna = tablero.columnas[cual];
+    return ColumnaDelTablero(
+      columna: columna,
+      ancho: ancho,
+      tarjetas: tablero.deColumna(columna.id),
+      alSoltar: (datos, posicion) {
+        // Soltar una tarjeta donde ya estaba no es una orden: es un dedo que se
+        // escapo. Sin esto, cada roce deja un apunte en la cola.
+        if (datos.desdeColumnaId == columna.id && posicion == null) return;
+        unawaited(
+          ref
+              .read(tableroProvider.notifier)
+              .colocar(
+                pedidoId: datos.pedidoId,
+                columnaId: columna.id,
+                posicion: posicion,
+              ),
+        );
+      },
+      alSoltarColumna: (arrastrada) {
+        final ids = tablero.columnas.map((c) => c.id).toList()
+          ..remove(arrastrada.columnaId);
+        ids.insert(cual.clamp(0, ids.length), arrastrada.columnaId);
+        unawaited(ref.read(tableroProvider.notifier).reordenar(ids));
+      },
+      alPulsarTarjeta: (tarjeta) => unawaited(
+        AccionesTablero.moverTarjeta(
+          context,
+          ref,
+          pedido: tarjeta.pedido,
+          tablero: tablero,
+          columnaActual: tarjeta.columnaId,
+          posicionActual: tarjeta.posicion,
+        ),
+      ),
+      alAbrirMenu: () => unawaited(
+        AccionesTablero.menuDeColumna(
+          context,
+          ref,
+          columna: columna,
+          tablero: tablero,
+        ),
+      ),
+    );
+  }
+}
+
+/// Un tablero sin ninguna zona todavia.
+class _SinColumnas extends ConsumerWidget {
+  const _SinColumnas();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Las zonas las pones tú.', textAlign: TextAlign.center),
+          const SizedBox(height: 8),
+          Text(
+            'Cada sucursal divide su territorio a su manera: por distritos, '
+            'por carreteras o por barrios de toda la vida. Crea la primera '
+            'columna con el «+».',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () =>
+                unawaited(AccionesTablero.crearColumna(context, ref)),
+            icon: const Icon(Icons.add),
+            label: const Text('Nueva columna'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// LA ULTIMA PAGINA DEL MOVIL: crear otra zona.
+///
+/// En la tira de escritorio esto es el recuadro del «+» al final. En el movil,
+/// donde cada zona ocupa una pagina, un recuadro estirado a pantalla completa
+/// seria un boton gigante: se dice con palabras y ya.
+class _PaginaNuevaColumna extends ConsumerWidget {
+  const _PaginaNuevaColumna();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Fin de las zonas.', textAlign: TextAlign.center),
+          const SizedBox(height: 8),
+          Text(
+            'Si el territorio se te queda corto, pon otra.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () =>
+                unawaited(AccionesTablero.crearColumna(context, ref)),
+            icon: const Icon(Icons.add),
+            label: const Text('Nueva columna'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _BotonNuevaColumna extends ConsumerWidget {
@@ -372,9 +499,7 @@ class _BarraDeArriba extends ConsumerWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                if (ref
-                        .read(tableroProvider.notifier)
-                        .porQueNoSeRefresca
+                if (ref.read(tableroProvider.notifier).porQueNoSeRefresca
                     case final pendiente?)
                   Text(
                     'No se actualiza: hay $pendiente. Se sube primero y '

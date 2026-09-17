@@ -22,7 +22,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -87,10 +89,21 @@ var avisarCambioDelTablero = func(_ context.Context) {}
 // pantalla del logístico y están inventariados en la spec. Escritos a mano dentro del
 // manejador acaban diciendo tres cosas parecidas en tres sitios.
 const (
-	msgElijeSucursal   = "Elige una sucursal para ver su tablero"
-	msgYaVaEnUnaRuta   = "Ese pedido ya está en una ruta"
+	msgElijeSucursal = "Elige una sucursal para ver su tablero"
+	msgYaVaEnUnaRuta = "Ese pedido ya está en una ruta"
+	// EL OTRO 409 DE ESA MISMA PUERTA, y no se arregla igual que el de arriba.
+	//
+	// «Ya está en una ruta» se arregla solo en cuanto esa ruta se cierre; «ya se
+	// entregó» NO se arregla nunca, y quien lo lea tiene que saber que no tiene que
+	// esperar a nada. Decirle lo primero cuando pasa lo segundo es mandarlo a vigilar
+	// una ruta que puede que ni exista ya.
+	msgYaSeEntrego     = "Ese pedido ya se entregó"
 	msgColumnaSinNada  = "La columna no tiene ningún pedido que se pueda repartir hoy"
 	msgNombreRequerido = "La columna necesita un nombre"
+	// La lista de pedidos vino VACÍA. No es lo mismo que no mandarla: mandarla vacía es
+	// un aparato diciendo que no eligió nada, y armar entonces con todo lo que haya
+	// puesto es exactamente el fallo que la lista viene a tapar.
+	msgListaVacia = "Vino la lista de pedidos pero está vacía: no se sabe qué tenía que salir en esta ruta"
 )
 
 // TopeSinColocar es el tope por defecto de la mitad izquierda. Se puede bajar por query,
@@ -1086,6 +1099,18 @@ func (s *Servidor) porQueNoSePudoColocar(w http.ResponseWriter, r *http.Request,
 		httpx.Error(w, r, http.StatusNotFound, httpx.MsgNotFound)
 		return
 	}
+	// PRIMERO EL ENTREGADO Y DESPUÉS LA RUTA, y el orden es lo que importa aquí.
+	//
+	// Un entregado conserva su `route_id` mientras la ruta exista, así que mirando la
+	// ruta primero los dos casos contestarían «ya está en una ruta» — verdad a medias y
+	// consejo equivocado: ese pedido no está esperando a que se cierre nada, ya se
+	// repartió. Y cuando la ruta se borra (`ON DELETE SET NULL` en la clave ajena,
+	// `db/migrations/00001_init.sql:446`) el `route_id` desaparece y sólo quedan estas
+	// dos columnas para saberlo.
+	if p.DeliveredAt.Valid || (p.Resultado != nil && *p.Resultado == sqlc.StopResultEntregado) {
+		httpx.Error(w, r, http.StatusConflict, msgYaSeEntrego)
+		return
+	}
 	if p.RouteID.Valid {
 		httpx.Error(w, r, http.StatusConflict, msgYaVaEnUnaRuta)
 		return
@@ -1144,6 +1169,54 @@ type cuerpoArmar struct {
 	// el vecino más próximo no. Lo que no puede pasar es que su orden se pierda sin que
 	// nadie se lo diga.
 	Optimizar httpx.Opcional[bool] `json:"optimizar"`
+
+	// LOS PEDIDOS QUE EL APARATO DECIDIÓ QUE IBAN EN ESA RUTA. Opcional, y así tiene que
+	// seguir: las APK ya instaladas NO lo mandan (`app/lib/pantallas/tablero/datos/
+	// repositorio.dart`, `armarRuta`, encola sólo nombre, vehículo y optimizar), y si
+	// esto se volviera obligatorio dejarían de poder armar rutas de golpe.
+	//
+	// POR QUÉ HACE FALTA, que es el fallo del 18/09/2026 y es grave:
+	//
+	// Sin esta lista, el servidor arma la ruta con LO QUE ÉL TENGA PUESTO EN ESA ZONA EN
+	// EL INSTANTE EN QUE LE LLEGA EL APUNTE — y un apunte hecho sin señal llega horas
+	// después. Si mientras tanto la web movió una tarjeta de esa zona:
+	//
+	//   · la ruta del servidor nace SIN ese pedido, aunque el repartidor ya lo entregó;
+	//   · su resultado llega a `/routes/{id}/results` para una parada que no va en la
+	//     ruta y se rechaza — una entrega de verdad que no se guarda;
+	//   · y el pedido se queda suelto en el tablero, así que la web lo mete en otra ruta
+	//     y sale un SEGUNDO camión con el mismo bulto.
+	//
+	// Con la lista, el servidor arma exactamente lo que el aparato decidió y DICE LA
+	// DIFERENCIA: lo que el aparato eligió y ya no está, y lo que hay ahora en la zona y
+	// el aparato no eligió. Ninguna de las dos cosas se calla.
+	//
+	// Se aceptan los dos nombres, `pedidoIds` (el del resto de este cuerpo, en castellano)
+	// y `orderIds` (el de `POST /api/routes`), para que la pantalla pueda mandar el que ya
+	// usa sin que haya que acertar cuál es. Manda el primero si vienen los dos.
+	PedidoIds json.RawMessage `json:"pedidoIds"`
+	OrderIds  json.RawMessage `json:"orderIds"`
+}
+
+// loQueEligioElAparato saca la lista de pedidos del cuerpo, si vino.
+//
+// El segundo valor es «vino la lista», que NO es lo mismo que «la lista tiene algo»: un
+// `"pedidoIds": []` es un aparato diciendo que no eligió nada, y eso es un cuerpo mal
+// formado, no una orden de armar con todo lo que haya. Confundir los dos es justo cómo se
+// vuelve al fallo que esto arregla.
+func loQueEligioElAparato(c cuerpoArmar) (map[uuid.UUID]bool, bool) {
+	crudo := c.PedidoIds
+	if len(crudo) == 0 {
+		crudo = c.OrderIds
+	}
+	if len(crudo) == 0 || string(bytes.TrimSpace(crudo)) == "null" {
+		return nil, false
+	}
+	elegidos := map[uuid.UUID]bool{}
+	for _, id := range soloUuids(leerIdsDePedidos(crudo)) {
+		elegidos[id] = true
+	}
+	return elegidos, true
 }
 
 // DescartadoSalida nombra a cada pedido que se cayó, POR QUÉ y QUÉ HACER. Una columna de
@@ -1251,13 +1324,88 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// LO QUE EL APARATO ELIGIÓ CONTRA LO QUE HAY AHORA EN LA ZONA.
+	//
+	// Sin la lista (las APK de hoy) esto no se ejecuta y todo sigue como estaba: se arma
+	// con lo que haya puesto. Con la lista, la ruta lleva EXACTAMENTE lo que el aparato
+	// decidió, y las dos diferencias posibles se nombran en vez de callarse:
+	//
+	//   · lo que él eligió y ya no está en la zona — se lo llevó otro, o alguien quitó la
+	//     tarjeta entre que él armó sin señal y el apunte subió. ESE es el pedido que su
+	//     repartidor puede haber entregado ya, así que hay que decirlo con su id.
+	//   · lo que hay ahora en la zona y él NO eligió — llegó después. No sube a este
+	//     camión: él no lo cargó. Se queda en la zona y se dice que se quedó.
+	elegidos, hayEleccion := loQueEligioElAparato(c)
+	if hayEleccion {
+		if len(elegidos) == 0 {
+			httpx.Error(w, r, http.StatusBadRequest, msgListaVacia)
+			return
+		}
+		enLaZona := map[uuid.UUID]bool{}
+		for _, t := range puestas {
+			if t.ColumnID == id {
+				enLaZona[t.OrderID] = true
+			}
+		}
+		// Lo que eligió y ya NO está puesto en esta zona. Los que siguen puestos pero no
+		// pueden ir ya los nombró el bucle de arriba con su motivo de verdad.
+		// Ordenados: un mapa en Go se recorre al azar, y una respuesta que cambia de orden
+		// entre dos llamadas iguales es imposible de leer en un registro y de comparar en
+		// una prueba.
+		faltan := make([]uuid.UUID, 0, len(elegidos))
+		for ped := range elegidos {
+			if !enLaZona[ped] {
+				faltan = append(faltan, ped)
+			}
+		}
+		sort.Slice(faltan, func(i, j int) bool { return faltan[i].String() < faltan[j].String() })
+		for _, ped := range faltan {
+			descartados = append(descartados, DescartadoSalida{
+				PedidoID: ped,
+				Motivo:   "ya no estaba en esa zona cuando llegó tu apunte",
+				QueHacer: "Se movió o se quitó de la zona mientras tu aparato estaba sin " +
+					"señal. NO ha subido a este camión: comprueba si se entregó igual y " +
+					"míralo antes de que salga en otra ruta.",
+			})
+		}
+		// Y lo que hay ahora y él no eligió: se queda, y se dice.
+		for _, t := range puestas {
+			if t.ColumnID != id || elegidos[t.OrderID] || !esCandidato[t.OrderID] {
+				continue
+			}
+			descartados = append(descartados, DescartadoSalida{
+				PedidoID: t.OrderID, OperationNumber: t.OperationNumber,
+				CustomerName: t.CustomerName,
+				Motivo:       "lo pusieron en la zona después de que armaras",
+				QueHacer: "No iba en tu camión, así que no ha subido. Se queda en la zona: " +
+					"arma otra vez si tiene que salir hoy.",
+			})
+		}
+	}
+
 	// El corte por factura se hace AQUÍ y no en el SQL, para poder nombrar cuál falla y
 	// por qué. Un WHERE que los descartara en la consulta deja el mismo rechazo sin nada
 	// que decir.
 	var buenos []sqlc.PedidosDeColumnaParaArmarRutaRow
 	for _, p := range candidatos {
+		// Si el aparato dijo qué iba, lo que él no eligió NO sube: ya se nombró arriba.
+		if hayEleccion && !elegidos[p.ID] {
+			continue
+		}
 		motivo, queHacer := "", ""
 		switch {
+		// LO QUE YA SE ENTREGÓ NO VUELVE A SUBIR A UN CAMIÓN.
+		//
+		// Se corta AQUÍ y no en el `WHERE` de la consulta, igual que el corte por
+		// factura y por lo mismo: la tarjeta se nombra con su motivo y la zona sale
+		// igual con el resto. Y hace falta cortarlo: la consulta pide `route_id IS
+		// NULL`, y un entregado se queda sin `route_id` en cuanto alguien borra la ruta
+		// en la que viajó (`ON DELETE SET NULL`, `db/migrations/00001_init.sql:446`).
+		// Sin esto, la zona de ayer vuelve a parir la ruta de ayer.
+		case p.DeliveredAt.Valid || (p.Resultado != nil && *p.Resultado == sqlc.StopResultEntregado):
+			motivo = "ya se entregó"
+			queHacer = "Ese pedido ya se repartió. Quita la tarjeta de la zona: volver a " +
+				"subirlo a un camión lo entregaría dos veces."
 		case p.Archivado:
 			motivo = "archivado en PEDIDO"
 			queHacer = "PEDIDO le dio de baja. Quita la tarjeta de la zona."
@@ -1464,6 +1612,14 @@ var errSeLoLlevaron = errors.New("un pedido se subió a otra ruta mientras se ar
 // que el camión ya se lo llevó.
 func porQueNoEsCandidato(t sqlc.ListarPedidosColocadosRow) (motivo, queHacer string) {
 	switch {
+	// EL ENTREGADO VA ANTES QUE LA RUTA. Un entregado conserva su `route_id`, así que
+	// mirando la ruta primero se le contaría al logístico que «otro lo subió a un
+	// camión» — y lo que pasó es que ese pedido YA SE REPARTIÓ, en el camión de ayer o
+	// en el de esta mañana. Lo que hay que hacer es distinto y no se puede adivinar.
+	case t.Resultado != nil && *t.Resultado == sqlc.StopResultEntregado:
+		return "ya se entregó",
+			"Ese pedido ya se repartió. Quita la tarjeta de la zona: volver a subirlo " +
+				"a un camión lo entregaría dos veces."
 	case t.RouteID.Valid:
 		return "ya va en otra ruta",
 			"Otro lo subió a un camión. Quita la tarjeta de la zona."

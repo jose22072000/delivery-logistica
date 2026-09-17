@@ -407,9 +407,7 @@ void main() {
               'falte configurar',
         );
         expect(
-          find.text(
-            tituloDeLoQueFaltaPorBajar(PorQueEstaVacio.noSeDescargo),
-          ),
+          find.text(tituloDeLoQueFaltaPorBajar(PorQueEstaVacio.noSeDescargo)),
           findsOneWidget,
         );
 
@@ -492,7 +490,8 @@ void main() {
           TextosNuevosDeInformes.cuadradoConElAparato('17/9/2026, 10:35'),
         ),
         findsOneWidget,
-        reason: 'en la APK el informe SÍ sale del aparato, y eso hay que decirlo',
+        reason:
+            'en la APK el informe SÍ sale del aparato, y eso hay que decirlo',
       );
 
       await desmontar(tester);

@@ -42,10 +42,10 @@ void main() {
       llamadas++;
       // El servidor no sabe nada de lo de aquí: devuelve un tablero VACÍO, que
       // es exactamente el caso que borraba.
-      return RespuestaFalsa(
-        200,
-        const {'columnas': <Object?>[], 'colocados': <Object?>[]},
-      );
+      return RespuestaFalsa(200, const {
+        'columnas': <Object?>[],
+        'colocados': <Object?>[],
+      });
     });
     final dio = Dio(BaseOptions(baseUrl: 'https://api.test'))
       ..httpClientAdapter = servidor;
@@ -99,26 +99,29 @@ void main() {
     return f.read<int>('n');
   }
 
-  test('con la zona HUÉRFANA —sin apunte que la suba— no se baja nada', () async {
-    // Éste es el caso de Jose, exacto: el apunte se descartó, la cola está a
-    // cero, y la zona sigue aquí con sus cinco pedidos.
-    await zonaLocal('local-vista', pedidos: ['p1', 'p2', 'p3', 'p4', 'p5']);
-    expect(await base.cuantosPendientes(), 0, reason: 'la cola está vacía');
+  test(
+    'con la zona HUÉRFANA —sin apunte que la suba— no se baja nada',
+    () async {
+      // Éste es el caso de Jose, exacto: el apunte se descartó, la cola está a
+      // cero, y la zona sigue aquí con sus cinco pedidos.
+      await zonaLocal('local-vista', pedidos: ['p1', 'p2', 'p3', 'p4', 'p5']);
+      expect(await base.cuantosPendientes(), 0, reason: 'la cola está vacía');
 
-    final r = await servicio.descargar(sucursal);
+      final r = await servicio.descargar(sucursal);
 
-    expect(r.seBajo, isFalse);
-    expect(
-      await cuantasZonas(),
-      1,
-      reason: 'la zona sigue aquí: actualizar NO puede llevarse trabajo',
-    );
-    expect(
-      llamadas,
-      0,
-      reason: 'ni siquiera se le pregunta al servidor: se corta antes',
-    );
-  });
+      expect(r.seBajo, isFalse);
+      expect(
+        await cuantasZonas(),
+        1,
+        reason: 'la zona sigue aquí: actualizar NO puede llevarse trabajo',
+      );
+      expect(
+        llamadas,
+        0,
+        reason: 'ni siquiera se le pregunta al servidor: se corta antes',
+      );
+    },
+  );
 
   test('y DICE qué lo impide, con nombre', () async {
     await zonaLocal('local-vista', pedidos: ['p1']);
@@ -151,15 +154,18 @@ void main() {
     expect(await cuantasZonas(), 1);
   });
 
-  test('sin nada pendiente SÍ se baja: es lo normal estando en línea', () async {
-    // La guarda no puede pasarse de lista: con todo arriba, actualizar tiene que
-    // traer la foto del servidor, que es para lo que está el botón.
-    final r = await servicio.descargar(sucursal);
+  test(
+    'sin nada pendiente SÍ se baja: es lo normal estando en línea',
+    () async {
+      // La guarda no puede pasarse de lista: con todo arriba, actualizar tiene que
+      // traer la foto del servidor, que es para lo que está el botón.
+      final r = await servicio.descargar(sucursal);
 
-    expect(r.seBajo, isTrue);
-    expect(r.porQue, isNull);
-    expect(llamadas, 1);
-  });
+      expect(r.seBajo, isTrue);
+      expect(r.porQue, isNull);
+      expect(llamadas, 1);
+    },
+  );
 
   test('una zona YA SUBIDA no impide actualizar', () async {
     // ## Esta prueba EXIGÍA la pérdida, y por eso está escrita así ahora
@@ -185,7 +191,8 @@ void main() {
     expect(
       await cuantasZonas(),
       0,
-      reason: 'vino del servidor y el servidor ya no la tiene: se va, y eso SÍ '
+      reason:
+          'vino del servidor y el servidor ya no la tiene: se va, y eso SÍ '
           'es correcto — la borró otra persona',
     );
   });
@@ -248,7 +255,11 @@ void main() {
     );
     await zonaLocal('local-vista', pedidos: ['p1']);
 
-    expect(await base.cuantosPendientes(), 0, reason: 'rechazado no es pendiente');
+    expect(
+      await base.cuantosPendientes(),
+      0,
+      reason: 'rechazado no es pendiente',
+    );
     final r = await servicio.descargar(sucursal);
     expect(r.seBajo, isFalse);
     expect(await cuantasZonas(), 1);
@@ -351,14 +362,16 @@ void main() {
     late RepositorioTablero repo;
 
     /// Una zona TAL COMO LA DEJA LA BAJADA: vino del servidor, `nacio_aqui = 0`.
-    Future<void> zonaDelServidor(String id, String nombre) =>
-        base.customStatement(
-          'INSERT INTO board_columns (id, branch_id, nombre, posicion, created_at, '
-          'updated_at, nacio_aqui) '
-          "VALUES (?1, ?2, ?3, 1, '2026-09-16T10:00:00.000', "
-          "'2026-09-16T10:00:00.000', 0)",
-          [id, sucursal, nombre],
-        );
+    Future<void> zonaDelServidor(
+      String id,
+      String nombre,
+    ) => base.customStatement(
+      'INSERT INTO board_columns (id, branch_id, nombre, posicion, created_at, '
+      'updated_at, nacio_aqui) '
+      "VALUES (?1, ?2, ?3, 1, '2026-09-16T10:00:00.000', "
+      "'2026-09-16T10:00:00.000', 0)",
+      [id, sucursal, nombre],
+    );
 
     setUp(() => repo = RepositorioTablero(base, ColaDeSalida(base)));
 
@@ -373,9 +386,12 @@ void main() {
     test('renombrar', () async {
       await zonaDelServidor('c1', 'Centro');
       expect(
-        await seBajaDespuesDe(() => repo.renombrarColumna('c1', 'Centro Norte')),
+        await seBajaDespuesDe(
+          () => repo.renombrarColumna('c1', 'Centro Norte'),
+        ),
         isFalse,
-        reason: 'actualizar traería «Centro» otra vez y el renombrado se pierde',
+        reason:
+            'actualizar traería «Centro» otra vez y el renombrado se pierde',
       );
     });
 
@@ -448,32 +464,35 @@ void main() {
   /// Es un fallo más grave que el que `nacio_aqui` venía a arreglar: aquél perdía datos en
   /// un caso de esquina, éste rompía el camino normal para todos.
   group('el pestillo se abre al subir', () {
-    test('una zona que sube deja de estar marcada, y actualizar funciona', () async {
-      final cola = ColaDeSalida(base);
-      final repo = RepositorioTablero(base, cola);
-      final id = await repo.crearColumna(
-        sucursalId: sucursal,
-        nombre: 'Reparto Norte',
-      );
-      expect(
-        (await servicio.descargar(sucursal)).seBajo,
-        isFalse,
-        reason: 'todavía no ha subido: se protege, y eso está bien',
-      );
+    test(
+      'una zona que sube deja de estar marcada, y actualizar funciona',
+      () async {
+        final cola = ColaDeSalida(base);
+        final repo = RepositorioTablero(base, cola);
+        final id = await repo.crearColumna(
+          sucursalId: sucursal,
+          nombre: 'Reparto Norte',
+        );
+        expect(
+          (await servicio.descargar(sucursal)).seBajo,
+          isFalse,
+          reason: 'todavía no ha subido: se protege, y eso está bien',
+        );
 
-      // El servidor dice que sí. Con el id del aparato, devuelve el mismo.
-      final apunte = (await cola.lote()).first;
-      await cola.resolver(
-        apunte.clave,
-        ResultadoApunte(estado: EstadoResultado.aplicado, id: id),
-      );
+        // El servidor dice que sí. Con el id del aparato, devuelve el mismo.
+        final apunte = (await cola.lote()).first;
+        await cola.resolver(
+          apunte.clave,
+          ResultadoApunte(estado: EstadoResultado.aplicado, id: id),
+        );
 
-      expect(
-        (await servicio.descargar(sucursal)).seBajo,
-        isTrue,
-        reason: 'ya está arriba: el tablero TIENE que poder actualizarse',
-      );
-    });
+        expect(
+          (await servicio.descargar(sucursal)).seBajo,
+          isTrue,
+          reason: 'ya está arriba: el tablero TIENE que poder actualizarse',
+        );
+      },
+    );
 
     test('una tarjeta que sube, igual', () async {
       final cola = ColaDeSalida(base);
@@ -513,26 +532,29 @@ void main() {
   /// arrastrar una columna y soltarla donde estaba, congelaba el tablero. Marcaban por
   /// ejecutarse, no por cambiar algo.
   group('un gesto que no cambia nada no marca', () {
-    test('renombrar al mismo nombre, elegir el mismo camión, mismo orden', () async {
-      final repo = RepositorioTablero(base, ColaDeSalida(base));
-      await base.customStatement(
-        'INSERT INTO board_columns (id, branch_id, nombre, posicion, created_at, '
-        'updated_at, nacio_aqui) '
-        "VALUES ('c1', ?1, 'Centro', 1, '2026-09-16T10:00:00.000', "
-        "'2026-09-16T10:00:00.000', 0)",
-        [sucursal],
-      );
+    test(
+      'renombrar al mismo nombre, elegir el mismo camión, mismo orden',
+      () async {
+        final repo = RepositorioTablero(base, ColaDeSalida(base));
+        await base.customStatement(
+          'INSERT INTO board_columns (id, branch_id, nombre, posicion, created_at, '
+          'updated_at, nacio_aqui) '
+          "VALUES ('c1', ?1, 'Centro', 1, '2026-09-16T10:00:00.000', "
+          "'2026-09-16T10:00:00.000', 0)",
+          [sucursal],
+        );
 
-      await repo.renombrarColumna('c1', 'Centro');
-      await repo.elegirCamion('c1', null);
-      await repo.reordenarColumnas(sucursal, ['c1']);
-      await base.customStatement('DELETE FROM apuntes');
+        await repo.renombrarColumna('c1', 'Centro');
+        await repo.elegirCamion('c1', null);
+        await repo.reordenarColumnas(sucursal, ['c1']);
+        await base.customStatement('DELETE FROM apuntes');
 
-      expect(
-        (await servicio.descargar(sucursal)).seBajo,
-        isTrue,
-        reason: 'no cambió nada: no hay nada que proteger',
-      );
-    });
+        expect(
+          (await servicio.descargar(sucursal)).seBajo,
+          isTrue,
+          reason: 'no cambió nada: no hay nada que proteger',
+        );
+      },
+    );
   });
 }

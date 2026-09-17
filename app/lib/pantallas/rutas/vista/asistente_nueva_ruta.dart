@@ -59,6 +59,64 @@ class AsistenteNuevaRuta extends ConsumerStatefulWidget {
       'Según vayas eligiendo pedidos, aquí sale cuánto hay que sacar de cada '
       'producto.';
 
+  /// LOS CUATRO PASOS, con el nombre que sale bajo su tramo de la barra.
+  static const pasos = <int, String>{
+    1: 'Sucursal',
+    2: 'Salida',
+    3: 'Vehículo',
+    4: 'Pedidos',
+  };
+
+  /// La tarjeta del paso `n`. La usan las pruebas para decir «estoy en el 2»
+  /// sin depender del texto del título, que es lo que más se retoca.
+  static Key claveDelPaso(int n) => ValueKey('paso-$n');
+
+  /// El tramo `n` de la barra de progreso, el que se pulsa para volver.
+  static Key claveDelTramo(int n) => ValueKey('tramo-$n');
+
+  /// LA CAJA DE LA LISTA DE PEDIDOS.
+  ///
+  /// Es la pieza que arregla la queja de Jose del 17/09/2026: «no me digas que
+  /// está abajo del todo y tengo que bajar por todos los pedidos, que es una
+  /// lista larga a la cual no me le has puesto ni paginación». La lista estaba
+  /// suelta dentro del desplazamiento del cajón, así que con 295 pedidos el
+  /// resumen y el botón de generar quedaban a cientos de píxeles hacia abajo.
+  ///
+  /// Con la caja acotada **la lista se desplaza dentro de ella** y lo de debajo
+  /// —el resumen y el pie— no se mueve de sitio. Por eso la de Next no necesita
+  /// paginación: `max-h-64 overflow-y-auto`, lo mismo que esto.
+  static const claveDeLaLista = ValueKey('caja-de-la-lista');
+
+  /// La línea fija de debajo de la lista: cuántos van y cuánto pesan.
+  static const claveDelResumen = ValueKey('resumen-de-lo-elegido');
+
+  /// La caja del pre-despacho. En escritorio va al lado de la lista; por debajo
+  /// de [anchoDosColumnas], debajo.
+  static const claveDelPreDespacho = ValueKey('caja-del-pre-despacho');
+
+  /// El alto de la caja de la lista. El `max-h-64` de la de Next son 256 px;
+  /// aquí hay 320 porque las filas llevan una línea más (los artículos).
+  static const altoDeLaLista = 320.0;
+
+  /// Por debajo de este ancho **dentro de la tarjeta** el pre-despacho cae
+  /// debajo de la lista. No es el ancho de la pantalla: la tarjeta vive dentro
+  /// del cajón y con sus márgenes, y lo que decide si caben dos columnas es lo
+  /// que mide ELLA.
+  static const anchoDosColumnas = 900.0;
+
+  /// El ancho de la columna del pre-despacho: las `22rem` de la de Next.
+  static const anchoPreDespacho = 352.0;
+
+  /// EL ANCHO DE CADA FILTRO, y es el mismo para todos a propósito.
+  ///
+  /// Eran un `Wrap` de pastillas de anchos distintos —220 el buscador, 110 los
+  /// números, y cada selector lo que midiera su texto—, y eso en pantalla se
+  /// desmigaja: filas con tres cachos de distinto tamaño, huecos irregulares y
+  /// la altura saltando al cambiar un texto. Palabras de Jose: «las cajas no
+  /// uniformes, los cuerpos se deforman». Con un ancho único las filas salen
+  /// en columnas alineadas a la izquierda y se recorren de un vistazo.
+  static const anchoFiltro = 220.0;
+
   @override
   ConsumerState<AsistenteNuevaRuta> createState() => _AsistenteState();
 }
@@ -72,6 +130,15 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   final _nombre = TextEditingController();
   final _buscador = TextEditingController();
   Timer? _espera;
+
+  /// EL DESPLAZAMIENTO DE LA CAJA DE LA LISTA, y es SUYO.
+  ///
+  /// Dos cosas a la vez. La primera: sin un controlador propio la lista se
+  /// engancha al `PrimaryScrollController`, que ya es el del cuerpo del cajón, y
+  /// entonces son dos desplazamientos peleándose por el mismo gesto. La segunda:
+  /// marcar un pedido es un `setState`, y con el controlador aquí la lista se
+  /// queda donde estaba en vez de volverse al principio en cada clic.
+  final _desplazamientoDeLaLista = ScrollController();
 
   /// Lo elegido, **con el pedido dentro y no sólo su id**.
   ///
@@ -96,6 +163,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     _espera?.cancel();
     _nombre.dispose();
     _buscador.dispose();
+    _desplazamientoDeLaLista.dispose();
     super.dispose();
   }
 
@@ -200,67 +268,127 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         !sobrepeso &&
         !_generando;
 
+    // Lo que ya está resuelto, que es lo que pinta un tramo de verde y lo que
+    // deja volver a él. Un paso «hecho» es uno que tiene respuesta, no uno por
+    // el que se pasó: si alguien vuelve al 1 y deja la sucursal en blanco, ese
+    // tramo deja de estar hecho y el de después tampoco.
+    final hechos = <int, bool>{
+      1: _sucursalId != null,
+      2: _salida != null,
+      3: _vehiculoId != null,
+      4: _elegidos.isNotEmpty,
+    };
+
     return Cajon(
       titulo: 'Nueva Ruta',
-      subtitulo: 'Paso $_paso de 4',
+      // DEBAJO DEL TÍTULO, LA SUCURSAL. Es el dato que manda sobre todo lo
+      // demás —los pedidos, los camiones y el punto de partida son los de esa
+      // sucursal— y quien abre el asistente tiene que verlo sin buscarlo. En el
+      // sitio donde ponía «Paso 3 de 4», que es lo que ya dice la barra de
+      // progreso con mucho más detalle.
+      subtitulo: sucursal?.name ?? 'Elige la sucursal',
       ancho: AnchoCajon.completo,
+      // LA BARRA DE PASOS, PEGADA BAJO LA CABECERA Y FUERA DEL DESPLAZAMIENTO.
+      //
+      // Es el armazón, no el contenido. En un teléfono el paso 4 no cabe de una
+      // vez, y con la barra dentro del cuerpo había que subir por toda la lista
+      // de pedidos para poder volver al paso anterior. Jose, 17/09/2026, sobre
+      // esta misma trampa en el detalle de ruta: «me corta parte de abajo […]
+      // no puedo ver el final». Aquí se desplaza el paso; el marco no.
+      bajoLaCabecera: Center(
+        child: ConstrainedBox(
+          // El mismo ancho máximo que las tarjetas, para que los cuatro tramos
+          // caigan justo encima de ellas y no de oreja a oreja del monitor.
+          constraints: const BoxConstraints(maxWidth: 1152),
+          child: _BarraDePasos(
+            actual: _paso,
+            hechos: hechos,
+            // VIAJAR ENTRE LOS PASOS. Como sólo se pinta el que toca, ésta es
+            // la única forma de corregir el anterior sin cancelar y empezar de
+            // cero, y lo elegido se conserva: aquí no se limpia nada, sólo se
+            // cambia qué tarjeta se enseña.
+            alIr: (n) => setState(() => _paso = n),
+          ),
+        ),
+      ),
+      // EL PIE, PEGADO ABAJO Y SIEMPRE A LA VISTA. Lo sostiene el `Cajon`; lo
+      // que hacía falta era que el cuerpo no creciera sin freno, y eso lo
+      // arregla la caja de la lista del paso 4.
+      //
+      // `spaceBetween` + `Flexible`, y no `Spacer`: a 390 px los dos botones
+      // pedían 354 px dentro de 342 y el pie se pasaba 12 px por la derecha —el
+      // «Generar Ruta» cortado, que es lo mismo que no estar—. Con `Spacer` no
+      // se arregla: el hueco es un hijo flexible más y el botón se quedaría a
+      // media anchura también en un monitor.
       pie: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           TextButton(
             onPressed: () => Navigator.of(context).maybePop(),
             child: const Text('Cancelar'),
           ),
-          const Spacer(),
-          FilledButton(
-            onPressed: puedeGenerar ? _generar : null,
-            child: Text(_generando ? 'Generando ruta...' : 'Generar Ruta'),
+          const SizedBox(width: Aire.sm),
+          Flexible(
+            child: FilledButton(
+              onPressed: puedeGenerar ? _generar : null,
+              child: Text(
+                _generando ? 'Generando ruta...' : 'Generar Ruta',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ),
         ],
       ),
-      cuerpo: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // La barra de progreso: **un paso cada vez**, y se puede volver a
-            // uno ya hecho pulsando su tramo.
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final tramo in const [
-                  (1, 'Sucursal'),
-                  (2, 'Salida'),
-                  (3, 'Vehículo'),
-                  (4, 'Pedidos'),
-                ])
-                  TextButton(
-                    onPressed: tramo.$1 <= _paso
-                        ? () => setState(() => _paso = tramo.$1)
-                        : null,
-                    child: Text(
-                      tramo.$2,
-                      style: TextStyle(
-                        fontWeight: tramo.$1 == _paso
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
-                    ),
+      cuerpo: Center(
+        // El `mx-auto max-w-6xl` de la de Next: el cajón va a pantalla completa
+        // y sin esto, en un monitor ancho, una frase de ayuda se estira a 1.800
+        // px y deja de leerse como un párrafo.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1152),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_paso == 1)
+                _Tarjeta(
+                  key: AsistenteNuevaRuta.claveDelPaso(1),
+                  numero: 1,
+                  titulo: 'Sucursal',
+                  hecho: hechos[1]!,
+                  hijo: _pasoSucursal(sucursales),
+                ),
+              if (_paso == 2)
+                _Tarjeta(
+                  key: AsistenteNuevaRuta.claveDelPaso(2),
+                  numero: 2,
+                  titulo: 'Punto de partida',
+                  hecho: hechos[2]!,
+                  hijo: _pasoSalida(conUbicacion),
+                ),
+              if (_paso == 3)
+                _Tarjeta(
+                  key: AsistenteNuevaRuta.claveDelPaso(3),
+                  numero: 3,
+                  titulo: 'Vehículo',
+                  hecho: hechos[3]!,
+                  hijo: _pasoVehiculo(),
+                ),
+              if (_paso == 4)
+                _Tarjeta(
+                  key: AsistenteNuevaRuta.claveDelPaso(4),
+                  numero: 4,
+                  titulo: 'Pedidos de cliente (${_elegidos.length})',
+                  hecho: hechos[4]!,
+                  hijo: _pasoPedidos(
+                    sucursales: sucursales,
+                    disponibles: disponibles,
+                    cargando: lista.isLoading,
+                    peso: peso,
+                    capacidad: capacidad,
                   ),
-              ],
-            ),
-            const Divider(),
-            if (_paso == 1) _pasoSucursal(sucursales),
-            if (_paso == 2) _pasoSalida(conUbicacion),
-            if (_paso == 3) _pasoVehiculo(),
-            if (_paso == 4)
-              _pasoPedidos(
-                sucursales: sucursales,
-                disponibles: disponibles,
-                cargando: lista.isLoading,
-                peso: peso,
-                capacidad: capacidad,
-              ),
-          ],
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -286,9 +414,18 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         style: TextStyle(color: Colores.gris),
       ),
       const SizedBox(height: 12),
-      FilledButton(
-        onPressed: _sucursalId == null ? null : () => setState(() => _paso = 2),
-        child: const Text('Siguiente'),
+      // El «Siguiente» va DENTRO de la tarjeta, abajo a la derecha: los pasos
+      // 1-3 son cortos y el botón del pie es el de generar la ruta entera, que
+      // todavía no se puede. Dos botones de avanzar en la misma pantalla, uno
+      // arriba y otro abajo, es lo que hacía dudar de cuál era cuál.
+      Align(
+        alignment: Alignment.centerRight,
+        child: FilledButton(
+          onPressed: _sucursalId == null
+              ? null
+              : () => setState(() => _paso = 2),
+          child: const Text('Siguiente'),
+        ),
       ),
     ],
   );
@@ -332,9 +469,12 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         // dicen las coordenadas, que es el dato que el mapa ensenaria, en vez de
         // dejar un hueco gris que parece que algo se rompio.
         const SizedBox(height: 12),
-        FilledButton(
-          onPressed: () => setState(() => _paso = 3),
-          child: const Text('Continuar →'),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton(
+            onPressed: () => setState(() => _paso = 3),
+            child: const Text('Siguiente'),
+          ),
         ),
       ],
     );
@@ -419,11 +559,14 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
           ],
         ),
         const SizedBox(height: 12),
-        FilledButton(
-          onPressed: _vehiculoId == null
-              ? null
-              : () => setState(() => _paso = 4),
-          child: const Text('Siguiente'),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton(
+            onPressed: _vehiculoId == null
+                ? null
+                : () => setState(() => _paso = 4),
+            child: const Text('Siguiente'),
+          ),
         ),
       ],
     );
@@ -487,20 +630,15 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     // vertical, que en una lista con desplazamiento es lo que sobra.
     final estrecho = MediaQuery.sizeOf(context).width < Anchos.entrega;
 
-    final controles = <Widget>[
-      SizedBox(
-        width: estrecho ? double.infinity : 220,
-        child: TextField(
-          controller: _buscador,
-          decoration: const InputDecoration(
-            isDense: true,
-            border: OutlineInputBorder(),
-            hintText: 'Buscar pedido...',
-          ),
-          onChanged: _buscar,
-        ),
-      ),
-      Selector<String>(
+    // TODOS LOS CONTROLES, EL MISMO ANCHO. El porqué, en `anchoFiltro`.
+    final ancho = estrecho ? double.infinity : AsistenteNuevaRuta.anchoFiltro;
+    Widget caja(Widget control) => SizedBox(width: ancho, child: control);
+
+    // La sucursal, a ancho completo y encima de todo lo demás: es la que decide
+    // qué pedidos hay, no un filtro más de la fila.
+    final deQueSucursal = SizedBox(
+      width: double.infinity,
+      child: Selector<String>(
         titulo: 'Sucursal de la ruta',
         valor: _sucursalId ?? '',
         opciones: [
@@ -510,6 +648,9 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         ],
         alElegir: _cambiarSucursal,
       ),
+    );
+
+    final controles = <Widget>[
       OutlinedButton(
         onPressed: () async {
           final hoy = DateTime.now();
@@ -533,6 +674,15 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
             : () => _ponerFiltros(_filtros.copiarCon(limpiarDia: true)),
         child: const Text('Todos los días'),
       ),
+      TextField(
+        controller: _buscador,
+        decoration: const InputDecoration(
+          isDense: true,
+          border: OutlineInputBorder(),
+          hintText: 'Buscar pedido...',
+        ),
+        onChanged: _buscar,
+      ),
       Selector<String>(
         titulo: 'Vendedor del pedido',
         valor: _filtros.vendedor,
@@ -554,37 +704,31 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         ],
         alElegir: (m) => _ponerFiltros(_filtros.copiarCon(municipio: m)),
       ),
-      SizedBox(
-        width: 110,
-        child: TextField(
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            isDense: true,
-            border: OutlineInputBorder(),
-            hintText: 'km máx.',
-          ),
-          onSubmitted: (texto) => _ponerFiltros(
-            _filtros.copiarCon(
-              kmMax: double.tryParse(texto.trim()),
-              limpiarKmMax: texto.trim().isEmpty,
-            ),
+      TextField(
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(
+          isDense: true,
+          border: OutlineInputBorder(),
+          hintText: 'km máx.',
+        ),
+        onSubmitted: (texto) => _ponerFiltros(
+          _filtros.copiarCon(
+            kmMax: double.tryParse(texto.trim()),
+            limpiarKmMax: texto.trim().isEmpty,
           ),
         ),
       ),
-      SizedBox(
-        width: 110,
-        child: TextField(
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            isDense: true,
-            border: OutlineInputBorder(),
-            hintText: 'costo mín.',
-          ),
-          onSubmitted: (texto) => _ponerFiltros(
-            _filtros.copiarCon(
-              costoMin: double.tryParse(texto.trim()),
-              limpiarCostoMin: texto.trim().isEmpty,
-            ),
+      TextField(
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(
+          isDense: true,
+          border: OutlineInputBorder(),
+          hintText: 'costo mín.',
+        ),
+        onSubmitted: (texto) => _ponerFiltros(
+          _filtros.copiarCon(
+            costoMin: double.tryParse(texto.trim()),
+            limpiarCostoMin: texto.trim().isEmpty,
           ),
         ),
       ),
@@ -613,7 +757,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         ],
         alElegir: (c) => _ponerFiltros(_filtros.copiarCon(cotizado: c)),
       ),
-      TextButton(
+      OutlinedButton(
         onPressed: () {
           _buscador.clear();
           // **Vuelve a `domicilio = 1`**, no a «sin nada»: una ruta se arma
@@ -624,19 +768,21 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
       ),
     ];
 
-    if (!estrecho) {
-      return Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: controles,
-      );
-    }
+    // Un `Wrap` con TODOS los hijos del mismo ancho sale en columnas
+    // alineadas, no en pedazos. En un teléfono ese ancho es la línea entera y
+    // el mismo `Wrap` da una fila por control, que es lo que ya hacía falta
+    // allí.
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final control in controles)
-          Padding(padding: const EdgeInsets.only(bottom: 8), child: control),
+        deQueSucursal,
+        const SizedBox(height: Aire.sm),
+        Wrap(
+          spacing: Aire.sm,
+          runSpacing: Aire.sm,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [for (final control in controles) caja(control)],
+        ),
       ],
     );
   }
@@ -659,21 +805,52 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         .where((id) => !visibles.contains(id))
         .length;
 
-    final porcentaje = capacidad == null || capacidad == 0
-        ? 0.0
-        : (peso / capacidad) * 100;
-    final color = porcentaje >= 100
-        ? Colores.rojo
-        : (porcentaje >= 80 ? Colores.ambar : Colores.verde);
+    // EL CUERPO DE LA CAJA DE LA LISTA. Los tres casos van DENTRO de la caja,
+    // no en su lugar: si el vacío o el «Cargando…» se pintaran fuera, la caja
+    // aparecería y desaparecería y lo de debajo daría saltos.
+    final Widget dentroDeLaCaja;
+    if (cargando && disponibles.isEmpty) {
+      dentroDeLaCaja = const Padding(
+        padding: EdgeInsets.all(Aire.lg),
+        child: Text(AsistenteNuevaRuta.cargandoPedidos),
+      );
+    } else if (disponibles.isEmpty) {
+      dentroDeLaCaja = const EstadoVacio(AsistenteNuevaRuta.sinPedidos);
+    } else {
+      // `ListView` y no una `Column`: con 295 pedidos una `Column` construye
+      // las 295 filas para enseñar seis. Y `shrinkWrap` para que con tres
+      // pedidos la caja mida lo que miden los tres, no los 320 px del tope.
+      dentroDeLaCaja = ListView.builder(
+        controller: _desplazamientoDeLaLista,
+        primary: false,
+        padding: const EdgeInsets.symmetric(vertical: Aire.xs),
+        shrinkWrap: true,
+        itemCount: disponibles.length,
+        itemBuilder: (contexto, i) {
+          final pedido = disponibles[i];
+          return _FilaDisponible(
+            pedido: pedido,
+            renglones: renglones[pedido.id] ?? const <RenglonConPeso>[],
+            marcado: _elegidos.containsKey(pedido.id),
+            // Lo que no cabe se deshabilita con el motivo a la vista, no se
+            // esconde: esconderlo haria pensar que el pedido no existe.
+            cabe:
+                capacidad == null ||
+                _elegidos.containsKey(pedido.id) ||
+                peso + pedido.weight <= capacidad,
+            alMarcar: () => setState(() {
+              if (_elegidos.remove(pedido.id) == null) {
+                _elegidos[pedido.id] = pedido;
+              }
+            }),
+          );
+        },
+      );
+    }
 
     final columnaLista = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Pedidos de cliente (${disponibles.length})',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
         // LAS ZONAS DEL TABLERO, ANTES QUE LOS FILTROS.
         //
         // Para eso se arma el tablero: el estudio de que va junto con que ya se
@@ -693,49 +870,67 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
           alElegirZona: _meterLaZona,
         ),
         _barraDeFiltros(sucursales),
-        const SizedBox(height: 8),
-        if (capacidad == null)
-          const Text('Elige un vehículo para ver la capacidad')
-        else ...[
-          Text(
-            '${peso.toStringAsFixed(1)} / ${capacidad.toStringAsFixed(0)} kg '
-            '(${porcentaje.toStringAsFixed(0)}%)',
-            style: TextStyle(color: color, fontWeight: FontWeight.bold),
-          ),
-          if (porcentaje >= 100) ...[
-            Insignia('LLENO', color: Colores.rojo),
-            const Text('Camión lleno — no cabe más'),
-          ],
-        ],
-        const SizedBox(height: 8),
-        if (cargando && disponibles.isEmpty)
-          const Text(AsistenteNuevaRuta.cargandoPedidos)
-        else if (disponibles.isEmpty)
-          const EstadoVacio(AsistenteNuevaRuta.sinPedidos)
-        else
-          for (final pedido in disponibles)
-            _FilaDisponible(
-              pedido: pedido,
-              renglones: renglones[pedido.id] ?? const <RenglonConPeso>[],
-              marcado: _elegidos.containsKey(pedido.id),
-              // Lo que no cabe se deshabilita con el motivo a la vista, no se
-              // esconde: esconderlo haria pensar que el pedido no existe.
-              cabe:
-                  capacidad == null ||
-                  _elegidos.containsKey(pedido.id) ||
-                  peso + pedido.weight <= capacidad,
-              alMarcar: () => setState(() {
-                if (_elegidos.remove(pedido.id) == null) {
-                  _elegidos[pedido.id] = pedido;
-                }
-              }),
-            ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Aire.md),
+        _BarraDePeso(peso: peso, capacidad: capacidad),
+        const SizedBox(height: Aire.md),
         Text(
-          '${_elegidos.length} pedidos seleccionados'
-          '${fueraDeLaLista == 0 ? '' : ' ($fueraDeLaLista de otro día o filtro, siguen contando)'}'
-          '${capacidad == null ? '' : '  ·  ${peso.toStringAsFixed(1)} / '
-                    '${capacidad.toStringAsFixed(0)} kg'}',
+          'Pedidos disponibles (${disponibles.length})',
+          style: Tipos.texto(tamano: 13, peso: FontWeight.w600),
+        ),
+        const SizedBox(height: Aire.xs),
+        // LA LISTA, EN SU PROPIA CAJA Y CON SU PROPIO DESPLAZAMIENTO.
+        //
+        // Ésta es la pieza que arregla la queja entera. Antes las filas colgaban
+        // de esta misma columna, así que la columna medía lo que midieran los
+        // pedidos: con 295, el resumen de debajo quedaba a tres pantallas de
+        // distancia y había que recorrerlas para llegar a él. Acotada, la lista
+        // se desplaza DENTRO y todo lo que va debajo se queda donde está.
+        Container(
+          key: AsistenteNuevaRuta.claveDeLaLista,
+          constraints: const BoxConstraints(
+            maxHeight: AsistenteNuevaRuta.altoDeLaLista,
+          ),
+          decoration: BoxDecoration(
+            color: Colores.blanco,
+            border: Border.all(color: Colores.linea),
+            borderRadius: BorderRadius.circular(Radios.lg),
+          ),
+          clipBehavior: Clip.antiAlias,
+          // El `Material` es obligatorio, no decorativo: un `CheckboxListTile`
+          // pinta su fondo y su onda en el `Material` más cercano, y sin éste
+          // ese más cercano queda DETRÁS del recuadro de la caja, así que la
+          // fila marcada no se vería marcada. Flutter lo dice en voz alta.
+          child: Material(
+            type: MaterialType.transparency,
+            child: dentroDeLaCaja,
+          ),
+        ),
+        const SizedBox(height: Aire.sm),
+        // LA LÍNEA DE RESUMEN, justo debajo de la caja y siempre en el mismo
+        // sitio: cuántos van a la izquierda y cuánto pesan a la derecha.
+        Row(
+          key: AsistenteNuevaRuta.claveDelResumen,
+          children: [
+            Expanded(
+              child: Text(
+                '${_elegidos.length} pedidos seleccionados'
+                '${fueraDeLaLista == 0 ? '' : ' ($fueraDeLaLista de otro día o filtro, siguen contando)'}',
+                style: Tipos.texto(tamano: 12, color: Colores.tintaSuave),
+              ),
+            ),
+            const SizedBox(width: Aire.sm),
+            Text(
+              '${peso.toStringAsFixed(1)} / '
+              '${capacidad?.toStringAsFixed(0) ?? '—'} kg',
+              style: Tipos.mono(
+                tamano: 12,
+                peso: FontWeight.w600,
+                color: capacidad != null && peso > capacidad
+                    ? Colores.rojo
+                    : Colores.tintaSuave,
+              ),
+            ),
+          ],
         ),
         if (capacidad != null && peso > capacidad)
           Text(
@@ -755,22 +950,34 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
       dia: _filtros.dia,
     );
 
-    // Dos columnas en escritorio —lista a la izquierda, pre-despacho a la
-    // derecha— y una sola en movil, donde no caben las dos sin partir palabras.
+    // Dos columnas —lista a la izquierda, pre-despacho a la derecha— y una sola
+    // cuando no caben las dos sin partir palabras. Lo que se mide es el ancho
+    // DE LA TARJETA, no el de la pantalla: la tarjeta vive dentro del cajón y
+    // con sus márgenes, y en un portátil de 1.100 px la pantalla dice
+    // «escritorio» mientras aquí dentro quedan 900 y pico.
     return LayoutBuilder(
       builder: (contexto, medidas) {
-        if (medidas.maxWidth < anchoEscritorio) {
+        if (medidas.maxWidth < AsistenteNuevaRuta.anchoDosColumnas) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [columnaLista, const Divider(), columnaPreDespacho],
+            children: [
+              columnaLista,
+              const SizedBox(height: Aire.lg),
+              Divider(height: 1, thickness: 1, color: Colores.linea),
+              const SizedBox(height: Aire.lg),
+              columnaPreDespacho,
+            ],
           );
         }
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(flex: 2, child: columnaLista),
-            const SizedBox(width: 16),
-            Expanded(child: columnaPreDespacho),
+            Expanded(child: columnaLista),
+            const SizedBox(width: Aire.xl),
+            SizedBox(
+              width: AsistenteNuevaRuta.anchoPreDespacho,
+              child: columnaPreDespacho,
+            ),
           ],
         );
       },
@@ -804,6 +1011,222 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     } finally {
       if (mounted) setState(() => _generando = false);
     }
+  }
+}
+
+/// LA BARRA DE PROGRESO: cuatro tramos a lo ancho, uno por paso.
+///
+/// No es adorno. Con un paso a la vista, sin esto no se sabe si quedan dos o
+/// siete; y sobre todo, **es por donde se vuelve atrás**. Eran cuatro enlaces
+/// de texto en un `Wrap` —«eso que hay ahí es un wizard, no la mierda que
+/// hiciste tú»—, y un enlace de texto no dice ni cuánto llevas ni cuánto falta.
+///
+/// Los colores dicen tres cosas distintas: **verde** lo que ya tiene respuesta,
+/// el color de la marca el paso en el que estás si todavía no la tiene, y gris
+/// lo que ni siquiera se puede pulsar. Un tramo hecho se pulsa y se vuelve a él.
+class _BarraDePasos extends StatelessWidget {
+  const _BarraDePasos({
+    required this.actual,
+    required this.hechos,
+    required this.alIr,
+  });
+
+  final int actual;
+  final Map<int, bool> hechos;
+  final void Function(int) alIr;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      for (final paso in AsistenteNuevaRuta.pasos.entries) ...[
+        if (paso.key > 1) const SizedBox(width: Aire.xs),
+        Expanded(child: _tramo(paso.key, paso.value)),
+      ],
+    ],
+  );
+
+  Widget _tramo(int numero, String nombre) {
+    final hecho = hechos[numero] ?? false;
+    final esElActual = numero == actual;
+    // Se puede pulsar lo que ya está resuelto y el paso en el que se está. Un
+    // paso de más adelante sin resolver no lleva a ninguna parte: saltar al 4
+    // sin camión elegido es una pantalla que no se puede terminar.
+    final sePuedePulsar = hecho || esElActual;
+    final color = hecho
+        ? Colores.verde
+        : (esElActual ? Colores.primario : Colores.linea);
+
+    return Tooltip(
+      message: hecho ? 'Volver a $nombre' : nombre,
+      child: InkWell(
+        key: AsistenteNuevaRuta.claveDelTramo(numero),
+        onTap: sePuedePulsar ? () => alIr(numero) : null,
+        borderRadius: BorderRadius.circular(Radios.sm),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              height: 4,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(Radios.pastilla),
+              ),
+            ),
+            const SizedBox(height: Aire.xs),
+            Text(
+              nombre,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Tipos.texto(
+                tamano: 11,
+                peso: esElActual ? FontWeight.w700 : FontWeight.w400,
+                color: esElActual ? Colores.tinta : Colores.tintaSuave,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// LA TARJETA DEL PASO: el número en su círculo, el título, y dentro el paso.
+///
+/// Una sola, la del paso que toca. Estaban las cuatro a la vez —tres apagadas y
+/// sin poder pulsarse— y eran cuatro cajas grises que no decían qué hacer.
+class _Tarjeta extends StatelessWidget {
+  const _Tarjeta({
+    required this.numero,
+    required this.titulo,
+    required this.hecho,
+    required this.hijo,
+    super.key,
+  });
+
+  final int numero;
+  final String titulo;
+  final bool hecho;
+  final Widget hijo;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colores.blanco,
+      border: Border.all(color: Colores.linea),
+      borderRadius: BorderRadius.circular(Radios.xl),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(Aire.md),
+          child: Row(
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: hecho ? Colores.verde : Colores.primario,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '$numero',
+                  style: Tipos.texto(
+                    tamano: 12,
+                    peso: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: Aire.sm),
+              Expanded(
+                child: Text(
+                  titulo,
+                  style: Tipos.texto(
+                    tamano: 15,
+                    peso: FontWeight.w700,
+                    color: Colores.tinta,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Divider(height: 1, thickness: 1, color: Colores.linea),
+        Padding(padding: const EdgeInsets.all(Aire.md), child: hijo),
+      ],
+    ),
+  );
+}
+
+/// LA BARRA DE PESO: `115.6 / 10000 kg (1%)` y debajo la barra de verdad.
+///
+/// El número solo no se lee de un vistazo cuando uno está cargando un camión;
+/// la barra sí, y es la misma de la de Next: verde hasta el 80 %, ámbar entre
+/// el 80 y el 100, y roja con su «LLENO» al pasarse.
+class _BarraDePeso extends StatelessWidget {
+  const _BarraDePeso({required this.peso, required this.capacidad});
+
+  final double peso;
+  final double? capacidad;
+
+  @override
+  Widget build(BuildContext context) {
+    final capacidad = this.capacidad;
+    if (capacidad == null) {
+      return Text(
+        'Elige un vehículo para ver la capacidad',
+        style: Tipos.texto(tamano: 12, color: Colores.tintaSuave),
+      );
+    }
+    final porcentaje = capacidad == 0 ? 0.0 : (peso / capacidad) * 100;
+    final color = porcentaje >= 100
+        ? Colores.rojo
+        : (porcentaje >= 80 ? Colores.ambar : Colores.verde);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${peso.toStringAsFixed(1)} / ${capacidad.toStringAsFixed(0)} '
+                'kg (${porcentaje.toStringAsFixed(0)}%)',
+                style: Tipos.mono(
+                  tamano: 12,
+                  peso: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ),
+            if (porcentaje >= 100) Insignia('LLENO', color: Colores.rojo),
+          ],
+        ),
+        const SizedBox(height: Aire.xs),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(Radios.pastilla),
+          child: LinearProgressIndicator(
+            value: (porcentaje / 100).clamp(0.0, 1.0),
+            minHeight: 10,
+            backgroundColor: Colores.grisFondo,
+            color: color,
+          ),
+        ),
+        if (porcentaje >= 100)
+          Padding(
+            padding: const EdgeInsets.only(top: Aire.xs),
+            child: Text(
+              'Camión lleno — no cabe más',
+              style: Tipos.texto(tamano: 12, color: Colores.rojo),
+            ),
+          ),
+      ],
+    );
   }
 }
 
@@ -895,70 +1318,97 @@ class _PreDespachoLateral extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // La caja está SIEMPRE, con su título y su botón: es el sitio donde se mira
+    // lo que hay que sacar del almacén, y un sitio que aparece y desaparece
+    // según lo que lleves elegido no se aprende. Lo que cambia es lo de dentro.
+    final totales = elegidos.isEmpty
+        ? null
+        : ref
+              .watch(
+                preDespachoDeLoElegidoEnElAsistenteProvider(
+                  ([...elegidos]..sort()).join(','),
+                ),
+              )
+              .value;
+
+    final Widget dentro;
     if (elegidos.isEmpty) {
-      return Text(
+      dentro = Text(
         AsistenteNuevaRuta.preDespachoVacio,
         style: TextStyle(color: Colores.gris),
       );
-    }
-    final clave = ([...elegidos]..sort()).join(',');
-    final totales = ref
-        .watch(preDespachoDeLoElegidoEnElAsistenteProvider(clave))
-        .value;
-    if (totales == null) {
-      return const Text(AsistenteNuevaRuta.cargandoPedidos);
+    } else if (totales == null) {
+      dentro = const Text(AsistenteNuevaRuta.cargandoPedidos);
+    } else {
+      dentro = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // La tabla va dentro de su propio desplazamiento lateral: en un
+          // telefono tres columnas con nombres de producto largos no caben, y lo
+          // que no cabe tiene que poder alcanzarse, no recortarse.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columns: const [
+                DataColumn(label: Text('Producto')),
+                DataColumn(label: Text('Emp.')),
+                DataColumn(label: Text('Uds.')),
+              ],
+              rows: [
+                for (final linea in totales.lineas)
+                  DataRow(
+                    cells: [
+                      DataCell(Text(linea.producto)),
+                      DataCell(Text(cantidad(linea.empaques))),
+                      DataCell(Text(cantidad(linea.unidades))),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          Divider(height: Aire.lg, thickness: 1, color: Colores.linea),
+          Text('Pedidos: ${elegidos.length}'),
+          Text('Empaques: ${cantidad(totales.empaques)}'),
+          Text('Unidades: ${cantidad(totales.unidades)}'),
+          Text(
+            'Peso: ${pesoKg.toStringAsFixed(1)} / '
+            '${capacidad?.toStringAsFixed(0) ?? '—'} kg',
+          ),
+        ],
+      );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Pre-despacho',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            OutlinedButton(
-              onPressed: () => _verEImprimir(context, totales),
-              child: const Text('Ver e imprimir'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        // La tabla va dentro de su propio desplazamiento lateral: en un telefono
-        // tres columnas con nombres de producto largos no caben, y lo que no
-        // cabe tiene que poder alcanzarse, no recortarse.
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            columns: const [
-              DataColumn(label: Text('Producto')),
-              DataColumn(label: Text('Emp.')),
-              DataColumn(label: Text('Uds.')),
-            ],
-            rows: [
-              for (final linea in totales.lineas)
-                DataRow(
-                  cells: [
-                    DataCell(Text(linea.producto)),
-                    DataCell(Text(cantidad(linea.empaques))),
-                    DataCell(Text(cantidad(linea.unidades))),
-                  ],
+    return Container(
+      key: AsistenteNuevaRuta.claveDelPreDespacho,
+      padding: const EdgeInsets.all(Aire.md),
+      decoration: BoxDecoration(
+        color: Colores.ambarFondo,
+        border: Border.all(color: Colores.linea),
+        borderRadius: BorderRadius.circular(Radios.lg),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Pre-despacho',
+                  style: Tipos.texto(tamano: 13, peso: FontWeight.w700),
                 ),
+              ),
+              OutlinedButton(
+                onPressed: totales == null
+                    ? null
+                    : () => _verEImprimir(context, totales),
+                child: const Text('Ver e imprimir'),
+              ),
             ],
           ),
-        ),
-        const Divider(),
-        Text('Pedidos: ${elegidos.length}'),
-        Text('Empaques: ${cantidad(totales.empaques)}'),
-        Text('Unidades: ${cantidad(totales.unidades)}'),
-        Text(
-          'Peso: ${pesoKg.toStringAsFixed(1)} / '
-          '${capacidad?.toStringAsFixed(0) ?? '—'} kg',
-        ),
-      ],
+          const SizedBox(height: Aire.sm),
+          dentro,
+        ],
+      ),
     );
   }
 
@@ -987,14 +1437,24 @@ class _PreDespachoLateral extends ConsumerWidget {
 
     abrirCajon<void>(
       context,
-      (_) => Cajon(
+      (contexto) => Cajon(
         titulo: 'Pre-despacho',
         subtitulo:
             '${elegidos.length} pedido(s) · '
             '${pesoKg.toStringAsFixed(1)} kg',
         ancho: AnchoCajon.xl,
+        // EL ALTO SALE DE LA PANTALLA, NO DE UN NÚMERO ESCRITO A MANO.
+        //
+        // La vista previa quiere todo el alto que le den y el cuerpo del cajón
+        // es un desplazable, así que hay que darle uno concreto o la hoja no se
+        // pinta. Aquí había un `640` fijo, y a 390x844 el cuerpo útil del cajón
+        // ronda los 635: la caja no cabía, y entonces son dos desplazamientos
+        // verticales, uno dentro del otro. Con el dedo encima manda el de
+        // dentro, el de fuera no se mueve nunca, y la parte de abajo de la hoja
+        // **no se alcanza jamás**. El mismo `0.75` que usan las otras dos hojas
+        // (Pedidos y el post-despacho del cierre).
         cuerpo: SizedBox(
-          height: 640,
+          height: MediaQuery.sizeOf(contexto).height * 0.75,
           child: VistaPreviaPdf(
             armar: (formato) => pdfPreDespacho(hoja, impresoEn: DateTime.now()),
             nombreDeFichero: 'pre-despacho.pdf',

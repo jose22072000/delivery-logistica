@@ -134,46 +134,48 @@ void main() {
     expect(
       find.text('Camión nuevo'),
       findsOneWidget,
-      reason: 'volvió a pedir pero no se repintó, que para quien mira es lo '
+      reason:
+          'volvió a pedir pero no se repintó, que para quien mira es lo '
           'mismo que no haberse enterado',
     );
 
     await desmontar(tester);
   });
 
-  testWidgets('Vehículos: un aviso de OTRA pantalla no le cuesta una petición', (
-    tester,
-  ) async {
-    final banco = veh.Banco((p) async {
-      if (p.ruta.endsWith('/settings')) {
-        return RespuestaFalsa(200, const <String, Object?>{
-          'tiposVehiculo': <Object?>[],
-          'cupRate': 320,
-        });
-      }
-      return RespuestaFalsa(200, const <Object?>[]);
-    });
-    addTearDown(banco.cerrar);
-    await pintarVehiculos(tester, banco);
+  testWidgets(
+    'Vehículos: un aviso de OTRA pantalla no le cuesta una petición',
+    (tester) async {
+      final banco = veh.Banco((p) async {
+        if (p.ruta.endsWith('/settings')) {
+          return RespuestaFalsa(200, const <String, Object?>{
+            'tiposVehiculo': <Object?>[],
+            'cupRate': 320,
+          });
+        }
+        return RespuestaFalsa(200, const <Object?>[]);
+      });
+      addTearDown(banco.cerrar);
+      await pintarVehiculos(tester, banco);
 
-    final antes = banco.servidor.cuantas('GET', '/vehicles');
-    enVivo
-      ..add(CambioEnVivo.clientes)
-      ..add(CambioEnVivo.tablero)
-      ..add(CambioEnVivo.rutas);
-    await asentar(tester);
+      final antes = banco.servidor.cuantas('GET', '/vehicles');
+      enVivo
+        ..add(CambioEnVivo.clientes)
+        ..add(CambioEnVivo.tablero)
+        ..add(CambioEnVivo.rutas);
+      await asentar(tester);
 
-    expect(
-      banco.servidor.cuantas('GET', '/vehicles'),
-      antes,
-      reason:
-          'se mira el TIPO del aviso: un cambio de clientes no puede costar '
-          'una petición de la flota en cada navegador de la oficina, con la '
-          'conexión de allá',
-    );
+      expect(
+        banco.servidor.cuantas('GET', '/vehicles'),
+        antes,
+        reason:
+            'se mira el TIPO del aviso: un cambio de clientes no puede costar '
+            'una petición de la flota en cada navegador de la oficina, con la '
+            'conexión de allá',
+      );
 
-    await desmontar(tester);
-  });
+      await desmontar(tester);
+    },
+  );
 
   testWidgets('Vehículos: el aviso de «ajustes» vuelve a pedir la tasa', (
     tester,

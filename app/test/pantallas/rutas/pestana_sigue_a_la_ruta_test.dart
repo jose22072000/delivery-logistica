@@ -19,7 +19,11 @@ import '../../apoyo/base_de_prueba.dart';
 import '../pedidos/sembrar.dart';
 
 Future<void> asentar(WidgetTester tester) async {
-  for (var i = 0; i < 12; i++) {
+  // VEINTE, NO DOCE. Desde que completar pasa por el cajon del cierre hay una
+  // transicion de `showGeneralDialog` por medio, y con 600 ms el `Guardar y
+  // completar` todavia no habia nacido: la prueba fallaba diciendo que no
+  // encontraba el boton, que es un diagnostico que manda a buscar donde no es.
+  for (var i = 0; i < 20; i++) {
     await tester.pump(const Duration(milliseconds: 50));
   }
 }
@@ -76,15 +80,27 @@ void main() {
   ) async {
     await pintar(tester);
 
-    expect(find.text('Activas (1)'), findsOneWidget);
-    expect(find.text('En curso (0)'), findsOneWidget);
+    // ESTA PANTALLA SE MONTA A 1600 px, o sea en un monitor, y ahí salen **las
+    // tres pestañas a la vez** (`PestanasQueCaben`): el carrusel es del
+    // teléfono, donde tres etiquetas con sus cuentas no caben. Jose, 17/09/2026:
+    // «los tabs así como están eran para el móvil, que casi no tiene espacio».
+    //
+    // Así que lo que se mira no es qué etiquetas existen —existen las tres—
+    // sino **cuál está marcada**, que es lo que de verdad dice dónde estás. La
+    // marcada va en `FilledButton` y las otras en `OutlinedButton`.
+    expect(find.widgetWithText(FilledButton, 'Planificadas (1)'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'En curso (0)'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Iniciar ruta'));
     await asentar(tester);
 
-    // Los contadores dicen que se movió...
-    expect(find.text('Activas (0)'), findsOneWidget);
-    expect(find.text('En curso (1)'), findsOneWidget);
+    // La marca se movió: ahora la encendida es `En curso`, y `Planificadas`
+    // pasa a ser una más de la fila.
+    expect(find.widgetWithText(FilledButton, 'En curso (1)'), findsOneWidget);
+    expect(
+      find.widgetWithText(OutlinedButton, 'Planificadas (0)'),
+      findsOneWidget,
+    );
     // ...y lo que importa: **sigue delante**. Si la pestaña no se hubiera
     // movido, la lista de `Activas` estaría vacía y la tarjeta no saldría.
     // (Sale dos veces: la insignia de la tarjeta y la cabecera del detalle.)
@@ -103,6 +119,20 @@ void main() {
     await asentar(tester);
     await tester.tap(
       find.widgetWithText(FilledButton, 'Marcar como completada'),
+    );
+    await asentar(tester);
+
+    // DESDE EL 17/09/2026 COMPLETAR PASA POR EL CIERRE cuando quedan paradas sin
+    // marcar, y esta ruta tiene una (`p1`, sin resultado). Jose: «ese estado se
+    // pone cuando están en ruta, no completados; ahí el cierre ya viene con el
+    // estado de cuando le van a dar a completado, es que se pregunta ese
+    // estado». O sea que el camino de verdad es este, y es el que hay que
+    // vigilar: el cajon guarda, completa, y **despues** mueve la pestaña.
+    //
+    // Se guarda sin marcar nada a proposito: dejar una parada sin marcar es como
+    // se dice «eso siguio en el camion», y el boton tiene que funcionar igual.
+    await tester.tap(
+      find.widgetWithText(FilledButton, 'Guardar y completar'),
     );
     await asentar(tester);
 

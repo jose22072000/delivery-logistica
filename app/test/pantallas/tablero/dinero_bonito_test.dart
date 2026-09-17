@@ -30,9 +30,7 @@ void main() {
           monedaEfectivaProvider.overrideWithValue(moneda),
         ],
         child: MaterialApp(
-          home: Consumer(
-            builder: (_, ref, _) => Text(dineroBonito(ref, usd)),
-          ),
+          home: Consumer(builder: (_, ref, _) => Text(dineroBonito(ref, usd))),
         ),
       ),
     );

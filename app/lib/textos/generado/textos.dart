@@ -1036,7 +1036,7 @@ abstract class Textos {
   /// De `routes.active` en delivery/src/lib/i18n.ts.
   ///
   /// In es, this message translates to:
-  /// **'Activas'**
+  /// **'Planificadas'**
   String get rutasActivas;
 
   /// De `routes.addItem` en delivery/src/lib/i18n.ts.

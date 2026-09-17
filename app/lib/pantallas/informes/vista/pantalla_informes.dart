@@ -9,6 +9,7 @@ import '../../../diseno/tema.dart';
 import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/insignia.dart';
 import '../../../diseno/numeros.dart';
+import '../../../diseno/pestanas.dart';
 import '../../../diseno/selector.dart';
 import '../../../diseno/tabla_ancha.dart';
 import '../../../diseno/tarjeta.dart';
@@ -102,45 +103,91 @@ class PantallaInformes extends ConsumerWidget {
 
     // `p-3 sm:p-6` de delivery.
     final estrecho = MediaQuery.sizeOf(context).width < Anchos.idioma;
+    final aire = estrecho ? Aire.md : Aire.xl;
 
-    return ListView(
-      padding: EdgeInsets.all(estrecho ? Aire.md : Aire.xl),
-      children: [
-        const _Filtros(),
-        const SizedBox(height: Aire.lg),
-        _Advertencia(
-          sinDescargar: sinDescargar,
-          viejo: viejo,
-          cuando: cuando,
-          porQue: porQue,
-        ),
-        const SizedBox(height: Aire.lg),
-        if (sinDescargar)
-          switch (porQue) {
+    final cabecera = Padding(
+      padding: EdgeInsets.fromLTRB(aire, aire, aire, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _Filtros(),
+          const SizedBox(height: Aire.lg),
+          _Advertencia(
+            sinDescargar: sinDescargar,
+            viejo: viejo,
+            cuando: cuando,
+            porQue: porQue,
+          ),
+          const SizedBox(height: Aire.lg),
+        ],
+      ),
+    );
+
+    // Un aviso suelto —«cargando», «no pudo bajar»— tambien va en su propio
+    // desplazable: el cuerpo de un `NestedScrollView` tiene que traer el suyo,
+    // o el de fuera no tiene con quien turnarse y la cabecera se queda clavada.
+    Widget suelto(Widget hijo) => ListView(
+      padding: EdgeInsets.fromLTRB(aire, 0, aire, aire),
+      children: [hijo],
+    );
+
+    final cuerpo = sinDescargar
+        ? switch (porQue) {
             // El aparato: es un estado de verdad y se dice como siempre.
-            PorQueEstaVacio.noSeDescargo => const PantallaSinDescargar(),
+            PorQueEstaVacio.noSeDescargo => suelto(
+              const PantallaSinDescargar(),
+            ),
             // La web, el primer segundo: **cargando, y nada mas**. Sin
             // diagnostico, porque no se ha mirado nada todavia.
-            PorQueEstaVacio.todaviaBajando => const Cargando(
-              TextosNuevosDeInformes.cargandoElReporte,
+            PorQueEstaVacio.todaviaBajando => suelto(
+              const Cargando(TextosNuevosDeInformes.cargandoElReporte),
             ),
             // La web cuando la bajada no llego: se dice, y se deja entrar. Los
             // filtros de arriba siguen ahi y la pagina se puede recargar.
-            PorQueEstaVacio.noPudoBajar => EstadoVacio(
-              TextosNuevosDeInformes.noLlegoElReporte,
-              icono: Icons.cloud_off_outlined,
+            PorQueEstaVacio.noPudoBajar => suelto(
+              EstadoVacio(
+                TextosNuevosDeInformes.noLlegoElReporte,
+                icono: Icons.cloud_off_outlined,
+              ),
             ),
           }
-        else
-          switch (informe) {
+        : switch (informe) {
             AsyncValue<Informe>(:final value?) => _Pestanas(
               informe: value,
               importe: importe,
+              aire: aire,
             ),
-            AsyncValue<Informe>(:final error?) => EstadoVacio('$error'),
-            _ => const Cargando('Cargando reporte...'),
-          },
+            AsyncValue<Informe>(:final error?) => suelto(EstadoVacio('$error')),
+            _ => suelto(const Cargando('Cargando reporte...')),
+          };
+
+    // UN SOLO DESPLAZAMIENTO VERTICAL, Y POR ESO UN `NestedScrollView`
+    // — 17/09/2026.
+    //
+    // Antes esto era un `ListView` con los filtros, el aviso y, de ultimo, una
+    // caja de 560 px de alto con las tres pestañas dentro; y cada pestaña
+    // llevaba **su propio** `SingleChildScrollView`. Dos desplazamientos en el
+    // mismo eje, uno dentro del otro, que es el caso que Flutter no turna:
+    // manda el de dentro y el de fuera no recibe el gesto nunca.
+    //
+    // Lo que se veia en un teléfono de 390x844, medido: la caja de las pestañas
+    // ocupaba de y=447 a y=1007 —163 px de ella ya estaban por debajo del borde
+    // de la pantalla— y el «Totales:» del pie de «Detalle de Órdenes» caia en
+    // y=1249. Para llegar a él hacian falta LOS DOS desplazamientos (271 px del
+    // de dentro y 175 del de fuera), y el de fuera no se podia mover con el dedo
+    // sobre la tabla. O sea: **el pie del informe no se veia nunca.** Es
+    // literalmente lo que dijo Jose — «me corta parte de abajo… no puedo ver el
+    // final».
+    //
+    // El `NestedScrollView` es lo que los pone de acuerdo: el dedo sobre la
+    // tabla gasta primero la cabecera de arriba y sólo despues baja la lista.
+    // No se pierde nada de lo de antes —los filtros siguen encima y se van al
+    // desplazar— y se gana que el final del informe exista.
+    return NestedScrollView(
+      headerSliverBuilder: (contexto, _) => [
+        SliverToBoxAdapter(child: cabecera),
       ],
+      body: cuerpo,
     );
   }
 }
@@ -311,67 +358,147 @@ class _Fecha extends StatelessWidget {
   );
 }
 
-class _Pestanas extends StatelessWidget {
-  const _Pestanas({required this.informe, required this.importe});
+/// LAS TRES PESTANAS DEL REPORTE.
+///
+/// El `TabBarView` ya se desliza el solo —es un `PageView` por dentro—, asi que
+/// aqui lo unico que faltaba eran **las flechas de los lados**: en un telefono
+/// las tres etiquetas no caben (`isScrollable`), y «Detalle de Órdenes» se queda
+/// fuera de la pantalla. Con las flechas se llega sin tener que empujar la tira
+/// de pestanas hasta dar con ella.
+///
+/// Con estado propio y `TabController` a mano, y no `DefaultTabController`: la
+/// flecha necesita SABER en cual se esta para apagarse en los extremos, y eso es
+/// escuchar al controlador, que es justo lo que un controlador por defecto no
+/// deja hacer desde el mismo `build` que lo crea.
+class _Pestanas extends StatefulWidget {
+  const _Pestanas({
+    required this.informe,
+    required this.importe,
+    required this.aire,
+  });
 
   final Informe informe;
   final PintarImporte importe;
 
+  /// El relleno lateral de la pantalla (`p-3 sm:p-6`).
+  final double aire;
+
   @override
-  Widget build(BuildContext context) => DefaultTabController(
-    length: 3,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Las pestanas, con el subrayado en primario y sin el tinte morado que
-        // Material les pone por defecto.
-        TabBar(
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          indicatorColor: Colores.primario,
-          indicatorWeight: 2.5,
-          indicatorSize: TabBarIndicatorSize.label,
-          dividerColor: Colores.linea,
-          labelColor: Colores.primario,
-          unselectedLabelColor: Colores.tintaSuave,
-          labelStyle: Tipos.texto(tamano: 14, peso: FontWeight.w600),
-          unselectedLabelStyle: Tipos.texto(tamano: 14, peso: FontWeight.w500),
-          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-          tabs: [
-            const Tab(text: 'Resumen'),
-            const Tab(text: 'Por Vehículo'),
-            Tab(
-              child: Row(
+  State<_Pestanas> createState() => _PestanasState();
+}
+
+class _PestanasState extends State<_Pestanas>
+    with SingleTickerProviderStateMixin {
+  static const _nombres = ['Resumen', 'Por Vehículo', 'Detalle de Órdenes'];
+
+  late final TabController _mando = TabController(
+    length: _nombres.length,
+    vsync: this,
+  )..addListener(_repintar);
+
+  /// El subrayado se mueve ANTES de que termine la animacion (`index` cambia al
+  /// empezar), y las flechas se tienen que enterar a la vez que el: si se
+  /// esperara al final, la flecha del extremo quedaria encendida medio segundo
+  /// sobre algo a lo que ya no se puede ir.
+  void _repintar() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _mando
+      ..removeListener(_repintar)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      // EN CARRUSEL, como el Tablero y como Rutas: se ve sólo la pestaña en la
+      // que estás y unas bolitas dicen que hay más.
+      //
+      // Aquí el cambio se nota el doble. El `TabBar` iba con `isScrollable`
+      // porque las tres etiquetas no caben en un teléfono, así que «Detalle de
+      // Órdenes» se quedaba fuera de la pantalla: existía, pero había que
+      // empujar la tira a ciegas para dar con ella.
+      // Y en un monitor salen las tres a la vez: el carrusel resuelve la falta
+      // de sitio de un teléfono, y en una pantalla ancha esconder dos de tres
+      // detrás de unas bolitas es quitar información a quien tiene sitio para
+      // verla. Jose, 17/09/2026: «los tabs así como están eran para el móvil».
+      PestanasQueCaben(
+        indice: _mando.index,
+        etiquetas: _nombres,
+        alCambiar: _mando.animateTo,
+        // El número de filas va pegado a su nombre, como en la pestaña de
+        // antes: es la cuenta de lo que hay dentro, igual que el «(308)» de
+        // «Sin colocar» en el Tablero.
+        rotulo: _mando.index == 2
+            ? Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Detalle de Órdenes'),
+                  Text(_nombres[2]),
                   const SizedBox(width: 6),
-                  Insignia(Numeros.entero(informe.filas.length)),
+                  Insignia(Numeros.entero(widget.informe.filas.length)),
                 ],
+              )
+            : null,
+      ),
+      // `Expanded` y NO un alto fijo de 560 px.
+      //
+      // El alto fijo era la mitad del fallo: dentro de un `ListView` la caja se
+      // pintaba entera aunque 163 de sus 560 px cayeran fuera de la pantalla, y
+      // el desplazable de dentro no podia enseñar lo que quedaba por debajo de
+      // ese borde. Con `Expanded` la caja mide **lo que hay de pantalla**, asi
+      // que lo que se desplaza se ve entero.
+      //
+      // Lo que lo permite es que la pantalla ya no sea un `ListView`: es un
+      // `NestedScrollView`, que le da al cuerpo un alto concreto. Ver el porque
+      // largo en `PantallaInformes.build`.
+      Expanded(
+        child: TabBarView(
+          controller: _mando,
+          children: [
+            _Pestana(
+              aire: widget.aire,
+              hijo: _Resumen(informe: widget.informe, importe: widget.importe),
+            ),
+            _Pestana(
+              aire: widget.aire,
+              hijo: _PorVehiculo(
+                informe: widget.informe,
+                importe: widget.importe,
               ),
+            ),
+            _Pestana(
+              aire: widget.aire,
+              hijo: _Detalle(informe: widget.informe, importe: widget.importe),
             ),
           ],
         ),
-        // Alto fijo y no `Expanded`: la pantalla entera es un `ListView`, y un
-        // `TabBarView` sin alto dentro de un scroll no se puede medir.
-        SizedBox(
-          height: 560,
-          child: TabBarView(
-            children: [
-              SingleChildScrollView(
-                child: _Resumen(informe: informe, importe: importe),
-              ),
-              SingleChildScrollView(
-                child: _PorVehiculo(informe: informe, importe: importe),
-              ),
-              SingleChildScrollView(
-                child: _Detalle(informe: informe, importe: importe),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
+      ),
+    ],
+  );
+}
+
+/// El contenido de una pestaña, con su desplazamiento y su relleno.
+///
+/// **Es la unica lista vertical de esta mitad de la pantalla.** De apartarla de
+/// la barra de gestos del sistema se encarga el `SafeArea` del armazon, que ya
+/// recorta el alto de las siete pantallas; sumarlo tambien aqui seria contarlo
+/// dos veces y dejar 34 px muertos al final del informe.
+class _Pestana extends StatelessWidget {
+  const _Pestana({required this.hijo, required this.aire});
+
+  final Widget hijo;
+  final double aire;
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: EdgeInsets.fromLTRB(aire, 0, aire, aire),
+    children: [hijo],
   );
 }
 

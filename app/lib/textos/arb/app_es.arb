@@ -668,7 +668,7 @@
   "@reportesVehiculo": {
     "description": "De `rep.vehicle` en delivery/src/lib/i18n.ts."
   },
-  "rutasActivas": "Activas",
+  "rutasActivas": "Planificadas",
   "@rutasActivas": {
     "description": "De `routes.active` en delivery/src/lib/i18n.ts."
   },

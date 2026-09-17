@@ -56,6 +56,10 @@ const (
 	msgRutaNoEncontrada = "No encontrada"
 	msgSinResultados    = "No vino ningún resultado"
 	msgParadaAjena      = "ese pedido no va en esta ruta"
+	// EL PORTAZO AL BORRADO DE UNA RUTA YA CERRADA. Lleva el número de paradas dentro,
+	// que es lo que hace que quien lo lee sepa de qué ruta le están hablando.
+	msgRutaConResultados = "Esa ruta ya tiene %d parada(s) cerradas y no se puede borrar: " +
+		"se perdería la hoja de lo que bajó del camión. Márcala como cancelada si hace falta."
 )
 
 // ---------------------------------------------------------------------------
@@ -473,6 +477,23 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 		// Se dice CUÁNTOS faltan y no un «no se pudo»: con el mensaje genérico alguien
 		// crea la ruta creyendo que lleva diez paradas y lleva nueve.
 		httpx.Error(w, r, http.StatusConflict, mensajeYaEnOtraRuta(len(idsPedidos)-len(pedidos), len(idsPedidos)))
+		return
+	}
+
+	// --- Y LO QUE YA SE ENTREGÓ NO VUELVE A SUBIR --------------------------
+	//
+	// Va ANTES que el corte por factura porque es más grave y porque su arreglo es otro:
+	// un pedido sin cotejar se cotea y vuelve, un pedido entregado no vuelve nunca.
+	//
+	// Por qué hace falta si `PedidosParaArmarRuta` ya exige `route_id IS NULL`: un
+	// entregado CONSERVA su `route_id`, pero la clave ajena de `orders.route_id` es
+	// `ON DELETE SET NULL` (`db/migrations/00001_init.sql:446`). El día que alguien
+	// borre la ruta de ayer —y borrarla está permitido en cualquier estado—, los
+	// pedidos que ya se repartieron amanecen con `route_id` nulo, vuelven a la lista de
+	// disponibles y se pueden armar otra vez. Ahí el camión sale con mercancía que ya
+	// está en casa del cliente.
+	if mensaje := mensajeYaEntregados(pedidos); mensaje != "" {
+		httpx.Error(w, r, http.StatusConflict, mensaje)
 		return
 	}
 
@@ -955,6 +976,40 @@ func (s *Servidor) borrarRuta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// UNA RUTA CON RESULTADOS NO SE BORRA. Y no es celo: es lo único que tapa el agujero
+	// que deja la base.
+	//
+	// `orders.ultima_ruta_id` es «en qué camión VIAJÓ» y el esquema promete, con esas
+	// palabras, que «esto no se libera nunca» (`db/migrations/00001_init.sql:287`). No es
+	// verdad: su clave ajena es `ON DELETE SET NULL` (línea 447), así que borrar la ruta
+	// se lleva por delante la hoja entera de lo que bajó del camión — el `stop_order`, el
+	// «viajó aquí», y con la fila de `routes` también el código de ruta, la fecha y el
+	// vehículo. El `resultado` y el `delivered_at` de cada pedido se quedan, pero sueltos
+	// y sin nada a lo que referirse: ya no se puede decir en qué reparto se entregó.
+	//
+	// Y además el cierre deja de poder reintentarse: la hoja que suba el teléfono cuando
+	// recupere la señal va a `/api/routes/{id}/results` de una ruta que ya no existe, y lo
+	// que recibe es un 404 — que el sincronizador anota como `rechazado`, que por contrato
+	// no se reintenta. El trabajo del día se queda en el aparato para siempre.
+	//
+	// Borrar una ruta ARMADA POR ERROR sigue estando bien y sigue funcionando: lo que se
+	// prohíbe es borrar una por la que ya pasó mercancía.
+	viajaron, err := a.ParadasQueViajaronEnRuta(r.Context(), id)
+	if err != nil {
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	cerradas := 0
+	for _, p := range viajaron {
+		if p.Resultado != nil {
+			cerradas++
+		}
+	}
+	if cerradas > 0 {
+		httpx.Error(w, r, http.StatusConflict, fmt.Sprintf(msgRutaConResultados, cerradas))
+		return
+	}
+
 	err = a.EnTx(r.Context(), func(tx *alcance.Acotado) error {
 		// Borrar la ruta LIBERA el camión: si no, queda ocupado por una ruta que ya no
 		// existe y no hay pantalla donde soltarlo.
@@ -1017,6 +1072,12 @@ type rechazadoDeCierre struct {
 }
 
 type salidaDeCierre struct {
+	// Error sólo viaja cuando hubo algún rechazo, y entonces la respuesta NO es 200.
+	//
+	// Es el campo que lee el sincronizador (`sync/internal/reparto/reparto.go`,
+	// `motivoDe`): de él saca el motivo que guarda en la bandeja del aparato. Sin él, un
+	// rechazo dentro de un 200 no llega a ninguna parte — ver `cerrarRuta`.
+	Error      string              `json:"error,omitempty"`
 	Aplicados  []aplicadoDeCierre  `json:"aplicados"`
 	Rechazados []rechazadoDeCierre `json:"rechazados"`
 	APedido    ParteAPedido        `json:"aPedido"`
@@ -1141,7 +1202,62 @@ func (s *Servidor) cerrarRuta(w http.ResponseWriter, r *http.Request) {
 			"ruta", ruta.ID, "avisos", len(avisos), "err", salida.APedido.Error)
 	}
 	avisarCambioDeRutas(r.Context())
+
+	// UN RECHAZO DENTRO DE UN 200 NO LLEGA A NINGUNA PARTE, Y ASÍ SE PIERDE UNA ENTREGA
+	// DE VERDAD. Esto es lo que se arregló el 18/09/2026.
+	//
+	// El mecanismo entero, que no es hipotético:
+	//
+	//  1. El aparato arma la ruta de una zona sin señal. `POST /board/columns/{id}/route`
+	//     no llevaba los pedidos dentro, así que el servidor la armaba HORAS DESPUÉS con
+	//     lo que él tuviera puesto en esa zona en ese instante — que puede ser otra cosa,
+	//     porque la web siguió moviendo tarjetas mientras tanto.
+	//  2. La ruta del servidor nace SIN un pedido que el repartidor ya entregó. Su
+	//     resultado llega aquí, no está en el universo, y se va a `rechazados`.
+	//  3. Y aquí estaba el agujero: la respuesta era 200. El sincronizador marca
+	//     `aplicado` TODO lo que venga con un 2xx —no mira el cuerpo, ver `motivoDe`—, así
+	//     que el apunte se borra de la cola del aparato. Una entrega de verdad desaparece
+	//     con un 200 y sin dejar rechazo en ninguna bandeja.
+	//
+	// Con un 4xx, el sincronizador lo anota como `rechazado` CON SU MOTIVO y, por
+	// contrato, «no se reintenta y no se borra»: se queda a la vista con su hora hasta que
+	// una persona decida. Que es la regla de la casa: nada se descarta en silencio.
+	//
+	// LO QUE SÍ SE APLICÓ, SE QUEDA APLICADO. El cierre sigue sin abortar: las paradas
+	// buenas ya están guardadas y sus avisos ya salieron hacia PEDIDO. El 409 no las
+	// deshace —por eso la respuesta sigue llevando `aplicados` entero—, dice que esta hoja
+	// no se cerró como el aparato creía y nombra qué falta.
+	if len(salida.Rechazados) > 0 {
+		salida.Error = motivoDelCierreIncompleto(salida)
+		httpx.Registro(r).Error("un cierre llegó con paradas que no van en esa ruta",
+			"ruta", ruta.ID, "aplicados", len(salida.Aplicados),
+			"rechazados", len(salida.Rechazados), "motivo", salida.Error)
+		httpx.JSON(w, r, http.StatusConflict, salida)
+		return
+	}
 	httpx.JSON(w, r, http.StatusOK, salida)
+}
+
+// motivoDelCierreIncompleto arma el texto que va a acabar en la bandeja del aparato.
+//
+// Lleva las tres cosas que necesita quien lo lee tres horas después: CUÁNTAS entraron
+// —para que no crea que se perdió la hoja entera—, cuáles no y por qué. Se nombran las
+// cinco primeras y se cuenta el resto, como en los demás rechazos de este fichero.
+func motivoDelCierreIncompleto(s salidaDeCierre) string {
+	detalle := make([]string, 0, 5)
+	for _, r := range s.Rechazados {
+		if len(detalle) == 5 {
+			break
+		}
+		detalle = append(detalle, fmt.Sprintf("%s (%s)", r.OrderID, r.Motivo))
+	}
+	mensaje := fmt.Sprintf("Se guardaron %d de las %d paradas de esta hoja. %d no se "+
+		"pudieron guardar: %s", len(s.Aplicados), len(s.Aplicados)+len(s.Rechazados),
+		len(s.Rechazados), strings.Join(detalle, ", "))
+	if len(s.Rechazados) > 5 {
+		return mensaje + fmt.Sprintf(" y %d más.", len(s.Rechazados)-5)
+	}
+	return mensaje + "."
 }
 
 // topeCuerpoCierre: una hoja de cierre son decenas de paradas con su nota; 1 MiB sobra. Lo
@@ -1189,6 +1305,42 @@ func soloUuids(ids []string) []uuid.UUID {
 // mensajeYaEnOtraRuta es EL literal del contrato, con sus dos números.
 func mensajeYaEnOtraRuta(faltan, pedidos int) string {
 	return fmt.Sprintf("%d de los %d pedidos ya están en otra ruta. Vuelve a elegirlos.", faltan, pedidos)
+}
+
+// mensajeYaEntregados arma el 409 de los que ya se repartieron, o "" si ninguno.
+//
+// SE NOMBRAN UNO A UNO, como los de la factura. El «N de los M pedidos ya están en otra
+// ruta» de aquí al lado NO sirve para esto y sería mentira: no están en ninguna ruta —la
+// que los llevó puede haberse borrado— y «vuelve a elegirlos» es un rechazo permanente
+// disfrazado de reintento, que es justo lo que el CLAUDE.md prohíbe.
+func mensajeYaEntregados(pedidos []sqlc.PedidosParaArmarRutaRow) string {
+	var malos []sqlc.PedidosParaArmarRutaRow
+	for _, p := range pedidos {
+		// Las dos columnas, que `MarcarResultadoDeParada` escribe y limpia juntas.
+		if p.DeliveredAt.Valid || (p.Resultado != nil && *p.Resultado == sqlc.StopResultEntregado) {
+			malos = append(malos, p)
+		}
+	}
+	if len(malos) == 0 {
+		return ""
+	}
+	detalle := make([]string, 0, 5)
+	for _, p := range malos {
+		if len(detalle) == 5 {
+			break
+		}
+		quien := p.CustomerName
+		if p.OperationNumber != nil && *p.OperationNumber != "" {
+			quien = *p.OperationNumber
+		}
+		detalle = append(detalle, quien)
+	}
+	mensaje := fmt.Sprintf("%d de los pedidos elegidos YA SE ENTREGARON y no pueden volver "+
+		"a un camión: %s", len(malos), strings.Join(detalle, ", "))
+	if len(malos) > 5 {
+		return mensaje + fmt.Sprintf(" y %d más.", len(malos)-5)
+	}
+	return mensaje + "."
 }
 
 // mensajeNoFacturados arma el 409 de facturación, o "" si todos cuadran.

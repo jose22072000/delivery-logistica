@@ -521,8 +521,24 @@ class _Salir extends ConsumerWidget {
     if (!context.mounted) return;
 
     if (pendientes > 0) {
-      // Trabajo sin subir: se dice CUANTO y se pregunta. Salir lo borraria del
-      // aparato sin que nadie lo hubiera visto nunca en el servidor.
+      // Trabajo sin subir: se dice CUANTO y se pregunta.
+      //
+      // ## EL AVISO AMENAZABA CON UNA PERDIDA QUE YA NO OCURRE — 17/09/2026
+      //
+      // Decia «se borra lo de este aparato y ese trabajo se pierde», y el boton
+      // se llamaba «Salir y perderlo». Eso era verdad cuando habia UNA base para
+      // todos; desde que cada persona tiene la suya (15/09/2026), `salir()` sólo
+      // revoca el token y suelta al dueño de la base — **la copia y su cola se
+      // quedan enteras** y vuelven al entrar. Lo unico que borra de verdad es el
+      // gesto explicito de olvidar a alguien (`nucleo/base/personas.dart`).
+      //
+      // Lo encontro una prueba escrita hoy: «salir con trabajo dentro NO se lo
+      // lleva». Un aviso que amenaza con perder lo que no se pierde es peor que
+      // no avisar: se lee una vez, se comprueba que era mentira, y deja de
+      // leerse el dia que diga la verdad.
+      //
+      // Lo que SI sigue siendo verdad, y es lo que ahora se dice: **nadie ve ese
+      // trabajo hasta que suba**.
       //
       // ## Las mismas cuentas, dos textos, porque NO SON LO MISMO — 17/09/2026
       //
@@ -549,9 +565,9 @@ class _Salir extends ConsumerWidget {
                       'pierden.\n\nVuelve a intentarlo desde la pantalla donde '
                       'los hiciste.'
                 : 'Hay $pendientes ${pendientes == 1 ? "apunte" : "apuntes"} sin '
-                      'subir al servidor. Si sales ahora se borra lo de este '
-                      'aparato y ese trabajo se pierde.\n\nConecta y espera a '
-                      'que suba antes de salir.',
+                      'subir al servidor. Salir NO los borra: se quedan en este '
+                      'aparato hasta que vuelvas a entrar.\n\nPero nadie los ve '
+                      'hasta que suban. Si puedes, conecta y espera.',
           ),
           actions: [
             TextButton(
@@ -560,7 +576,7 @@ class _Salir extends ConsumerWidget {
             ),
             TextButton(
               onPressed: () => Navigator.of(contexto).pop(true),
-              child: const Text('Salir y perderlo'),
+              child: const Text('Salir de todos modos'),
             ),
           ],
         ),

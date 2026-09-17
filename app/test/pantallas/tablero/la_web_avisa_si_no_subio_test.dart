@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -91,10 +92,8 @@ void main() {
     );
   }
 
-  test(
-    'la web: el rechazo llega CON LA PANTALLA YA ABIERTA y se dice igual, '
-    'con el motivo literal',
-    () async {
+  test('la web: el rechazo llega CON LA PANTALLA YA ABIERTA y se dice igual, '
+      'con el motivo literal', () async {
     await Destino.comoSiFueraWeb(() async {
       // EL ORDEN DE LA VIDA REAL, y la primera versión de esta prueba lo tenía
       // al revés: sembraba el rechazo ANTES de montar, así que ya estaba en la
@@ -144,8 +143,7 @@ void main() {
 
       contenedor.dispose();
     });
-    },
-  );
+  });
 
   test('la web: sin rechazos no se dice nada — lo normal no avisa', () async {
     await Destino.comoSiFueraWeb(() async {

@@ -1,0 +1,5 @@
+# El binario compilado no va al repositorio: esto se corre con `go run .`
+mapa-cuba
+# Ni los paquetes generados, que son decenas de MB.
+*.pmtiles
+.*.teselas

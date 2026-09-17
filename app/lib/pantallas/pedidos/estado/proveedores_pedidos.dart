@@ -10,7 +10,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
+// Del Tablero se usa lo de LEER y lo de ESCRIBIR, sin tocarlo: «Mandar a una
+// zona» tiene que colocar por el mismo camino que el arrastre o serian dos
+// maneras distintas de poner una tarjeta, con dos juegos de reglas.
+import '../../tablero/datos/esquema.dart';
+import '../../tablero/datos/modelos.dart';
+import '../../tablero/estado/proveedores.dart';
 import '../datos/filtros_pedidos.dart';
+import '../datos/mandar_al_tablero.dart';
 import '../datos/repositorio_pedidos.dart';
 
 final consultasPedidosProvider = Provider<ConsultasPedidos>(
@@ -83,6 +90,13 @@ class SeleccionPedidos extends Notifier<Set<String>> {
   }
 
   void quitarLaMarca() => state = <String>{};
+
+  /// Quita la marca SOLO de estos. Lo usa «Mandar a una zona»: los que se
+  /// colocaron pierden la marca y **los que no pudieron ir se quedan
+  /// marcados**, que es lo que deja seguir trabajando con ellos sin volver a
+  /// buscarlos entre doce mil (`CLAUDE.md` §4: nada se descarta en silencio).
+  void quitarLaMarcaDe(Iterable<String> ids) =>
+      state = {...state}..removeAll(ids);
 }
 
 final seleccionPedidosProvider =
@@ -236,3 +250,120 @@ final rutasPorIdProvider = StreamProvider<Map<String, Ruta>>((ref) {
       .watch()
       .map((rutas) => {for (final ruta in rutas) ruta.id: ruta});
 });
+
+// -----------------------------------------------------------------------------
+// MANDAR LO MARCADO A UNA ZONA DEL TABLERO
+// -----------------------------------------------------------------------------
+//
+// Todo esto cuelga de las piezas del Tablero SIN pasar por `tableroProvider`, y
+// no es por gusto: el `build` de ese notifier **le pide la foto al servidor**
+// cuando cambia la sucursal. Usarlo desde aqui convertiria un gesto que tiene
+// que funcionar sin conexion en uno que llama a la red al abrirse.
+//
+// `consultasTableroProvider` y `repositorioTableroProvider` son `Provider`
+// pelados: leen y escriben en la base del aparato y no hablan con nadie.
+
+/// El gesto, listo para llamarlo.
+final mandarAlTableroProvider = Provider<MandarAlTablero>(
+  (ref) => MandarAlTablero(
+    ref.watch(baseProvider),
+    ref.watch(repositorioTableroProvider),
+  ),
+);
+
+/// LAS ZONAS DE LA SUCURSAL QUE SE ESTA MIRANDO, y de ninguna otra.
+///
+/// Es la mitad visible de la guarda del alcance: con La Habana mirada, en el
+/// cajon no puede aparecer una zona de Holguin. La otra mitad la pone
+/// `MandarAlTablero`, que vuelve a comprobarlo contra la base — una guarda que
+/// solo vive en la lista que se pinta se cae el dia que alguien cambie de
+/// sucursal con el cajon abierto.
+///
+/// **Stream y no Future** (`CLAUDE.md` §3-ter): en la web la base nace vacia en
+/// cada carga y las zonas llegan un segundo despues. Un `Future` se resolveria
+/// con la lista vacia y el cajon diria «este tablero no tiene ninguna zona»
+/// para siempre, encima de un tablero con seis.
+final zonasDelTableroProvider = StreamProvider<List<ColumnaTablero>>((ref) {
+  final base = ref.watch(baseProvider);
+  final consultas = ref.watch(consultasTableroProvider);
+  // EL VALOR, NO SU `Future`. `watch` y no `read`, para que cambiar de sucursal
+  // arriba rehaga la lista; y el `AsyncValue` y no `.future` porque un futuro
+  // capturado en la creacion se queda esperando a una respuesta que ya no viene
+  // cuando el provider de la sucursal se rehace por debajo — y entonces la
+  // lista de zonas no sale NUNCA, sin error y sin aviso.
+  final cual = ref.watch(sucursalDelTableroProvider);
+  if (cual.isLoading) {
+    // Todavia no se sabe de que sucursal es el tablero. Un stream que se cierra
+    // sin decir nada deja esto «cargando», que es la verdad: cuando la sucursal
+    // llegue, esto se rehace solo y emite.
+    return const Stream<List<ColumnaTablero>>.empty();
+  }
+  final sucursalId = cual.value;
+  if (sucursalId == null || sucursalId.isEmpty) {
+    return Stream<List<ColumnaTablero>>.value(const <ColumnaTablero>[]);
+  }
+
+  Future<List<ColumnaTablero>> mirar() => consultas.columnas(sucursalId);
+
+  return () async* {
+    // El primero enseguida: `tableUpdates` no emite al suscribirse, y sin esto
+    // el cajon arrancaria sin zonas aunque ya estuvieran en la base.
+    yield await mirar();
+    yield* base
+        .tableUpdates(TableUpdateQuery.onTableName(EsquemaTablero.columnas))
+        .asyncMap((_) => mirar());
+  }();
+});
+
+/// Lo que hace el cajon, sin pantalla: crear una zona y mandarle lo marcado.
+///
+/// Vive aqui y no dentro del widget para que «la marca se quita al terminar» se
+/// pueda comprobar sin montar nada.
+class EnvioAlTablero extends Notifier<void> {
+  @override
+  void build() {}
+
+  /// Una zona nueva en la sucursal que se esta mirando. Devuelve su id.
+  Future<String> crearZona(String nombre) async {
+    final sucursalId = await _sucursal();
+    return ref
+        .read(repositorioTableroProvider)
+        .crearColumna(sucursalId: sucursalId, nombre: nombre);
+  }
+
+  /// Manda lo marcado a [columnaId] y **quita la marca de los que fueron**.
+  ///
+  /// Los que no pudieron ir se quedan marcados a proposito: el cajon dice
+  /// cuales y por que, y quien esta delante sigue teniendolos a mano para
+  /// arreglarlos o mandarlos a otra zona. Quitarles la marca seria descartarlos
+  /// en silencio dos segundos despues de haberlo dicho.
+  Future<ResultadoDeMandar> mandarLoMarcado(String columnaId) async {
+    final sucursalId = await _sucursal();
+    final marcados = ref.read(seleccionPedidosProvider).toList();
+    final resultado = await ref
+        .read(mandarAlTableroProvider)
+        .mandar(
+          pedidoIds: marcados,
+          columnaId: columnaId,
+          sucursalId: sucursalId,
+        );
+    ref.read(seleccionPedidosProvider.notifier).quitarLaMarcaDe(
+      resultado.fueron,
+    );
+    return resultado;
+  }
+
+  /// Sin sucursal no hay zonas ni alcance: es el mismo rechazo del tablero, con
+  /// el mismo texto.
+  Future<String> _sucursal() async {
+    final sucursalId = await ref.read(sucursalDelTableroProvider.future);
+    if (sucursalId == null || sucursalId.isEmpty) {
+      throw const FaltaElegirSucursal();
+    }
+    return sucursalId;
+  }
+}
+
+final envioAlTableroProvider = NotifierProvider<EnvioAlTablero, void>(
+  EnvioAlTablero.new,
+);

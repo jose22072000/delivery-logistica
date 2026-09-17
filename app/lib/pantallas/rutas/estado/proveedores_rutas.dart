@@ -105,8 +105,16 @@ final contadoresDePestanaProvider = Provider<Map<PestanaRutas, int>>((ref) {
 });
 
 /// La lista ya filtrada por la pestana y por los filtros del cliente.
-final rutasDeLaPestanaProvider = Provider<List<Ruta>>((ref) {
-  final pestana = ref.watch(pestanaRutasProvider);
+///
+/// **Por pestana, no «la de la pestana elegida»**: en el movil las tres listas
+/// van en un `PageView` y mientras el dedo arrastra se ven DOS a la vez, la que
+/// se va y la que llega. Con un solo provider atado a la elegida, la pagina de
+/// al lado pintaba la misma lista y el deslizamiento parecia no hacer nada hasta
+/// que soltabas.
+final rutasDePestanaProvider = Provider.family<List<Ruta>, PestanaRutas>((
+  ref,
+  pestana,
+) {
   final rutas = ref.watch(todasLasRutasProvider).value ?? const <Ruta>[];
   final vehiculos = {
     for (final v in ref.watch(vehiculosProvider).value ?? const <Vehiculo>[])
@@ -127,8 +135,20 @@ final rutasDeLaPestanaProvider = Provider<List<Ruta>>((ref) {
   );
 });
 
+/// La de la pestana que se esta mirando. Sigue existiendo porque es lo que pide
+/// casi todo el mundo; por dentro es la de arriba con la elegida puesta.
+final rutasDeLaPestanaProvider = Provider<List<Ruta>>(
+  (ref) => ref.watch(rutasDePestanaProvider(ref.watch(pestanaRutasProvider))),
+);
+
 final rutaConTodoProvider = StreamProvider.family<RutaConTodo?, String>(
   (ref, rutaId) => ref.watch(consultasRutasProvider).rutaConTodo(rutaId),
+);
+
+/// Cuantas paradas lleva cada ruta, para la lista. Una sola consulta agrupada
+/// en vez de una por tarjeta.
+final paradasPorRutaProvider = StreamProvider<Map<String, int>>(
+  (ref) => ref.watch(consultasRutasProvider).paradasPorRuta(),
 );
 
 /// Las paradas en vivo: el cierre se tiene que ver marcado en el detalle sin

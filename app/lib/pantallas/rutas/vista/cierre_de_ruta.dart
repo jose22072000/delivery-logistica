@@ -23,10 +23,38 @@ import '../datos/post_despacho.dart';
 import '../datos/repositorio_rutas.dart';
 import '../estado/proveedores_rutas.dart';
 
+/// EN QUE MOMENTO SE ABRE EL CIERRE. Son tres, y no es lo mismo.
+enum ModoDelCierre {
+  /// La ruta esta EN CURSO y se va marcando parada a parada segun se reparte.
+  /// Es el modo de siempre: se guarda lo marcado y la ruta sigue en curso.
+  marcar,
+
+  /// Se acaba de pulsar `Marcar como completada` y **quedan paradas sin
+  /// marcar**. Aqui se pregunta como acabaron y, al guardar, la ruta se da por
+  /// completada en el mismo gesto.
+  alCompletar,
+
+  /// La ruta ya esta COMPLETADA: el cierre solo se mira.
+  soloLectura,
+}
+
 class CierreDeRuta extends ConsumerStatefulWidget {
-  const CierreDeRuta({required this.rutaId, super.key});
+  const CierreDeRuta({
+    required this.rutaId,
+    this.modo = ModoDelCierre.marcar,
+    this.alCompletar,
+    super.key,
+  });
 
   final String rutaId;
+
+  /// Ver `ModoDelCierre`.
+  final ModoDelCierre modo;
+
+  /// Lo que hace la pantalla DESPUES de completar, en el modo `alCompletar`:
+  /// soltar la ruta elegida e irse al Historial. Vive fuera porque es
+  /// navegacion de la pantalla de Rutas, no del cajon.
+  final VoidCallback? alCompletar;
 
   /// La cabecera, literal. Explica la regla que mas se malinterpreta: lo que no
   /// se entrego sigue arriba, y lo devuelto no toca inventario —eso lo hace
@@ -39,6 +67,26 @@ class CierreDeRuta extends ConsumerStatefulWidget {
 
   static const exito =
       'Cierre guardado. En PEDIDO cada pedido ya dice si se entregó o volvió.';
+
+  /// LA CABECERA DEL MODO `alCompletar`, literal.
+  ///
+  /// Jose, 17/09/2026, mirando el cierre de una ruta ya completada: «ese estado
+  /// se pone cuando están en ruta, no completados; ahí el cierre ya viene con el
+  /// estado de cuando le van a dar a completado, es que se pregunta ese estado».
+  static const cabeceraAlCompletar =
+      'Antes de dar la ruta por completada: ¿cómo acabó cada parada? Lo que '
+      'dejes sin marcar se da por no entregado y cuenta como que sigue en el '
+      'camión.';
+
+  /// LA CABECERA DEL MODO `soloLectura`, literal. Una ruta completada ya no se
+  /// marca: lo que se ve es como acabo.
+  static const cabeceraSoloLectura =
+      'La ruta ya está completada: así acabó cada parada. Para corregir algo, '
+      'hay que hacerlo en PEDIDO.';
+
+  static const exitoAlCompletar =
+      'Cierre guardado y ruta completada. En PEDIDO cada pedido ya dice si se '
+      'entregó o volvió.';
 
   @override
   ConsumerState<CierreDeRuta> createState() => _CierreDeRutaState();
@@ -84,6 +132,9 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
 
   int get _marcadas => _resultados.values.where((r) => r != null).length;
 
+  bool get _soloLectura => widget.modo == ModoDelCierre.soloLectura;
+  bool get _completando => widget.modo == ModoDelCierre.alCompletar;
+
   void _marcar(String pedidoId, String resultado) => setState(() {
     // **Pulsar el mismo boton dos veces desmarca.** Es como se corrige un dedazo
     // sin tener que recargar nada.
@@ -108,7 +159,12 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
             nota: _nota(parada.id).text,
           ),
     ];
-    if (marcas.isEmpty) return;
+    final completando = widget.modo == ModoDelCierre.alCompletar;
+    // Sin nada marcado no hay nada que guardar **y no pasa nada**: se puede dar
+    // una ruta por completada dejando paradas sin marcar, que es como se dice
+    // «eso siguio en el camion». Lo que no se puede es salir sin hacer nada,
+    // por eso el `return` solo vale fuera del modo de completar.
+    if (marcas.isEmpty && !completando) return;
 
     setState(() => _guardando = true);
     final mensajero = ScaffoldMessenger.maybeOf(context);
@@ -116,11 +172,23 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
     try {
       // Sin `await` a ninguna red: esto escribe en la base y encola. Lo que
       // tarda es un `INSERT`.
-      await ref.read(accionesDeRutaProvider).cerrar(widget.rutaId, marcas);
+      final acciones = ref.read(accionesDeRutaProvider);
+      if (marcas.isNotEmpty) {
+        await acciones.cerrar(widget.rutaId, marcas);
+      }
+      // **Completar va DESPUES de guardar, y solo si guardar salio bien.** Al
+      // reves, un rechazo del cierre dejaria la ruta dada por cerrada con las
+      // paradas sin marcar.
+      if (completando) await acciones.completar(widget.rutaId);
       mensajero?.showSnackBar(
-        const SnackBar(content: Text(CierreDeRuta.exito)),
+        SnackBar(
+          content: Text(
+            completando ? CierreDeRuta.exitoAlCompletar : CierreDeRuta.exito,
+          ),
+        ),
       );
       navegador.maybePop();
+      if (completando) widget.alCompletar?.call();
     } on RechazoLocal catch (fallo) {
       // El mensaje del servidor, literal y sin envolver.
       mensajero?.showSnackBar(SnackBar(content: Text(fallo.mensaje)));
@@ -176,15 +244,23 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
             onPressed: () => Navigator.of(context).maybePop(),
             child: const Text('Cerrar'),
           ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: _marcadas == 0 || _guardando
-                ? null
-                : () => _guardar(paradas),
-            child: Text(
-              _guardando ? 'Guardando…' : 'Guardar $_marcadas marcada(s)',
+          // **En una ruta completada no hay boton de guardar.** No es que este
+          // apagado: no esta. Un boton apagado invita a buscar como encenderlo.
+          if (!_soloLectura) ...[
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _guardando || (_marcadas == 0 && !_completando)
+                  ? null
+                  : () => _guardar(paradas),
+              child: Text(
+                _guardando
+                    ? 'Guardando…'
+                    : _completando
+                    ? 'Guardar y completar'
+                    : 'Guardar $_marcadas marcada(s)',
+              ),
             ),
-          ),
+          ],
         ],
       ),
       cuerpo: Padding(
@@ -192,24 +268,29 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(CierreDeRuta.cabecera),
+            Text(switch (widget.modo) {
+              ModoDelCierre.marcar => CierreDeRuta.cabecera,
+              ModoDelCierre.alCompletar => CierreDeRuta.cabeceraAlCompletar,
+              ModoDelCierre.soloLectura => CierreDeRuta.cabeceraSoloLectura,
+            }),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                const Text('Todas:'),
-                for (final atajo in const [
-                  (ResultadoParada.entregado, 'Entregado'),
-                  (ResultadoParada.devuelto, 'Devuelto'),
-                  (ResultadoParada.cancelado, 'Cancelado'),
-                ])
-                  OutlinedButton(
-                    onPressed: () => _todas(atajo.$1, paradas),
-                    child: Text(atajo.$2),
-                  ),
-              ],
-            ),
+            if (!_soloLectura)
+              Wrap(
+                spacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  const Text('Todas:'),
+                  for (final atajo in const [
+                    (ResultadoParada.entregado, 'Entregado'),
+                    (ResultadoParada.devuelto, 'Devuelto'),
+                    (ResultadoParada.cancelado, 'Cancelado'),
+                  ])
+                    OutlinedButton(
+                      onPressed: () => _todas(atajo.$1, paradas),
+                      child: Text(atajo.$2),
+                    ),
+                ],
+              ),
             if (sinMarcar > 0)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -225,6 +306,7 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
                 pedido: paradas[i],
                 resultado: _resultados[paradas[i].id],
                 nota: _nota(paradas[i].id),
+                soloLectura: _soloLectura,
                 alMarcar: (cual) => _marcar(paradas[i].id, cual),
               ),
             const SizedBox(height: 16),
@@ -315,6 +397,7 @@ class _Parada extends StatelessWidget {
     required this.pedido,
     required this.resultado,
     required this.nota,
+    required this.soloLectura,
     required this.alMarcar,
   });
 
@@ -322,7 +405,22 @@ class _Parada extends StatelessWidget {
   final Pedido pedido;
   final String? resultado;
   final TextEditingController nota;
+
+  /// La ruta ya esta completada: como acabo esta parada se mira, no se toca.
+  final bool soloLectura;
   final void Function(String) alMarcar;
+
+  /// Como se llama cada resultado y de que color va, en un solo sitio: la
+  /// insignia de solo lectura y los tres botones decian lo mismo por separado.
+  static final nombres = <String, (String, Color)>{
+    ResultadoParada.entregado: ('Entregado', Colores.verde),
+    ResultadoParada.devuelto: ('Devuelto', Colores.rojo),
+    ResultadoParada.cancelado: ('Cancelado', Colores.gris),
+  };
+
+  /// LO QUE DICE UNA PARADA SIN MARCAR EN UNA RUTA YA CERRADA. No es «nada»:
+  /// es que ese bulto volvio al almacen, que es lo que cuadra el post-despacho.
+  static const sinMarcarEnCerrada = 'Sin marcar · siguió en el camión';
 
   @override
   Widget build(BuildContext context) {
@@ -360,30 +458,38 @@ class _Parada extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                _BotonResultado(
-                  texto: 'Entregado',
-                  color: Colores.verde,
-                  elegido: resultado == ResultadoParada.entregado,
-                  alPulsar: () => alMarcar(ResultadoParada.entregado),
-                ),
-                _BotonResultado(
-                  texto: 'Devuelto',
-                  color: Colores.rojo,
-                  elegido: resultado == ResultadoParada.devuelto,
-                  alPulsar: () => alMarcar(ResultadoParada.devuelto),
-                ),
-                _BotonResultado(
-                  texto: 'Cancelado',
-                  color: Colores.gris,
-                  elegido: resultado == ResultadoParada.cancelado,
-                  alPulsar: () => alMarcar(ResultadoParada.cancelado),
-                ),
+            if (soloLectura)
+              // SIN BOTONES, NI SIQUIERA APAGADOS. En una ruta completada el
+              // resultado es un dato, no una eleccion.
+              Insignia(
+                nombres[resultado]?.$1 ?? sinMarcarEnCerrada,
+                color: nombres[resultado]?.$2 ?? Colores.ambar,
+              )
+            else
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final cual in const [
+                    ResultadoParada.entregado,
+                    ResultadoParada.devuelto,
+                    ResultadoParada.cancelado,
+                  ])
+                    _BotonResultado(
+                      texto: nombres[cual]!.$1,
+                      color: nombres[cual]!.$2,
+                      elegido: resultado == cual,
+                      alPulsar: () => alMarcar(cual),
+                    ),
+                ],
+              ),
+            if (soloLectura) ...[
+              // La nota tambien se mira: es el «por que volvio», y en una ruta
+              // cerrada es la unica explicacion que queda de lo que paso.
+              if (nota.text.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(nota.text.trim(), style: TextStyle(color: Colores.gris)),
               ],
-            ),
-            if (pideMotivo) ...[
+            ] else if (pideMotivo) ...[
               const SizedBox(height: 8),
               TextField(
                 controller: nota,

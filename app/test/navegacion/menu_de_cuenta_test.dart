@@ -236,56 +236,53 @@ void main() {
     await desmontar(tester);
   });
 
-  testWidgets(
-    'en la WEB el aviso de salir habla de cambios que no se guardaron, no de '
-    'trabajo sin conexión',
-    (tester) async {
-      // La misma cuenta, otras palabras, porque no es lo mismo. En un navegador
-      // cada gesto sale en el momento: si algo se quedó en la cola es que NO se
-      // pudo guardar, no que esté esperando a que haya red. Decirle ahí «conecta
-      // y espera a que suba» es mandarle a hacer algo que ya está hecho.
-      //
-      // Jose, 17/09/2026: «no sé cuántas veces tengo que decirte que la web
-      // siempre está en línea, nunca se desconecta».
-      await Destino.comoSiFueraWeb(() async {
-        await base
-            .into(base.apuntes)
-            .insert(
-              ApuntesCompanion.insert(
-                clave: '01J8BBBB',
-                hechoAt: DateTime(2026, 9, 14, 7),
-                metodo: 'POST',
-                ruta: '/api/routes',
-                cuerpo: '{}',
-              ),
-            );
+  testWidgets('en la WEB el aviso de salir habla de cambios que no se guardaron, no de '
+      'trabajo sin conexión', (tester) async {
+    // La misma cuenta, otras palabras, porque no es lo mismo. En un navegador
+    // cada gesto sale en el momento: si algo se quedó en la cola es que NO se
+    // pudo guardar, no que esté esperando a que haya red. Decirle ahí «conecta
+    // y espera a que suba» es mandarle a hacer algo que ya está hecho.
+    //
+    // Jose, 17/09/2026: «no sé cuántas veces tengo que decirte que la web
+    // siempre está en línea, nunca se desconecta».
+    await Destino.comoSiFueraWeb(() async {
+      await base
+          .into(base.apuntes)
+          .insert(
+            ApuntesCompanion.insert(
+              clave: '01J8BBBB',
+              hechoAt: DateTime(2026, 9, 14, 7),
+              metodo: 'POST',
+              ruta: '/api/routes',
+              cuerpo: '{}',
+            ),
+          );
 
-        await montar(tester);
-        await abrirElMenu(tester);
-        await tester.tap(find.text('Cerrar sesión'));
-        await tester.pumpAndSettle();
+      await montar(tester);
+      await abrirElMenu(tester);
+      await tester.tap(find.text('Cerrar sesión'));
+      await tester.pumpAndSettle();
 
-        expect(find.text('Hay cambios sin guardar'), findsOneWidget);
-        expect(
-          find.textContaining('no llegaron al servidor'),
-          findsOneWidget,
-          reason: 'eso es lo que de verdad pasó',
-        );
-        expect(
-          find.textContaining('Conecta y espera'),
-          findsNothing,
-          reason: 'ya está conectada: es la web',
-        );
-        expect(
-          find.textContaining('este aparato'),
-          findsNothing,
-          reason: 'en un navegador no hay «aparato» que guarde nada',
-        );
+      expect(find.text('Hay cambios sin guardar'), findsOneWidget);
+      expect(
+        find.textContaining('no llegaron al servidor'),
+        findsOneWidget,
+        reason: 'eso es lo que de verdad pasó',
+      );
+      expect(
+        find.textContaining('Conecta y espera'),
+        findsNothing,
+        reason: 'ya está conectada: es la web',
+      );
+      expect(
+        find.textContaining('este aparato'),
+        findsNothing,
+        reason: 'en un navegador no hay «aparato» que guarde nada',
+      );
 
-        await tester.tap(find.text('Me quedo'));
-        await tester.pumpAndSettle();
-        await desmontar(tester);
-      });
-    },
-  );
+      await tester.tap(find.text('Me quedo'));
+      await tester.pumpAndSettle();
+      await desmontar(tester);
+    });
+  });
 }

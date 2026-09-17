@@ -171,54 +171,51 @@ void main() {
     },
   );
 
-  testWidgets(
-    'y en la FICHA de un pedido que no está tampoco: era el último sitio con '
-    'la frase suelta',
-    (tester) async {
-      // «No está en el aparato» + «Con conexión baja sola», sin ninguna guarda
-      // de plataforma. Camino estrecho —se abre la ficha de un pedido que ya no
-      // está en la base en ese instante— pero es la frase literal que Jose lleva
-      // seis veces pidiendo que desaparezca, y la encontró el auditor
-      // enumerando pantalla por pantalla.
-      await Destino.comoSiFueraWeb(() async {
-        tester.view.physicalSize = const Size(1600, 1400);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.reset);
+  testWidgets('y en la FICHA de un pedido que no está tampoco: era el último sitio con '
+      'la frase suelta', (tester) async {
+    // «No está en el aparato» + «Con conexión baja sola», sin ninguna guarda
+    // de plataforma. Camino estrecho —se abre la ficha de un pedido que ya no
+    // está en la base en ese instante— pero es la frase literal que Jose lleva
+    // seis veces pidiendo que desaparezca, y la encontró el auditor
+    // enumerando pantalla por pantalla.
+    await Destino.comoSiFueraWeb(() async {
+      tester.view.physicalSize = const Size(1600, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
 
-        await tester.pumpWidget(
-          ProviderScope(
-            overrides: [
-              baseProvider.overrideWithValue(base),
-              relojProvider.overrideWithValue(() => ahora),
-            ],
-            child: MaterialApp(
-              localizationsDelegates: delegacionesDeIdioma,
-              supportedLocales: idiomas,
-              // Un id que no existe: la ficha no encuentra nada.
-              home: const Scaffold(
-                body: CajonDetallePedido(pedidoId: 'no-existe'),
-              ),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            baseProvider.overrideWithValue(base),
+            relojProvider.overrideWithValue(() => ahora),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: delegacionesDeIdioma,
+            supportedLocales: idiomas,
+            // Un id que no existe: la ficha no encuentra nada.
+            home: const Scaffold(
+              body: CajonDetallePedido(pedidoId: 'no-existe'),
             ),
           ),
+        ),
+      );
+      await asentar(tester);
+
+      for (final delAparato in const [
+        'No está en el aparato',
+        'Con conexión baja sola',
+        'no se ha descargado',
+      ]) {
+        expect(
+          find.textContaining(delAparato),
+          findsNothing,
+          reason: '«$delAparato» no puede salir en un navegador',
         );
-        await asentar(tester);
+      }
 
-        for (final delAparato in const [
-          'No está en el aparato',
-          'Con conexión baja sola',
-          'no se ha descargado',
-        ]) {
-          expect(
-            find.textContaining(delAparato),
-            findsNothing,
-            reason: '«$delAparato» no puede salir en un navegador',
-          );
-        }
-
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 1));
-      });
-    },
-  );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+    });
+  });
 }
