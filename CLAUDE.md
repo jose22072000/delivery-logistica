@@ -120,6 +120,103 @@ error.
 
 ---
 
+## 3-bis. Dos preguntas sobre lo mismo que se separan sin que salte nada
+
+El 17/09/2026 el tablero de La Habana decía **«Sin colocar (722)»** encima de una
+lista de **293**. Ni un error, ni una pantalla en blanco, ni un tirón: sólo un
+número 429 unidades más alto de lo real. A `ContarPedidosSinColocar` le faltaba
+`AND NOT o.archivado`, que `ListarPedidosSinColocar` tenía desde el 15/09. Tres
+días así. Encima, el comentario que había sobre el contador ya lo avisaba —«tiene
+que ser el mismo o dice 358 encima de una lista de 120»— y no sirvió de nada,
+porque **un comentario no falla**.
+
+La regla: cuando dos consultas tienen que contestar lo mismo —una lista y su
+contador, un total y su detalle, un aviso y lo que cuenta—, **hay que atarlas con
+una prueba, no con un comentario**. Está hecho para ésta en
+`api/internal/store/contador_y_lista_test.go`, que compara el `WHERE` **y** el
+`FROM` con sus `JOIN` (un `JOIN` filtra igual que un `WHERE`; que se escriba en
+otra línea es cosa de SQL, no del contrato).
+
+Lo que esa prueba **todavía no cubre**, y hay que saberlo: los parámetros se
+copian a mano en Go (`api/internal/api/tablero.go`, al armar
+`ContarPedidosSinColocarParams`). Quitar ahí un `Municipio:` deja toda la suite en
+verde y el número vuelve a mentir.
+
+---
+
+## 3-ter. Una respuesta que se pide UNA vez sobre algo que cambia después
+
+En la APK la base sobrevive, así que al pintar una pantalla los datos ya están.
+**En la web la base es en memoria y nace vacía en cada carga**, y el ciclo la
+llena un segundo más tarde. Ahí, un `FutureProvider` —una sola respuesta, la del
+instante en que se pinta— se queda **congelado en el peor momento posible**.
+
+Lo que se veía el 17/09/2026 en `/orders`: la cabecera diciendo «299 pedidos», el
+pie diciendo «Mostrando 1-50 de 299», y en medio «Esta pantalla no se ha
+descargado todavía». El total y la página eran `Stream` y se enteraban; el cartel
+no. Lo mismo en Rutas, en los desplegables de filtros de Pedidos y en la lista de
+camiones del Tablero — **cuatro sitios, el mismo patrón**.
+
+La regla: **lo que se pinta y puede cambiar cuando llega la bajada va por
+`Stream`**, no por `Future`. `RegistroDeFrescura.mirar` para la frescura, y
+`tableUpdates` para lo que sale de una tabla. `seDescargo` sigue ahí para decidir
+en seco, donde no hay nada que repintar.
+
+Y la prueba que lo caza tiene una forma concreta, porque las que había no valían:
+**montar con la base VACÍA y sembrar DESPUÉS, sin volver a montar la pantalla.**
+Sembrar en el `setUp` es justo el caso que un `Future` resuelve bien. Moldes en
+`app/test/pantallas/pedidos/llega_la_bajada_test.dart` y su gemelo de rutas.
+
+---
+
+## 3-quater. El proxy se queda con `/api` y con `/sync` antes que la aplicación
+
+En el servidor, Traefik reparte por camino, y lo suyo no llega nunca a la web:
+
+```
+Host(`reparto.procovar.cloud`) && PathPrefix(`/api`)   -> el reparto
+Host(`reparto.procovar.cloud`) && PathPrefix(`/sync`)  -> el sincronizador
+Host(`reparto.procovar.cloud`)                         -> la aplicación
+```
+
+La pantalla de Sincronización vivía en `/sync`. Por el menú funcionaba —eso lo
+resuelve el enrutador dentro del navegador, sin pedirle nada al servidor— y por
+eso nadie lo vio: **el único camino que falla es recargar ahí o abrir el enlace**,
+y entonces contesta el sincronizador con un `401` que no tiene nada que ver con la
+aplicación. Movida a `/sincronizacion`; el prefijo no se toca, que es la dirección
+que ya usan las APK instaladas.
+
+Y es prefijo de **cadena, no de segmento**: `PathPrefix(/sync)` atrapa
+`/sync-estado` igual que `/sync`. Lo vigila
+`app/test/navegacion/contrato_registro_test.dart`.
+
+---
+
+## 3-quinquies. Quitar un aviso de la web deja un agujero que hay que tapar
+
+El 17/09/2026 se quitaron de la web, y bien quitados, el sello «Datos de las
+10:36», el «N sin subir», el «Visto por última vez a las…» y el «conecta y espera
+a que suba» de cerrar sesión. Todos hablan de **tu copia** y de **tu cola**, y en
+un navegador no hay ninguna de las dos.
+
+Pero ese «N sin subir» era lo único que delataba un gesto que no llegó. Sin él: la
+tarjeta se mueve en la pantalla, el servidor dice que no, y **no se entera nadie**
+hasta que alguien recarga y la ve volver a su sitio.
+
+La regla: **en la web, lo que el servidor rechaza se dice, y con su motivo
+literal.** «Ese pedido ya va en otra ruta» le dice a alguien qué hacer; «no se
+pudo guardar» no le dice nada.
+
+Y la trampa de al lado, que casi sale peor que el agujero: el primer intento fue
+esperar al ciclo tras cada gesto y mirar si la cola quedaba vacía. **Eso salta en
+CADA movimiento**, porque un apunte está legítimamente pendiente ese instante. Un
+aviso que sale siempre deja de leerse, y entonces tampoco se lee el día que
+importa. Lo único inequívoco es un apunte **rechazado**. Por eso las pruebas de
+esto van en pareja: una que el aviso salga cuando toca, y otra que **no salga**
+cuando no.
+
+---
+
 ## 4. Lo que no puede pasar nunca
 
 - **Nada se descarta en silencio.** Un apunte rechazado se queda a la vista con
@@ -159,8 +256,35 @@ Dos reglas que salieron de ese día:
 
 - **Nunca `git add -A` mientras un agente está mutando el árbol.** Se le lleva la
   mutación al commit. Pasó, y se desplegó.
-- **Los Dockerfile corren `go test`** (`deploy/Dockerfile.api` y `.sync`). El de
-  sync sólo compilaba, y por eso la mutación llegó al servidor.
+- **Los tres Dockerfile corren sus pruebas antes de construir.** `Dockerfile.api`
+  y `.sync` hacen `go vet && go test`; `Dockerfile.app` hace `flutter analyze` y
+  `flutter test`. El de sync sólo compilaba, y por eso la mutación llegó al
+  servidor. El de la web se quedó sin arreglar aquel día y estuvo un día entero
+  construyendo sin pasar una sola prueba — el mismo agujero, en el otro lado.
+- **Con agentes escribiendo a la vez, no se lanza `./comprobar.sh`.** Mide un
+  árbol a medio escribir y contesta `FALLA` sobre ficheros que están bien: el
+  17/09/2026 dio dos falsos rojos seguidos mientras cuatro agentes trabajaban.
+  Cada agente comprueba **lo suyo** (`flutter analyze <carpeta>`, sus pruebas con
+  `timeout 300`, o `go build && go vet && go test` en `api/`), y el guion entero
+  se pasa **una vez, al final**, cuando todos han soltado los ficheros. Y por lo
+  mismo: **no se despliega con agentes vivos.**
+- **A cada agente se le dice qué ficheros NO puede tocar**, con la lista de lo que
+  tienen los demás. Sin eso se pisan, y el que pierde es el que no se entera.
+- **Cada agente muta lo suyo y nadie muta lo del vecino.** Por eso la auditoría
+  del final tiene que romper guardas que NO escribió quien las audita. El
+  17/09/2026, con todo «en verde» y cinco agentes que habían mutado cada uno su
+  parte, la pasada final encontró **tres mutaciones que nadie cazaba**: un
+  parámetro del contador quitado (toda la api verde), un tipo de aviso renombrado
+  en Go (toda la api verde, y Flutter sin enterarse), y la guarda que evita el
+  «Vista (0)» puesta a `false` (853 pruebas verdes).
+- **Una guarda que sólo se recalcula al bajar la foto no se entera de lo que pasa
+  después.** El aviso de «el servidor rechazó tu cambio» se calculaba dentro de
+  la bajada, que corre al cambiar de sucursal y con un aviso del canal — y el
+  rechazo llega **después**, con la pantalla ya abierta. No salía nunca. Y la
+  prueba no lo cazaba porque sembraba el rechazo ANTES de montar, que es justo la
+  forma que prohíbe el §3-ter, escrita aquí y rota el mismo día. **Lo que cambia
+  con la pantalla delante se vigila con un stream sobre la tabla**, no
+  preguntando cuando uno se acuerda.
 
 ## 5. Cómo se comprueba
 

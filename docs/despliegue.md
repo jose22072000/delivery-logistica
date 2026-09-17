@@ -501,6 +501,18 @@ van **antes** que el de la web, y **Strip Path en `no`** en los dos: las rutas d
 ya se llaman `/api/...` y las del sincronizador `/sync/...`. Quitarles el prefijo las
 dejaría sin encontrar.
 
+> **Ninguna pantalla de la aplicación puede llamarse `/api…` ni `/sync…`.** Esos dos
+> prefijos se los queda el proxy antes de que la web vea nada, así que una pantalla ahí
+> funciona navegando por el menú —eso lo resuelve el enrutador dentro del navegador— y
+> **falla al recargar o al abrir el enlace**, que es cuando sí hay una petición al
+> servidor. Pasó con la pantalla de Sincronización, que vivía en `/sync`: recargar ahí
+> devolvía un `401` del sincronizador. Se movió a `/sincronizacion`; el prefijo no se
+> toca, porque es la dirección que ya usan las APK instaladas para subir y bajar.
+>
+> Y es prefijo de **cadena**, no de segmento: `PathPrefix(`/sync`)` atrapa `/sync-estado`
+> igual que `/sync`. Lo vigila la prueba «ninguna ruta invade un camino del proxy» de
+> `app/test/navegacion/contrato_registro_test.dart`.
+
 Con ese reparto, `/health` de la api y `/salud` del sincronizador **quedan fuera del
 dominio**: cuelgan de la raíz de cada servicio y la raíz pública es la web. El sondeo se
 hace por dentro de la red, o se les añade su propio Path; está explicado en §5.

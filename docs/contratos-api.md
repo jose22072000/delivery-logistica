@@ -606,9 +606,19 @@ data: {}
 
      ```
 
-     `data` es el JSON publicado tal cual (`{ tipo, ...detalle, cuando }` con
-     `tipo ∈ pedidos|catalogo|rutas|clientes`; `detalle` según el emisor, p. ej.
-     `{"pedidos":42}` o `{"productos":300}`).
+     `data` es el JSON publicado tal cual (`{ tipo, ...detalle, cuando }`;
+     `detalle` según el emisor, p. ej. `{"pedidos":42}` o `{"productos":300}`).
+
+     Los `tipo` que publica **reparto-api** hoy (17/09/2026), uno por pantalla que
+     los enseña: `pedidos` · `catalogo` · `rutas` · `clientes` · `tablero` ·
+     `vehiculos` · `almacenes` · `sucursales` · `ajustes`. La lista viva está en
+     `api/internal/api/eventos.go`. Un tipo que el cliente no espere **se recibe y
+     se ignora**, así que añadir no rompe nada; renombrar sí.
+
+     `clientes` está declarado y **hoy no lo publica nadie**: en esta API no hay
+     ninguna puerta que escriba `customers`. El único que los escribe es el
+     proceso del espejo (`cmd/espejo`), y el bus vive en la memoria del proceso de
+     la API.
      Si el mensaje **no** es JSON válido, se emite `event: cambio` con
      `data: {"tipo":"desconocido"}`.
   3. **Latido cada 20 000 ms**: línea de comentario SSE, sin evento:
