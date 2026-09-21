@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"procovar/reparto-sync/internal/httpx"
 	"procovar/reparto-sync/internal/identidad"
 	"procovar/reparto-sync/internal/store/sqlc"
 )
@@ -351,6 +352,32 @@ func TestUnAparatoDesconocidoRecibe404(t *testing.T) {
 	}
 	if !strings.Contains(b.errorDe(w), "darlo de alta") {
 		t.Fatalf("el mensaje tiene que decir qué hacer: %q", b.errorDe(w))
+	}
+
+	// Y LA MARCA, que es la mitad que lee la máquina.
+	//
+	// El teléfono tira su identificador y se da de alta otra vez cuando ve este 404, y eso
+	// es destructivo: deja una fila más en el panel marcada en rojo como «lleva días sin
+	// subir». Hasta el 21/09/2026 le bastaba el número, y un 404 de Traefik durante un
+	// redespliegue hacía lo mismo: en producción salieron **12 aparatos para un solo
+	// teléfono**, once fantasmas.
+	//
+	// Sin esta marca el cliente falla CERRADO —relanza y no toca su identificador—, así
+	// que quitarla de aquí no rompe nada visible: simplemente el aparato que de verdad se
+	// borró del registro deja de poder volver solo. Por eso hace falta la prueba.
+	var cuerpo struct {
+		Codigo string `json:"codigo"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &cuerpo); err != nil {
+		t.Fatalf("la respuesta no es JSON: %v", err)
+	}
+	if cuerpo.Codigo != httpx.CodigoAparatoNoRegistrado {
+		t.Fatalf(
+			"falta la marca legible por una máquina: se esperaba %q y vino %q.\n"+
+				"Sin ella el teléfono no puede distinguir ESTE 404 de uno de un proxy, "+
+				"y no podrá volver a darse de alta cuando de verdad lo borren.",
+			httpx.CodigoAparatoNoRegistrado, cuerpo.Codigo,
+		)
 	}
 }
 

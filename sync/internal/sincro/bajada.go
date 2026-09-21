@@ -190,7 +190,11 @@ func (s *Servicio) aparatoDeLaPeticion(w http.ResponseWriter, r *http.Request, q
 		if store.SinFilas(err) {
 			// 404 y no 401: el aparato tiene que poder distinguir «me borraron del
 			// registro, hay que darse de alta otra vez» de «se me caducó la sesión».
-			httpx.Fallo(w, http.StatusNotFound, "Ese aparato no está registrado. Vuelve a darlo de alta.")
+			// CON LA MARCA: el teléfono sólo puede tirar su identificador cuando el
+			// 404 es ÉSTE. Ver `httpx.CodigoAparatoNoRegistrado`.
+			httpx.FalloConCodigo(w, http.StatusNotFound,
+				"Ese aparato no está registrado. Vuelve a darlo de alta.",
+				httpx.CodigoAparatoNoRegistrado)
 			return sqlc.Aparato{}, false
 		}
 		s.log.Error("no se pudo leer el aparato", "aparato", id, "err", err)

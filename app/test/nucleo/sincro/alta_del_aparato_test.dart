@@ -208,6 +208,10 @@ void main() {
           return RespuestaFalsa(404, <String, Object?>{
             'mensaje':
                 'Ese aparato no está registrado. Vuelve a darlo de alta.',
+            // CON LA MARCA. Desde el 21/09/2026 un 404 pelado NO tira el
+            // identificador: podría ser de Traefik. Ver
+            // `solo_un_404_tira_el_aparato_test.dart`.
+            'codigo': marcaDeAparatoNoRegistrado,
           });
         }
         return normal(p);
@@ -239,6 +243,7 @@ void main() {
         subidas++;
         return RespuestaFalsa(404, <String, Object?>{
           'mensaje': 'Ese aparato no está registrado. Vuelve a darlo de alta.',
+          'codigo': marcaDeAparatoNoRegistrado,
         });
       });
 

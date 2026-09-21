@@ -43,6 +43,13 @@ class ColaDeOtraPersona implements Exception {
 /// paralelo, y no por elegancia: veinte peticiones a la vez al recuperar la
 /// senal es lo que dispara veinte 401 a la vez, y eso es lo que el candado de
 /// renovacion tiene que aguantar (caso I1). Mejor no darselo.
+/// LA MARCA DEL UNICO 404 QUE SIGNIFICA «date de alta otra vez».
+///
+/// La manda `sync/internal/httpx` (`CodigoAparatoNoRegistrado`). Las dos partes
+/// tienen que decir lo mismo: lo ata
+/// `test/nucleo/sincro/solo_un_404_tira_el_aparato_test.dart`.
+const marcaDeAparatoNoRegistrado = 'aparato_no_registrado';
+
 class Subida {
   Subida({
     required ClienteApi cliente,
@@ -206,7 +213,33 @@ class Subida {
         },
       );
     } on Rechazo catch (e) {
-      if (!reintentar || e.codigo != 404) rethrow;
+      // UN 404 NO BASTA: HACE FALTA QUE SEA **ESTE** 404.
+      //
+      // Tirar el identificador es destructivo —el aparato pierde su sitio en el
+      // panel y nace uno nuevo—, asi que se hace **sólo** cuando el servidor lo
+      // dice con su marca. Un 404 sin marca es de otro: de Traefik durante un
+      // redespliegue, de un camino mal escrito, de un proxy por el medio. Esos
+      // ni siquiera son JSON nuestro.
+      //
+      // Lo que pasaba hasta el 21/09/2026, medido en produccion: **12 aparatos
+      // para un solo telefono**, once fantasmas, dos dados de alta de madrugada
+      // sin nadie delante. Y cada fantasma se queda en el panel en rojo como
+      // «lleva dias sin subir», que es justo lo unico que ese panel sirve para
+      // ver. Con diez repartidores, inservible en una semana.
+      //
+      // Se falla CERRADO: sin marca, se relanza. Lo peor que puede pasar
+      // entonces es que un aparato de verdad borrado del registro deje de subir
+      // y lo diga —y eso una persona lo arregla—; lo otro llenaba la lista de
+      // fantasmas en silencio.
+      //
+      // Es la misma trampa que el servidor ya tiene resuelta en el otro
+      // sentido: `sync/internal/reparto/reparto.go` —«UN 404 QUE NO VIENE DEL
+      // REPARTO ES NUESTRO, NO UN RECHAZO»—.
+      if (!reintentar ||
+          e.codigo != 404 ||
+          e.marca != marcaDeAparatoNoRegistrado) {
+        rethrow;
+      }
       Registro.aviso(
         'el aparato ya no esta registrado: se da de alta otra vez',
       );

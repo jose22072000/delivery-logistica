@@ -20,11 +20,38 @@ const TopeCuerpo = 32 << 20 // 32 MiB
 
 type sobreError struct {
 	Error string `json:"error"`
+	// Una marca que una MÁQUINA puede leer, para los pocos fallos donde el cliente tiene
+	// que hacer algo distinto según cuál sea. Va vacía en el resto: el formato de la casa
+	// sigue siendo la frase en español, y esto no la sustituye.
+	Codigo string `json:"codigo,omitempty"`
 }
+
+// CodigoAparatoNoRegistrado: el único 404 de `/sync/subida` y `/sync/bajada` que significa
+// «este aparato ya no está en el registro, date de alta otra vez».
+//
+// EXISTE PORQUE UN NÚMERO NO BASTA. Hasta el 21/09/2026 el teléfono trataba **cualquier**
+// 404 como éste y tiraba su identificador. Un 404 de Traefik durante un redespliegue —que
+// no es nuestro y ni siquiera es JSON— le hacía darse de alta otra vez, y cada alta deja
+// una fila más en el panel marcada en rojo como «lleva días sin subir».
+//
+// Se vio en producción: **12 aparatos para un solo teléfono**, once de ellos fantasmas,
+// dos creados de madrugada sin nadie delante. Con diez repartidores esa lista es inútil en
+// una semana, y es justo la lista que existe para ver quién está atascado.
+//
+// Es la misma trampa que ya está resuelta en el otro sentido, en
+// `internal/reparto/reparto.go`: «UN 404 QUE NO VIENE DEL REPARTO ES NUESTRO, NO UN
+// RECHAZO».
+const CodigoAparatoNoRegistrado = "aparato_no_registrado"
 
 // Fallo contesta con el formato de la casa.
 func Fallo(w http.ResponseWriter, estado int, motivo string) {
 	JSON(w, estado, sobreError{Error: motivo})
+}
+
+// FalloConCodigo es igual, más la marca legible por una máquina. Ver
+// [CodigoAparatoNoRegistrado].
+func FalloConCodigo(w http.ResponseWriter, estado int, motivo, codigo string) {
+	JSON(w, estado, sobreError{Error: motivo, Codigo: codigo})
 }
 
 // JSON escribe la respuesta. Si el codificado falla a media escritura ya no se puede

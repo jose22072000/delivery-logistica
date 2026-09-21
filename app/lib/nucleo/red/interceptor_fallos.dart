@@ -41,7 +41,18 @@ class InterceptorFallos extends Interceptor {
     return Rechazo(
       codigo,
       mensajeDelServidor(error) ?? 'El servidor rechazó la petición.',
+      marca: marcaDelServidor(error),
     );
+  }
+
+  /// La marca legible por una maquina, si vino. Ver [Rechazo.marca].
+  static String? marcaDelServidor(DioException error) {
+    final datos = error.response?.data;
+    if (datos is Map) {
+      final valor = datos['codigo'];
+      if (valor is String && valor.isNotEmpty) return valor;
+    }
+    return null;
   }
 
   /// El mensaje del servidor, **literal y en espanol**. Se busca en las claves

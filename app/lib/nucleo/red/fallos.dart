@@ -46,15 +46,32 @@ class FalloDeRed extends FalloApi {
 ///
 /// **Un `Rechazo` no se reintenta jamas.**
 class Rechazo extends FalloApi {
-  const Rechazo(this.codigo, this.mensaje);
+  const Rechazo(this.codigo, this.mensaje, {this.marca});
 
   final int codigo;
 
   @override
   final String mensaje;
 
+  /// LA MARCA QUE UNA MAQUINA PUEDE LEER, cuando el servidor la manda.
+  ///
+  /// El formato de la casa sigue siendo la frase en espanol, y esto no la
+  /// sustituye: es para los pocos fallos donde el cliente tiene que **hacer
+  /// algo distinto** segun cual sea, y el numero no basta para distinguirlos.
+  ///
+  /// El caso que la trajo: `/sync/subida` contesta 404 cuando el aparato no
+  /// esta registrado, y el telefono respondia tirando su identificador y
+  /// dandose de alta otra vez. Pero un 404 de Traefik durante un redespliegue
+  /// —que ni siquiera es JSON— tambien es un 404, y hacia lo mismo. En
+  /// produccion salieron **12 aparatos para un solo telefono**.
+  ///
+  /// `null` = el servidor no mando ninguna. Entonces **no se puede suponer
+  /// cual es**, y quien decide algo destructivo con esto tiene que fallar
+  /// cerrado.
+  final String? marca;
+
   @override
-  String toString() => 'Rechazo($codigo, $mensaje)';
+  String toString() => 'Rechazo($codigo, $mensaje${marca == null ? '' : ', $marca'})';
 }
 
 /// La sesion murio: un 401 que sigue siendo 401 despues de renovar, o un
