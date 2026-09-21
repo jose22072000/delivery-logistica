@@ -175,7 +175,7 @@ class _PantallaMapaSinConexionState
         style: TextStyle(fontSize: 12),
       ),
       const SizedBox(height: 12),
-      ..._ofertas(ofertas.where((o) => o.nivel != tengo.nivel).toList()),
+      ..._ofertas(_queMerecenLaPena(tengo, ofertas)),
     ],
     HayMapaNuevo(:final tengo, :final nuevo, :final motivo, :final ofertas) => [
       Text(TextosDelMapaGuardado.tengo(tengo)),
@@ -185,6 +185,31 @@ class _PantallaMapaSinConexionState
       ..._ofertas([nuevo, ...ofertas.where((o) => o.nivel != nuevo.nivel)]),
     ],
   };
+
+  /// LOS NIVELES SON UNO DENTRO DE OTRO, así que sólo se ofrece lo que AÑADE.
+  ///
+  /// Jose, 21/09/2026, con el detallado ya bajado: «¿por qué me pide descargar
+  /// los otros? No me debería dejar si ya con eso tengo todo».
+  ///
+  /// Y tiene razón: el detallado contiene lo del completo, y el completo lo del
+  /// básico. Ofrecerlos después de tener el grande no es ofrecer una descarga,
+  /// es ofrecer **quitar cosas** con la cara de una mejora — y encima cobrando
+  /// los megas otra vez.
+  ///
+  /// Se ordena por TAMAÑO y no por el nombre: los nombres los pone el servidor
+  /// y pueden cambiar o aparecer nuevos (`anuncio_de_mapa.dart` lo dice: no se
+  /// validan contra una lista a propósito). Lo que no cambia es que, a igual
+  /// versión, **el que pesa más trae más**.
+  ///
+  /// Bajar a uno más ligero para ahorrar espacio es otra cosa, con otras
+  /// palabras y otro botón; hoy no existe y no se finge que sí.
+  List<NivelDeMapa> _queMerecenLaPena(
+    PaqueteGuardado tengo,
+    List<NivelDeMapa> ofertas,
+  ) => [
+    for (final o in ofertas)
+      if (o.nivel != tengo.nivel && o.bytes > tengo.bytes) o,
+  ];
 
   List<Widget> _ofertas(List<NivelDeMapa> niveles) => [
     for (final n in niveles) ...[

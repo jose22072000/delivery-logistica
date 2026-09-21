@@ -208,4 +208,74 @@ void main() {
     // NADA SE DESCARTA EN SILENCIO: el que no se entiende no desaparece sin más.
     expect(find.text(TextosDelMapaGuardado.ilegibles(1)), findsOneWidget);
   });
+
+  testWidgets('con el detallado puesto NO se ofrecen los más pequeños', (
+    tester,
+  ) async {
+    // Jose, 21/09/2026: «ya descargué el detallado, ¿por qué me pide descargar
+    // los otros? No me debería dejar si ya con eso tengo todo».
+    //
+    // Los niveles son uno dentro de otro: el detallado trae lo del completo y
+    // el completo lo del básico. Ofrecerlos después de tener el grande es
+    // ofrecer QUITAR cosas con la cara de una mejora, y cobrar los megas otra
+    // vez.
+    final carpeta = CarpetaEnMemoria()
+      ..sembrar('cuba-detallado.pmtiles', List<int>.filled(30, 7))
+      ..sembrar(
+        'cuba-detallado.json',
+        utf8.encode(
+          jsonEncode({
+            'nivel': 'detallado',
+            'version': '260916',
+            'bytes': 30,
+            'sha256': 'a' * 64,
+            'guardadoAt': '2026-09-21T10:00:00.000Z',
+          }),
+        ),
+      );
+
+    await tester.pumpWidget(
+      _montaje(
+        _Servidor(anuncio: _anuncioMenudo()),
+        enElAparato: true,
+        carpeta: carpeta,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // No hay botón para ninguno de los dos pequeños.
+    expect(
+      find.byKey(claveDeBajar('basico')),
+      findsNothing,
+      reason:
+          'SE OFRECE UN NIVEL MÁS PEQUEÑO QUE EL QUE YA HAY. El detallado lo '
+          'contiene: bajar el básico encima sería quitar detalle pagando los '
+          'megas.',
+    );
+    expect(find.byKey(claveDeBajar('completo')), findsNothing);
+  });
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Tres niveles con tamaños DE JUGUETE pero en el mismo orden que los de
+/// verdad. Pequeños a propósito: `paqueteGuardadoProvider` comprueba que el
+/// fichero pese lo que dice su apunte —y hace bien: un apunte que promete un
+/// mapa encima de una carpeta vacía es peor que no tener nada— así que la
+/// prueba tiene que poder sembrar un fichero de ese tamaño.
+Map<String, Object?> _anuncioMenudo() => {
+  'niveles': [
+    for (final (nivel, bytes) in const [
+      ('basico', 10),
+      ('completo', 20),
+      ('detallado', 30),
+    ])
+      {
+        'nivel': nivel,
+        'version': '260916',
+        'bytes': bytes,
+        'sha256': 'a' * 64,
+        'url': 'https://x/cuba-\$nivel.pmtiles',
+      },
+  ],
+};
