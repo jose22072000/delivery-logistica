@@ -5,12 +5,14 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:reparto/app.dart';
 import 'package:reparto/navegacion/franja_de_estado.dart';
 import 'package:reparto/nucleo/identidad/almacen_sesion.dart';
+import 'package:reparto/nucleo/identidad/entrada_por_accesos.dart';
 import 'package:reparto/nucleo/plataforma.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/pantallas/acceso/vista/pantalla_acceso.dart';
 import 'package:reparto/pantallas/configuracion_inicial/vista/pantalla_configurando.dart';
 import 'package:reparto/pantallas/panel/vista/estado_del_dia.dart';
 
+import 'apoyo/apoyo_accesos.dart';
 import 'apoyo/apoyo_sesion.dart';
 import 'apoyo/base_de_prueba.dart';
 import 'apoyo/servidor_falso.dart';
@@ -48,6 +50,13 @@ import 'apoyo/servidor_falso.dart';
 void main() {
   setUpAll(() => initializeDateFormatting('es'));
 
+  /// El navegador de mentira de la puerta de la web. Con `?sso=error` puesto,
+  /// que es lo que hace que la pantalla de acceso se quede a la vista en vez de
+  /// irse sola al login unico.
+  final navegador = NavegadorFalso(
+    direccion: 'https://ejemplo.test/acceso?sso=error',
+  );
+
   /// Monta la aplicacion de verdad, con el portero puesto, en el destino que se
   /// pida.
   ///
@@ -78,6 +87,25 @@ void main() {
           baseProvider.overrideWithValue(base),
           relojProvider.overrideWithValue(() => DateTime(2026, 9, 15, 8, 30)),
           almacenSesionProvider.overrideWithValue(almacen),
+          // LA PUERTA DE LA WEB, con Accesos caido a proposito.
+          //
+          // Desde que la web entra sola por el login unico, en el navegador la
+          // pantalla de acceso SOLO se ve cuando el login unico falla — el
+          // resto del tiempo se va a Accesos y no hay nada que mirar. Estas
+          // pruebas van justamente de lo que se ensena en esa pantalla, asi que
+          // se montan en ese caso: `?sso=error` en la direccion es como vuelve
+          // el servidor cuando algo se tuerce (`api/internal/api/auth_web.go`).
+          //
+          // Sin esto la mitad de web pasaria mirando una rueda de «entrando», o
+          // sea sin comprobar nada. Y ademas: el navegador y el servidor son de
+          // mentira, que es lo que impide que una prueba salga a la red.
+          navegadorProvider.overrideWithValue(navegador),
+          entradaPorAccesosProvider.overrideWithValue(
+            entradaFalsa(
+              navegador,
+              (p) async => RespuestaFalsa(401, <String, Object?>{'user': null}),
+            ),
+          ),
           dioAuthProvider.overrideWithValue(
             dioFalso((p) async => RespuestaFalsa(200, parDeTokens())),
           ),

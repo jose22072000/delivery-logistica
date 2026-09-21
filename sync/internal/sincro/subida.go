@@ -232,6 +232,22 @@ func (s *Servicio) unApunte(ctx context.Context, aparato sqlc.Aparato, quien ide
 	// el que devuelve esa consulta: si ese `local-…` ya estaba traducido, LA BUENA ES LA
 	// PRIMERA. Sobrescribirla dejaría huérfana la ruta que ya existía, que es exactamente
 	// cómo se duplica una ruta armada sin conexión.
+	// UN APUNTE QUE CREA ALGO Y VUELVE SIN ID NO PUEDE PASAR EN SILENCIO.
+	//
+	// Esto se aplicaba y se daba por bueno, y el aparato se quedaba con su `local-…` para
+	// siempre: la ruta existe arriba con sus paradas y abajo se ve vacía. El 21/09/2026
+	// costó una tarde encontrarlo porque desde fuera todo estaba en verde — la ruta subió,
+	// el servidor la guardó entera, y el único rastro era una tabla de equivalencias vacía
+	// en el teléfono.
+	//
+	// Con un `Warn` basta y sobra para verlo: no se rechaza, porque el trabajo SÍ se hizo
+	// arriba y rechazarlo sería tirar lo que ya está guardado. Lo que no puede es callarse.
+	if a.Provisional != "" && idCreado == nil {
+		s.log.Warn("el reparto aplicó un apunte que crea algo y NO devolvió id: "+
+			"el aparato se quedará con su identificador provisional y lo que creó se le "+
+			"verá vacío",
+			"clave", a.Clave, "provisional", a.Provisional, "metodo", a.Metodo, "ruta", ruta)
+	}
 	if a.Provisional != "" && idCreado != nil {
 		fila, err := s.datos.AnotarProvisional(ctx, sqlc.AnotarProvisionalParams{
 			AparatoID:   aparato.ID,

@@ -27,6 +27,7 @@ import 'sincro/bajada.dart';
 import 'sincro/ciclo.dart';
 import 'sincro/huerfanos.dart';
 import 'sincro/identidad_del_aparato.dart';
+import 'sincro/sucursal_del_aparato.dart';
 import 'sincro/recuento.dart';
 import 'sincro/subida.dart';
 import 'sincro/vigia.dart';
@@ -287,6 +288,14 @@ final provisionalesProvider = Provider<Provisionales>(
       Provisionales(ref.watch(baseProvider), reloj: ref.watch(relojProvider)),
 );
 
+/// Las equivalencias `local-…` → id de verdad, EN VIVO.
+///
+/// Lo mira quien tenga un id provisional en la mano cuando ese id deja de
+/// existir. Ver `Provisionales.mirar()` para el caso concreto.
+final equivalenciasProvider = StreamProvider<Map<String, String>>(
+  (ref) => ref.watch(provisionalesProvider).mirar(),
+);
+
 final colaProvider = Provider<ColaDeSalida>(
   (ref) => ColaDeSalida(
     ref.watch(baseProvider),
@@ -311,7 +320,13 @@ final identidadDelAparatoProvider = Provider<IdentidadDelAparato>(
     // Para quien no tiene sucursal propia —el Super Admin—, la del selector de
     // arriba. Se lee al llamar y no al construir: el alta puede pasar mucho
     // despues de que se monte esto.
-    sucursalElegida: () => ref.read(sucursalMiradaProvider),
+    // Primero la del APARATO, que es donde esta; la que se mira es a donde
+    // mira. Con «Todas» puesto, la mirada es `null` y el alta contestaba 400
+    // «Falta la sucursal del aparato» con una ruta entera esperando a subir
+    // (21/09/2026, telefono de Jose).
+    sucursalElegida: () =>
+        ref.read(sucursalDelAparatoProvider) ??
+        ref.read(sucursalMiradaProvider),
   ),
 );
 
@@ -693,6 +708,20 @@ final comprobadorProvider = Provider<ComprobadorDeActualizacion>(
 /// `FutureProvider` y no algo que se dispare solo: se comprueba cuando alguien
 /// lo mira, UNA vez por arranque. Para volver a mirar —después de subir la cola,
 /// por ejemplo— se invalida este provider. Ver `docs/actualizaciones.md`.
+///
+/// **Quién lo mira:** `navegacion/aviso_de_version_nueva.dart`, montado en el
+/// armazón, o sea en todas las pantallas. Y **sólo en la APK y en el
+/// escritorio**: en la web `comprobar()` devuelve `NoAplica` en la primera línea
+/// sin llamar siquiera al servidor, porque allí una versión nueva no se instala,
+/// se recarga — y eso lo mira otra cosa (`hayPaqueteNuevoProvider`, la huella
+/// del paquete).
+///
+/// **Y quién lo invalida:** ese mismo fichero, cuando la cola de salida llega a
+/// cero teniendo el aviso puesto en `PrimeroSube`. Sin eso, un «sube primero» se
+/// queda pegado hasta el siguiente arranque después de que la persona hizo justo
+/// lo que se le pidió. No se invalida en cada movimiento de la cola: sería una
+/// petición de red por cada apunte que sube para preguntar algo cuya respuesta
+/// no ha cambiado.
 final actualizacionProvider = FutureProvider<EstadoDeActualizacion>(
   (ref) => ref.watch(comprobadorProvider).comprobar(),
 );

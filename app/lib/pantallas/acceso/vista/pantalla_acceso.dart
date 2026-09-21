@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../diseno/colores.dart';
 import '../../../diseno/tema.dart';
 import '../../../navegacion/portero.dart';
+import '../../../nucleo/identidad/entrada_por_accesos.dart';
 import '../../../nucleo/plataforma.dart';
 import '../datos/servicio_acceso.dart';
 import '../estado/estado_acceso.dart';
@@ -13,6 +14,22 @@ import '../estado/estado_acceso.dart';
 /// Sin ella la aplicación entra directa al Panel sin sesión, no descarga nada y
 /// todas las pantallas dicen «no se ha descargado todavía» — que es exactamente
 /// lo que se vio en `reparto.procovar.cloud`.
+///
+/// ## Y en la WEB casi nunca se ve, a propósito
+///
+/// Son dos puertas al mismo sitio (`docs/identidad.md`):
+///
+///  * **APK y escritorio** → usuario y contraseña. Es lo que hay aquí abajo y no
+///    se toca: quien entra se va al patio de un almacén y necesita el par
+///    guardado para el día entero sin señal. **Es la razón de ser del proyecto.**
+///  * **Web** → el login único. Quien ya entró en Accesos aterriza dentro sin
+///    escribir nada, así que esta pantalla **se va sola** a
+///    `/api/auth/entrar` y lo único que se ve es un «entrando».
+///
+/// El formulario sólo aparece en la web **cuando el login único falla**, y
+/// entonces dice el motivo y deja entrar igual. Es la diferencia con el patrón
+/// de Next, que ahí sólo ofrece «volver a intentarlo»: si Accesos está caído o
+/// le falta la llave, la oficina no puede quedarse sin poder repartir.
 ///
 /// **No lleva `Scaffold` ni armazón**: la pone el enrutador
 /// (`conArmazon: false`), porque aquí no hay barra lateral que enseñar — no hay
@@ -40,6 +57,30 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
   /// persona se quedaría delante de un formulario mudo probando una contraseña
   /// que era buena.
   bool _noSeGuardo = false;
+
+  /// LA WEB ENTRA SOLA. `false` en la APK y en el escritorio, siempre.
+  late final bool _porAccesos = ref.read(entraPorAccesosProvider);
+  late final EntradaPorAccesos _entrada = ref.read(entradaPorAccesosProvider);
+
+  /// `true` mientras el navegador se va al login único. No se pinta el
+  /// formulario debajo: enseñar durante medio segundo una casilla de contraseña
+  /// que nadie tiene que rellenar **enseña a rellenarla por reflejo**, que es lo
+  /// mismo que ya costó el parpadeo del arranque.
+  bool _yendoAAccesos = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // A Accesos, y sólo si no venimos rebotados de allí: con un motivo puesto,
+    // redirigir otra vez sería un bucle entre las dos páginas en el que nadie
+    // puede entrar ni enterarse de por qué. Es la misma guarda que el patrón
+    // (`delivery`, `login/page.tsx`).
+    if (!_porAccesos || _entrada.motivo != null) return;
+    _yendoAAccesos = true;
+    // Después del primer fotograma: navegar dentro de `initState` deja a medio
+    // montar el árbol que se está construyendo.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _entrada.aAccesos());
+  }
 
   @override
   void dispose() {
@@ -74,6 +115,14 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
 
   @override
   Widget build(BuildContext context) {
+    // YÉNDOSE A ACCESOS: ni formulario ni promesa ni avisos. Sólo el «un
+    // momento», que es la verdad de lo que está pasando.
+    if (_yendoAAccesos) return const _YendoAAccesos();
+
+    // POR QUÉ NO SE ENTRÓ SOLA. `null` en la APK y en el escritorio, donde no
+    // hay login único que falle, y también en la web cuando todo va bien.
+    final motivoDelSSO = _porAccesos ? _entrada.motivo : null;
+
     final estado = ref.watch(formularioProvider);
     final entrando = estado is Entrando;
     // ¿HAY PROMESA QUE HACER? En web, NO — 15/09/2026.
@@ -160,6 +209,13 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
                     textAlign: TextAlign.center,
                     style: Tipos.texto(tamano: 13, color: Colores.tintaSuave),
                   ),
+                  if (motivoDelSSO != null) ...[
+                    const SizedBox(height: Aire.lg),
+                    _NoEntroPorAccesos(
+                      motivo: motivoDelSSO,
+                      alReintentar: _entrada.aAccesos,
+                    ),
+                  ],
                   if (sesionPerdida) ...[
                     const SizedBox(height: Aire.lg),
                     const _SesionPerdida(),
@@ -264,6 +320,64 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
       ),
     );
   }
+}
+
+/// «Entrando con tu cuenta de Procovar», mientras el navegador se va.
+///
+/// No es un adorno: entre que se decide ir a Accesos y que el navegador cambia
+/// de página pasa un instante, y lo que no puede haber ahí es una pantalla en
+/// blanco — que es indistinguible de la aplicación rota.
+class _YendoAAccesos extends StatelessWidget {
+  const _YendoAAccesos();
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        const SizedBox(height: Aire.md),
+        Text(
+          'Entrando con tu cuenta de Procovar…',
+          style: Tipos.texto(tamano: 13, color: Colores.tintaSuave),
+        ),
+      ],
+    ),
+  );
+}
+
+/// EL LOGIN ÚNICO NO PUDO. Se dice el motivo y se ofrecen las dos salidas.
+///
+/// Ámbar y no rojo: no es un fallo de quien entra y su contraseña no tiene nada
+/// que ver. Y debajo se queda el formulario de siempre, que aquí es la puerta de
+/// respaldo — si Accesos está caído, la oficina tiene que poder repartir igual.
+class _NoEntroPorAccesos extends StatelessWidget {
+  const _NoEntroPorAccesos({required this.motivo, required this.alReintentar});
+
+  final String motivo;
+  final void Function() alReintentar;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _Recuadro(
+        icono: Icons.shield_outlined,
+        titulo: 'No se pudo entrar con tu cuenta de Procovar.',
+        detalle: EntradaPorAccesos.textoDelMotivo(motivo),
+      ),
+      const SizedBox(height: Aire.md),
+      OutlinedButton.icon(
+        onPressed: alReintentar,
+        icon: const Icon(Icons.refresh, size: 18),
+        label: const Text('Volver a intentarlo'),
+      ),
+    ],
+  );
 }
 
 /// LA SESIÓN SE PERDIÓ, y el aparato tiene datos dentro.

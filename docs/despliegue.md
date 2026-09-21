@@ -56,6 +56,10 @@ sirve a nadie porque no hay a qué llamar, y «el proceso está vivo» tampoco d
 espejo que lleva dos horas girando contra un 401 está vivo y no ha traído ni un pedido.
 **Su salud se mide por si los datos siguen entrando** — §5.
 
+Pero de fondo **no es lo mismo que efímero**: da vueltas hasta que lo paren, así que en
+Dokploy sí es una Application, al revés que las migraciones. Cada cuánto pasa, qué
+necesita y —lo importante— **qué se rompe si deja de pasar**, en §2-bis.
+
 ### Una sola réplica de la api
 
 `GET /api/eventos` reparte los avisos en vivo (pedidos, catálogo, rutas, clientes) desde
@@ -126,6 +130,33 @@ docker run --rm \
 
 Imprime el `status` de las dos series al terminar. Si algo falla, **no se pulsa Deploy**.
 
+### Y desde el 21/09/2026, los servicios NO ARRANCAN con la base atrasada
+
+Esto dejó de depender de que alguien se acuerde. La API y el sincronizador comparan al
+arrancar las migraciones que llevan incrustadas en el binario con la tabla
+`goose_db_version` de su base, y **si la base va por detrás se mueren ahí mismo**, con un
+mensaje que dice qué ficheros faltan (`api/db/migraciones.go`,
+`sync/db/migraciones.go`).
+
+Por qué esto y no un aviso: el 17/09/2026 la 00006 pasó un día entero sin aplicar con el
+código que la necesitaba ya desplegado, y el fallo tiene una forma que engaña —**la bajada
+por diferencias contesta 500 pero la carga inicial contesta 200**—. O sea que una
+instalación nueva funciona, la web funciona (su base nace vacía en cada carga y siempre
+pide carga inicial), y **todo aparato que ya estaba en la calle se queda congelado**. Todo
+verde en el navegador con la flota parada. Un contenedor que no levanta, en cambio, se ve
+en el minuto uno y lo ve quien está desplegando.
+
+Al revés no: una base **más adelantada** que el binario deja arrancar. Es lo que pasa al
+volver a una imagen anterior, y ahí lo que hace falta es que el servicio levante.
+
+O sea que el orden ya no es una recomendación, es lo único que funciona:
+
+1. `docker run … reparto-migraciones` (arriba), con `ACCION=status` primero.
+2. Y **después** el Deploy de `reparto-api` y `reparto-sync`.
+
+Si se pulsa Deploy antes, el contenedor nuevo no levanta y Dokploy deja el anterior
+sirviendo. No se rompe nada: no se despliega, que es lo que se quería.
+
 Antes de la primera vez hay que crear las dos bases dentro del Postgres que ya existe
 (`docs/DOKPLOY-NUEVO-PROYECTO.md`, Parte 4) y añadirlas a la lista `BASES` de
 `/usr/local/bin/procovar-backup-db`:
@@ -144,6 +175,136 @@ docker run --rm ... -e ACCION=status reparto-migraciones   # sólo mirar, no esc
 
 `ACCION=down` existe porque goose lo tiene. **En producción no se usa**: deshacer una
 migración sobre datos reales se decide mirando, no con una variable de entorno.
+
+---
+
+## 2-bis. El espejo: un proceso que VIVE, y por eso SÍ es una Application
+
+Lo primero, porque es la pregunta que decide todo lo demás: **el espejo no es un trabajo
+que arranca y se muere.** Sin argumentos, `api/cmd/espejo` entra en `Correr` y da vueltas
+hasta que alguien lo pare (`internal/espejo/ciclo.go`). El temporizador lo lleva él
+dentro. Por eso va como **Application de Dokploy**, con su `restart` normal, y **no** como
+el contenedor de migraciones de §2.
+
+La diferencia con las migraciones es exactamente la que dice §2, punto 3, leída al revés:
+
+| | migraciones | espejo |
+|---|---|---|
+| ¿Termina? | sí, y tiene que terminar | no, y si termina es que falló |
+| ¿Application de Dokploy? | **no** — un contenedor que termina lo relevanta el desplegador, y eso es un bucle de reinicios que desde el panel se lee como «se estrella» | **sí** |
+| ¿Cómo se corre? | `docker run --rm … reparto-migraciones` a mano, antes del Deploy | Deploy normal, y se queda |
+| Si se cae | para el despliegue, a la vista | **nadie se entera** — abajo |
+
+**A la Application del espejo NO se le pone `--once`.** Con esa bandera hace una pasada y
+sale con 0, Dokploy lo vuelve a levantar, y en un minuto hay un contenedor reiniciándose
+sin parar que además machaca a PEDIDO con la pasada entera cada vez. `--once` es para dos
+cosas y sólo dos: probar a mano (§5) y, el día que se quisiera por cron, un `docker run`
+desde el servidor como el de las migraciones — **no una Application con un horario**.
+
+### Cada cuánto corre
+
+Todo esto sale de `api/internal/espejo/opciones.go` y se cambia por entorno (§3.2). Los
+números por defecto son los medidos:
+
+| Cada | Qué hace |
+|---|---|
+| **1 minuto** (`SYNC_POLL_MS`) | Una vuelta entera: el catálogo de Ventra si toca, los clientes, **lo que se movió desde la marca de agua**, los recién cotizados de los últimos 30 minutos y un repaso a los últimos 3 días. |
+| **10 minutos** (`SYNC_BARRIDO_CADA_MS`) | Además, estira el histórico 30 días más hacia atrás (`SYNC_HISTORICO_POR_CICLO`), en tramos de 3 días, hasta los 420. |
+
+Un ciclo normal es barato: lo incremental casi siempre trae cero filas. Lo caro es el
+barrido, y por eso tiene su propio freno. Un espejo recién desplegado **no tiene el año
+entero desde el primer minuto**: tiene lo reciente enseguida —que es con lo que se
+trabaja hoy— y se va llenando solo durante las horas siguientes. Eso es a propósito: un
+proceso de una hora que si se corta hay que empezar de nuevo es peor.
+
+El minuto no es un número redondo elegido a ojo: **el costo del domicilio lo pone el
+repartidor desde la APK de Entrega, en PEDIDO**, y hasta que el espejo no pasa, aquí ese
+pedido sigue diciendo «sin cotizar». Cinco minutos mirando una pantalla que no cambia se
+leen como que está roto.
+
+### Qué necesita
+
+Las cuatro de siempre, y las cuatro hay que escribirlas (la lista completa, con sus topes
+y sus interruptores, está en §3.2):
+
+```
+DATABASE_URL=postgres://…/reparto      la MISMA base que la api
+SERVICE_API_KEY=…                      la MISMA clave que la api
+PEDIDO_API_URL=http://pedido-api-XXXXXX:8400
+DELIVERY_URL=http://reparto-api-XXXXXX:8080
+ENTORNO=produccion                     sólo para que el registro salga en JSON
+```
+
+Las dos URL van por el **appName completo de Dokploy**, con su sufijo. Y `DELIVERY_URL`
+hay que ponerla sí o sí: «vacía = a mí mismo» es una regla de la api, y **este proceso no
+es la api**.
+
+Sin `SERVICE_API_KEY` no arranca y lo dice. Con una que no sea la de la api, arranca,
+trae los pedidos de PEDIDO y **se come un 401 al meterlos**: los trae y no los guarda.
+
+### QUÉ SE ROMPE SI NO CORRE — y por qué no lo va a ver nadie
+
+Esto es lo que hay que tener delante al desplegar, porque es la avería más silenciosa de
+todo el reparto:
+
+**Aquí no se da de alta un pedido a mano. En ninguna pantalla.** Los pedidos, sus
+vendedores y los clientes son de PEDIDO, y el espejo es el único camino por el que entran.
+Si se para:
+
+- **El tablero se queda con los pedidos de la última pasada.** No sale un error, no hay
+  una franja roja, no se queda nada en blanco: la api sigue sana y sirve lo que tiene en
+  la base, que es la foto del minuto en que el espejo dejó de pasar. Un lunes por la
+  mañana eso son los pedidos del viernes, y se ven exactamente igual de reales que los de
+  hoy.
+- **Y nadie lo nota**, porque no hay quien lo diga. La api no sabe si el espejo corre —no
+  se hablan—, y de la web se quitaron a propósito el sello de «Datos de las 10:36» y el
+  resto de avisos de frescura (el `CLAUDE.md` del repo, §3-quinquies): en un navegador
+  hablaban de una copia que no existe. O sea que **la única señal de que el espejo está
+  parado es que los pedidos que se esperaban no están**, y eso quien lo descubre es un
+  logístico que no encuentra un pedido y supone que PEDIDO va tarde.
+- **Los costos de domicilio se congelan.** Lo que el repartidor cotiza desde Entrega entra
+  por aquí. Sin espejo, los pedidos se quedan en «sin cotizar» para siempre, que es justo
+  lo que la gente está mirando.
+- **Un cliente nuevo no existe.** Su pedido puede llegar (o no) pero el cliente no está, y
+  eso se ve al intentar colocarlo en un camión.
+- **El catálogo de Ventra deja de refrescarse**, con lo cual los productos y sus pesos se
+  quedan con los de la última vuelta — y el peso es lo que decide si cabe en el camión.
+
+Lo que **no** pasa, y conviene saberlo para no asustarse al arreglarlo: **no se pierde
+nada**. La marca de agua se deriva de los propios datos (§5), no de un contador aparte, así
+que el espejo que vuelve retoma por donde iba y recupera todo lo de las horas caídas en
+las vueltas siguientes. Lo que se pierde es **el rato en que nadie supo que la pantalla
+mentía**, y ése no se recupera.
+
+Por eso la comprobación del espejo no es «el contenedor está corriendo» sino la consulta
+de §5, y por eso se mira **dos veces con unos minutos de diferencia**. Un espejo girando
+contra un 401 lleva dos horas «sano».
+
+### La imagen corre sus pruebas, y se lleva dos ficheros de fuera de `api/`
+
+`deploy/Dockerfile.espejo` hace `go vet ./... && go test ./...` antes de compilar, como los
+otros tres. **Son los cuatro, y éste era el que faltaba**: se escribió el 14/09/2026, dos
+días antes de que una mutación de prueba se desplegara sola por esta misma puerta abierta
+en `Dockerfile.sync`, y se quedó sin la línea. Aquí importa más que en ningún otro, porque
+el espejo **no tiene pantalla**: una guarda rota en `internal/espejo` sigue trayendo datos
+y dejando el tablero verde con la mitad de los pedidos — que es literalmente lo que pasó
+con los 2.284 de una sola ventana (`CLAUDE.md` §3), con 200 OK.
+
+Y como el espejo y la api son **el mismo módulo de Go**, ese `go test ./...` corre también
+todas las pruebas de la api. Dos de ellas leen ficheros que **no están dentro de `api/`**, y
+las dos mueren con `t.Fatalf` si faltan, así que los dos Dockerfile de Go los copian:
+
+| Fichero | Quién lo lee | Dónde cae en la imagen |
+|---|---|---|
+| `app/lib/nucleo/refresco_en_vivo.dart` | `internal/api/protocolo_avisos_test.go` — ata los tipos de aviso del servidor con los de la aplicación | `/app/lib/nucleo/…` |
+| `docs/orden-de-paradas.casos.json` | `internal/api/orden_de_paradas_test.go` — ata el orden de visita de Go con el de Dart; es el **mismo** fichero, no una copia | `/docs/…` |
+
+El segundo entró el 21/09/2026 y **tumbó la construcción de las dos imágenes de Go, la de
+la api incluida**, hasta que se añadió su `COPY`. Es la regla del `.dockerignore` otra vez,
+vista desde el otro lado: se excluye lo que se **regenera**, nunca lo que se **necesita** —
+y un fichero de `docs/` puede ser código para una prueba. Quien añada una prueba que lea
+algo de fuera de su módulo tiene que pasar por aquí; si no, lo descubre el build del
+despliegue.
 
 ---
 
@@ -259,7 +420,7 @@ Obligatorias — junta todos los fallos en un solo mensaje:
 | `DATABASE_URL` | La base **del sincronizador** (`reparto_sync`), no la del reparto. |
 | `REPARTO_URL` | Dónde vive la api. El sincronizador no es dueño de los datos: se los pide. |
 | `REPARTO_API_KEY` | La clave de servicio (`x-api-key`), la **misma** `SERVICE_API_KEY` de la api. Sin ella todo respondería 401 apunte por apunte, y el aparato lo leería como diez rechazos seguidos. |
-| `SYNC_IDENTIDAD` | Literalmente `cabeceras`. **No tiene valor por defecto a propósito**: hoy la identidad viene en `X-Persona`, `X-Sucursal` y `X-Super-Admin`, que pone el proxy de delante, y eso sólo es seguro si nadie más puede llegar a este puerto. Escribirlo a mano obliga a mirar esa frase antes de publicar el servicio. |
+| `SYNC_IDENTIDAD` | **`token`**, y con él hace falta `JWT_SECRET` (el mismo de la api, mínimo 32 caracteres). **No tiene valor por defecto a propósito**, para que nadie lo elija sin mirar. Corregido el 21/09/2026: aquí decía `cabeceras` y **eso es el camino roto** — ver el aviso de abajo. |
 
 Con valor por defecto:
 
@@ -272,6 +433,18 @@ Con valor por defecto:
 | `SYNC_READ_TIMEOUT` | `15s` | |
 | `SYNC_WRITE_TIMEOUT` | `60s` | Largo a propósito: un lote de un día entero se aplica apunte por apunte contra la api. |
 
+> **`SYNC_IDENTIDAD=cabeceras` no se pone en el servidor, y estuvo escrito aquí.** Ese
+> modo saca la identidad de `X-Persona`, `X-Sucursal` y `X-Super-Admin`, que **debía**
+> poner un proxy que verificara el token delante del servicio. **Ese proxy nunca
+> existió**: Traefik enruta `reparto.procovar.cloud/sync` directo al contenedor, así que
+> la cabecera llega vacía y el sincronizador contesta **401 a todo** — y un 401 que
+> sobrevive a renovar el cliente lo lee como «la sesión murió», o sea que echa al
+> logístico a la pantalla de acceso justo cuando le vuelve la señal, con el día del
+> almacén dentro del teléfono. Además, en `cabeceras` la identidad no trae token, así que
+> `reparto-sync` no tiene qué reenviarle a la api y la cola del tablero vuelve a recibir
+> 401. Visto el 16/09/2026, escrito en `sync/internal/config/config.go` y en el comentario
+> de `docker-compose.yml`, y sigue valiendo: **`token`**.
+>
 > **Una diferencia con la api que conviene saber:** aquí un número o una duración mal
 > escritos **no impiden arrancar** — se usa el valor por defecto en silencio
 > (`sync/internal/config/config.go`, funciones `entero` y `espera`). Un
@@ -495,6 +668,11 @@ Provider Git, rama **`dev`**, y **Docker Context Path `.`** (el contexto es la r
 | `reparto-espejo` | `deploy/Dockerfile.espejo` | — | **ninguno** |
 | `reparto-sync` | `deploy/Dockerfile.sync` | 8081 | `reparto.procovar.cloud` path `/sync` |
 | `reparto-app` | `deploy/Dockerfile.app` | 8080 | `reparto.procovar.cloud` path `/` |
+
+**`reparto-espejo` es una Application como las otras** —da vueltas, no termina— pero sin
+Container Port, sin dominio, sin sondeo de salud y **sin `--once` en el Command**: con esa
+bandera termina cada pasada y Dokploy la convierte en un bucle de reinicios. El porqué y
+lo que se rompe cuando se para, en §2-bis.
 
 Los tres dominios son el mismo host con rutas distintas; los de la api y el sincronizador
 van **antes** que el de la web, y **Strip Path en `no`** en los dos: las rutas de la api

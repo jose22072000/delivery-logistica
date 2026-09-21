@@ -347,6 +347,32 @@ type Querier interface {
 	// cero inventado se lee como «ese día no se vendió nada».
 	DiasConFacturacion(ctx context.Context, arg DiasConFacturacionParams) ([]DiasConFacturacionRow, error)
 	// ---------------------------------------------------------------------------
+	// El padrón de la bajada del aparato  (GET /api/sync/cambios)
+	// ---------------------------------------------------------------------------
+	// Lo que cambió en el padrón, ORDENADO POR LA MARCA y acotado por un cursor.
+	//
+	// LA MISMA FORMA QUE `DiferenciasDePedidos`, copiada y no reinventada. El 15/09/2026 la
+	// bajada dejó **2.000 clientes redondos de 8.034** en el aparato y se dio por buena: se
+	// servían los primeros por nombre, se marcaba `truncado` y se devolvía el reloj como
+	// `hasta`, así que lo que no cupo quedó por debajo del siguiente `desde` y no lo volvió a
+	// pedir nadie. Con el orden por la marca, quien contesta puede devolver la marca de la
+	// ÚLTIMA FILA SERVIDA y la tanda siguiente empieza justo ahí.
+	//
+	// EL CURSOR LLEVA MARCA **E ID**, y aquí es donde de verdad hace falta: el traspaso metió
+	// los 7.975 clientes de producción en UNA transacción, y `now()` es la del inicio de la
+	// transacción — los 7.975 comparten `synced_at` al microsegundo. Con un cursor de sólo
+	// marca, un grupo más grande que el tope no se puede servir entero: o se repite para
+	// siempre o se salta el resto. Con `(marca, id)` la tanda siguiente empieza exactamente
+	// donde acabó la anterior.
+	//
+	// `synced_at` y no `updated_at`, igual que antes: es lo que significa «cuándo lo trajo
+	// PEDIDO», que es lo que cambia cuando cambia un cliente.
+	//
+	// El alcance es el mismo que el de la pantalla, incluida la rama de los manuales (sin
+	// código de sucursal, los ve todo el mundo). Acotar distinto la bajada que la lista es
+	// cómo se le queda a un aparato un cliente que ya no es suyo.
+	DiferenciasDeClientes(ctx context.Context, arg DiferenciasDeClientesParams) ([]DiferenciasDeClientesRow, error)
+	// ---------------------------------------------------------------------------
 	// La bajada del aparato  (GET /api/sync/cambios, colección `orders`)
 	// ---------------------------------------------------------------------------
 	// LO QUE CAMBIÓ DESDE UNA MARCA, en una sucursal. Es la consulta que faltaba y sin la
@@ -384,6 +410,28 @@ type Querier interface {
 	// cualquier otro orden, «los 2.000 primeros» son 2.000 cualesquiera y el resto no vuelve.
 	// El `id` desempata para que dos tandas iguales salgan iguales.
 	DiferenciasDePedidos(ctx context.Context, arg DiferenciasDePedidosParams) ([]DiferenciasDePedidosRow, error)
+	// ---------------------------------------------------------------------------
+	// El catálogo de la bajada del aparato  (GET /api/sync/cambios)
+	// ---------------------------------------------------------------------------
+	// Lo que cambió en el catálogo, ORDENADO POR LA MARCA y acotado por un cursor.
+	//
+	// Es la misma forma que `DiferenciasDePedidos`, y está copiada a propósito en vez de
+	// inventada otra vez: quien contesta la bajada devuelve como `hasta` la marca de la ÚLTIMA
+	// FILA SERVIDA y no su reloj, y para eso el orden tiene que ser el de la marca. Con el
+	// orden por nombre que usa la pantalla, marcar `truncado` y devolver el reloj deja lo que
+	// no cupo POR DEBAJO del próximo `desde`, y eso no lo vuelve a pedir nadie nunca más
+	// (`CLAUDE.md` §3). Pasó con el padrón: 2.000 clientes redondos de 8.034.
+	//
+	// EL CURSOR LLEVA LA MARCA Y EL ID, y el id no es un adorno. El traspaso metió el catálogo
+	// entero en UNA transacción, y `now()` es la del inicio de la transacción: miles de filas
+	// comparten `updated_at` al microsegundo. Un cursor de sólo marca o no avanza —vuelve a
+	// servir el grupo entero para siempre— o se salta lo que quedaba del grupo. Con `(marca,
+	// id)` la tanda siguiente empieza EXACTAMENTE donde acabó la anterior, comparta marca o no.
+	//
+	// Los tres filtros de líneas de servicio se repiten aquí y tienen que seguir repetidos: un
+	// «ENTREGA A DOMICILIO» que no sale en la pantalla pero sí baja al teléfono es el mismo
+	// cobro duplicado, en el aparato que trabaja sin conexión y sin nadie que lo desmienta.
+	DiferenciasDeProductos(ctx context.Context, arg DiferenciasDeProductosParams) ([]Product, error)
 	// Engancha un pedido a la ruta como parada número `stop_order`.
 	//
 	// `route_id` y `ultima_ruta_id` se ponen los DOS y valen lo mismo hoy: el primero dice
@@ -427,6 +475,17 @@ type Querier interface {
 	// Los totales, ya con las paradas puestas y el recorrido calculado.
 	// `total_distance` es el CIRCUITO CERRADO: los tramos más el regreso al origen. El camión
 	// vuelve, y no contar la vuelta subestima el viaje justo a la mitad de las rutas largas.
+	//
+	// `optimized` DICE QUIÉN ORDENÓ LAS PARADAS, y aquí estaba clavado a `true`. Daba igual
+	// que el orden fuese el que la persona puso a mano: la ruta se guardaba diciendo que lo
+	// había calculado la máquina. Quien lo lee después —la pantalla, un informe, alguien
+	// decidiendo si vuelve a optimizar— se creía esa firma, y reoptimizar «lo que ya estaba
+	// optimizado» es justo lo que nadie hace. El orden del logístico se perdía sin que nadie
+	// lo dijera.
+	//
+	// Va como `narg` y no como `arg` a propósito: NULL significa «lo ordenó la máquina», que
+	// es lo que hacía este UPDATE desde siempre, así que ningún llamador que no lo mande
+	// cambia de comportamiento por esta línea. Quien sabe la respuesta la manda.
 	FijarTotalesDeRuta(ctx context.Context, arg FijarTotalesDeRutaParams) (FijarTotalesDeRutaRow, error)
 	// Idempotencia del espejo: `source` + `external_id` es lo que reconoce a un cliente entre
 	// pasadas. Sin alcance — el espejo entra con clave de servicio y trae las ocho sucursales.
@@ -525,6 +584,11 @@ type Querier interface {
 	// el WHERE obliga a recorrer los siete mil clientes fila a fila en cada búsqueda.
 	// Los grados vienen ya calculados de Go: `km/111` en latitud y `km/(111*cos(lat))` en
 	// longitud, que es donde el meridiano se estrecha.
+	// ESTA CONSULTA ES LA DE LA PANTALLA. El `OFFSET` es el de sus páginas y el orden es el
+	// alfabético, que es como se busca a ojo. **No sirve para la bajada del aparato**: ahí el
+	// orden tiene que ser el de la marca, o «los 2.000 primeros» son 2.000 cualesquiera y no
+	// hay última fila servida que devolver como `hasta`. La bajada va por
+	// `DiferenciasDeClientes`, más abajo.
 	ListarClientes(ctx context.Context, arg ListarClientesParams) ([]ListarClientesRow, error)
 	// El tablero de preparación: las columnas de la sucursal, lo que hay puesto en cada una y
 	// los pedidos que faltan por colocar, ordenados por cercanía al almacén.
@@ -711,9 +775,10 @@ type Querier interface {
 	//
 	// Se compara la frase entera: con «entrega» a secas, cualquier producto que la mencionara
 	// desaparecería del catálogo y nadie sabría por qué.
-	// El OFFSET es para la bajada del aparato: el catálogo se sirve por tandas y la
-	// siguiente tiene que empezar donde acabó la anterior. Sin él, `truncado` sería una
-	// promesa que no se puede cumplir — el aparato vuelve a pedir y recibe lo mismo.
+	// ESTA CONSULTA ES LA DE LA PANTALLA, Y SÓLO LA DE LA PANTALLA. Ordena por nombre, que es
+	// como se busca a ojo, y por eso NO sirve para la bajada del aparato: «los 2.000 primeros
+	// por nombre» son 2.000 cualesquiera y no hay última fila servida que devolver. La bajada
+	// va por `DiferenciasDeProductos`, aquí abajo.
 	ListarProductos(ctx context.Context, arg ListarProductosParams) ([]Product, error)
 	// Los renglones de UN pedido, en el orden del papel del vendedor. `linea` no es decorativa:
 	// la hoja del despacho tiene que salir igual que lo que el vendedor escribió.

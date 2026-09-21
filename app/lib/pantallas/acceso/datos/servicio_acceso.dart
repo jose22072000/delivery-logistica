@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../nucleo/identidad/almacen_sesion.dart';
+import '../../../nucleo/identidad/entrada_por_accesos.dart';
 import '../../../nucleo/identidad/sesion.dart';
 import '../../../nucleo/registro/registro.dart';
 import '../../../nucleo/plataforma.dart';
@@ -79,12 +80,21 @@ class Acceso {
 /// usuario y contraseña por HTTPS y recibe el par de tokens. Una APK se
 /// descompila.
 class ServicioDeAcceso {
-  ServicioDeAcceso({required Dio auth, required AlmacenDeSesion almacen})
-    : _auth = auth,
-      _almacen = almacen;
+  ServicioDeAcceso({
+    required Dio auth,
+    required AlmacenDeSesion almacen,
+    EntradaPorAccesos? porAccesos,
+  }) : _auth = auth,
+       _almacen = almacen,
+       _porAccesos = porAccesos;
 
   final Dio _auth;
   final AlmacenDeSesion _almacen;
+
+  /// La puerta de la WEB. `null` en la APK y en el escritorio, y ahi no es un
+  /// hueco: alli cerrar sesion es revocar el par y borrarlo, no mandar el
+  /// navegador a ningun sitio.
+  final EntradaPorAccesos? _porAccesos;
 
   /// Entra y **guarda el par**. Lo que devuelve dice además si quedó guardado.
   Future<Acceso> entrar({
@@ -129,9 +139,26 @@ class ServicioDeAcceso {
 
   /// Cierra la sesión de ESTE aparato. Auth contesta 200 pase lo que pase, así
   /// que esto no puede impedir salir: lo local se borra igual.
+  ///
+  /// ## Y EN LA WEB SE CIERRA EN LOS DOS LADOS
+  ///
+  /// Allí la sesión no es un par guardado: es una cookie `httpOnly` que este
+  /// JavaScript **no puede ni leer ni borrar** (y ha de ser así — un token que
+  /// el navegador puede leer se lo lleva cualquier script de la página). Hasta
+  /// que esto existió, quien le daba a «cerrar sesión» volvía a entrar sin más y
+  /// pensaba que había salido, que es justo lo que importa en el ordenador
+  /// compartido donde se le da al botón.
+  ///
+  /// Quien la borra es el servidor, y el camino entero pasa por Accesos —donde
+  /// vive la sesión de verdad y donde está el cartel de «¿seguro?»—:
+  /// `GET /api/auth/logout` → Accesos → `GET /api/auth/logout/done`, que retira
+  /// la cookie con los mismos atributos con los que se puso.
   Future<void> salir(Sesion? sesion) async {
     try {
-      if (sesion != null) {
+      // SÓLO SI HAY PAR QUE REVOCAR. Una sesión de cookie no lo tiene, y
+      // mandarle a auth un `refresh_token` vacío es una petición que sólo puede
+      // fallar y ensuciar el registro de Accesos.
+      if (sesion != null && sesion.llevaPar) {
         await _auth.post<Object?>(
           '/logout',
           data: <String, Object?>{'refresh_token': sesion.refresh},
@@ -143,7 +170,11 @@ class ServicioDeAcceso {
       // momento es peor.
       Registro.aviso('no se pudo avisar a auth del cierre: ${e.type}');
     }
+    // Lo guardado, siempre: en la web es el par de la puerta de respaldo, si se
+    // llegó a usar. Dejarlo ahí sería seguir dentro con la cookie ya borrada.
     await _almacen.borrar();
+    // Y EL ÚLTIMO PASO, sólo en la web: se va. La aplicación no vuelve de aquí.
+    _porAccesos?.aSalir();
   }
 
   static FalloDeAcceso _traducir(DioException e) {

@@ -6,23 +6,27 @@ import '../registro/registro.dart';
 import 'almacen_sesion.dart';
 import 'sesion.dart';
 
-/// Web: el par de tokens, en el almacen del navegador.
+/// Web: el almacen del navegador, **detras de la cookie del login unico**.
 ///
-/// **Por que aqui tambien se guarda el par.** El plan era que en web mandara la
-/// cookie del login unico de auth (ver [AlmacenPorCookie], que se deja escrita
-/// abajo para el dia que eso exista). Hoy no existe: la web del reparto entra
-/// por la MISMA puerta que la APK —usuario y contrasena contra
-/// `POST /api/auth/token`— y si aqui no se guardara nada, el interceptor no
-/// tendria token que poner en las peticiones y cada recarga de la pagina
-/// devolveria a la pantalla de acceso. Eso no es «mas seguro»: es la aplicacion
-/// sin datos, que es lo que se vio al abrirla.
+/// La web entra por Accesos: redireccion y vuelta con una cookie `httpOnly`
+/// (`docs/identidad.md`, y `nucleo/identidad/entrada_por_accesos.dart`). Esa
+/// cookie NO se puede leer desde aqui —para eso es `httpOnly`— y no hace falta:
+/// el navegador la manda sola en cada peticion y quien sabe si vale es el
+/// servidor.
+///
+/// Por eso el de la web es [AlmacenPorCookie] y no este. Este sigue entero, y no
+/// es un resto: es **la puerta de respaldo**. Si el login unico no esta —falta
+/// la llave, Accesos no contesta— la pantalla de acceso deja entrar con usuario
+/// y contrasena, y ese par hay que guardarlo en algun sitio o cada recarga
+/// devolveria a la puerta con la aplicacion vacia detras.
 ///
 /// `localStorage` y no `sessionStorage`: el logistico recarga, cierra la pestana
 /// y vuelve, y la regla de la casa es que quien entro sigue dentro. Lo que se
 /// guarda es exactamente lo mismo que guarda la APK en el Keystore, con la
 /// diferencia conocida de que en el navegador no hay Keystore — por eso el
 /// acceso dura lo que dura el refresh y un 401 lo borra entero.
-AlmacenDeSesion abrirAlmacenDeSesion() => const AlmacenDelNavegador();
+AlmacenDeSesion abrirAlmacenDeSesion() =>
+    const AlmacenPorCookie(AlmacenDelNavegador());
 
 class AlmacenDelNavegador implements AlmacenDeSesion {
   const AlmacenDelNavegador();
@@ -111,27 +115,4 @@ class AlmacenDelNavegador implements AlmacenDeSesion {
       return null;
     }
   }
-}
-
-/// El almacen del login unico, para cuando auth deje su cookie en la web.
-///
-/// Con el, `leer()` devolver `null` NO es «no hay sesion»: es «la sesion no la
-/// llevo yo», y quien decide es el servidor al contestar. Mientras la web entre
-/// con usuario y contrasena, el que se usa es [AlmacenDelNavegador].
-class AlmacenPorCookie implements AlmacenDeSesion {
-  const AlmacenPorCookie();
-
-  @override
-  Future<Sesion?> leer() async => null;
-
-  @override
-  Future<bool> guardar(Sesion sesion) async => true;
-
-  /// Cerrar sesion en web lo hace `POST /logout` de auth, que retira su cookie.
-  @override
-  Future<void> borrar() async {}
-
-  /// La lleva el navegador en su cookie, asi que no hay nada que comprobar.
-  @override
-  Future<SaludDelAlmacen> comprobar() async => const SaludDelAlmacen.bien();
 }

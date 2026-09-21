@@ -27,6 +27,7 @@ import '../../pedidos/datos/formato.dart';
 import '../../pedidos/datos/repositorio_pedidos.dart';
 import '../../pedidos/estado/proveedores_pedidos.dart';
 import '../../pedidos/vista/kit.dart';
+import '../../almacenes/vista/almacenes_de_la_ultima_bajada.dart';
 import '../datos/acciones_rutas.dart';
 import '../datos/meter_la_zona.dart';
 import '../datos/repositorio_rutas.dart';
@@ -442,6 +443,17 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // DE CUANDO SON ESTOS ALMACENES. Esta lista sale de la copia del
+        // aparato, no de Accesos: aqui se arma sin senal, que es la mitad del
+        // dia. Y desde el almacen que se elija se mide lo que se le cobra al
+        // cliente por el domicilio, asi que uno retirado que este aparato
+        // todavia no sabe que se retiro cobra mal cada entrega del dia.
+        //
+        // Accesos no da marca de cambio ni dice que borro —por eso los
+        // almacenes van en `faltan` y esa decision no se toca—, asi que lo
+        // unico que se puede hacer es DECIRLO, con su fecha. Regla 4: si algo
+        // puede estar viejo, se dice. En la web esto no pinta nada (regla 1).
+        const AlmacenesDeLaUltimaBajada(),
         Selector<String>(
           titulo: 'Almacén del que sale el camión',
           valor: _salida?.id ?? '',

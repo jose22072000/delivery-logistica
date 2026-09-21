@@ -19,7 +19,8 @@ class CarpetaEnDisco implements CarpetaDelMapa {
 
   final Directory raiz;
 
-  File _f(String nombre) => File('${raiz.path}${Platform.pathSeparator}$nombre');
+  File _f(String nombre) =>
+      File('${raiz.path}${Platform.pathSeparator}$nombre');
 
   @override
   Future<int> bytes(String nombre) async {
@@ -66,8 +67,42 @@ class _RangosDeFichero implements LeerPorRangos {
 
   final RandomAccessFile _f;
 
+  /// UNA LECTURA CADA VEZ, Y AQUI ESTA LA RAZON.
+  ///
+  /// Un `RandomAccessFile` tiene **una sola posicion**, y leer un rango son dos
+  /// pasos con un `await` en medio: colocarse y leer. Si dos lecturas se
+  /// solapan, la segunda mueve la posicion mientras la primera esta esperando, y
+  /// la primera lee desde donde no es. No falla: **devuelve otros bytes**, que
+  /// es peor.
+  ///
+  /// Y se solapan siempre, no de vez en cuando: el mapa pide TODAS las teselas
+  /// de la vista de golpe (`croquis_de_ruta.dart`, `_pedirLasMejoras`: un bucle
+  /// con `.then` y sin `await`), y desde el 21/09/2026 el enrutador por calles
+  /// lee el mismo fichero al mismo tiempo para armar su grafo.
+  ///
+  /// Lo que se veia en el telefono de Jose, con el mapa de Cuba bajado y el
+  /// avion puesto: **una sola tesela dibujada arriba a la izquierda y el resto
+  /// del recuadro en blanco**. La que ganaba la carrera salia; las demas leian
+  /// bytes de otro sitio, no decodificaban y se quedaban en nada. «No todo el
+  /// mapa como deberia de ser».
+  ///
+  /// No se ve en ninguna prueba de las de siempre porque en las pruebas y en la
+  /// web el paquete se lee de memoria (`RangosEnMemoria`), donde no hay posicion
+  /// que compartir. Es un fallo que solo existe en el aparato.
+  Future<void> _turno = Future<void>.value();
+
   @override
-  Future<Uint8List> leer(int desde, int largo) async {
+  Future<Uint8List> leer(int desde, int largo) {
+    final mio = _turno.then((_) => _leerEnSuTurno(desde, largo));
+    // La cola NO puede romperse cuando una lectura falla: si `_turno` se queda
+    // en un futuro con error, todas las siguientes fallan tambien y el mapa se
+    // queda en blanco para siempre. Por eso se traga el error AQUI —quien pidio
+    // la lectura sigue recibiendolo por `mio`—.
+    _turno = mio.then((_) {}, onError: (Object _) {});
+    return mio;
+  }
+
+  Future<Uint8List> _leerEnSuTurno(int desde, int largo) async {
     await _f.setPosition(desde);
     final salida = await _f.read(largo);
     if (salida.length != largo) {

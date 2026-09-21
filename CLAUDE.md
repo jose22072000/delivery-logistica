@@ -116,8 +116,13 @@ concreto. Ya hay tres así:
 2. El barrido del espejo pedía `limit=5000` y **no miraba cuántos venían**.
    PEDIDO corta sin decirlo: **2.284 pedidos perdidos** en una sola ventana, con
    200 OK.
-3. `POST /api/admin/recompute` **sigue igual** (`api/internal/api/espejo.go:349`):
-   pide 5.000 de una ventana de 30 días que hoy son ~13.000. Sin arreglar.
+3. `POST /api/admin/recompute` pedía 5.000 de una ventana de 30 días que hoy son
+   ~13.000. **Ya no se lo calla** (21/09/2026): el tope es `TopeDelRecosteo` para poder
+   compararlo, y si vuelven justo esos 5.000 la respuesta lleva `truncado` y un aviso que
+   dice cuántos días reducir. Paginar no se puede —`/integration/orders` no da cursor—; lo
+   que sí se hace es partir la ventana en tramos, y eso ya lo hace `internal/espejo`, que
+   es quien barre el histórico. Pruebas en pareja (avisa cuando toca y **no** avisa cuando
+   no) en `api/internal/api/sync_tope_test.go`.
 
 La regla: **si pides un tope, comprueba si lo alcanzaste**, y si no puedes seguir
 paginando, dilo con un aviso que nombre lo que se quedó fuera. Un truncamiento en

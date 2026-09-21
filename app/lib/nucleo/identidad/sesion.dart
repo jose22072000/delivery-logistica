@@ -58,6 +58,36 @@ class Sesion {
     );
   }
 
+  /// LA SESION DE LA WEB: la que llega en la cookie del login unico.
+  ///
+  /// **No hay par.** En la web la sesion es la cookie `httpOnly` que dejo
+  /// Accesos, y quien la renueva es Accesos por su cuenta: aqui no hay refresh
+  /// que guardar ni que gastar. Lo que se arma es la ficha para PINTAR —quien
+  /// eres, tu sucursal, tu rol— y para saber de quien es la copia de la base.
+  ///
+  /// [token] es el de la propia cookie, que `GET /api/me` devuelve en el cuerpo
+  /// exactamente para esto (`api/internal/api/yo.go`): el JavaScript de la
+  /// pagina no puede leer la cookie, asi que sin esta vuelta no habria forma de
+  /// saber ni quien entro.
+  ///
+  /// [usuario] es el `user` de esa misma respuesta. Manda sobre lo que diga la
+  /// carga del token en los campos que trae, porque es lo que el servidor acaba
+  /// de decidir; lo que no traiga sale del token, que viene firmado.
+  factory Sesion.deLaCookie({
+    required String token,
+    Map<String, Object?> usuario = const <String, Object?>{},
+  }) => Sesion.deJson(<String, Object?>{
+    'token': token,
+    // Vacio y no un valor falso: [llevaPar] es lo que distingue esta sesion de
+    // la de la APK, y lo que evita que nadie intente renovar lo que no existe.
+    'refresh': '',
+    'sub': usuario['id'] is String ? usuario['id'] : null,
+    'nombre': usuario['name'],
+    'correo': usuario['email'],
+    'rol': usuario['role'],
+    'sucursalId': usuario['branchId'],
+  });
+
   final String token;
 
   /// El refresh, **de un solo uso**. Se sustituye ENTERO en cada renovacion y el
@@ -84,6 +114,14 @@ class Sesion {
   final String rol;
 
   bool get esSuperAdmin => roles.contains('SUPER ADMIN');
+
+  /// `true` cuando la sesion la lleva el APARATO: un par de tokens guardado.
+  ///
+  /// `false` en la web, donde la lleva la cookie del login unico. Es la
+  /// pregunta que hay que hacerse antes de renovar, antes de guardar y antes de
+  /// revocar: sin par no hay nada de eso que hacer, y hacerlo igual es mandarle
+  /// a auth un refresh vacio y quedarse fuera.
+  bool get llevaPar => refresh.isNotEmpty;
 
   /// El nombre para PINTAR. Nunca vacio y nunca el `sub`.
   ///

@@ -133,6 +133,124 @@ func (q *Queries) ContarClientesSinTelefono(ctx context.Context, sucursalDelAlca
 	return count, err
 }
 
+const diferenciasDeClientes = `-- name: DiferenciasDeClientes :many
+
+SELECT
+    c.id, c.source, c.external_id, c.name, c.phone, c.address, c.municipio,
+    c.zona, c.lat, c.lng, c.sucursal_codigo, c.codigo, c.vendedor, c.synced_at
+FROM customers c
+WHERE
+    ($1::text IS NULL
+     OR c.sucursal_codigo = $1::text
+     OR c.sucursal_codigo IS NULL)
+    -- ` + "`" + `desde` + "`" + ` ESTRICTO y ` + "`" + `hasta` + "`" + ` INCLUSIVO. ` + "`" + `hasta` + "`" + ` hace falta: sin él se sirven filas por
+    -- encima de la ventana y el corte devuelve una marca mayor que el ` + "`" + `hasta` + "`" + ` de la
+    -- respuesta, que es otra forma de dejar filas debajo de la raya.
+    AND ($2::timestamptz IS NULL OR c.synced_at > $2::timestamptz)
+    AND ($3::timestamptz IS NULL OR c.synced_at <= $3::timestamptz)
+    AND (
+        $4::timestamptz IS NULL
+        OR c.synced_at > $4::timestamptz
+        OR (c.synced_at = $4::timestamptz
+            AND c.id > $5::uuid)
+    )
+ORDER BY c.synced_at ASC, c.id ASC
+LIMIT $6
+`
+
+type DiferenciasDeClientesParams struct {
+	SucursalDelAlcance *string            `json:"sucursal_del_alcance"`
+	Desde              pgtype.Timestamptz `json:"desde"`
+	Hasta              pgtype.Timestamptz `json:"hasta"`
+	CursorMarca        pgtype.Timestamptz `json:"cursor_marca"`
+	CursorID           pgtype.UUID        `json:"cursor_id"`
+	Tope               int32              `json:"tope"`
+}
+
+type DiferenciasDeClientesRow struct {
+	ID             uuid.UUID          `json:"id"`
+	Source         *Procedencia       `json:"source"`
+	ExternalID     *string            `json:"external_id"`
+	Name           string             `json:"name"`
+	Phone          *string            `json:"phone"`
+	Address        *string            `json:"address"`
+	Municipio      *string            `json:"municipio"`
+	Zona           *string            `json:"zona"`
+	Lat            float64            `json:"lat"`
+	Lng            float64            `json:"lng"`
+	SucursalCodigo *string            `json:"sucursal_codigo"`
+	Codigo         *string            `json:"codigo"`
+	Vendedor       *string            `json:"vendedor"`
+	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
+}
+
+// ---------------------------------------------------------------------------
+// El padrón de la bajada del aparato  (GET /api/sync/cambios)
+// ---------------------------------------------------------------------------
+// Lo que cambió en el padrón, ORDENADO POR LA MARCA y acotado por un cursor.
+//
+// LA MISMA FORMA QUE `DiferenciasDePedidos`, copiada y no reinventada. El 15/09/2026 la
+// bajada dejó **2.000 clientes redondos de 8.034** en el aparato y se dio por buena: se
+// servían los primeros por nombre, se marcaba `truncado` y se devolvía el reloj como
+// `hasta`, así que lo que no cupo quedó por debajo del siguiente `desde` y no lo volvió a
+// pedir nadie. Con el orden por la marca, quien contesta puede devolver la marca de la
+// ÚLTIMA FILA SERVIDA y la tanda siguiente empieza justo ahí.
+//
+// EL CURSOR LLEVA MARCA **E ID**, y aquí es donde de verdad hace falta: el traspaso metió
+// los 7.975 clientes de producción en UNA transacción, y `now()` es la del inicio de la
+// transacción — los 7.975 comparten `synced_at` al microsegundo. Con un cursor de sólo
+// marca, un grupo más grande que el tope no se puede servir entero: o se repite para
+// siempre o se salta el resto. Con `(marca, id)` la tanda siguiente empieza exactamente
+// donde acabó la anterior.
+//
+// `synced_at` y no `updated_at`, igual que antes: es lo que significa «cuándo lo trajo
+// PEDIDO», que es lo que cambia cuando cambia un cliente.
+//
+// El alcance es el mismo que el de la pantalla, incluida la rama de los manuales (sin
+// código de sucursal, los ve todo el mundo). Acotar distinto la bajada que la lista es
+// cómo se le queda a un aparato un cliente que ya no es suyo.
+func (q *Queries) DiferenciasDeClientes(ctx context.Context, arg DiferenciasDeClientesParams) ([]DiferenciasDeClientesRow, error) {
+	rows, err := q.db.Query(ctx, diferenciasDeClientes,
+		arg.SucursalDelAlcance,
+		arg.Desde,
+		arg.Hasta,
+		arg.CursorMarca,
+		arg.CursorID,
+		arg.Tope,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DiferenciasDeClientesRow
+	for rows.Next() {
+		var i DiferenciasDeClientesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Source,
+			&i.ExternalID,
+			&i.Name,
+			&i.Phone,
+			&i.Address,
+			&i.Municipio,
+			&i.Zona,
+			&i.Lat,
+			&i.Lng,
+			&i.SucursalCodigo,
+			&i.Codigo,
+			&i.Vendedor,
+			&i.SyncedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const facetasClientesMunicipios = `-- name: FacetasClientesMunicipios :many
 
 SELECT c.municipio AS valor, count(*) AS clientes
@@ -402,63 +520,43 @@ WHERE
     AND ($4::text IS NULL OR c.municipio = $4::text)
     AND ($5::text      IS NULL OR c.zona      = $5::text)
     AND ($6::text  IS NULL OR c.vendedor  = $6::text)
-    -- LO QUE CAMBIÓ DESDE LA ÚLTIMA VEZ, y aquí y no en Go — 16/09/2026.
-    --
-    -- La bajada del aparato traía el padrón ENTERO en cada arranque y descartaba después,
-    -- al recorrerlo, lo que no había cambiado. Con 8.103 clientes eso son cinco idas y
-    -- vueltas de 2.000 filas para no aplicar ninguna, cada vez que alguien abre la
-    -- aplicación, y es lo que se ve en el teléfono como «Trayendo datos… Clientes…»
-    -- durante varios segundos con la red de Cuba. Jose, 16/09/2026: «cada ves q inicie la
-    -- aplicacion no me traigas todo es comprobar no traer todo, para eso es el sync».
-    --
-    -- Filtrando aquí, un padrón sin cambios devuelve CERO filas: no llega al tope, no se
-    -- marca ` + "`" + `truncado` + "`" + ` y la cadena se acaba en una sola tanda.
-    --
-    -- ` + "`" + `synced_at` + "`" + ` NULL cuenta como cambiado, igual que en ` + "`" + `cambioDesde` + "`" + ` (` + "`" + `espejo.go` + "`" + `): un
-    -- cliente sin marca no se puede fechar, y dejarlo fuera sería no mandarlo nunca.
-    AND (
-        $7::timestamptz IS NULL
-        OR c.synced_at IS NULL
-        OR c.synced_at > $7::timestamptz
-    )
     -- ` + "`" + `origen` + "`" + `: 'pedido' = vino del espejo; 'manual' = alta a mano, que es ` + "`" + `source` + "`" + ` NULL.
     -- NULL no se compara con ` + "`" + `=` + "`" + `, así que la rama del manual se nombra a mano o no sale.
     AND (
-        $8::text IS NULL
-        OR ($8::text = 'pedido' AND c.source = 'pedido')
-        OR ($8::text = 'manual' AND c.source IS NULL)
+        $7::text IS NULL
+        OR ($7::text = 'pedido' AND c.source = 'pedido')
+        OR ($7::text = 'manual' AND c.source IS NULL)
     )
     -- «Sin teléfono» incluye la cadena vacía: un campo en blanco no es un teléfono.
     AND (
-        $9::boolean IS NULL
-        OR ($9::boolean AND c.phone IS NOT NULL AND c.phone <> '')
-        OR (NOT $9::boolean AND (c.phone IS NULL OR c.phone = ''))
+        $8::boolean IS NULL
+        OR ($8::boolean AND c.phone IS NOT NULL AND c.phone <> '')
+        OR (NOT $8::boolean AND (c.phone IS NULL OR c.phone = ''))
     )
     -- caja previa del filtro por kilómetros (el haversine exacto va después, en Go)
-    AND ($10::double precision IS NULL OR c.lat >= $10::double precision)
-    AND ($11::double precision IS NULL OR c.lat <= $11::double precision)
-    AND ($12::double precision IS NULL OR c.lng >= $12::double precision)
-    AND ($13::double precision IS NULL OR c.lng <= $13::double precision)
+    AND ($9::double precision IS NULL OR c.lat >= $9::double precision)
+    AND ($10::double precision IS NULL OR c.lat <= $10::double precision)
+    AND ($11::double precision IS NULL OR c.lng >= $11::double precision)
+    AND ($12::double precision IS NULL OR c.lng <= $12::double precision)
 ORDER BY c.name ASC
-LIMIT $15 OFFSET $14
+LIMIT $14 OFFSET $13
 `
 
 type ListarClientesParams struct {
-	SucursalDelAlcance *string            `json:"sucursal_del_alcance"`
-	SucursalCodigo     *string            `json:"sucursal_codigo"`
-	Q                  *string            `json:"q"`
-	Municipio          *string            `json:"municipio"`
-	Zona               *string            `json:"zona"`
-	Vendedor           *string            `json:"vendedor"`
-	CambiadoDesde      pgtype.Timestamptz `json:"cambiado_desde"`
-	Origen             *string            `json:"origen"`
-	ConTelefono        *bool              `json:"con_telefono"`
-	LatMin             *float64           `json:"lat_min"`
-	LatMax             *float64           `json:"lat_max"`
-	LngMin             *float64           `json:"lng_min"`
-	LngMax             *float64           `json:"lng_max"`
-	Desplazamiento     int32              `json:"desplazamiento"`
-	Limite             int32              `json:"limite"`
+	SucursalDelAlcance *string  `json:"sucursal_del_alcance"`
+	SucursalCodigo     *string  `json:"sucursal_codigo"`
+	Q                  *string  `json:"q"`
+	Municipio          *string  `json:"municipio"`
+	Zona               *string  `json:"zona"`
+	Vendedor           *string  `json:"vendedor"`
+	Origen             *string  `json:"origen"`
+	ConTelefono        *bool    `json:"con_telefono"`
+	LatMin             *float64 `json:"lat_min"`
+	LatMax             *float64 `json:"lat_max"`
+	LngMin             *float64 `json:"lng_min"`
+	LngMax             *float64 `json:"lng_max"`
+	Desplazamiento     int32    `json:"desplazamiento"`
+	Limite             int32    `json:"limite"`
 }
 
 type ListarClientesRow struct {
@@ -502,6 +600,11 @@ type ListarClientesRow struct {
 // el WHERE obliga a recorrer los siete mil clientes fila a fila en cada búsqueda.
 // Los grados vienen ya calculados de Go: `km/111` en latitud y `km/(111*cos(lat))` en
 // longitud, que es donde el meridiano se estrecha.
+// ESTA CONSULTA ES LA DE LA PANTALLA. El `OFFSET` es el de sus páginas y el orden es el
+// alfabético, que es como se busca a ojo. **No sirve para la bajada del aparato**: ahí el
+// orden tiene que ser el de la marca, o «los 2.000 primeros» son 2.000 cualesquiera y no
+// hay última fila servida que devolver como `hasta`. La bajada va por
+// `DiferenciasDeClientes`, más abajo.
 func (q *Queries) ListarClientes(ctx context.Context, arg ListarClientesParams) ([]ListarClientesRow, error) {
 	rows, err := q.db.Query(ctx, listarClientes,
 		arg.SucursalDelAlcance,
@@ -510,7 +613,6 @@ func (q *Queries) ListarClientes(ctx context.Context, arg ListarClientesParams) 
 		arg.Municipio,
 		arg.Zona,
 		arg.Vendedor,
-		arg.CambiadoDesde,
 		arg.Origen,
 		arg.ConTelefono,
 		arg.LatMin,

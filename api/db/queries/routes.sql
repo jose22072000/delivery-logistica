@@ -254,12 +254,23 @@ WHERE id = sqlc.arg('pedido_id')
 -- Los totales, ya con las paradas puestas y el recorrido calculado.
 -- `total_distance` es el CIRCUITO CERRADO: los tramos más el regreso al origen. El camión
 -- vuelve, y no contar la vuelta subestima el viaje justo a la mitad de las rutas largas.
+--
+-- `optimized` DICE QUIÉN ORDENÓ LAS PARADAS, y aquí estaba clavado a `true`. Daba igual
+-- que el orden fuese el que la persona puso a mano: la ruta se guardaba diciendo que lo
+-- había calculado la máquina. Quien lo lee después —la pantalla, un informe, alguien
+-- decidiendo si vuelve a optimizar— se creía esa firma, y reoptimizar «lo que ya estaba
+-- optimizado» es justo lo que nadie hace. El orden del logístico se perdía sin que nadie
+-- lo dijera.
+--
+-- Va como `narg` y no como `arg` a propósito: NULL significa «lo ordenó la máquina», que
+-- es lo que hacía este UPDATE desde siempre, así que ningún llamador que no lo mande
+-- cambia de comportamiento por esta línea. Quien sabe la respuesta la manda.
 -- name: FijarTotalesDeRuta :one
 UPDATE routes SET
     total_distance = sqlc.arg('total_distance'),
     total_weight   = sqlc.arg('total_weight'),
     total_price    = sqlc.arg('total_price'),
-    optimized      = true
+    optimized      = coalesce(sqlc.narg('optimizado')::boolean, true)
 WHERE id = sqlc.arg('id')
   AND (sqlc.narg('sucursal')::uuid IS NULL OR branch_id = sqlc.narg('sucursal')::uuid)
 RETURNING id, name, route_code, status, origin_address, origin_lat, origin_lng,

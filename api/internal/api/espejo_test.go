@@ -345,58 +345,114 @@ func (q *espejoFalso) ListarRutas(_ context.Context, arg sqlc.ListarRutasParams)
 	return salida, nil
 }
 func (q *espejoFalso) ListarProductos(_ context.Context, arg sqlc.ListarProductosParams) ([]sqlc.Product, error) {
+	// La de la PANTALLA: por nombre y con su tope. La bajada del aparato ya no pasa por
+	// aquí — va por `DiferenciasDeProductos`, que ordena por la marca.
+	cuadran := append([]sqlc.Product(nil), q.catalogoDelEspejo...)
+	sort.Slice(cuadran, func(i, j int) bool { return cuadran[i].Name < cuadran[j].Name })
+	if int(arg.Limite) < len(cuadran) {
+		cuadran = cuadran[:arg.Limite]
+	}
+	return cuadran, nil
+}
+
+func (q *espejoFalso) ListarClientes(_ context.Context, arg sqlc.ListarClientesParams) ([]sqlc.ListarClientesRow, error) {
+	cuadran := append([]sqlc.ListarClientesRow(nil), q.padron...)
+	sort.Slice(cuadran, func(i, j int) bool { return cuadran[i].Name < cuadran[j].Name })
+	desde := int(arg.Desplazamiento)
+	if desde >= len(cuadran) {
+		return nil, nil
+	}
+	hasta := desde + int(arg.Limite)
+	if hasta > len(cuadran) {
+		hasta = len(cuadran)
+	}
+	return cuadran[desde:hasta], nil
+}
+
+// DiferenciasDeProductos y DiferenciasDeClientes REPITEN EL SQL DE LA BAJADA, y cada trozo
+// que repiten es un fallo que se puede ver desde aquí:
+//
+//   - el ORDEN POR LA MARCA (y el id de desempate). Con un doble que devolviera la lista en
+//     cualquier orden, «la marca de la última fila servida» sería una marca cualquiera y la
+//     prueba del encadenado saldría verde con el fallo puesto.
+//   - el CURSOR `(marca, id)`, que es lo único que sirve cuando miles de filas comparten la
+//     misma marca — que es lo que hay en producción después del traspaso.
+//   - el `desde` ESTRICTO y el `hasta` INCLUSIVO, para que dos ventanas seguidas ni se
+//     pisen ni dejen hueco.
+//   - el TOPE tal cual se pide: quien llama pide una fila de más para saber si queda algo,
+//     y un doble que sirviera siempre la lista entera escondería justo eso.
+func porLaMarca[T any](filas []T, marca func(T) time.Time, id func(T) uuid.UUID) {
+	sort.Slice(filas, func(i, j int) bool {
+		mi, mj := marca(filas[i]), marca(filas[j])
+		if !mi.Equal(mj) {
+			return mi.Before(mj)
+		}
+		return id(filas[i]).String() < id(filas[j]).String()
+	})
+}
+
+// enLaVentana es el `desde` estricto / `hasta` inclusivo / cursor `(marca, id)` del SQL.
+func enLaVentana(m time.Time, fila uuid.UUID, desde, hasta, curMarca pgtype.Timestamptz, curID pgtype.UUID) bool {
+	if desde.Valid && !m.After(desde.Time) {
+		return false
+	}
+	if hasta.Valid && m.After(hasta.Time) {
+		return false
+	}
+	if curMarca.Valid {
+		if m.Before(curMarca.Time) {
+			return false
+		}
+		if m.Equal(curMarca.Time) && !(fila.String() > uuid.UUID(curID.Bytes).String()) {
+			return false
+		}
+	}
+	return true
+}
+
+func (q *espejoFalso) DiferenciasDeProductos(_ context.Context, arg sqlc.DiferenciasDeProductosParams) ([]sqlc.Product, error) {
 	var cuadran []sqlc.Product
 	for _, p := range q.catalogoDelEspejo {
-		if !cambiadoDesdeEnElSQL(p.UpdatedAt, arg.CambiadoDesde) {
+		if arg.Sucursal != nil && (p.SucursalCodigo == nil || *p.SucursalCodigo != *arg.Sucursal) {
+			continue
+		}
+		if !enLaVentana(p.UpdatedAt.Time, p.ID, arg.Desde, arg.Hasta, arg.CursorMarca, arg.CursorID) {
 			continue
 		}
 		cuadran = append(cuadran, p)
 	}
-	desde := int(arg.Desplazamiento)
-	if desde >= len(cuadran) {
-		return nil, nil
+	porLaMarca(cuadran, func(p sqlc.Product) time.Time { return p.UpdatedAt.Time },
+		func(p sqlc.Product) uuid.UUID { return p.ID })
+	if int(arg.Tope) < len(cuadran) {
+		cuadran = cuadran[:arg.Tope]
 	}
-	hasta := desde + int(arg.Limite)
-	if hasta > len(cuadran) {
-		hasta = len(cuadran)
-	}
-	return cuadran[desde:hasta], nil
+	return cuadran, nil
 }
 
-// ListarClientes REPITE EL `WHERE … LIMIT … OFFSET …` del SQL, y las dos partes importan.
-//
-// El `LIMIT/OFFSET`, porque con un doble que devolviera siempre la lista entera el fallo
-// de los 2.000 clientes no se ve. Y el `cambiado_desde`, porque desde el 16/09/2026 el
-// filtro por marca vive EN LA CONSULTA y no en un `if` al recorrer: un doble que lo
-// ignorara seguiría sirviendo el padrón entero, la cadena seguiría dando cinco vueltas y
-// la prueba del arranque barato saldría verde con el fallo puesto.
-func (q *espejoFalso) ListarClientes(_ context.Context, arg sqlc.ListarClientesParams) ([]sqlc.ListarClientesRow, error) {
-	var cuadran []sqlc.ListarClientesRow
+func (q *espejoFalso) DiferenciasDeClientes(_ context.Context, arg sqlc.DiferenciasDeClientesParams) ([]sqlc.DiferenciasDeClientesRow, error) {
+	var cuadran []sqlc.DiferenciasDeClientesRow
 	for _, c := range q.padron {
-		if !cambiadoDesdeEnElSQL(c.SyncedAt, arg.CambiadoDesde) {
+		// El alcance deja pasar además a los MANUALES, que no tienen código de sucursal.
+		if arg.SucursalDelAlcance != nil && c.SucursalCodigo != nil &&
+			*c.SucursalCodigo != *arg.SucursalDelAlcance {
 			continue
 		}
-		cuadran = append(cuadran, c)
+		if !enLaVentana(c.SyncedAt.Time, c.ID, arg.Desde, arg.Hasta, arg.CursorMarca, arg.CursorID) {
+			continue
+		}
+		cuadran = append(cuadran, sqlc.DiferenciasDeClientesRow{
+			ID: c.ID, Source: c.Source, ExternalID: c.ExternalID, Name: c.Name,
+			Phone: c.Phone, Address: c.Address, Municipio: c.Municipio, Zona: c.Zona,
+			Lat: c.Lat, Lng: c.Lng, SucursalCodigo: c.SucursalCodigo, Codigo: c.Codigo,
+			Vendedor: c.Vendedor, SyncedAt: c.SyncedAt,
+		})
 	}
-	desde := int(arg.Desplazamiento)
-	if desde >= len(cuadran) {
-		return nil, nil
+	porLaMarca(cuadran, func(c sqlc.DiferenciasDeClientesRow) time.Time { return c.SyncedAt.Time },
+		func(c sqlc.DiferenciasDeClientesRow) uuid.UUID { return c.ID })
+	if int(arg.Tope) < len(cuadran) {
+		cuadran = cuadran[:arg.Tope]
 	}
-	hasta := desde + int(arg.Limite)
-	if hasta > len(cuadran) {
-		hasta = len(cuadran)
-	}
-	return cuadran[desde:hasta], nil
-}
-
-// cambiadoDesdeEnElSQL es el `AND (cambiado_desde IS NULL OR marca IS NULL OR marca >
-// cambiado_desde)` de las dos consultas, escrito en Go. Una fila SIN marca cuenta como
-// cambiada: no se puede fechar, y dejarla fuera sería no mandarla nunca.
-func cambiadoDesdeEnElSQL(marca, desde pgtype.Timestamptz) bool {
-	if !desde.Valid || !marca.Valid {
-		return true
-	}
-	return marca.Time.After(desde.Time)
+	return cuadran, nil
 }
 
 // --------------------------------------------------------------------------- Ventra de mentira
@@ -1035,13 +1091,18 @@ func TestElPadronSeSirveEnteroEnTandas(t *testing.T) {
 	}
 }
 
-// El cursor lleva el `desde` de la PRIMERA tanda, y sin eso la segunda no emite nada.
+// EL CURSOR MANDA SOBRE EL `desde` DE LA PETICIÓN, y sin eso la segunda tanda no emite nada.
 //
-// El catálogo y el padrón se filtran en Go contra el `desde` de la petición, y en una
-// bajada por diferencias ese `desde` avanza entre tandas. Si el cursor no conservara el
-// original, la tanda dos pagina hasta el final del padrón sin mandar una sola fila: el
-// aparato se queda con la primera tanda y con la sensación de haber terminado.
-func TestElCursorConservaElDesdeDeLaCadena(t *testing.T) {
+// El aparato relee su marca de frescura antes de cada vuelta, así que el `desde` que manda
+// AVANZA entre tandas. Los cuatro clientes de aquí son de ayer: contra el `desde` de la
+// segunda petición no pasaría ni uno. Lo que los salva es que, habiendo cursor, el `desde`
+// no se mira — el cursor ya dice por dónde iba la cadena, y viene de una fila servida de
+// verdad (`alcance.TandaDelPadron.desdeDe`).
+//
+// Antes esto se resolvía guardando el `desde` original DENTRO del cursor. Se quitó al pasar
+// a cursor `(marca, id)`: dos cotas para lo mismo es una de más, y la que sobraba era la
+// que dejó 2.000 clientes de 8.103 el 15/09/2026.
+func TestElCursorMandaSobreElDesdeDeLaPeticion(t *testing.T) {
 	q := nuevoEspejo()
 	stg := "STG"
 	ayer := time.Now().UTC().Add(-24 * time.Hour)
@@ -1260,11 +1321,18 @@ func TestLoQueCambioBajaEnteroAunqueElFiltroVayaEnElSQL(t *testing.T) {
 			SyncedAt: pgtype.Timestamptz{Time: hace10m, Valid: true},
 		})
 	}
-	sinMarca := uuid.New()
-	nuevos[sinMarca.String()] = true
+	// Y UNO RECIÉN TRAÍDO, con la marca de AHORA MISMO. Aquí había un cliente SIN marca,
+	// y ya no puede haberlo: `customers.synced_at` es `NOT NULL DEFAULT now()` en
+	// 00001_init.sql, y desde que la bajada se trocea POR LA MARCA una fila sin ella no
+	// tendría por dónde continuarse — se quedaría en el mismo sitio de la cadena para
+	// siempre. Que la columna siga siendo NOT NULL lo vigila
+	// `TestLaBajadaPorMarcaExigeQueLasDosColumnasSeanNotNull`.
+	recien := uuid.New()
+	nuevos[recien.String()] = true
 	q.padron = append(q.padron, sqlc.ListarClientesRow{
-		ID: sinMarca, Name: "Sin marca",
+		ID: recien, Name: "Recién traído",
 		Lat: 20.0, Lng: -75.0, SucursalCodigo: &stg,
+		SyncedAt: pgtype.Timestamptz{Time: time.Now().UTC().Add(-time.Minute), Valid: true},
 	})
 
 	h := montarTab(t, q)

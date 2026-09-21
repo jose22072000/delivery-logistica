@@ -293,7 +293,7 @@ garantiza que concuerden.
 | `finishedAt` | DateTime? | sí | — | se marca al pasar a `completed` (§5) |
 | `createdAt` | DateTime | no | `now()` | |
 | `updatedAt` | DateTime | no | `@updatedAt` | |
-| `optimized` | Boolean | no | `false` | se pone `true` tras el greedy |
+| `optimized` | Boolean | no | `false` | **quién ordenó las paradas**: `true` si lo hizo `ordenDeVisita`, `false` si se respetó el orden que puso la persona (`optimizar:false`). No es «ya se calculó algo»: es una firma, y escribirla en falso hace que nadie vuelva a optimizar esa ruta |
 
 Índices: **solo PK**. Ninguno sobre `status`, `branchId`, `deliveryDate`, `routeCode`.
 `generateRouteCode()` cuenta filas con `startsWith(prefix)` sin bloqueo → colisión posible
@@ -521,7 +521,7 @@ tocó la fila»).
 | `Route.totalDistance` | `POST /api/routes` (update posterior) | Σ `calculateRouteSegments(origin, stops)` + haversine última parada → origen (incluye el regreso) |
 | `Route.totalWeight` | `POST /api/routes` | Σ `order.weight` de las paradas; se valida contra `Vehicle.capacity` **antes** (HTTP 400) |
 | `Route.totalPrice` | `POST /api/routes` | Σ `order.pedidoCosto || 0` |
-| `Route.optimized` | `POST /api/routes`: `true` | tras el greedy |
+| `Route.optimized` | `POST /api/routes`: el `optimizar` del cuerpo (por defecto `true`) | `true` tras `ordenDeVisita`; `false` cuando se respeta el orden de los `orderIds`. El SQL lo clavaba a `true` y firmaba como calculado el orden de la persona (21/09/2026) |
 | `Route.startedAt` | `PATCH /api/routes/[id]` al pasar a `in_progress`, sólo si estaba `null` | y limpia `finishedAt` si había |
 | `Route.finishedAt` | `PATCH /api/routes/[id]` al pasar a `completed`: `new Date()` | con `startedAt` da la duración real |
 | `Vehicle.status` | `PATCH`/`DELETE /api/routes/[id]`, `/api/vehicles/[id]` | `in_use` al arrancar la ruta, `available` al completarla o borrarla |
@@ -532,7 +532,10 @@ tocó la fila»).
 | `Order.*` del espejo (`orderDate`, `pedidoUpdatedAt`, `estado`, `archivado`, `fechaComprometida`, `requiereDomicilio`, `pedidoCosto`, `factura*`, `municipio`, `vendedor`, `sucursalCodigo`, `customerPhone`, `meta`) | `buildOrderData` vía `POST /api/quote/batch` | copiados literalmente del payload de PEDIDO; delivery no los decide |
 
 Notas de cálculo: toda distancia es **haversine (línea recta)**, no ruta por carretera.
-La optimización es un **greedy de vecino más cercano** (`greedyRouteOptimization`), no TSP.
+La optimización parte del **greedy de vecino más cercano** y le pasa **2-opt y Or-opt sobre
+el circuito cerrado** (`ordenDeVisita`, en el aparato y en el servidor, atados por
+`docs/orden-de-paradas.casos.json`). Sigue sin ser un TSP óptimo: es una heurística, pero
+ya no deja cruces ni el tramo final larguísimo que Jose vio el 21/09/2026.
 `totalDistance` cierra el circuito (vuelve al origen); `segmentKm` no.
 
 ---

@@ -51,6 +51,13 @@ func arrancar(log *slog.Logger) error {
 	}
 	defer base.Cerrar()
 
+	// LA BASE TIENE QUE ESTAR AL DÍA, y si no lo está esto se muere aquí. Ver
+	// `db/migraciones.go`: una tabla que falta en el sincronizador se ve como apuntes que
+	// no suben, no como un error, y eso no lo mira nadie hasta que alguien reclama.
+	if err := base.ExigirMigraciones(ctx); err != nil {
+		return err
+	}
+
 	cliente := reparto.Nuevo(cfg.RepartoURL, cfg.RepartoClave, cfg.RepartoTiempo)
 
 	servicio := sincro.Nuevo(sincro.Opciones{

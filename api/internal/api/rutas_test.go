@@ -354,8 +354,13 @@ func (d *dobleDeRutas) FijarTotalesDeRuta(_ context.Context, arg sqlc.FijarTotal
 	if !hay || !alcanza(arg.Sucursal, r.sucursal) {
 		return sqlc.FijarTotalesDeRutaRow{}, pgx.ErrNoRows
 	}
-	r.km, r.peso, r.precio, r.optimized = arg.TotalDistance, arg.TotalWeight, arg.TotalPrice, true
-	return sqlc.FijarTotalesDeRutaRow{ID: r.id, TotalDistance: r.km, TotalWeight: r.peso, TotalPrice: r.precio, Optimized: true}, nil
+	// `optimized` SE COPIA DE LO QUE MANDA EL LLAMADOR, como el `coalesce` del SQL: nil es
+	// «lo ordenó la máquina». Aquí estaba clavado a `true` y por eso ninguna prueba podía
+	// ver la diferencia entre un orden calculado y el que puso una persona a mano — un
+	// doble que no repite el WHERE ni el SET deja pasar justo el fallo que se busca.
+	r.km, r.peso, r.precio = arg.TotalDistance, arg.TotalWeight, arg.TotalPrice
+	r.optimized = arg.Optimizado == nil || *arg.Optimizado
+	return sqlc.FijarTotalesDeRutaRow{ID: r.id, TotalDistance: r.km, TotalWeight: r.peso, TotalPrice: r.precio, Optimized: r.optimized}, nil
 }
 
 func (d *dobleDeRutas) ActualizarEstadoDeRuta(_ context.Context, arg sqlc.ActualizarEstadoDeRutaParams) (sqlc.ActualizarEstadoDeRutaRow, error) {

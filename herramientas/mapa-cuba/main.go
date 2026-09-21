@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -41,6 +42,14 @@ func main() {
 	// debajo del z9 porque no se pueden leer, y entonces una muestra recortada a
 	// z6 sale sin un solo nombre y no sirve para probar que el UTF-8 se lee bien.
 	nombresDesde := flag.Int("nombres-desde", -1, "desde qué zoom viajan los nombres (sólo para muestras)")
+	// SOLO para medir. El tamano del fichero es la decision de este generador y
+	// una decision no se toma con una estimacion: se genera con la capa y sin
+	// ella, y se restan los bytes. Ver `Nivel.SinCapas`.
+	sin := flag.String("sin", "", "capas a dejar fuera, separadas por comas (sólo para medir el tamaño)")
+	// Lo mismo, para la otra decision de tamano del 21/09/2026: los
+	// multipoligonos (los bosques grandes, los humedales y la Cienaga de
+	// Zapata). Se genera con ellos y sin ellos y se restan los bytes.
+	sinRelaciones := flag.Bool("sin-relaciones", false, "dejar fuera los multipolígonos (sólo para medir el tamaño)")
 	flag.Parse()
 
 	if *comprobar != "" {
@@ -77,6 +86,16 @@ func main() {
 		}
 		if *nombresDesde >= 0 {
 			nivel.NombresDesde = uint8(*nombresDesde)
+		}
+		if *sinRelaciones {
+			nivel.SinRelaciones = true
+			nivel.Clave += "-sin-relaciones"
+		}
+		if *sin != "" {
+			nivel = nivel.SinCapas(strings.Split(*sin, ","))
+			// El nombre del fichero lo dice, porque un `.pmtiles` medido no es
+			// uno que se cuelgue y los dos acaban en la misma carpeta.
+			nivel.Clave += "-sin-" + strings.ReplaceAll(*sin, ",", "-")
 		}
 		if err := generar(*pbf, nivel, *salida); err != nil {
 			fmt.Fprintf(os.Stderr, "nivel %s: %v\n", nivel.Clave, err)
@@ -167,7 +186,33 @@ func metadatos(n Nivel) []byte {
 			"fields": map[string]string{"clase": "String", "nombre": "String"}},
 		{"id": capaPoblacion, "description": "núcleos de población con su nombre",
 			"fields": map[string]string{"clase": "String", "nombre": "String"}},
+		{"id": capaSuelo, "description": "uso del suelo: parque, bosque, humedal, hierba, urbano, industrial, portuario",
+			"fields": map[string]string{"clase": "String"}},
+		{"id": capaEdificio, "description": "la silueta de las manzanas",
+			"fields": map[string]string{"clase": "String"}},
+		{"id": capaTren, "description": "vías de tren",
+			"fields": map[string]string{"clase": "String"}},
 	}
+	// SOLO SE ANUNCIAN LAS QUE ESTE NIVEL LLEVA DE VERDAD. Un `vector_layers`
+	// que promete edificios en el `basico` hace que quien abra el fichero con
+	// `pmtiles show` crea que el paquete esta roto en vez de ver que ese nivel
+	// no los trae. Es el mismo fallo que un contador que no cuadra con su lista.
+	lleva := map[string]bool{
+		capaCarretera: len(n.Carreteras) > 0,
+		capaCosta:     true,
+		capaAgua:      true,
+		capaPoblacion: len(n.Poblaciones) > 0,
+		capaSuelo:     len(n.Suelos) > 0,
+		capaEdificio:  len(n.Edificios) > 0,
+		capaTren:      len(n.Trenes) > 0,
+	}
+	vivas := capas[:0]
+	for _, c := range capas {
+		if lleva[c["id"].(string)] {
+			vivas = append(vivas, c)
+		}
+	}
+	capas = vivas
 	b, _ := json.Marshal(map[string]any{
 		"name":          "Cuba — " + n.Titulo,
 		"description":   n.Explicacion,

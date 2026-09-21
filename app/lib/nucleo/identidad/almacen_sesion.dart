@@ -79,6 +79,58 @@ abstract interface class AlmacenDeSesion {
   Future<SaludDelAlmacen> comprobar();
 }
 
+/// EL ALMACEN DE LA WEB: la sesion la lleva la cookie del login unico.
+///
+/// Vive AQUI y no en `almacen_sesion_web.dart` a proposito: aquel importa
+/// `package:web` y por tanto no se puede ni cargar en una prueba, que corre en
+/// la maquina virtual de Dart. La regla de las dos reglas de abajo —que una
+/// sesion de cookie no se escriba, y que salir borre— es justo la que hay que
+/// poder romper para ver si alguna prueba la caza. El sitio donde se guarda de
+/// verdad se le pasa por fuera.
+///
+/// Con el, `leer()` devolviendo `null` NO es «no hay sesion»: es «la sesion no
+/// la llevo yo», y quien decide es el servidor al contestar. El resto de la
+/// aplicacion ya cuenta con eso y no hay que tocarlo — `InterceptorSesion` sale
+/// sin cabecera y con la cookie puesta, el [Renovador] no intenta renovar lo que
+/// no existe y la subida deja pasar la guarda del dueno porque en un navegador
+/// no hay dos personas compartiendo una base.
+///
+/// ## Y detras lleva el del navegador, a proposito
+///
+/// Si el login unico falla, la pantalla de acceso deja entrar con usuario y
+/// contrasena. Ese par SI hay que guardarlo: sin el, `InterceptorSesion` no
+/// tendria token que poner y cada recarga devolveria a la puerta. Asi que:
+///
+///  * **sesion de cookie** (`llevaPar == false`) → no se escribe nada. Escribirla
+///    seria dejar el token en `localStorage` **despues de cerrar sesion**: el
+///    servidor borra su cookie, el almacen sigue devolviendo el token viejo y la
+///    persona sigue dentro creyendo que salio.
+///  * **par de la puerta de respaldo** → se guarda como siempre.
+///
+/// `borrar()` limpia el respaldo en los dos casos. La cookie no la borra nadie
+/// desde aqui: eso lo hace `GET /api/auth/logout/done` en el servidor, que es el
+/// unico que puede.
+class AlmacenPorCookie implements AlmacenDeSesion {
+  const AlmacenPorCookie(this._respaldo);
+
+  final AlmacenDeSesion _respaldo;
+
+  @override
+  Future<Sesion?> leer() => _respaldo.leer();
+
+  @override
+  Future<bool> guardar(Sesion sesion) async =>
+      sesion.llevaPar ? _respaldo.guardar(sesion) : true;
+
+  @override
+  Future<void> borrar() => _respaldo.borrar();
+
+  /// Lo que hay que comprobar es el respaldo: es lo unico que escribe. La cookie
+  /// la lleva el navegador y no hay nada que preguntarle.
+  @override
+  Future<SaludDelAlmacen> comprobar() => _respaldo.comprobar();
+}
+
 /// En memoria. Para los tests y para el destino que no tenga donde guardar.
 class AlmacenEnMemoria implements AlmacenDeSesion {
   AlmacenEnMemoria([this._sesion, this.salud = const SaludDelAlmacen.bien()]);

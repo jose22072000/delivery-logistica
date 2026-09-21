@@ -91,6 +91,11 @@ class AccionesDeRuta {
   /// El orden de visita, los km, el peso y el precio se calculan **en el
   /// aparato** (`geo.dart`, calcado de `reglas-negocio.md` §1): si los pusiera el
   /// servidor, no se podria armar una ruta sin red, que es la mitad del dia.
+  ///
+  /// [optimizar] dice QUIEN ORDENA LAS PARADAS, y de ahi sale `optimized` tal
+  /// cual. Con `true` —lo de siempre— el orden lo calcula `ordenDeVisita`. Con
+  /// `false` se respeta el de [pedidoIds], que es el que puso una persona que
+  /// conoce las calles de su distrito, y la ruta se guarda diciendolo.
   Future<String> armar({
     required String? vehiculoId,
     required List<String> pedidoIds,
@@ -100,6 +105,7 @@ class AccionesDeRuta {
     String? origenDireccion,
     String? sucursalId,
     DateTime? fechaDeEntrega,
+    bool optimizar = true,
   }) async {
     // Las validaciones van en el ORDEN ESTRICTO del servidor: si dos fallan a la
     // vez, la persona tiene que leer el mismo mensaje en los dos sitios.
@@ -160,7 +166,25 @@ class AccionesDeRuta {
         if (p.endLat != null && p.endLng != null)
           Parada(p.id, p.endLat!, p.endLng!),
     ];
-    final orden = vecinoMasCercano(origen, paradas);
+    // EL ORDEN BUENO, NO EL DEL GREEDY A SECAS — 21/09/2026.
+    //
+    // Aqui se llamaba a `vecinoMasCercano`, y eso es lo que Jose estaba viendo:
+    // «esa planificada esta mal, no hace ruta logica ni nada». El vecino mas
+    // proximo deja cruces y un ultimo tramo larguisimo de vuelta al almacen.
+    // `ordenDeVisita` arranca de ese mismo greedy y le pasa 2-opt y Or-opt sobre
+    // el circuito CERRADO —el de `kmDelCircuito`, con la vuelta dentro— hasta
+    // que no mejora. El servidor hace exactamente lo mismo
+    // (`api/internal/api/rutas.go`, `ordenDeVisita`) y las dos lo demuestran
+    // contra `docs/orden-de-paradas.casos.json`.
+    //
+    // Y QUIEN ORDENA SE APUNTA. Con `optimizar: false` no se toca el orden en
+    // que vienen los pedidos: lo puso una persona. Aqui se guardaba
+    // `optimized: true` SIEMPRE, tambien en ese caso, y eso es una firma falsa
+    // —quien lo lea despues da por calculado lo que no calculo nadie, y no
+    // vuelve a optimizar una ruta que «ya lo esta»—.
+    final orden = optimizar
+        ? ordenDeVisita(origen, paradas)
+        : _ordenDelLogistico(pedidoIds, paradas);
     final porId = {for (final p in pedidos) p.id: p};
     final ordenadas = [
       for (final id in orden)
@@ -195,7 +219,7 @@ class AccionesDeRuta {
               deliveryDate: Value(fechaDeEntrega),
               vehicleId: Value(vehiculoId),
               branchId: Value(sucursalDeLaRuta),
-              optimized: const Value(true),
+              optimized: Value(optimizar),
               createdAt: Value(ahora),
               updatedAt: Value(ahora),
             ),
@@ -241,6 +265,11 @@ class AccionesDeRuta {
         'originLat': origenLat,
         'originLng': origenLng,
         'orderIds': orden,
+        // Se manda SIEMPRE, tambien cuando vale `true`. El servidor da por
+        // `true` el cuerpo que no lo trae —las APK viejas no lo mandan y su
+        // orden SI lo calculo el aparato—, asi que callarlo cuando es `false`
+        // devolveria la ruta a estar firmada como calculada en cuanto suba.
+        'optimizar': optimizar,
       },
       // La bisagra: cuando esto suba, el id de verdad sustituye a `local-…` en
       // la cola y en las filas locales. Sin esto, el cierre de la tarde se iria
@@ -249,6 +278,32 @@ class AccionesDeRuta {
     );
 
     return rutaId;
+  }
+
+  /// El orden que trae [pedidoIds], tal cual, sin tocar una coma.
+  ///
+  /// No es «el algoritmo apagado»: es el otro orden posible, y el bueno cuando
+  /// quien arma la ruta conoce las calles. Lo unico que hace es quedarse con los
+  /// que de verdad van en la ruta —los que tienen punto de entrega, que son los
+  /// de [paradas]— y CONSERVAR la posicion en que llegaron. Un id repetido no se
+  /// visita dos veces. Es la gemela de `ordenDelLogistico` en `rutas.go`.
+  static List<String> _ordenDelLogistico(
+    List<String> pedidoIds,
+    List<Parada> paradas,
+  ) {
+    final tienePunto = {for (final p in paradas) p.id};
+    final puesto = <String>{};
+    final orden = <String>[];
+    for (final id in pedidoIds) {
+      if (tienePunto.contains(id) && puesto.add(id)) orden.add(id);
+    }
+    // Lo que estaba en `paradas` y no en la lista se va al final, no se cae. No
+    // puede pasar hoy —las dos salen de los mismos ids— pero descartar una
+    // parada en silencio es un bulto en el camion que no sale en la hoja.
+    for (final p in paradas) {
+      if (puesto.add(p.id)) orden.add(p.id);
+    }
+    return orden;
   }
 
   /// Los pedidos que de verdad se pueden meter, con las mismas condiciones que

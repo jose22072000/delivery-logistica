@@ -91,6 +91,28 @@ dependencies:
   # no rompe ni la web ni el escritorio. La version, exacta como todas.
   share_plus: 13.3.0
 
+  # EXPORTAR A EXCEL (pliego §7). **Las dos ya estaban en el arbol** como
+  # dependencias transitivas de `pdf`/`printing` y en las mismas versiones que
+  # aqui: esto no baja ni un paquete nuevo, solo hace explicito lo que ya se
+  # usa. Un `.xlsx` es un zip de XML y eso es exactamente lo que estas dos
+  # hacen, en Dart puro y en los seis destinos.
+  #
+  # Por que NO el paquete `excel`, que era lo que decia el comentario viejo de
+  # `pantalla_informes.dart`: `excel` 4.0.6 pide `archive ^3.6.1` y
+  # `xml >=5 <7`, y este arbol resuelve hoy `archive 4.0.9` y `xml 7.0.1`
+  # porque se los pide `printing`. Meterlo obligaria a BAJAR las dos por debajo
+  # de lo que necesita lo impreso — que es lo que sale por la impresora del
+  # almacen todos los dias— para ganar un escritor de hojas de 200 lineas. El
+  # escritor esta en `pantallas/informes/datos/hoja_de_calculo.dart`, escribe el
+  # OOXML minimo y se lee de vuelta en sus pruebas.
+  #
+  # `file_saver`, el otro paquete del comentario viejo, tampoco hace falta: la
+  # entrega ya la resuelven `share_plus` (APK), `dart:io` + `path_provider`
+  # (escritorio) y un `Blob` con `package:web` (navegador). Ver
+  # `datos/entrega_del_excel.dart`.
+  archive: 4.0.9
+  xml: 7.0.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -63,6 +63,18 @@ ENV CGO_ENABLED=0
 # `COPY api/ .` para no invalidar la capa de los módulos.
 COPY app/lib/nucleo/refresco_en_vivo.dart /app/lib/nucleo/refresco_en_vivo.dart
 
+# Y POR LO MISMO ENTRA UN FICHERO DE docs/ — 21/09/2026
+#
+# `internal/api/orden_de_paradas_test.go` lee `docs/orden-de-paradas.casos.json`, que es
+# EL MISMO fichero que lee la prueba del aparato —no una copia—: es lo que ata el orden
+# de visita de Go con el de Dart. Si falta, la prueba hace `t.Fatalf` y ESTA IMAGEN NO
+# CONSTRUYE. Comprobado el 21/09/2026 construyendo sin esta línea: `FAIL
+# procovar/reparto-api/internal/api`, y con él la api entera sin desplegar.
+#
+# La ruta es la que espera la prueba: desde `/src/internal/api`, `../../../docs/...` cae
+# en `/docs/...`.
+COPY docs/orden-de-paradas.casos.json /docs/orden-de-paradas.casos.json
+
 RUN go vet ./... && go test ./...
 
 RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/api ./cmd/api

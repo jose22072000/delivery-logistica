@@ -50,25 +50,6 @@ WHERE
     AND (sqlc.narg('municipio')::text IS NULL OR c.municipio = sqlc.narg('municipio')::text)
     AND (sqlc.narg('zona')::text      IS NULL OR c.zona      = sqlc.narg('zona')::text)
     AND (sqlc.narg('vendedor')::text  IS NULL OR c.vendedor  = sqlc.narg('vendedor')::text)
-    -- LO QUE CAMBIÓ DESDE LA ÚLTIMA VEZ, y aquí y no en Go — 16/09/2026.
-    --
-    -- La bajada del aparato traía el padrón ENTERO en cada arranque y descartaba después,
-    -- al recorrerlo, lo que no había cambiado. Con 8.103 clientes eso son cinco idas y
-    -- vueltas de 2.000 filas para no aplicar ninguna, cada vez que alguien abre la
-    -- aplicación, y es lo que se ve en el teléfono como «Trayendo datos… Clientes…»
-    -- durante varios segundos con la red de Cuba. Jose, 16/09/2026: «cada ves q inicie la
-    -- aplicacion no me traigas todo es comprobar no traer todo, para eso es el sync».
-    --
-    -- Filtrando aquí, un padrón sin cambios devuelve CERO filas: no llega al tope, no se
-    -- marca `truncado` y la cadena se acaba en una sola tanda.
-    --
-    -- `synced_at` NULL cuenta como cambiado, igual que en `cambioDesde` (`espejo.go`): un
-    -- cliente sin marca no se puede fechar, y dejarlo fuera sería no mandarlo nunca.
-    AND (
-        sqlc.narg('cambiado_desde')::timestamptz IS NULL
-        OR c.synced_at IS NULL
-        OR c.synced_at > sqlc.narg('cambiado_desde')::timestamptz
-    )
     -- `origen`: 'pedido' = vino del espejo; 'manual' = alta a mano, que es `source` NULL.
     -- NULL no se compara con `=`, así que la rama del manual se nombra a mano o no sale.
     AND (
@@ -88,7 +69,61 @@ WHERE
     AND (sqlc.narg('lng_min')::double precision IS NULL OR c.lng >= sqlc.narg('lng_min')::double precision)
     AND (sqlc.narg('lng_max')::double precision IS NULL OR c.lng <= sqlc.narg('lng_max')::double precision)
 ORDER BY c.name ASC
+-- ESTA CONSULTA ES LA DE LA PANTALLA. El `OFFSET` es el de sus páginas y el orden es el
+-- alfabético, que es como se busca a ojo. **No sirve para la bajada del aparato**: ahí el
+-- orden tiene que ser el de la marca, o «los 2.000 primeros» son 2.000 cualesquiera y no
+-- hay última fila servida que devolver como `hasta`. La bajada va por
+-- `DiferenciasDeClientes`, más abajo.
 LIMIT sqlc.arg('limite') OFFSET sqlc.arg('desplazamiento');
+
+-- ---------------------------------------------------------------------------
+-- El padrón de la bajada del aparato  (GET /api/sync/cambios)
+-- ---------------------------------------------------------------------------
+
+-- Lo que cambió en el padrón, ORDENADO POR LA MARCA y acotado por un cursor.
+--
+-- LA MISMA FORMA QUE `DiferenciasDePedidos`, copiada y no reinventada. El 15/09/2026 la
+-- bajada dejó **2.000 clientes redondos de 8.034** en el aparato y se dio por buena: se
+-- servían los primeros por nombre, se marcaba `truncado` y se devolvía el reloj como
+-- `hasta`, así que lo que no cupo quedó por debajo del siguiente `desde` y no lo volvió a
+-- pedir nadie. Con el orden por la marca, quien contesta puede devolver la marca de la
+-- ÚLTIMA FILA SERVIDA y la tanda siguiente empieza justo ahí.
+--
+-- EL CURSOR LLEVA MARCA **E ID**, y aquí es donde de verdad hace falta: el traspaso metió
+-- los 7.975 clientes de producción en UNA transacción, y `now()` es la del inicio de la
+-- transacción — los 7.975 comparten `synced_at` al microsegundo. Con un cursor de sólo
+-- marca, un grupo más grande que el tope no se puede servir entero: o se repite para
+-- siempre o se salta el resto. Con `(marca, id)` la tanda siguiente empieza exactamente
+-- donde acabó la anterior.
+--
+-- `synced_at` y no `updated_at`, igual que antes: es lo que significa «cuándo lo trajo
+-- PEDIDO», que es lo que cambia cuando cambia un cliente.
+--
+-- El alcance es el mismo que el de la pantalla, incluida la rama de los manuales (sin
+-- código de sucursal, los ve todo el mundo). Acotar distinto la bajada que la lista es
+-- cómo se le queda a un aparato un cliente que ya no es suyo.
+-- name: DiferenciasDeClientes :many
+SELECT
+    c.id, c.source, c.external_id, c.name, c.phone, c.address, c.municipio,
+    c.zona, c.lat, c.lng, c.sucursal_codigo, c.codigo, c.vendedor, c.synced_at
+FROM customers c
+WHERE
+    (sqlc.narg('sucursal_del_alcance')::text IS NULL
+     OR c.sucursal_codigo = sqlc.narg('sucursal_del_alcance')::text
+     OR c.sucursal_codigo IS NULL)
+    -- `desde` ESTRICTO y `hasta` INCLUSIVO. `hasta` hace falta: sin él se sirven filas por
+    -- encima de la ventana y el corte devuelve una marca mayor que el `hasta` de la
+    -- respuesta, que es otra forma de dejar filas debajo de la raya.
+    AND (sqlc.narg('desde')::timestamptz IS NULL OR c.synced_at > sqlc.narg('desde')::timestamptz)
+    AND (sqlc.narg('hasta')::timestamptz IS NULL OR c.synced_at <= sqlc.narg('hasta')::timestamptz)
+    AND (
+        sqlc.narg('cursor_marca')::timestamptz IS NULL
+        OR c.synced_at > sqlc.narg('cursor_marca')::timestamptz
+        OR (c.synced_at = sqlc.narg('cursor_marca')::timestamptz
+            AND c.id > sqlc.narg('cursor_id')::uuid)
+    )
+ORDER BY c.synced_at ASC, c.id ASC
+LIMIT sqlc.arg('tope');
 
 -- El total, con el MISMO where. Es el `total` de la respuesta: se cuenta antes del filtro
 -- de distancia exacto, igual que en el contrato, y por eso puede ser mayor que `count`.

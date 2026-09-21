@@ -41,14 +41,32 @@ func Nuevo(base, clave string, espera time.Duration) *Cliente {
 	}
 }
 
+// sobreCambios es la respuesta de `GET /api/sync/cambios`.
+//
+// `hasta` Y `continuar` SE LEEN, Y AQUÍ ESTUVO EL AGUJERO. Esta estructura tenía dos
+// campos —`cambios` y `truncado`— y los otros dos se tiraban al decodificar. Con ellos en
+// el suelo, quien llama no tenía más marca que la que él mismo había mandado, así que una
+// tanda cortada anotaba el reloj: el reparto había servido hasta la fila N y el aparato se
+// apuntaba «lo tengo todo hasta ahora». Lo que va de la fila N al reloj **no lo vuelve a
+// pedir nadie**. Es el §3 del `CLAUDE.md` y es el fallo que no se ve: 200 OK, ninguna
+// excepción, ningún registro, y un cuarto de los clientes que no están.
 type sobreCambios struct {
 	Cambios  sincro.Cambios `json:"cambios"`
 	Truncado bool           `json:"truncado"`
+	// Hasta es hasta dónde sirvió DE VERDAD: con `truncado`, la marca de la última fila
+	// servida, no el reloj del reparto.
+	Hasta time.Time `json:"hasta"`
+	// Continuar es el cursor de la tanda siguiente. Opaco: se devuelve tal cual.
+	Continuar string `json:"continuar"`
 }
 
-// Diferencias le pide al reparto lo que cambió en la ventana. La ventana entera —el `desde`
-// y el `hasta`— la decide el sincronizador; el reparto sólo la obedece.
-func (c *Cliente) Diferencias(ctx context.Context, v sincro.Ventana) (sincro.Cambios, bool, error) {
+// Diferencias le pide al reparto lo que cambió en la ventana.
+//
+// La ventana la PROPONE el sincronizador —el `desde`, el `hasta` y el tope— y el reparto la
+// obedece por arriba: nunca sirve más allá del `hasta` que se le manda. Por abajo puede
+// quedarse corto, y entonces lo dice con `truncado` y devuelve hasta dónde llegó. Quien
+// llama tiene que anotar ESA marca y no la que mandó.
+func (c *Cliente) Diferencias(ctx context.Context, v sincro.Ventana) (sincro.Bajada, error) {
 	q := url.Values{}
 	q.Set("sucursal", v.Sucursal.String())
 	q.Set("hasta", v.Hasta.Format(time.RFC3339Nano))
@@ -56,36 +74,76 @@ func (c *Cliente) Diferencias(ctx context.Context, v sincro.Ventana) (sincro.Cam
 	if v.Desde != nil {
 		q.Set("desde", v.Desde.Format(time.RFC3339Nano))
 	}
+	// POR DÓNDE SEGUIR, tal cual vino. Sin esto, el catálogo y el padrón no pueden
+	// continuarse cuando miles de filas comparten la misma marca —que es lo que hay en
+	// producción desde el traspaso— y la cadena se queda repitiendo la primera tanda.
+	if v.Continuar != "" {
+		q.Set("continuar", v.Continuar)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/sync/cambios?"+q.Encode(), nil)
 	if err != nil {
-		return nil, false, err
+		return sincro.Bajada{}, err
 	}
 	c.cabeceras(req, time.Time{})
 
 	res, err := c.http.Do(req)
 	if err != nil {
-		return nil, false, err
+		return sincro.Bajada{}, err
 	}
 	defer res.Body.Close()
 
 	cuerpo, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
 	if err != nil {
-		return nil, false, err
+		return sincro.Bajada{}, err
 	}
 	if res.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("el reparto contestó %d: %s", res.StatusCode, motivoDe(cuerpo))
+		return sincro.Bajada{}, fmt.Errorf("el reparto contestó %d: %s", res.StatusCode, motivoDe(cuerpo))
 	}
 
 	var sobre sobreCambios
 	if err := json.Unmarshal(cuerpo, &sobre); err != nil {
-		return nil, false, fmt.Errorf("no se entendió la respuesta del reparto: %w", err)
+		return sincro.Bajada{}, fmt.Errorf("no se entendió la respuesta del reparto: %w", err)
 	}
-	return sobre.Cambios, sobre.Truncado, nil
+	return sincro.Bajada{
+		Cambios:   sobre.Cambios,
+		Hasta:     sobre.Hasta.UTC(),
+		Truncado:  sobre.Truncado,
+		Continuar: sobre.Continuar,
+	}, nil
 }
 
+// sobreCreado lee el id de lo que se acaba de crear, y **mira los dos sitios donde el
+// reparto lo pone**.
+//
+// Aquí sólo se miraba `id` en la raíz, y el reparto NO contesta así al crear una ruta:
+// devuelve `{"ruta": {...}, "avisos": {...}}` (`api/internal/api/rutas.go`,
+// `responderConLaRutaYAvisos`). O sea que el id de verdad no volvía nunca al aparato.
+//
+// Lo que se veía, y costó una tarde el 21/09/2026: se arma una ruta con sus paradas, sube
+// bien, el servidor la guarda entera —comprobado en su base: 5 paradas— y en el teléfono
+// el detalle dice **«Ver paradas (0)» y «Carga total: 0»** con los kilómetros y los kilos
+// al lado. La razón es esta línea: sin id no hay equivalencia, así que el `local-…` del
+// aparato no se sustituye nunca; los pedidos, que SÍ bajan del servidor, pasan a colgar
+// del id de verdad, y la pantalla se queda mirando una ruta que ya no tiene ninguno.
+//
+// Jose, viéndolo: «se sigue creando la ruta sin paradas y tiene paradas».
 type sobreCreado struct {
-	ID *uuid.UUID `json:"id"`
+	ID   *uuid.UUID `json:"id"`
+	Ruta *struct {
+		ID *uuid.UUID `json:"id"`
+	} `json:"ruta"`
+}
+
+// id devuelve el primero que haya: la raíz manda, y si no, el de `ruta`.
+func (c sobreCreado) id() *uuid.UUID {
+	if c.ID != nil {
+		return c.ID
+	}
+	if c.Ruta != nil {
+		return c.Ruta.ID
+	}
+	return nil
 }
 
 // Aplicar reenvía un apunte al reparto tal cual, con la hora del aparato y su sucursal.
@@ -161,7 +219,7 @@ func (c *Cliente) Aplicar(ctx context.Context, p sincro.Peticion) (*uuid.UUID, e
 		// Que no venga `id` es normal: hay apuntes que no crean nada (marcar una parada,
 		// corregirla). Por eso un cuerpo que no se entiende no tira el apunte.
 		_ = json.Unmarshal(datos, &creado)
-		return creado.ID, nil
+		return creado.id(), nil
 	case res.StatusCode == http.StatusNotFound && !esRespuestaDelReparto(datos):
 		// UN 404 QUE NO VIENE DEL REPARTO ES NUESTRO, NO UN RECHAZO.
 		//

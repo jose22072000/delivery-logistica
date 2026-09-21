@@ -9,6 +9,11 @@
 # un barrido del histórico tarda minutos y dentro de la API tumbaría las peticiones de
 # quien está cargando un camión.
 #
+# PERO SÍ ES UN PROCESO QUE VIVE, no un trabajo que arranca y se muere. Sin `--once` da
+# vueltas hasta que lo paren, así que aquí SÍ va una Application de Dokploy —al revés
+# que las migraciones, que terminan y por eso se corren a mano. Está razonado en
+# docs/despliegue.md §2-bis, con lo que se rompe si deja de correr.
+#
 # EL CONTEXTO ES LA RAÍZ DEL REPO:
 #
 #   docker build -f deploy/Dockerfile.espejo -t reparto-espejo .
@@ -19,19 +24,77 @@ ARG GO_VERSION=1.27
 FROM golang:${GO_VERSION}-alpine AS build
 WORKDIR /src
 
+# git: hace falta si algún módulo se resuelve por VCS directo (GOPROXY=...,direct).
 RUN apk add --no-cache git
 
+# Espejo de módulos configurable. Si la red del servidor bloquea proxy.golang.org:
+#   --build-arg GOPROXY=https://goproxy.io,direct
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 
+# Las dependencias primero: así una capa cacheada sobrevive a cualquier cambio de código.
 COPY api/go.mod api/go.sum ./
 RUN go mod download
 
 COPY api/ .
 
 ENV CGO_ENABLED=0
+
+# Y POR ESO ENTRA AQUÍ UN FICHERO DE FLUTTER, igual que en Dockerfile.api — 21/09/2026
+#
+# El espejo y la API son EL MISMO módulo de Go (`api/`), así que `go test ./...` de aquí
+# abajo corre TODAS las pruebas de la API, y entre ellas
+# `internal/api/protocolo_avisos_test.go`, que lee
+# `app/lib/nucleo/refresco_en_vivo.dart` para comparar los tipos de aviso de las dos
+# puntas. Esa prueba no se salta si el fichero falta: hace `t.Fatalf`, y sin este COPY
+# la imagen del espejo NO CONSTRUIRÍA. Comprobado construyendo sin él.
+#
+# La ruta es la que espera la prueba: desde `/src/internal/api`, `../../../app/lib/...`
+# cae en `/app/lib/...`. Va DESPUÉS de `COPY api/ .` para no invalidar la capa de los
+# módulos.
+COPY app/lib/nucleo/refresco_en_vivo.dart /app/lib/nucleo/refresco_en_vivo.dart
+
+# Y EL FICHERO DE CASOS DEL ORDEN DE PARADAS, por lo mismo — 21/09/2026
+#
+# `internal/api/orden_de_paradas_test.go` lee `docs/orden-de-paradas.casos.json`, que es
+# EL MISMO fichero que lee la prueba del aparato: es el contrato que ata el orden de
+# visita de Go con el de Dart, y por eso no es una copia. Sin él, `t.Fatalf`. Lo dice la
+# propia prueba: «sin ... no hay nada que ate el servidor con el aparato».
+#
+# Esto tumbó la construcción de las DOS imágenes de Go el 21/09/2026, la de la api
+# incluida, en cuanto la prueba entró en el árbol. Es la regla del `.dockerignore` otra
+# vez: se excluye lo que se REGENERA, nunca lo que se NECESITA — y un fichero de `docs/`
+# puede ser código para una prueba.
+#
+# La ruta es la que espera la prueba: desde `/src/internal/api`, `../../../docs/...` cae
+# en `/docs/...`.
+COPY docs/orden-de-paradas.casos.json /docs/orden-de-paradas.casos.json
+
+# LAS PRUEBAS, ANTES DE CONSTRUIR. Los CUATRO Dockerfile lo hacen; éste era el que
+# faltaba, y es el que más pintaba tenerlo.
+#
+# El 16/09/2026 se subió a `main`, sin querer, una mutación de prueba —una guarda
+# invertida a propósito para comprobar que hay un test que la caza— y Dokploy reconstruyó
+# la imagen de `sync` 29 segundos después. Como allí sólo se compilaba, la mutación
+# compiló, se desplegó, y producción estuvo media hora corriéndola. Aquí la puerta seguía
+# igual de abierta hasta hoy: este fichero se escribió el 14/09, antes de aquel día, y se
+# quedó sin la línea.
+#
+# Y lo que se cuela por aquí no se ve desde ninguna pantalla: el espejo no tiene
+# interfaz. Una mutación en `internal/espejo` —un tope que deja de comprobarse, un
+# `since` que no avanza— sigue trayendo datos y pintando el tablero de verde con la
+# mitad de los pedidos. Esa avería ya se dio aquí sin ninguna mutación de por medio: un
+# tope que se pedía y no se comprobaba dejó fuera 2.284 pedidos en una sola ventana
+# (CLAUDE.md §3), con 200 OK y sin una línea roja en ningún sitio. Lo único que caza eso
+# son las pruebas, y tienen que correr donde se construye la imagen que se despliega.
+#
+# Cuesta unos segundos aquí. No es celo: es que UNA IMAGEN NO ES ESTA MÁQUINA.
+RUN go vet ./... && go test ./...
+
 RUN go build -trimpath -ldflags="-s -w" -o /out/espejo ./cmd/espejo
 
+# Imagen final: sólo el binario. `static-debian12` trae los certificados CA, que hacen
+# falta para hablar por HTTPS con PEDIDO.
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=build /out/espejo /app/espejo
@@ -39,7 +102,11 @@ COPY --from=build /out/espejo /app/espejo
 # Sin EXPOSE: no hay puerto. Si algún día aparece uno aquí es que algo se torció.
 USER nonroot:nonroot
 
-# Sin argumentos da vueltas hasta que lo paren. Con `--once` hace una pasada y se va,
-# que es lo que sirve para probar y para un cron:
+# Sin argumentos da vueltas hasta que lo paren, que es como va en Dokploy. Con `--once`
+# hace una pasada y se va, que es lo que sirve para probar y para un cron:
 #   docker run --rm --env-file .env reparto-espejo --once
+#
+# NO se le pone `--once` a la Application de Dokploy: el contenedor terminaría, Dokploy
+# lo levantaría otra vez, y eso es un bucle de reinicios que desde el panel se lee como
+# «el espejo se estrella». El ciclo ya lo lleva el propio proceso (`SYNC_POLL_MS`).
 ENTRYPOINT ["/app/espejo"]

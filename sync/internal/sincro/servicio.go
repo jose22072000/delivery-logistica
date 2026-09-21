@@ -50,12 +50,35 @@ type Ventana struct {
 	Desde    *time.Time
 	Hasta    time.Time
 	Tope     int32
+	// Continuar es POR DÓNDE SEGUIR, tal cual lo mandó el reparto en la tanda anterior.
+	// Vacío = primera tanda. **No se mira por dentro**: es del reparto y lo que lleva
+	// dentro es cosa suya (`api/internal/api/espejo.go`).
+	Continuar string
+}
+
+// Bajada es lo que contesta el reparto a una ventana.
+//
+// `Hasta` VIENE DEL REPARTO Y NO SE INVENTA AQUÍ, y ésa es toda la razón de que esto sea
+// una estructura y no dos valores sueltos. Hasta el 21/09/2026 este servicio decodificaba
+// sólo `cambios` y `truncado` y anotaba como marca el `hasta` que él mismo había mandado,
+// saliera la tanda truncada o no. Con `truncado`, eso es trabajo perdido: el reparto sirve
+// hasta donde le cabe y devuelve la marca de la última fila servida; anotando el reloj, lo
+// que no cupo queda POR DEBAJO del próximo `desde` y no lo vuelve a pedir nadie nunca más.
+// Es el §3 del `CLAUDE.md` —los 2.000 clientes de 8.034— visto desde este lado.
+type Bajada struct {
+	Cambios  Cambios
+	Hasta    time.Time
+	Truncado bool
+	// Continuar es el cursor de la tanda siguiente, si el reparto mandó uno. Se devuelve
+	// al aparato tal cual y el aparato lo vuelve a mandar tal cual.
+	Continuar string
 }
 
 // Origen es el dueño de los datos, del lado de la lectura.
 type Origen interface {
-	// Diferencias devuelve lo que cambió en esa ventana y si quedó cortado por el tope.
-	Diferencias(ctx context.Context, v Ventana) (Cambios, bool, error)
+	// Diferencias devuelve lo que cambió en esa ventana, hasta dónde se sirvió de verdad
+	// y si quedó cortado por el tope.
+	Diferencias(ctx context.Context, v Ventana) (Bajada, error)
 }
 
 // Peticion es un apunte del aparato ya traducido y listo para mandárselo al reparto.

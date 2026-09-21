@@ -6,6 +6,7 @@ import '../arranque/arranque.dart';
 import '../nucleo/identidad/sesion.dart';
 import '../nucleo/plataforma.dart';
 import '../nucleo/proveedores.dart';
+import '../nucleo/sincro/sucursal_del_aparato.dart';
 import '../nucleo/registro/registro.dart';
 import '../pantallas/acceso/estado/estado_acceso.dart';
 import 'estado_navegacion.dart';
@@ -273,6 +274,10 @@ class Portero extends ChangeNotifier {
   Future<void> _recordarLoElegido() async {
     await _ref.read(sucursalMiradaProvider.notifier).restaurar();
     await _ref.read(monedaMiradaProvider.notifier).restaurar();
+    // La del APARATO, que no es la que se mira: sin ella, quien ve las ocho no
+    // puede subir nada de lo que hizo sin señal. Ver
+    // `ClaveDePreferencia.sucursalDelAparato`.
+    await _ref.read(sucursalDelAparatoProvider.notifier).restaurar();
   }
 
   Future<void> _anotarQuienEs() async {

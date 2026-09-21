@@ -210,10 +210,10 @@ void main() {
           test(
             'aparato=$enElAparato calles=$conCalles carretera=$porCarretera',
             () {
-              final frase = TextosDelMapa.queSeEstaViendo(
-                (conCalles: conCalles, recorridoPorCarretera: porCarretera),
-                enElAparato: enElAparato,
-              );
+              final frase = TextosDelMapa.queSeEstaViendo((
+                conCalles: conCalles,
+                recorridoPorCarretera: porCarretera,
+              ), enElAparato: enElAparato);
 
               // CON TODO BIEN, NI UNA PALABRA. Jose, 17/09/2026: «hay varios
               // botones que están cortados; podríamos quitar ese texto y que
@@ -525,41 +525,252 @@ void main() {
       expect(altoDelMapa(200), 190);
     });
 
-    testWidgets('arrastrar SOBRE EL MAPA sigue desplazando la lista', (
+    testWidgets('arrastrar SOBRE EL MAPA mueve el MAPA, no la lista', (
       tester,
     ) async {
+      // ESTA PRUEBA DECIA LO CONTRARIO HASTA EL 21/09/2026, y el cambio es una
+      // decision de Jose tomada con el precio delante.
+      //
+      // Hasta hoy el mapa dejaba pasar el arrastre de un dedo para que la lista
+      // del detalle se siguiera desplazando: era el arreglo del 17/09, cuando el
+      // mapa se quedaba el gesto y el chofer no podia llegar a los botones del
+      // final. Pero entonces el mapa no se podia mover en el telefono, y Jose lo
+      // dijo asi: «estoy pasando por el mapa y no me puedo mover por el mapa por
+      // q razon».
+      //
+      // Se le ofrecieron las dos: dejarlo con dos dedos y el boton de pantalla
+      // completa, o que un dedo moviera el mapa ahi mismo sabiendo que entonces
+      // la pantalla se baja arrastrando FUERA del mapa. Eligio la segunda: «que
+      // un dedo mueva el mapa ahi mismo».
+      //
+      // Lo que vigila esto: que el mapa se entere del arrastre. Que la lista
+      // sigue siendo alcanzable lo vigila la prueba de al lado.
+      await comoElDetalle(tester);
+
+      CustomPainter delCroquis() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((c) => c.painter)
+          .whereType<CustomPainter>()
+          .firstWhere((p) => p.runtimeType.toString().contains('Croquis'));
+
+      final antes = delCroquis();
+      await tester.drag(
+        find.byKey(CroquisDeRuta.clave),
+        const Offset(-60, -40),
+      );
+      await tester.pump();
+
+      expect(
+        delCroquis().shouldRepaint(antes),
+        isTrue,
+        reason:
+            'EL MAPA NO SE MUEVE CON EL DEDO: arrastrar encima del mapa tiene '
+            'que moverlo. Es lo que pidió Jose el 21/09/2026 a cambio de tener '
+            'que desplazar la pantalla por fuera del mapa.',
+      );
+    });
+
+    testWidgets('y la pantalla se sigue pudiendo bajar POR FUERA del mapa', (
+      tester,
+    ) async {
+      // La contrapartida del cambio de arriba, y va en pareja a proposito: el
+      // mapa se queda el arrastre que empieza ENCIMA de el, pero el detalle
+      // entero no puede quedarse sin poder bajarse — eso es el fallo del
+      // 17/09/2026 otra vez, y esta vez sin excusa.
       await comoElDetalle(tester);
 
       final antes = tester.getTopLeft(find.byKey(CroquisDeRuta.clave)).dy;
-      // El arrastre empieza justo encima del mapa. Si el mapa tuviera un
-      // reconocedor de arrastre o de pellizco, se quedaria el gesto y la lista
-      // no se moveria ni un pixel.
-      await tester.drag(find.byKey(CroquisDeRuta.clave), const Offset(0, -200));
+      // Un punto que NO es el mapa: justo encima, donde estan los datos de la
+      // ruta.
+      await tester.dragFrom(
+        Offset(telefono.width / 2, antes - 20),
+        const Offset(0, -200),
+      );
       await tester.pump();
 
       expect(
         tester.getTopLeft(find.byKey(CroquisDeRuta.clave)).dy,
         lessThan(antes),
-        reason: 'el mapa se quedó el arrastre y la lista no se movió',
+        reason:
+            'LA PANTALLA NO SE PUEDE BAJAR: si el mapa se queda el arrastre Y '
+            'por fuera tampoco se desplaza, el chofer no llega a los botones del '
+            'final. Es el 17/09/2026 otra vez.',
       );
     });
 
-    testWidgets('se llega al último renglón desplazando, no está solo en el árbol', (
-      tester,
-    ) async {
+    testWidgets('DOS DEDOS acercan el mapa en el teléfono', (tester) async {
+      // Jose, 21/09/2026, con la APK instalada: «en el apk los gestos de alejar
+      // y acercar en el mapa no estan funcionando tampoco». Y era verdad: el
+      // pellizco solo se atendia como `PointerScaleEvent`, que es lo que manda
+      // un trackpad. Dos dedos de un telefono no los miraba nadie.
+      //
+      // Se mira el PINTOR, como en las demas: que el mapa cambie de verdad, no
+      // que el gesto llegue.
       await comoElDetalle(tester);
 
-      final ultimo = find.text('el último renglón del detalle');
-      // Un widget fuera de pantalla TAMBIEN existe en el arbol: comprobar que
-      // esta seria comprobar nada. Lo que hay que comprobar es que se llega.
-      await tester.scrollUntilVisible(ultimo, 200, scrollable: find.byType(Scrollable));
+      CustomPainter delCroquis() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((c) => c.painter)
+          .whereType<CustomPainter>()
+          .firstWhere((p) => p.runtimeType.toString().contains('Croquis'));
+
+      final antes = delCroquis();
+      final centro = tester.getRect(find.byKey(CroquisDeRuta.clave)).center;
+
+      final izquierdo = await tester.startGesture(centro - const Offset(20, 0));
+      final derecho = await tester.startGesture(centro + const Offset(20, 0));
+      await tester.pump();
+      // Se separan: de 40 px de distancia a 160. Eso es acercar cuatro veces.
+      await izquierdo.moveTo(centro - const Offset(80, 0));
+      await derecho.moveTo(centro + const Offset(80, 0));
+      await tester.pump();
+      await izquierdo.up();
+      await derecho.up();
       await tester.pump();
 
-      expect(ultimo, findsOneWidget);
-      final caja = tester.getRect(ultimo);
-      expect(caja.bottom, lessThanOrEqualTo(telefono.height));
-      expect(caja.top, greaterThanOrEqualTo(0));
+      expect(
+        delCroquis().shouldRepaint(antes),
+        isTrue,
+        reason:
+            'EL PELLIZCO NO HACE NADA EN EL MOVIL: dos dedos separandose tienen '
+            'que acercar el mapa. Si esto falla, el chofer tiene un mapa sellado '
+            'como el del 21/09/2026.',
+      );
     });
+
+    testWidgets('un dedo LENTO sobre el mapa tambien mueve el mapa', (
+      tester,
+    ) async {
+      // La trampa que casi se cuela el 21/09/2026: con un `PanGestureRecognizer`
+      // tal cual, un tiron RAPIDO movia el mapa y uno LENTO desplazaba la lista,
+      // porque el umbral de panoramica es el doble que el de arrastre y la lista
+      // aceptaba primero. El mismo gesto hacia dos cosas distintas segun la
+      // prisa, y eso en la mano de un chofer es «esto va cuando quiere».
+      //
+      // Por eso esta prueba mueve el dedo A TROZOS, que es como se mueve un dedo
+      // de verdad, en vez de dar un salto de 200 px como `tester.drag`.
+      await comoElDetalle(tester);
+
+      CustomPainter delCroquis() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((c) => c.painter)
+          .whereType<CustomPainter>()
+          .firstWhere((p) => p.runtimeType.toString().contains('Croquis'));
+
+      final antes = delCroquis();
+      final dedo = await tester.startGesture(
+        tester.getRect(find.byKey(CroquisDeRuta.clave)).center,
+      );
+      for (var i = 0; i < 10; i++) {
+        await dedo.moveBy(const Offset(0, -20));
+        await tester.pump();
+      }
+      await dedo.up();
+      await tester.pump();
+
+      expect(
+        delCroquis().shouldRepaint(antes),
+        isTrue,
+        reason:
+            'UN TIRON LENTO SOBRE EL MAPA NO LO MUEVE: se lo esta quedando la '
+            'lista porque su umbral es la mitad. El arrastre del mapa tiene que '
+            'aceptar con el mismo umbral que ella.',
+      );
+    });
+
+    testWidgets('la lista NO se mueve ni un pixel mientras el mapa se mueve', (
+      tester,
+    ) async {
+      // La segunda queja de Jose el 21/09/2026, y es la que importa: «sigo
+      // haciendo scroll cuando toco el mapa, cuando toco el mapa no puedo hacer
+      // scroll». Las dos frases dicen lo mismo: el gesto hacia LAS DOS COSAS a
+      // medias —los primeros pixeles se los llevaba la lista, el resto el mapa—
+      // y asi no se sabe nunca que va a pasar.
+      //
+      // La regla es de una linea y esta prueba es la que la sujeta: **el dedo
+      // encima del mapa mueve el mapa y NO mueve la pantalla**.
+      await comoElDetalle(tester);
+
+      final antes = tester.getTopLeft(find.byKey(CroquisDeRuta.clave)).dy;
+      final dedo = await tester.startGesture(
+        tester.getRect(find.byKey(CroquisDeRuta.clave)).center,
+      );
+      for (var i = 0; i < 10; i++) {
+        await dedo.moveBy(const Offset(0, -20));
+        await tester.pump();
+      }
+      await dedo.up();
+      await tester.pump();
+
+      expect(
+        tester.getTopLeft(find.byKey(CroquisDeRuta.clave)).dy,
+        antes,
+        reason:
+            'LA PANTALLA SE MOVIO CON EL DEDO ENCIMA DEL MAPA: el gesto se esta '
+            'repartiendo entre los dos, que es justo lo que Jose no entendia. O '
+            'lo coge el mapa entero, o no lo coge.',
+      );
+    });
+
+    testWidgets('un TOQUE sobre el mapa sigue siendo un toque', (tester) async {
+      // El precio de reclamar el arrastre a los 3 px seria quedarse tambien con
+      // el toque, y entonces no se podria abrir el globo de una parada. Un dedo
+      // quieto no llega a 3 px; uno que arrastra los pasa en el primer
+      // fotograma.
+      await comoElDetalle(tester);
+
+      final centro = tester.getRect(find.byKey(CroquisDeRuta.clave)).center;
+      final antes = tester.getTopLeft(find.byKey(CroquisDeRuta.clave)).dy;
+      await tester.tapAt(centro);
+      await tester.pump();
+
+      // Ni se movio la pantalla ni reventó nada: el toque llegó al mapa.
+      expect(tester.getTopLeft(find.byKey(CroquisDeRuta.clave)).dy, antes);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('el mapa se puede abrir a PANTALLA COMPLETA', (tester) async {
+      // Donde un dedo si mueve el mapa, porque no hay lista debajo a la que
+      // quitarle nada. Jose: «ni me puedo mover en el mapa desde la apk».
+      await comoElDetalle(tester);
+
+      await tester.tap(find.byTooltip('Ver el mapa a pantalla completa'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MapaEnGrande), findsOneWidget);
+      expect(find.byTooltip('Cerrar el mapa'), findsOneWidget);
+    });
+
+    testWidgets(
+      'se llega al último renglón desplazando, no está solo en el árbol',
+      (tester) async {
+        await comoElDetalle(tester);
+
+        final ultimo = find.text('el último renglón del detalle');
+        // Un widget fuera de pantalla TAMBIEN existe en el arbol: comprobar que
+        // esta seria comprobar nada. Lo que hay que comprobar es que se llega.
+        //
+        // Y SE ARRASTRA POR EL BORDE, no por el centro, desde el 21/09/2026:
+        // `scrollUntilVisible` tira del centro del `Scrollable`, que a ratos cae
+        // justo encima del mapa — y desde hoy el mapa se queda ese arrastre por
+        // decision de Jose. Una persona hace exactamente esto: si el mapa no
+        // baja la pantalla, pone el dedo al lado. Lo que esta prueba sigue
+        // vigilando es lo de siempre: **que al final del detalle se llega**.
+        for (var i = 0; i < 20 && ultimo.evaluate().isEmpty; i++) {
+          await tester.dragFrom(
+            Offset(telefono.width - 8, telefono.height - 120),
+            const Offset(0, -200),
+          );
+          await tester.pump();
+        }
+        await tester.pump();
+
+        expect(ultimo, findsOneWidget);
+        final caja = tester.getRect(ultimo);
+        expect(caja.bottom, lessThanOrEqualTo(telefono.height));
+        expect(caja.top, greaterThanOrEqualTo(0));
+      },
+    );
 
     testWidgets('y también se llega a los cuatro botones', (tester) async {
       await comoElDetalle(tester);

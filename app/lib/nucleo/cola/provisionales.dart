@@ -91,6 +91,23 @@ class Provisionales {
   ///
   /// Va entero en UNA transaccion. A medias es peor que nada: la ruta ya subida
   /// con su id bueno y el cierre de la tarde apuntando a un id que no existe.
+  /// LAS EQUIVALENCIAS, EN VIVO: `local-…` → el id de verdad.
+  ///
+  /// Hace falta porque una pantalla abierta puede estar mirando un id
+  /// provisional **en el momento en que ese id deja de existir**. Pasó el
+  /// 21/09/2026, con Jose delante: armó una ruta con cinco pedidos, el detalle
+  /// se abrió solo con el id provisional, la ruta subió en ese instante y los
+  /// pedidos se engancharon al id de verdad. La pantalla se quedó mirando el
+  /// viejo y decía **«Ver paradas (0)»** encima de una ruta de cinco paradas,
+  /// con sus 27 km y sus 616 kg al lado. Cerrar y volver a abrir lo arreglaba,
+  /// que es la peor forma de un fallo: el dato estaba bien y la pantalla mentía.
+  ///
+  /// Jose: «no, eso no puede pasar, eso es al momento».
+  Stream<Map<String, String>> mirar() => _base
+      .select(_base.equivalencias)
+      .watch()
+      .map((filas) => {for (final f in filas) f.provisional: f.idReal});
+
   Future<void> sustituir(String provisional, String real) async {
     if (provisional == real) return;
 

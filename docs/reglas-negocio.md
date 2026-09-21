@@ -38,6 +38,36 @@ Lo único que queda es geometría, porque eso sí es de delivery: es lo que arma
   - La elegida se **saca** de la lista (`splice`) y pasa a ser `current`.
 - No cierra el circuito: el regreso al origen no forma parte del orden (lo suma quien lo llame).
 
+### 1.2-bis Aquí NOS SEPARAMOS del patrón: el greedy no es el orden final (21/09/2026)
+
+Lo de §1.2 se conserva entero —es el punto de partida y la vara de medir— pero **no es lo que
+sale por la pantalla**. Jose, viendo una ruta planificada: «esa planificada está mal, no hace
+ruta lógica ni nada». Y no estaba rota: el vecino más próximo se come los clientes cercanos,
+deja los lejanos sueltos, cruza el recorrido consigo mismo y remata con un viaje entero de
+vuelta al almacén.
+
+Encima del greedy van ahora **2-opt y Or-opt (mover 1, 2 o 3 paradas seguidas) sobre el
+circuito CERRADO** —almacén → paradas → almacén, que es lo que mide `totalDistance`—, hasta que
+no mejore o hasta 50 pasadas. En los casos reales del fichero de abajo baja un 17% los km de un
+reparto de doce paradas por La Habana y un 5% los de ocho pueblos de provincia.
+
+Tres cosas que no se negocian, y las tres están atadas con pruebas:
+
+- **El epsilon.** Las mejoras se comparan contra `-1e-9` km, nunca contra `0` a secas: dos
+  recorridos iguales se «mejoran» el uno al otro en el último bit y el bucle no termina igual en
+  Dart que en Go.
+- **El desempate sigue siendo el de §1.2** (`<` estricto, gana el primero de la lista), y las
+  pasadas se aplican siempre en el mismo orden (2-opt entera y después Or-opt entera), quedándose
+  con la PRIMERA mejora que aparece y no con la mejor.
+- **El almacén no es una parada**: es el nodo de los dos extremos, así que el camión siempre sale
+  de él.
+
+Se calcula en los dos sitios (`app/lib/pantallas/rutas/datos/geo.dart` y
+`api/internal/api/rutas.go`, las dos `ordenDeVisita`) porque la ruta se arma en el patio sin
+señal, y los dos tienen que dar EXACTAMENTE el mismo orden. Lo ata
+`docs/orden-de-paradas.casos.json`, que leen `app/test/pantallas/rutas/geo_test.dart` y
+`api/internal/api/orden_de_paradas_test.go`.
+
 ### 1.3 `calculateRouteSegments(origin, orderedStops[]) -> number[]`
 - Distancias **consecutivas** `origen→p1, p1→p2, p2→p3…`, una por parada, en el orden dado.
 - Uso: sólo para `totalDistance` de la ruta (km reales del camión). No se cobra con esto.

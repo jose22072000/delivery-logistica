@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import '../nucleo/base/conexion/conexion.dart';
+import '../nucleo/identidad/entrada_por_accesos.dart';
 import '../nucleo/identidad/sesion.dart';
 import '../nucleo/proveedores.dart';
 import '../nucleo/red/fallos.dart';
@@ -75,15 +76,46 @@ Future<ResultadoDelArranque> arrancar(Ref ref) async {
   // sin decir una palabra.
   final Sesion? guardada = await almacen.leer();
 
+  // ¿Y SI LA SESION NO LA LLEVA EL APARATO?
+  //
+  // En la WEB la sesion es la cookie `httpOnly` que dejo Accesos, y desde aqui
+  // no se puede ni leer: el almacen devuelve `null` aunque haya sesion. Quien lo
+  // sabe es el servidor, asi que se le pregunta —`GET /api/me`— ANTES de dar a
+  // nadie por fuera. Sin esta pregunta, quien ya entro en Accesos aterriza en un
+  // formulario de contrasena que en la web no pinta nada (`docs/identidad.md`).
+  //
+  // Va DESPUES de mirar lo guardado y no antes: si el login unico fallo y se
+  // entro por la puerta de respaldo, ese par manda y no hay nada que preguntar.
+  //
+  // En la APK y en el escritorio esto no corre nunca. Alli se entra con usuario
+  // y contrasena, y esa es la razon de ser del proyecto.
+  final QuienSoy? porAccesos =
+      (guardada == null && ref.read(entraPorAccesosProvider))
+      ? await ref.read(entradaPorAccesosProvider).quienSoy()
+      : null;
+  final Sesion? quienEsta =
+      guardada ?? (porAccesos is HaySesion ? porAccesos.sesion : null);
+
   // LA BASE DE QUIEN ENTRO, y solo entonces.
-  ref.read(duenoDeLaBaseProvider.notifier).es(guardada?.sub);
+  ref.read(duenoDeLaBaseProvider.notifier).es(quienEsta?.sub);
   // Tocar la base la abre. Si en web cayo a memoria, aqui es donde se entera.
   await ref.read(baseProvider).cuantosPendientes();
+
+  if (porAccesos is HaySesion) {
+    // Dentro sin escribir nada, que es de lo que se trata. No se renueva: no hay
+    // par que renovar y la cookie la renueva Accesos por su cuenta.
+    Registro.info('dentro por la cookie de Accesos: ${porAccesos.sesion.sub}');
+    return ResultadoDelArranque(Arranque.dentro, sesion: porAccesos.sesion);
+  }
 
   if (guardada == null) {
     // ¿Este aparato tenia trabajo dentro? Si lo tenia, esto no es «todavia no ha
     // entrado nadie»: es una sesion que se perdio, y hay que decirlo.
-    final perdida = await _elAparatoTieneDatos(ref);
+    //
+    // En la web NO se pregunta: alli la base nace vacia en cada carga (`CLAUDE.md`
+    // §1), asi que la respuesta seria siempre «no» y ademas no hay nada que
+    // contar — el navegador se va a Accesos y vuelve dentro.
+    final perdida = porAccesos == null && await _elAparatoTieneDatos(ref);
     // SIN ESPERARLO. Mirar el disco es una llamada al sistema que en algunos
     // destinos arranca un proceso, y el arranque no puede quedarse parado en
     // una linea de registro: lo que hay detras de este `await` es la pantalla

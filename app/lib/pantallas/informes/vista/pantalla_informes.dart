@@ -18,6 +18,7 @@ import '../../../nucleo/frescura/primera_bajada.dart';
 import '../../../nucleo/proveedores.dart';
 import '../datos/consultas_informes.dart';
 import '../estado/informes_estado.dart';
+import 'boton_exportar.dart';
 
 /// Textos que esta pantalla necesita y la de Next no tiene. Van juntos y
 /// marcados para que se sepa siempre que se comparo con Next y que no
@@ -110,7 +111,7 @@ class PantallaInformes extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _Filtros(),
+          _Filtros(sinDescargar: sinDescargar, porQue: porQue),
           const SizedBox(height: Aire.lg),
           _Advertencia(
             sinDescargar: sinDescargar,
@@ -252,7 +253,13 @@ class _Advertencia extends StatelessWidget {
 }
 
 class _Filtros extends ConsumerWidget {
-  const _Filtros();
+  const _Filtros({required this.sinDescargar, required this.porQue});
+
+  /// Las dos hacen falta aqui por el boton de exportar: sin ellas el motivo por
+  /// el que esta apagado seria siempre «no hay ninguna orden», tambien delante
+  /// de alguien cuya bajada no llego. Ver `motivoParaNoExportar`.
+  final bool sinDescargar;
+  final PorQueEstaVacio porQue;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -312,9 +319,13 @@ class _Filtros extends ConsumerWidget {
           // a no leer los botones.
           if (filtro.hayAlgoPuesto)
             TextButton(onPressed: notas.limpiar, child: const Text('Limpiar')),
-          // `Exportar a Excel` va aqui. Todavia no esta: hacen falta los
-          // paquetes `excel` y `file_saver`, que no estan en el pubspec. Un
-          // boton que no exporta nada es peor que no tenerlo.
+          // `Exportar a Excel`, el ultimo de la fila como en el patron
+          // (`ml-auto`). Los importes salen **en la moneda que se esta
+          // mirando**, igual que las tablas de abajo; el fichero lo arma
+          // `datos/excel_del_informe.dart` y lo entrega
+          // `datos/entrega_del_excel.dart`, que es donde vive la diferencia
+          // entre guardar, compartir y descargar.
+          BotonExportarExcel(sinDescargar: sinDescargar, porQue: porQue),
         ],
       ),
     );

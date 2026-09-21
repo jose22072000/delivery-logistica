@@ -54,25 +54,84 @@ porque tocaba fichero de otro. **Ninguna de estas es opcional.**
       **Qué lo desbloquearía:** que Accesos devuelva un `actualizado_at` por almacén y un id
       estable SIEMPRE presente (hoy es opcional). Con eso se sirve como las demás.
 
-- [ ] **El sincronizador ignora el `hasta` que devuelve el reparto, y con `truncado` eso
-      pierde trabajo.** `sync/internal/reparto/reparto.go` decodifica sólo `cambios` y
-      `truncado`; `sync/internal/sincro/bajada.go` anota `bajada_hasta` con el `hasta` que
-      él mismo mandó, salga truncada o no. Así, lo que no cupo en la tanda queda por debajo
-      del próximo `desde` y no se vuelve a pedir nunca. El reparto ya hace su parte —con
-      `truncado` devuelve la marca de la última fila servida—; falta que el sincronizador la
-      lea y anote ÉSA. **No se tocó `sync/` en este cambio.**
+      **La mitad que ya está dicha en pantalla (21/09/2026).** Mientras eso no llegue, lo
+      único que se puede hacer es no callarlo, y es la regla 4: si algo puede estar viejo,
+      se dice. `AlmacenesDeLaUltimaBajada`
+      (`app/lib/pantallas/almacenes/vista/almacenes_de_la_ultima_bajada.dart`) pinta «los
+      almacenes son los de la última vez que hubo red» **con su fecha**, más por qué no se
+      refrescan solos y qué se rompe si sobra uno. Va en los dos sitios donde alguien mira
+      una lista de almacenes y decide con ella: la pantalla de Almacenes y el paso del
+      punto de partida del asistente de rutas. **Sólo en la APK y el escritorio** — en la
+      web no hay copia que pueda envejecer (regla 1), y hay prueba en pareja de que sale
+      en el aparato y NO sale en la web
+      (`app/test/pantallas/almacenes/almacenes_de_la_ultima_bajada_test.dart`). El ámbar se
+      reserva para lo de más de un día; lo reciente va en gris, que es lo que ya hace
+      `EstadoFrescura`.
 
-- [ ] **`products` y `customers` truncan sin bajar el `hasta`.** Es el mismo fallo de
-      arriba pero dentro del reparto: sus consultas (`ListarProductos`, `ListarClientes`) no
-      ordenan por la marca, así que «los 2.000 primeros» son 2.000 cualesquiera y no hay
-      última fila servida que devolver. Se arregla igual que se arregló `orders`: ordenar
-      por la marca en el SQL y cortar por ella.
+- [x] ~~**El sincronizador ignora el `hasta` que devuelve el reparto.**~~ — **cerrado
+      (21/09/2026).** `sincro.Origen.Diferencias` devuelve ahora una `sincro.Bajada` con
+      `hasta`, `truncado` y `continuar`; `reparto.go` los decodifica y reenvía el cursor;
+      `bajada.go` anota y devuelve `hastaServido(pedido, devuelto)`, que es **la más
+      atrasada de las dos**. Las dos reglas, con prueba cada una: retrasar repite trabajo y
+      no pierde nada, así que se acepta; una marca del reparto POR DELANTE de la ventana no
+      se acepta nunca, porque se saltaría lo que cambió en medio. Un reparto que todavía no
+      mande `hasta` sigue funcionando con la marca del servicio.
+      Pruebas en `sync/internal/sincro/bajada_hasta_test.go` (doce filas, tope de cinco,
+      encadenando de verdad) y en `sync/internal/reparto/reparto_test.go`.
+
+- [x] ~~**`products` y `customers` truncan sin bajar el `hasta`.**~~ — **cerrado
+      (21/09/2026).** Dos consultas nuevas, `DiferenciasDeProductos` y
+      `DiferenciasDeClientes`, con la forma de `DiferenciasDePedidos`: `ORDER BY marca ASC,
+      id ASC`, `desde` estricto, `hasta` inclusivo y tope. La respuesta devuelve como
+      `hasta` la marca de la última fila servida y el corte no parte un grupo.
+      `ListarProductos` y `ListarClientes` se quedan para la pantalla, y con ellas se fue el
+      `cambiado_desde` que sólo usaba la bajada (y el `OFFSET` de `ListarProductos`, que ya
+      no lo pedía nadie).
+
+      **El cursor sigue existiendo, y ahora es `(marca, id)`**, no un desplazamiento. Es lo
+      único que resuelve un grupo de filas con la MISMA marca más grande que el tope, que no
+      es un caso de laboratorio: el traspaso metió los 7.975 clientes en una transacción y
+      `now()` es la del inicio de la transacción, así que comparten `synced_at` al
+      microsegundo. En todo lo demás manda `hasta`: **quien pierda el cursor repite trabajo,
+      pero no pierde una sola fila** — que era justo lo que pasaba con el sincronizador, que
+      ni lo mandaba ni lo leía. Con eso se fueron `porDondeSeguir.Empezada` y el `desde`
+      original dentro del cursor: dos cotas para lo mismo, y la que sobraba era la que dejó
+      2.000 clientes de 8.103.
+
+      Pruebas en `api/internal/api/sync_tope_test.go`, todas sembrando MÁS FILAS QUE EL
+      TOPE. La que cierra el agujero encadena **tirando el cursor en cada vuelta**, que es
+      como encadena el sincronizador.
 
 ## Corrección de datos
 
-- [ ] **`optimized` acaba en `true` aunque se respete el orden del logístico**, porque
-      `FijarTotalesDeRuta` lo fija así en el SQL. La spec del tablero (§5.4) pide `false`.
-      Toca `db/queries/routes.sql`.
+- [x] ~~**`optimized` acaba en `true` aunque se respete el orden del logístico**~~ — **hecho
+      para el armador (21/09/2026), y queda UNA línea del tablero.** `FijarTotalesDeRuta`
+      ya no clava `true`: lleva `optimizado` como `narg` con
+      `coalesce(…, true)`, así que NULL sigue significando «lo ordenó la máquina» y ningún
+      llamador cambia de comportamiento por la consulta.
+
+      Lo enganchado a esa marca, en los dos lados:
+      - **Servidor** — `POST /api/routes` acepta `optimizar` (por defecto `true`, que es lo
+        que mandan las APK instaladas y lo que dice el contrato §15.1). Con `false` se
+        respeta el orden en que vinieron los `orderIds` (`ordenDelLogistico`, en
+        `rutas.go`) y la ruta se guarda con `optimized = false`.
+      - **Aparato** — `AccionesDeRuta.armar` lleva `optimizar` (por defecto `true`), guarda
+        `optimized: Value(optimizar)` y **manda `optimizar` en el cuerpo siempre**, también
+        cuando es `true`: callarlo cuando es `false` devolvería la ruta a estar firmada
+        como calculada en cuanto suba.
+
+      Pruebas en pareja a los dos lados (una sola no vale: un `false` clavado la pasaría
+      igual): `api/internal/api/quien_ordeno_las_paradas_test.go` y
+      `app/test/pantallas/rutas/quien_ordeno_las_paradas_test.dart`. Y el doble de
+      `rutas_test.go` ya no devuelve `Optimized: true` a secas — copiaba el fallo del SQL y
+      por eso ninguna prueba podía verlo.
+
+- [ ] **LO QUE QUEDA: el armador del TABLERO sigue firmando como calculado el orden del
+      logístico.** `tablero.go` respeta su orden por defecto (§5.4 de `tablero.md`) pero
+      llama a `TableroFijarTotalesDeRuta` sin `Optimizado`, o sea NULL, o sea `true`. Es
+      **una línea** —`Optimizado: &optimizar`, con `optimizar := c.Optimizar.Con(false)`—
+      y no se tocó aquí porque ese fichero lo estaba escribiendo otro (`CLAUDE.md`
+      §4-bis). Con su prueba al lado, que hoy no existe.
 - [ ] **El almacén del tablero sale de `saved_origins`**, no de Accesos. `clientes.go` ya
       trajo `Accesos.AlmacenesDeSucursal` y `almacenDeReferencia`, que es lo correcto
       según la spec. Hay que enganchar el tablero a eso.

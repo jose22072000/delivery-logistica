@@ -81,11 +81,96 @@ type paradaGeo struct {
 	lng float64
 }
 
-// ordenVecinoMasProximo devuelve los ids en el orden en que el camión los visita.
+// distanciaKm es cómo se mide entre dos puntos. Se pasa por fuera **para dejar la puerta
+// abierta al enrutador por calles** que se está escribiendo en el aparato
+// (`app/lib/mapa/`): el día que la matriz salga de las calles en vez de la línea recta se
+// cambia esta función y el orden de visita no se entera. Hoy el único valor que se usa es
+// `kmHaversine` y nada de aquí depende de que ese enrutador exista.
+type distanciaKm func(lat1, lng1, lat2, lng2 float64) float64
+
+// mejoraMinimaKm es la mejora mínima, en km, para dar por bueno un movimiento.
 //
-// Vecino más próximo (greedy) desde el origen, sin 2-opt ni nada después. No es el
-// recorrido óptimo y no pretende serlo: es el que delivery lleva usando, y cambiarlo aquí
-// cambiaría el orden de las paradas de todas las rutas sin que nadie lo hubiera pedido.
+// NUNCA SE COMPARA CON `> 0` A SECAS, y no es celo. Dos recorridos de la misma longitud no
+// dan exactamente el mismo `float64`: el orden en que se suman los tramos cambia el último
+// bit, así que A «mejora» a B por 1e-16 km y B «mejora» a A por otro tanto. Con `> 0` eso
+// es un bucle que no termina, y —peor— no termina IGUAL aquí que en Dart, porque el
+// `math.Sin` de Go y el de la VM de Dart redondean distinto en el último bit. 1e-9 km es un
+// micrómetro: se traga ese ruido entero y no se traga ninguna mejora de verdad.
+const mejoraMinimaKm = 1e-9
+
+// topeDePasadasDeMejora: el tope de pasadas. Quien espera es la pantalla del logístico.
+//
+// Con 60 paradas una pasada son ~13.000 medidas (10 ms medidos, `orden_de_paradas_test.go`
+// los imprime), y ni con 10, ni con 30, ni con 60 paradas hacen falta más de 3 pasadas.
+// El tope está para que un caso patológico —o un `mejoraMinimaKm` que alguien
+// baje— no cuelgue la petición: se devuelve el mejor orden encontrado hasta ahí, que
+// siempre es mejor o igual que el del vecino más próximo.
+const topeDePasadasDeMejora = 50
+
+// ordenDeVisita devuelve los ids en el orden BUENO: vecino más próximo y después 2-opt y
+// Or-opt sobre el circuito CERRADO, hasta que no mejore.
+//
+// POR QUÉ SE CAMBIÓ (21/09/2026). Jose, mirando una ruta planificada: «esa planificada está
+// mal, no hace ruta lógica ni nada». Y tenía razón: el vecino más próximo a secas se come
+// los caramelos cercanos y deja los lejanos sueltos, así que la ruta cruza sobre sí misma y
+// el último tramo es un viaje entero de vuelta al almacén. No estaba rota: es lo que hace
+// ese algoritmo.
+//
+// SOBRE EL CIRCUITO CERRADO, NO SOBRE LA IDA: el camión vuelve al almacén y esos km ya
+// entran en `totalDistance`. Mejorar sólo la ida deja fuera justo el tramo que más duele.
+//
+// Los dos movimientos, y por qué hacen falta los dos:
+//
+//   - 2-opt invierte un trozo del recorrido. Es lo único que deshace un cruce: dos tramos
+//     que se cortan siempre son más largos que los dos que salen de invertir lo de en medio.
+//   - Or-opt mueve 1, 2 o 3 paradas seguidas a otro sitio SIN invertir nada. Es lo que
+//     recoloca al cliente que se quedó solo en medio de la nada, y eso 2-opt no lo arregla
+//     porque mover una sola parada no es invertir un trozo.
+//
+// DETERMINISMO, que es la parte que se rompe sin que salte nada: el mismo orden de entrada
+// da el mismo orden de salida aquí y en `app/lib/pantallas/rutas/datos/geo.dart`
+// (`ordenDeVisita`), porque las dos hacen las pasadas en el mismo orden, aplican la PRIMERA
+// mejora que encuentran y comparan contra `mejoraMinimaKm`. Lo ata
+// `docs/orden-de-paradas.casos.json`, que leen la prueba de aquí y la del aparato: si
+// alguien toca un lado y no el otro, se pone rojo.
+func ordenDeVisita(origenLat, origenLng float64, paradas []paradaGeo) []uuid.UUID {
+	return ordenDeVisitaCon(origenLat, origenLng, paradas, kmHaversine)
+}
+
+// ordenDeVisitaCon es la de arriba con la regla de medir por fuera. Existe para el día del
+// enrutador por calles y para que la prueba pueda medir con una distancia de mentira.
+func ordenDeVisitaCon(origenLat, origenLng float64, paradas []paradaGeo, d distanciaKm) []uuid.UUID {
+	c := &circuito{
+		origenLat: origenLat,
+		origenLng: origenLng,
+		paradas:   vecinoMasProximo(origenLat, origenLng, paradas, d),
+		distancia: d,
+	}
+	for pasadas := 0; pasadas < topeDePasadasDeMejora; pasadas++ {
+		// Las dos pasadas SIEMPRE, sin cortocircuito: con `dosOpt() || orOpt()` el Or-opt
+		// no correría en cuanto el 2-opt moviera algo, y el resultado dependería de cuál
+		// encontró antes.
+		movioDosOpt := c.pasadaDeDosOpt()
+		movioOrOpt := c.pasadaDeOrOpt()
+		if !movioDosOpt && !movioOrOpt {
+			break
+		}
+	}
+	if len(c.paradas) == 0 {
+		return nil
+	}
+	orden := make([]uuid.UUID, 0, len(c.paradas))
+	for _, p := range c.paradas {
+		orden = append(orden, p.id)
+	}
+	return orden
+}
+
+// ordenVecinoMasProximo devuelve los ids por vecino más próximo, sin 2-opt ni nada después.
+//
+// Se queda tal cual, y no por nostalgia: es el punto de partida de `ordenDeVisita` y es LA
+// VARA con la que se mide que la mejora mejora de verdad (`orden_de_paradas_test.go`).
+// Quien arma una ruta llama a `ordenDeVisita`.
 //
 // DOS DETALLES QUE PARECEN MENUDENCIAS Y NO LO SON:
 //
@@ -95,28 +180,183 @@ type paradaGeo struct {
 //   - No se cierra el circuito: el regreso al almacén no es una parada. Los kilómetros
 //     de la vuelta los suma quien calcula el total, no este orden.
 func ordenVecinoMasProximo(origenLat, origenLng float64, paradas []paradaGeo) []uuid.UUID {
+	ordenadas := vecinoMasProximo(origenLat, origenLng, paradas, kmHaversine)
+	if len(ordenadas) == 0 {
+		return nil
+	}
+	orden := make([]uuid.UUID, 0, len(ordenadas))
+	for _, p := range ordenadas {
+		orden = append(orden, p.id)
+	}
+	return orden
+}
+
+// ordenDelLogistico es el orden que vino en `orderIds`, tal cual, sin tocar una coma.
+//
+// No es «el algoritmo apagado»: es el otro orden posible, y el bueno cuando quien armó la
+// ruta conoce las calles. Lo único que hace es quedarse con los que de verdad van en la
+// ruta —los que tienen punto de entrega, que son los de `paradas`— y CONSERVAR la posición
+// en que llegaron. Un id repetido en el cuerpo no se visita dos veces.
+//
+// Y lo que se guarda después es `optimized = false`. Ésa es la mitad que faltaba: sin ella
+// la ruta salía firmada como calculada por la máquina y el orden de la persona quedaba
+// indistinguible del del greedy.
+func ordenDelLogistico(ids []uuid.UUID, paradas []paradaGeo) []uuid.UUID {
+	if len(paradas) == 0 {
+		return nil
+	}
+	tienePunto := make(map[uuid.UUID]bool, len(paradas))
+	for _, p := range paradas {
+		tienePunto[p.id] = true
+	}
+	orden := make([]uuid.UUID, 0, len(paradas))
+	puesto := make(map[uuid.UUID]bool, len(paradas))
+	for _, id := range ids {
+		if tienePunto[id] && !puesto[id] {
+			puesto[id] = true
+			orden = append(orden, id)
+		}
+	}
+	// Lo que estaba en `paradas` y no en la lista no se pierde: se va al final. No puede
+	// pasar hoy —`paradas` sale de los mismos ids— pero descartar una parada en silencio
+	// es un camión cargado con un bulto que no sale en la hoja.
+	for _, p := range paradas {
+		if !puesto[p.id] {
+			puesto[p.id] = true
+			orden = append(orden, p.id)
+		}
+	}
+	return orden
+}
+
+// vecinoMasProximo es el greedy de siempre devolviendo las paradas en vez de sus ids:
+// `ordenDeVisita` necesita las coordenadas para seguir midiendo. Es EL MISMO bucle que
+// usaba `ordenVecinoMasProximo`, no una copia — dos greedy escritos en paralelo terminan
+// desempatando distinto, que es justo lo que no puede pasar.
+func vecinoMasProximo(origenLat, origenLng float64, paradas []paradaGeo, d distanciaKm) []paradaGeo {
 	if len(paradas) == 0 {
 		return nil
 	}
 	pendientes := append([]paradaGeo(nil), paradas...)
-	orden := make([]uuid.UUID, 0, len(pendientes))
+	orden := make([]paradaGeo, 0, len(pendientes))
 	actualLat, actualLng := origenLat, origenLng
 	for len(pendientes) > 0 {
 		mejor := 0
 		mejorKm := math.Inf(1)
 		for i, p := range pendientes {
-			km := kmHaversine(actualLat, actualLng, p.lat, p.lng)
+			km := d(actualLat, actualLng, p.lat, p.lng)
 			if km < mejorKm {
 				mejorKm = km
 				mejor = i
 			}
 		}
 		elegida := pendientes[mejor]
-		orden = append(orden, elegida.id)
+		orden = append(orden, elegida)
 		actualLat, actualLng = elegida.lat, elegida.lng
 		pendientes = append(pendientes[:mejor], pendientes[mejor+1:]...)
 	}
 	return orden
+}
+
+// circuito es el recorrido a medio mejorar. EL ALMACÉN NO ESTÁ EN LA LISTA: es el nodo -1 y
+// el nodo n a la vez, que es lo que cierra el circuito sin meterlo como parada. Si
+// estuviera dentro, 2-opt podría moverlo de sitio y la ruta dejaría de salir del almacén.
+type circuito struct {
+	origenLat, origenLng float64
+	paradas              []paradaGeo
+	distancia            distanciaKm
+}
+
+// nodo: el almacén por los dos extremos. Fuera del rango, el nodo es el origen.
+func (c *circuito) nodo(i int) (float64, float64) {
+	if i < 0 || i >= len(c.paradas) {
+		return c.origenLat, c.origenLng
+	}
+	return c.paradas[i].lat, c.paradas[i].lng
+}
+
+func (c *circuito) paso(i, j int) float64 {
+	aLat, aLng := c.nodo(i)
+	bLat, bLng := c.nodo(j)
+	return c.distancia(aLat, aLng, bLat, bLng)
+}
+
+// pasadaDeDosOpt invierte el trozo `[i..j]` y se queda con la inversión si acorta el
+// circuito. Los dos tramos que cambian son el de entrada al trozo y el de salida; lo de
+// dentro se recorre al revés y mide lo mismo.
+//
+// Se aplica la PRIMERA mejora que aparece (no la mejor de todas) y se sigue barriendo desde
+// donde iba. Es lo mismo en Dart, línea por línea: quedarse con «la mejor» obligaría a
+// desempatar entre dos mejoras iguales, y ahí es donde los dos lenguajes se separarían.
+func (c *circuito) pasadaDeDosOpt() bool {
+	movio := false
+	for i := 0; i < len(c.paradas)-1; i++ {
+		for j := i + 1; j < len(c.paradas); j++ {
+			cambio := c.paso(i-1, j) + c.paso(i, j+1) - c.paso(i-1, i) - c.paso(j, j+1)
+			if cambio < -mejoraMinimaKm {
+				c.invertir(i, j)
+				movio = true
+			}
+		}
+	}
+	return movio
+}
+
+func (c *circuito) invertir(desde, hasta int) {
+	for a, b := desde, hasta; a < b; a, b = a+1, b-1 {
+		c.paradas[a], c.paradas[b] = c.paradas[b], c.paradas[a]
+	}
+}
+
+// pasadaDeOrOpt saca 1, 2 o 3 paradas seguidas y las vuelve a meter en otro sitio, en el
+// mismo sentido.
+//
+// El hueco de inserción `p` se cuenta sobre la lista YA SIN el trozo, así que `p == inicio`
+// es dejarlo donde estaba: se salta a propósito. Su cambio da cero exacto —son las mismas
+// tres medidas restadas— pero saltarlo deja claro que no hay ningún movimiento nulo que
+// pueda «mejorar» por redondeo.
+func (c *circuito) pasadaDeOrOpt() bool {
+	movio := false
+	for largo := 1; largo <= 3; largo++ {
+		for inicio := 0; inicio+largo <= len(c.paradas); inicio++ {
+			trozo := append([]paradaGeo(nil), c.paradas[inicio:inicio+largo]...)
+			resto := append([]paradaGeo(nil), c.paradas[:inicio]...)
+			resto = append(resto, c.paradas[inicio+largo:]...)
+			// Lo que se ahorra al sacar el trozo: los dos tramos que lo sujetaban menos
+			// el que queda al juntar sus vecinos.
+			antesLat, antesLng := c.nodo(inicio - 1)
+			despuesLat, despuesLng := c.nodo(inicio + largo)
+			ahorro := c.paso(inicio-1, inicio) +
+				c.paso(inicio+largo-1, inicio+largo) -
+				c.distancia(antesLat, antesLng, despuesLat, despuesLng)
+			for p := 0; p <= len(resto); p++ {
+				if p == inicio {
+					continue
+				}
+				aLat, aLng := c.origenLat, c.origenLng
+				if p > 0 {
+					aLat, aLng = resto[p-1].lat, resto[p-1].lng
+				}
+				bLat, bLng := c.origenLat, c.origenLng
+				if p < len(resto) {
+					bLat, bLng = resto[p].lat, resto[p].lng
+				}
+				costo := c.distancia(aLat, aLng, trozo[0].lat, trozo[0].lng) +
+					c.distancia(trozo[largo-1].lat, trozo[largo-1].lng, bLat, bLng) -
+					c.distancia(aLat, aLng, bLat, bLng)
+				if costo-ahorro < -mejoraMinimaKm {
+					nuevo := make([]paradaGeo, 0, len(c.paradas))
+					nuevo = append(nuevo, resto[:p]...)
+					nuevo = append(nuevo, trozo...)
+					nuevo = append(nuevo, resto[p:]...)
+					c.paradas = nuevo
+					movio = true
+					break // el `resto` ya no vale: se rehace en la vuelta siguiente.
+				}
+			}
+		}
+	}
+	return movio
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +644,20 @@ type cuerpoRuta struct {
 	// Crudo a propósito: el contrato dice que lo que NO sea un array de ids se trata
 	// como «no vinieron pedidos» y sale por su mensaje, no por «cuerpo no válido».
 	OrderIds json.RawMessage `json:"orderIds"`
+
+	// Optimizar dice QUIÉN ORDENA LAS PARADAS, y de ahí sale `optimized` tal cual.
+	//
+	// Por defecto `true`, que es lo que este armador hacía desde siempre y lo que dice
+	// el contrato (§15.1): se manda una lista de pedidos y la máquina calcula el orden
+	// de visita. Con `false` se respeta el orden en que vienen en `orderIds` —el que
+	// puso la persona— y la ruta se guarda diciendo la verdad: que no la ordenó nadie
+	// automático. Es el mismo campo y el mismo nombre que ya usa el tablero
+	// (`cuerpoArmar.Optimizar`), para no tener dos idiomas para la misma pregunta.
+	//
+	// El valor por defecto es `true` y NO `false` a propósito: las APK ya instaladas no
+	// mandan este campo, y su lista SÍ viene ordenada por la máquina del aparato.
+	// Tomarlas por «orden a mano» marcaría en falso, que es el mismo fallo al revés.
+	Optimizar httpx.Opcional[bool] `json:"optimizar"`
 }
 
 // errPedidosEscapados corta la transacción del armado cuando un pedido dejó de estar libre
@@ -574,7 +828,23 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 		}
 		geo = append(geo, paradaGeo{id: p.ID, lat: *p.EndLat, lng: *p.EndLng})
 	}
-	orden := ordenVecinoMasProximo(origenLat, origenLng, geo)
+	// EL ORDEN BUENO, NO EL DEL GREEDY A SECAS — 21/09/2026. Aquí se llamaba a
+	// `ordenVecinoMasProximo` y es lo que Jose estaba viendo en la pantalla: cruces y un
+	// último tramo larguísimo de vuelta al almacén. `ordenDeVisita` arranca de ese mismo
+	// greedy y le pasa 2-opt y Or-opt sobre el circuito cerrado. El aparato hace lo mismo.
+	//
+	// Y QUIEN ORDENA SE APUNTA. Con `optimizar:false` no se toca el orden que vino en
+	// `orderIds`: lo puso una persona que conoce las calles, y la máquina no. Ese dato es
+	// el que se guarda en `optimized` unas líneas más abajo — antes se guardaba `true`
+	// siempre, también cuando el orden era el de la persona, y eso es una firma falsa:
+	// quien lo lee da por calculado lo que nadie calculó.
+	optimizar := c.Optimizar.Con(true)
+	var orden []uuid.UUID
+	if optimizar {
+		orden = ordenDeVisita(origenLat, origenLng, geo)
+	} else {
+		orden = ordenDelLogistico(soloUuids(idsPedidos), geo)
+	}
 	porID := map[uuid.UUID]paradaGeo{}
 	for _, g := range geo {
 		porID[g.id] = g
@@ -672,7 +942,11 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 			TotalDistance: distanciaTotal,
 			TotalWeight:   pesoTotal,
 			TotalPrice:    precioTotal,
-			ID:            creada.ID,
+			// LA FIRMA DE QUIÉN ORDENÓ. Se manda SIEMPRE, también cuando vale `true`:
+			// dejarlo a nil aquí lo devolvería al `optimized = true` de la consulta y el
+			// dato volvería a mentir en cuanto alguien armara respetando el orden.
+			Optimizado: &optimizar,
+			ID:         creada.ID,
 		})
 		return err
 	})

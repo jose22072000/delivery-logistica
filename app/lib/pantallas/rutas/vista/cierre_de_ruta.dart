@@ -523,16 +523,47 @@ class _BotonResultado extends StatelessWidget {
   final bool elegido;
   final VoidCallback alPulsar;
 
+  /// El fondo suave que le toca a cada color, de la paleta de la casa. Un
+  /// `withOpacity` sobre el color fuerte no vale: la paleta tiene el fondo
+  /// **calculado** para que se lea sobre papel crema, y aclarar a ojo devuelve
+  /// el gris sucio que esa paleta existe para evitar.
+  Color get _fondoSuave {
+    if (color == Colores.verde) return Colores.verdeFondo;
+    if (color == Colores.rojo) return Colores.rojoFondo;
+    // «Cancelado» es el que MENOS tiene que pesar de los tres: es el caso raro.
+    // Con el fondo gris de la paleta pesaba mas que el verde y el rojo —se ve en
+    // la foto del 21/09/2026— y eso invierte la lectura de la tarjeta.
+    return Colores.papel;
+  }
+
   @override
   Widget build(BuildContext context) => elegido
       ? FilledButton(
           onPressed: alPulsar,
-          style: FilledButton.styleFrom(backgroundColor: color),
+          style: FilledButton.styleFrom(
+            backgroundColor: color,
+            // BLANCO, Y ESCRITO. Sin esto Flutter elige el color del texto por
+            // su cuenta y sobre el verde y el rojo de la casa elige oscuro: el
+            // boton elegido se lee peor que los otros dos, que es justo al
+            // reves de lo que tiene que pasar. Jose, 21/09/2026, viendolo en el
+            // telefono: «mejora esos colores».
+            foregroundColor: Colores.blanco,
+            // El elegido no necesita gritar: ya es el unico relleno de los
+            // tres. Sin sombra ni borde.
+            elevation: 0,
+          ),
           child: Text(texto),
         )
       : OutlinedButton(
           onPressed: alPulsar,
-          style: OutlinedButton.styleFrom(foregroundColor: color),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: color,
+            // Un tinte del mismo color, muy flojo, para que los tres se lean
+            // como un juego de tres y no como tres botones sueltos — y para que
+            // el que esta elegido destaque por CONTRASTE y no por color.
+            backgroundColor: _fondoSuave,
+            side: BorderSide(color: color.withValues(alpha: 0.35)),
+          ),
           child: Text(texto),
         );
 }

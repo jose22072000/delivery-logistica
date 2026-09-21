@@ -3,6 +3,7 @@ package sincro
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,13 +19,23 @@ import (
 // Devuelve lo que cambió desde `desde`. Sin `desde`, la primera carga completa.
 
 type bajadaSalida struct {
-	// La marca para la próxima vez. LA PONE EL SERVIDOR.
+	// La marca para la próxima vez. LA PONE EL SERVIDOR, y es HASTA DÓNDE SE SIRVIÓ DE
+	// VERDAD: con `truncado`, la marca de la última fila servida y no el reloj.
 	Hasta time.Time `json:"hasta"`
 	// true si fue carga inicial.
 	Completa bool    `json:"completa"`
 	Cambios  Cambios `json:"cambios"`
-	// Hay más: repetir con el `hasta` devuelto.
+	// Hay más: repetir con el `hasta` devuelto **y con el `continuar`**.
 	Truncado bool `json:"truncado"`
+	// Continuar es el cursor de la tanda siguiente, tal cual lo mandó el reparto. El
+	// aparato lo devuelve tal cual y nadie por el camino lo mira por dentro.
+	//
+	// Hace falta para un caso y sólo uno, pero es un caso que está en producción: un grupo
+	// de filas con la MISMA marca más grande que el tope. El traspaso metió los 7.975
+	// clientes en una transacción y comparten `synced_at` al microsegundo; ahí ninguna
+	// marca sirve para avanzar. En todo lo demás manda `hasta`, y quien pierda el cursor
+	// repite trabajo pero no pierde ni una fila.
+	Continuar string `json:"continuar,omitempty"`
 }
 
 func (s *Servicio) bajada(w http.ResponseWriter, r *http.Request) {
@@ -68,11 +79,12 @@ func (s *Servicio) bajada(w http.ResponseWriter, r *http.Request) {
 	// de la ventana devuelta sin haber salido en ella, y la próxima bajada no lo traería.
 	hasta := s.ahora().UTC()
 
-	cambios, truncado, err := s.origen.Diferencias(ctx, Ventana{
-		Sucursal: aparato.BranchID,
-		Desde:    desde,
-		Hasta:    hasta,
-		Tope:     s.tope,
+	bajada, err := s.origen.Diferencias(ctx, Ventana{
+		Sucursal:  aparato.BranchID,
+		Desde:     desde,
+		Hasta:     hasta,
+		Tope:      s.tope,
+		Continuar: strings.TrimSpace(r.URL.Query().Get("continuar")),
 	})
 	if err != nil {
 		s.log.Error("el reparto no pudo dar las diferencias", "aparato", aparato.ID, "err", err)
@@ -80,12 +92,16 @@ func (s *Servicio) bajada(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	servido := hastaServido(hasta, bajada.Hasta)
+
 	// La marca se anota DESPUÉS de tener los cambios en la mano. Al revés, un fallo del
 	// reparto dejaría la marca movida sin que el aparato se llevara nada, y ese trozo de
 	// tiempo no lo volvería a pedir nadie.
+	//
+	// Y SE ANOTA LA DEL REPARTO, no la que se mandó. Ver `hastaServido`.
 	if err := s.datos.AnotarBajada(ctx, sqlc.AnotarBajadaParams{
 		AparatoID:   aparato.ID,
-		BajadaHasta: marca(hasta),
+		BajadaHasta: marca(servido),
 	}); err != nil {
 		s.log.Error("no se pudo anotar la bajada", "aparato", aparato.ID, "err", err)
 		httpx.Fallo(w, http.StatusInternalServerError, "No se pudo anotar la bajada")
@@ -93,11 +109,37 @@ func (s *Servicio) bajada(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.JSON(w, http.StatusOK, bajadaSalida{
-		Hasta:    hasta,
-		Completa: desde == nil,
-		Cambios:  completar(cambios),
-		Truncado: truncado,
+		Hasta:     servido,
+		Completa:  desde == nil,
+		Cambios:   completar(bajada.Cambios),
+		Truncado:  bajada.Truncado,
+		Continuar: bajada.Continuar,
 	})
+}
+
+// hastaServido: de las dos marcas, LA MÁS ATRASADA.
+//
+// `pedido` es el reloj de este servicio, el techo de la ventana. `devuelto` es hasta dónde
+// dice el reparto que sirvió de verdad, que con una tanda cortada es la marca de la última
+// fila servida.
+//
+// Las dos reglas, y las dos son de seguridad:
+//
+//   - RETRASAR NUNCA PIERDE. Anotar una marca anterior a lo servido hace que la próxima
+//     bajada repita unas filas, y repetir no rompe nada: el aparato reescribe lo que ya
+//     tenía. Adelantarla sí destruye — lo que quede por debajo no se pide nunca más.
+//   - UNA MARCA POR DELANTE DE LA VENTANA NO SE ACEPTA. Si el reparto devolviera una
+//     posterior a la que se le mandó —un reloj adelantado allí, una respuesta de otra
+//     ventana—, hacerle caso se saltaría todo lo que cambió en medio. Se ignora y se queda
+//     la nuestra.
+//
+// Una marca vacía es un reparto que todavía no la manda: se usa la nuestra, que es
+// exactamente lo que se hacía antes de que esto existiera.
+func hastaServido(pedido, devuelto time.Time) time.Time {
+	if devuelto.IsZero() || !devuelto.Before(pedido) {
+		return pedido
+	}
+	return devuelto.UTC()
 }
 
 // desdeDeVerdad decide desde cuándo se baja, y es donde se cumple la otra mitad de la

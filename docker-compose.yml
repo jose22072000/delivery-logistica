@@ -11,6 +11,8 @@
 #   la API           http://localhost:8080/health   y  /version
 #   el sincronizador http://localhost:8081/salud
 #   el espejo        no tiene puerto: `docker compose logs -f espejo`
+#                    una pasada suelta, sin esperar al ciclo, y contándola entera:
+#                    `docker compose run --rm espejo --once`
 #   Postgres         localhost:5433  usuario/clave `reparto` / `reparto`
 #
 # En producción NO se usa este fichero: allí cada pieza es una Application de Dokploy y
@@ -137,6 +139,13 @@ services:
 
   # ---------------------------------------------------------------------------
   # El espejo de PEDIDO. Proceso de fondo: ni puerto, ni dominio, ni /health.
+  #
+  # VIVE, no es un trabajo: sin `--once` da vueltas hasta que lo paren, y el ciclo lo
+  # lleva él dentro (`SYNC_POLL_MS`). Por eso `restart: unless-stopped` como los demás
+  # servicios y no `restart: "no"` como `migraciones`, que sí termina. Lo mismo vale en
+  # Dokploy: allí es una Application, y las migraciones no. Ver docs/despliegue.md §2-bis,
+  # que cuenta además qué se rompe el día que deje de correr — el tablero se queda con los
+  # pedidos de la última pasada y no lo dice nadie.
   # ---------------------------------------------------------------------------
   espejo:
     build:

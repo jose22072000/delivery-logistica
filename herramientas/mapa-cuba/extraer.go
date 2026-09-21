@@ -11,7 +11,17 @@
 //	           una carretera da un rodeo
 //	poblacion  los nucleos con su nombre
 //
-// Y nada mas. Cada capa que sobra son megas en el telefono del repartidor.
+// Y desde el 21/09/2026, tres mas, de comparar la misma ruta en el telefono
+// contra la web con teselas de OSM:
+//
+//	suelo      parques, vegetacion, zona urbana, industrial y portuaria. Sin
+//	           esto el mapa es papel en blanco entre calles y no se ubica uno
+//	edificio   la silueta de las manzanas. Es lo que mas se nota al llegar a
+//	           una direccion, y lo que mas pesa: por eso entra tarde (z14/z15)
+//	tren       las vias de tren
+//
+// Y nada mas. Cada capa que sobra son megas en el telefono del repartidor, y
+// **lo que decide el peso no es la capa: es desde que zoom entra** (niveles.go).
 //
 // ## Por que se guardan TODOS los nodos en memoria
 //
@@ -54,13 +64,38 @@ type Extraido struct {
 }
 
 // Extraer lee el `.pbf` y devuelve los rasgos del [nivel] pedido.
-func Extraer(r io.Reader, nivel Nivel) (*Extraido, error) {
+//
+// Pide un `io.ReadSeeker` y no un `io.Reader` porque **el fichero se lee dos
+// veces**: la primera, solo las relaciones, para saber que vias hacen falta
+// (relaciones.go); la segunda, la de siempre. La primera cuesta 0,2 s porque el
+// lector ni descomprime los bloques de nodos y vias.
+func Extraer(r io.ReadSeeker, nivel Nivel) (*Extraido, error) {
+	salida := &Extraido{Caja: orb.Bound{Min: orb.Point{180, 90}, Max: orb.Point{-180, -90}}, Descartes: map[string]int{}}
+
+	var planes []planDeRelacion
+	faltanVias := map[osm.WayID]enQuePlan{}
+	if !nivel.SinRelaciones {
+		var err error
+		planes, faltanVias, err = leerRelaciones(r, nivel, salida.Descartes)
+		if err != nil {
+			return nil, fmt.Errorf("leyendo las relaciones del .pbf: %w", err)
+		}
+		if _, err := r.Seek(0, io.SeekStart); err != nil {
+			return nil, fmt.Errorf("rebobinando el .pbf para la segunda pasada: %w", err)
+		}
+	}
+
 	ctx := context.Background()
 	escaner := osmpbf.New(ctx, r, runtime.NumCPU())
 	defer escaner.Close()
 
 	donde := make(map[osm.NodeID]orb.Point, 8<<20)
-	salida := &Extraido{Caja: orb.Bound{Min: orb.Point{180, 90}, Max: orb.Point{-180, -90}}, Descartes: map[string]int{}}
+	// Solo los nodos de las vias que alguna relacion aceptada usa. Guardar
+	// todas las vias serian millones para usar 26.358.
+	nodosDeVia := make(map[osm.WayID][]osm.NodeID, len(faltanVias))
+	// Las vias que pintan lo mismo que la relacion a la que pertenecen. Ver el
+	// comentario de `tapada`.
+	var tapadas []tapada
 
 	anotar := func(g orb.Geometry, capa, clase, nombre string, desde uint8) {
 		caja := g.Bound()
@@ -99,6 +134,14 @@ func Extraer(r io.Reader, nivel Nivel) (*Extraido, error) {
 			if len(o.Nodes) < 2 {
 				continue
 			}
+			enUnaRelacion, esMiembro := faltanVias[o.ID]
+			if esMiembro {
+				ids := make([]osm.NodeID, len(o.Nodes))
+				for i, n := range o.Nodes {
+					ids[i] = n.ID
+				}
+				nodosDeVia[o.ID] = ids
+			}
 			capa, clase, desde, nombre, sirve := queEsLaVia(o, nivel, salida.Descartes)
 			if !sirve {
 				continue
@@ -120,31 +163,47 @@ func Extraer(r io.Reader, nivel Nivel) (*Extraido, error) {
 				salida.Descartes["vía con nodos fuera del extracto"]++
 				continue
 			}
-			if capa == capaAgua {
-				// El agua se pinta rellena, asi que solo sirve cerrada.
-				if linea[0] != linea[len(linea)-1] || len(linea) < 4 {
-					salida.Descartes["agua con contorno sin cerrar"]++
-					continue
-				}
-				anotar(orb.Polygon{orb.Ring(linea)}, capa, clase, nombre, desde)
+			geo, vale := geometriaDe(capa, linea)
+			if !vale {
+				salida.Descartes["relleno con contorno sin cerrar"]++
 				continue
 			}
-			anotar(linea, capa, clase, nombre, desde)
+			anotar(geo, capa, clase, nombre, desde)
+			// LA MISMA MANCHA DOS VECES NO SE PINTA DOS VECES. Hay vias que
+			// llevan sus propias etiquetas **y ademas** son miembro de una
+			// relacion con esas mismas etiquetas: el bosque entero y uno de sus
+			// trozos, del mismo verde, uno encima del otro. No se ve, pero se
+			// paga en bytes en todas las teselas de todos los zooms.
+			//
+			// No se descarta aqui, que seria lo facil: se apunta y se quita al
+			// final, **solo si la relacion se pudo coser**. Descartarla ahora
+			// dejaria sin mancha a la relacion rota, que es cambiar unos bytes
+			// de mas por un hueco de menos.
+			if esMiembro && enUnaRelacion.Pinta == capa+"|"+clase {
+				tapadas = append(tapadas, tapada{Rasgo: len(salida.Rasgos) - 1, Plan: enUnaRelacion.Plan})
+			}
 
 		case *osm.Relation:
-			// A PROPOSITO FUERA, y hay que saber que se pierde: las lagunas y
-			// embalses mapeados como multipoligono (una relacion con su
-			// contorno y sus islas) no salen. Armarlos bien es un problema de
-			// por si —contornos partidos en decenas de trozos que hay que
-			// coser— y lo que se gana en un mapa de reparto es una mancha azul
-			// de mas. La costa, que es lo que de verdad hace falta, viene en
-			// vias sueltas y SI entra.
-			salida.Descartes["relación (multipolígono) no soportada"]++
+			// Ya se leyeron en la primera pasada, con sus etiquetas y sus
+			// miembros. Aqui no hay nada que hacer con ellas.
 		}
 	}
 	if err := escaner.Err(); err != nil {
 		return nil, fmt.Errorf("leyendo el .pbf: %w", err)
 	}
+
+	// Y AHORA SI: los multipoligonos, que necesitaban tener delante los nodos de
+	// sus vias miembro. Van al final y no dentro del bucle por eso mismo.
+	cosidos := make([]bool, len(planes))
+	for i, plan := range planes {
+		poligonos := armarRelacion(plan, nodosDeVia, donde, salida.Descartes)
+		cosidos[i] = len(poligonos) > 0
+		for _, poligono := range poligonos {
+			anotar(poligono, plan.Capa, plan.Clase, plan.Nombre, plan.Desde)
+		}
+	}
+	quitarLasTapadas(salida, tapadas, cosidos)
+
 	if len(salida.Rasgos) == 0 {
 		// Una salida vacia NO es una salida buena (`CLAUDE.md` §3): un `.pbf`
 		// truncado o de otro sitio se lee sin un solo error y deja cero rasgos.
@@ -153,17 +212,61 @@ func Extraer(r io.Reader, nivel Nivel) (*Extraido, error) {
 	return salida, nil
 }
 
+// geometriaDe dice CON QUE FORMA viaja una via de esa capa: mancha o linea.
+//
+// No es un detalle de tipos. Lo que llega al otro lado como linea lo pinta el
+// aparato como linea: un barrio saldria como un contorno fino en vez de una
+// mancha, y una mancha es lo que ubica de un vistazo. Al reves tambien rompe:
+// una carretera convertida en poligono se pintaria rellena de gris.
+func geometriaDe(capa string, linea orb.LineString) (orb.Geometry, bool) {
+	if !esDeRelleno(capa) {
+		return linea, true
+	}
+	p, vale := rellenoDe(linea)
+	if !vale {
+		return nil, false
+	}
+	return p, true
+}
+
+// rellenoDe convierte un contorno en poligono, o dice que no vale.
+//
+// Agua, suelo y edificios se pintan RELLENOS, asi que solo sirven **cerrados**.
+// Un contorno abierto no es un poligono: al dibujarlo se cierra solo con una
+// cuerda recta por donde falta, y esa cuerda no esta en el suelo — sale una
+// manzana con un tajo diagonal, o media laguna. Se tira y se cuenta; a medias
+// no se dibuja nada, que es la regla de las vias cortadas por el borde.
+//
+// Cuatro puntos es el minimo de verdad: tres esquinas mas la repetida del
+// cierre. Con menos no hay area que pintar.
+func rellenoDe(linea orb.LineString) (orb.Polygon, bool) {
+	if len(linea) < 4 || linea[0] != linea[len(linea)-1] {
+		return nil, false
+	}
+	return orb.Polygon{orb.Ring(linea)}, true
+}
+
 // queEsLaVia decide en que capa cae una via, o dice que no cae en ninguna.
 func queEsLaVia(v *osm.Way, nivel Nivel, descartes map[string]int) (capa, clase string, desde uint8, nombre string, sirve bool) {
-	nombre = v.Tags.Find("name")
+	return enQueCapaCae(v.Tags, nivel, descartes)
+}
 
-	if v.Tags.Find("natural") == "coastline" {
+// enQueCapaCae es la clasificacion, y esta separada de `queEsLaVia` por una
+// razon concreta: **una relacion se clasifica EXACTAMENTE igual que una via**.
+// Un `natural=wood` es un bosque venga en una via cerrada o en un multipoligono
+// de cuarenta trozos, y si fueran dos tablas distintas acabarian diciendo cosas
+// distintas sin que nadie se entere. Lo unico que cambia entre las dos es de
+// donde salen las etiquetas.
+func enQueCapaCae(t osm.Tags, nivel Nivel, descartes map[string]int) (capa, clase string, desde uint8, nombre string, sirve bool) {
+	nombre = t.Find("name")
+
+	if t.Find("natural") == "coastline" {
 		return capaCosta, "costa", costaDesde, "", true
 	}
-	if esAgua(v.Tags) {
+	if esAgua(t) {
 		return capaAgua, "agua", aguaDesde, nombre, true
 	}
-	if h := v.Tags.Find("highway"); h != "" {
+	if h := t.Find("highway"); h != "" {
 		c, conocida := clasesDeCarretera[h]
 		if !conocida {
 			// Senderos, escaleras, carriles bici, aceras: por ahi no pasa un
@@ -178,7 +281,120 @@ func queEsLaVia(v *osm.Way, nivel Nivel, descartes map[string]int) (capa, clase 
 		}
 		return capaCarretera, c, d, nombre, true
 	}
+
+	// EL EDIFICIO VA ANTES QUE EL SUELO, y no es casual: un bloque puede llevar
+	// `building=yes` y ademas un `landuse` heredado del poligono que lo rodea.
+	// Si ganara el suelo, la manzana se pintaria de color de barrio y no habria
+	// silueta que es lo que se busca.
+	if b := t.Find("building"); b == "no" {
+		// `building=no` significa **que ahi NO hay un edificio**: es la forma de
+		// tapar un dato malo de otra fuente. Se cuenta como cualquier otro
+		// descarte, porque alguien se molesto en ponerlo.
+		descartes["building=no (ahí NO hay un edificio)"]++
+		return "", "", 0, "", false
+	}
+	if esEdificio(t) {
+		d, entra := nivel.Edificios[claseEdificio]
+		if !entra {
+			descartes["edificio (este nivel no los lleva)"]++
+			return "", "", 0, "", false
+		}
+		// EL EDIFICIO NO LLEVA NOMBRE, a proposito. Son cientos de miles y casi
+		// ninguno tiene uno que sirva para orientarse; los que lo tienen traen
+		// el del negocio, que cambia cada temporada. Lo que hace falta es la
+		// silueta.
+		return capaEdificio, claseEdificio, d, "", true
+	}
+
+	if r := t.Find("railway"); r != "" {
+		c, conocida := clasesDeTren[r]
+		if !conocida {
+			descartes["vía de tren que no es una vía (en desuso, andén…)"]++
+			return "", "", 0, "", false
+		}
+		if t.Find("service") != "" {
+			// Agujas, apartaderos y vias de patio. Son una telarana gris encima
+			// de un almacen y no llevan a ningun sitio.
+			descartes["vía de tren de patio o apartadero"]++
+			return "", "", 0, "", false
+		}
+		d, entra := nivel.Trenes[c]
+		if !entra {
+			descartes["vía de tren que este nivel no lleva"]++
+			return "", "", 0, "", false
+		}
+		// El tren tampoco lleva nombre: la linea se reconoce por donde va, no
+		// por como se llama, y los nombres de via en Cuba estan a medias.
+		return capaTren, c, d, "", true
+	}
+
+	if c, hay := queSueloEs(t); hay {
+		d, entra := nivel.Suelos[c]
+		if !entra {
+			descartes["suelo de clase que este nivel no lleva"]++
+			return "", "", 0, "", false
+		}
+		// Sin nombre tambien. «Parque Central» rotulado ayudaria, pero hoy el
+		// pintor solo rotula nucleos (docs/mapa-sin-conexion.md §9) y un nombre
+		// que nadie dibuja son bytes que nadie lee.
+		return capaSuelo, c, d, "", true
+	}
+	if esSueloDescartado(t) {
+		// Media Cuba es campo. Pintarlo todo del mismo color no distingue nada
+		// y multiplica el fichero. Se cuenta para que el dia que alguien se
+		// pregunte por que no sale, lo vea en la salida del generador.
+		descartes["campo de cultivo (a propósito fuera)"]++
+		return "", "", 0, "", false
+	}
+	if tieneUsoDelSuelo(t) {
+		// Llevaba `landuse`, `leisure` o `natural` y ninguno de los tres esta en
+		// la tabla: campos de futbol, colegios, cementerios, zona militar. **Se
+		// cuenta.** Lo que NO se cuenta es la via que no traia ninguna de esas
+		// etiquetas —una valla, un muro, el contorno de una parcela—, porque esa
+		// nunca fue candidata a nada y contarla ahogaria la lista de descartes
+		// con un millon de vias que no significan nada.
+		descartes["uso del suelo que no está en la tabla"]++
+		return "", "", 0, "", false
+	}
 	return "", "", 0, "", false
+}
+
+// tieneUsoDelSuelo dice si la via al menos SE PARECIA a un uso del suelo.
+func tieneUsoDelSuelo(t osm.Tags) bool {
+	return t.Find("landuse") != "" || t.Find("leisure") != "" || t.Find("natural") != ""
+}
+
+// esEdificio. Sigue rechazando `building=no` aunque `queEsLaVia` ya lo haya
+// apartado antes: una funcion que contesta bien sola es la que no se rompe
+// cuando alguien mueve el orden de las comprobaciones de arriba.
+func esEdificio(t osm.Tags) bool {
+	b := t.Find("building")
+	if b != "" && b != "no" {
+		return true
+	}
+	// Una parte de edificio (`building:part`) sin `building` es un trozo de un
+	// bloque que ya esta dibujado entero: no se anade, se solaparia.
+	return false
+}
+
+// queSueloEs busca la etiqueta tal cual, `clave=valor`, en una sola tabla.
+func queSueloEs(t osm.Tags) (string, bool) {
+	for _, clave := range []string{"leisure", "landuse", "natural"} {
+		valor := t.Find(clave)
+		if valor == "" {
+			continue
+		}
+		if c, hay := clasesDeSuelo[clave+"="+valor]; hay {
+			return c, true
+		}
+	}
+	return "", false
+}
+
+func esSueloDescartado(t osm.Tags) bool {
+	lu := t.Find("landuse")
+	return lu == "farmland" || lu == "farmyard" || lu == "orchard" ||
+		lu == "vineyard" || lu == "greenhouse_horticulture"
 }
 
 func esAgua(t osm.Tags) bool {
@@ -186,4 +402,38 @@ func esAgua(t osm.Tags) bool {
 		t.Find("landuse") == "reservoir" ||
 		t.Find("waterway") == "riverbank" ||
 		t.Find("waterway") == "dock"
+}
+
+// tapada es una via que se dibujo Y ADEMAS va dentro de una relacion del mismo
+// color. Si la relacion se cose, la via sobra: es el mismo trozo de bosque
+// pintado del mismo verde, dos veces, en todas las teselas de todos los zooms.
+type tapada struct {
+	Rasgo int // indice en salida.Rasgos
+	Plan  int // indice en planes
+}
+
+// quitarLasTapadas borra las vias que la relacion ya dibuja, y **solo esas**.
+//
+// Se hace al final, con los multipoligonos ya cosidos, porque la pregunta que
+// decide no es «esta via es miembro de una relacion» sino «esa relacion llego a
+// dibujarse». Una relacion rota deja a sus vias siendo lo unico que hay.
+func quitarLasTapadas(salida *Extraido, tapadas []tapada, cosidos []bool) {
+	fuera := map[int]bool{}
+	for _, t := range tapadas {
+		if t.Plan < len(cosidos) && cosidos[t.Plan] {
+			fuera[t.Rasgo] = true
+		}
+	}
+	if len(fuera) == 0 {
+		return
+	}
+	salida.Descartes[fueraYaEnUnaRel] += len(fuera)
+	vivos := salida.Rasgos[:0]
+	for i, r := range salida.Rasgos {
+		if fuera[i] {
+			continue
+		}
+		vivos = append(vivos, r)
+	}
+	salida.Rasgos = vivos
 }

@@ -77,6 +77,23 @@ abstract final class ClaveDePreferencia {
   /// cadena «null» seria una sucursal llamada null.
   static const sucursalMirada = 'sucursalMirada';
   static const monedaMirada = 'monedaMirada';
+
+  /// DE QUE SUCURSAL ES ESTE APARATO. No es lo mismo que la que se mira.
+  ///
+  /// Un aparato pertenece a UNA sucursal —asi lo exige `POST /sync/aparato`— y
+  /// quien tiene la suya no elige nada: la pone el servidor con la sesion. El
+  /// caso que faltaba es el de quien ve las ocho: con «Todas» puesto no hay
+  /// ninguna que mandar, el alta contesta **400 «Falta la sucursal del
+  /// aparato»** y la pantalla lo enseña como «No subio ninguno».
+  ///
+  /// Pasó en el telefono de Jose el 21/09/2026, con una ruta entera hecha sin
+  /// señal esperando a subir. Y la trampa es que el trabajo **no se pierde** —
+  /// sigue entero en el aparato— pero no sube, y el aviso no dice que hacer.
+  ///
+  /// Asi que se pregunta UNA vez y se recuerda aqui, en las preferencias del
+  /// aparato, que es de donde es: la sucursal que se MIRA es a donde uno mira;
+  /// esta es donde uno esta.
+  static const sucursalDelAparato = 'sucursalDelAparato';
 }
 
 @DriftDatabase(

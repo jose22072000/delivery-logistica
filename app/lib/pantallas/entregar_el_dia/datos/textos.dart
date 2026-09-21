@@ -111,4 +111,11 @@ abstract final class TextosDeEntregarElDia {
     if (entrego.rechazados > 0) return hayRechazados(entrego.rechazados);
     return todoEntregado;
   }
+
+  /// La pregunta que evita el «No subió ninguno» del 21/09/2026.
+  static const deQueSucursalTitulo = '¿De qué sucursal es este aparato?';
+  static const deQueSucursalPorque =
+      'Un aparato pertenece a una sola sucursal, y hasta que no lo diga no '
+      'puede subir lo que se trabajó sin señal. Se pregunta una vez. No es la '
+      'sucursal que estás mirando: es dónde está el aparato.';
 }

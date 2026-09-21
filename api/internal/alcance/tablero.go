@@ -245,30 +245,62 @@ func (a *Acotado) EspejoMarcarCatalogoTraido(ctx context.Context) error {
 	return a.q.MarcarCatalogoTraido(ctx)
 }
 
-// EspejoListarProductos y EspejoListarClientes: UNA TANDA del catálogo o del padrón.
+// TandaDelPadron es UNA TANDA del catálogo o del padrón para la bajada del aparato.
 //
-// `desplazamiento` no es un adorno de paginación: es lo que hace que `truncado` sea una
-// promesa que se puede cumplir. Hasta el 15/09/2026 las dos servían siempre las primeras
-// `limite` filas ordenadas por nombre y se marcaba `truncado` al llegar al tope, pero la
-// tanda siguiente pedía EXACTAMENTE LO MISMO — no había por dónde seguir. Contra
-// producción eso dejó el aparato con `clientes = 2000` redondos de los 8.034 que hay, y
-// la bajada se dio por buena.
+// Las dos se sirven como los pedidos desde el 21/09/2026: **ordenadas por su marca**, no
+// por nombre. Hasta entonces se paginaban por desplazamiento sobre un orden alfabético, y
+// eso obligaba a devolver el reloj como `hasta` — lo que no cupo quedaba por debajo del
+// siguiente `desde` y no lo volvía a pedir nadie (`CLAUDE.md` §3). Contra producción eso
+// dejó el aparato con `clientes = 2000` redondos de los 8.034 que hay, y la bajada se dio
+// por buena.
 //
-// Se pagina por desplazamiento y no por marca de tiempo porque estas dos no tienen una
-// marca útil para eso: el orden es por nombre, y `synced_at` lo comparten a miles las
-// filas que PEDIDO trae de una vez —una sola transacción, una sola hora—, así que un corte
-// por marca o no avanza o parte el grupo.
+// EL CURSOR ES (MARCA, ID) Y NO UN DESPLAZAMIENTO, y las dos mitades hacen falta:
 //
-// `cambiadoDesde` es lo que hace que un arranque con el padrón al día NO cueste cinco
-// idas y vueltas. Va EN EL SQL y no en un `if` al recorrer las filas: filtrando después,
-// la tanda llega al tope igual, se marca `truncado` igual y el aparato encadena las cinco
-// para no aplicar ni una fila. Nil = todo, que es la carga inicial.
-func (a *Acotado) EspejoListarProductos(ctx context.Context, limite, desplazamiento int32, cambiadoDesde *time.Time) ([]sqlc.Product, error) {
-	return a.q.ListarProductos(ctx, sqlc.ListarProductosParams{
-		Sucursal:       a.Codigo(), // el catálogo se acota por CÓDIGO, no por uuid
-		Limite:         limite,
-		Desplazamiento: desplazamiento,
-		CambiadoDesde:  marcaOpcional(cambiadoDesde),
+//   - la MARCA, porque es lo que se puede devolver como `hasta`: quien pierda el cursor a
+//     mitad de la cadena vuelve a pedir desde ahí y no se deja nada atrás. Un
+//     desplazamiento no se puede devolver como marca, así que con él `hasta` mentía
+//     siempre;
+//   - el ID, porque el traspaso metió los 7.975 clientes de producción en UNA transacción
+//     y `now()` es la del inicio de la transacción: los 7.975 comparten `synced_at` al
+//     microsegundo. Un cursor de sólo marca sobre un grupo más grande que el tope o no
+//     avanza —sirve lo mismo para siempre— o se salta el resto del grupo.
+//
+// `Desde` nil es la carga inicial: sin filtro de marca. Y va EN EL SQL y no en un `if` al
+// recorrer las filas — filtrando después, la tanda llega al tope igual, se marca
+// `truncado` igual y el aparato encadena cinco vueltas para no aplicar ni una fila.
+type TandaDelPadron struct {
+	Desde *time.Time
+	Hasta time.Time
+	Tope  int32
+	// CursorMarca y CursorID son los de la ÚLTIMA FILA SERVIDA en la tanda anterior. Nil
+	// las dos = primera tanda de la cadena.
+	CursorMarca *time.Time
+	CursorID    *uuid.UUID
+}
+
+// desdeDe: CON CURSOR, EL `desde` DE LA PETICIÓN NO SE MIRA.
+//
+// El cursor ya lleva dentro por dónde iba la cadena, y es una cota más precisa que
+// cualquier marca: viene de una fila servida de verdad. Dejar los dos filtros en AND
+// parece inofensivo —el `hasta` que se devuelve nunca va por delante del cursor— pero ata
+// dos cosas que cambian por separado, y el día que una se mueva la tanda siguiente
+// devolvería CERO filas y la cadena se daría por terminada. Ése es exactamente el fallo de
+// los 2.000 clientes, escrito de otra manera.
+func (t TandaDelPadron) desdeDe() *time.Time {
+	if t.CursorMarca != nil {
+		return nil
+	}
+	return t.Desde
+}
+
+func (a *Acotado) EspejoDiferenciasDeProductos(ctx context.Context, t TandaDelPadron) ([]sqlc.Product, error) {
+	return a.q.DiferenciasDeProductos(ctx, sqlc.DiferenciasDeProductosParams{
+		Sucursal:    a.Codigo(), // el catálogo se acota por CÓDIGO, no por uuid
+		Desde:       marcaOpcional(t.desdeDe()),
+		Hasta:       marcaOpcional(&t.Hasta),
+		CursorMarca: marcaOpcional(t.CursorMarca),
+		CursorID:    idOpcionalPg(t.CursorID),
+		Tope:        t.Tope,
 	})
 }
 
@@ -282,16 +314,27 @@ func marcaOpcional(t *time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: *t, Valid: true}
 }
 
+// idOpcionalPg es lo mismo para la mitad del cursor que es un id. Nil deja el parámetro sin
+// poner, que es como el SQL entiende «no hay cursor todavía».
+func idOpcionalPg(id *uuid.UUID) pgtype.UUID {
+	if id == nil {
+		return pgtype.UUID{}
+	}
+	return pgtype.UUID{Bytes: *id, Valid: true}
+}
+
 func (a *Acotado) EspejoListarRutas(ctx context.Context) ([]sqlc.ListarRutasRow, error) {
 	return a.q.ListarRutas(ctx, sqlc.ListarRutasParams{Sucursal: a.sucursalPg()})
 }
 
-func (a *Acotado) EspejoListarClientes(ctx context.Context, limite, desplazamiento int32, cambiadoDesde *time.Time) ([]sqlc.ListarClientesRow, error) {
-	return a.q.ListarClientes(ctx, sqlc.ListarClientesParams{
+func (a *Acotado) EspejoDiferenciasDeClientes(ctx context.Context, t TandaDelPadron) ([]sqlc.DiferenciasDeClientesRow, error) {
+	return a.q.DiferenciasDeClientes(ctx, sqlc.DiferenciasDeClientesParams{
 		SucursalDelAlcance: a.Codigo(), // clientes también van por código
-		Limite:             limite,
-		Desplazamiento:     desplazamiento,
-		CambiadoDesde:      marcaOpcional(cambiadoDesde),
+		Desde:              marcaOpcional(t.desdeDe()),
+		Hasta:              marcaOpcional(&t.Hasta),
+		CursorMarca:        marcaOpcional(t.CursorMarca),
+		CursorID:           idOpcionalPg(t.CursorID),
+		Tope:               t.Tope,
 	})
 }
 

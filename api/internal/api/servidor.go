@@ -163,6 +163,10 @@ func (s *Servidor) Rutas() http.Handler {
 	s.rutasInformes(rt, sesion, admin)
 	s.rutasEventos(rt, sesion, admin)
 	s.rutasYo(rt, sesion, admin)
+	// La puerta de la WEB: redirección a Accesos y vuelta con cookie. Las cuatro
+	// van SIN sesión —son a las que se llega sin tenerla— y no tocan a la APK,
+	// que sigue entrando con usuario y contraseña (`internal/api/auth_web.go`).
+	s.rutasAuthWeb(rt, sesion, admin)
 	s.rutasEspejo(rt, sesion, admin)
 
 	return rt.Handler()

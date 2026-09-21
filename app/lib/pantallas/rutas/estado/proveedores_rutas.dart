@@ -69,9 +69,42 @@ final paginaRutasProvider = NotifierProvider<PaginaDeRutas, int>(
 /// `Selecciona una ruta para ver el detalle`.
 class RutaElegida extends Notifier<String?> {
   @override
-  String? build() => null;
+  String? build() {
+    // SI LA RUTA ELEGIDA SUBE MIENTRAS SE MIRA, SE LA SIGUE.
+    //
+    // Sin esto: se arma una ruta sin red, el detalle se abre solo con el id
+    // provisional, la ruta sube en ese mismo instante y sus pedidos pasan a
+    // colgar del id de verdad. La pantalla se queda mirando un id que ya no
+    // tiene paradas y dice **«Ver paradas (0)»** encima de una ruta de cinco,
+    // con sus kilómetros y sus kilos al lado. Cerrar y volver a abrir lo
+    // arreglaba, que es la peor forma posible: el dato estaba bien y la pantalla
+    // mentía.
+    //
+    // Pasó el 21/09/2026 con Jose delante: «no, eso no puede pasar, eso es al
+    // momento».
+    ref.listen(equivalenciasProvider, (_, siguiente) {
+      final mapa = siguiente.value;
+      final actual = state;
+      if (mapa == null || actual == null) return;
+      final real = mapa[actual];
+      if (real != null && real != actual) state = real;
+    });
+    return null;
+  }
 
-  void elegir(String? rutaId) => state = rutaId;
+  /// Elegir resuelve el id **en el momento**, además de seguirlo si cambia
+  /// después.
+  ///
+  /// Las dos cosas hacen falta y cada una tapa un hueco distinto. Mirar sólo los
+  /// cambios deja fuera el caso más común de todos: la ruta se arma, sube en el
+  /// mismo segundo —el ciclo está corriendo— y **para cuando alguien la elige la
+  /// equivalencia ya existe**, así que no hay ningún cambio que escuchar. Eso es
+  /// justo lo que se vio el 21/09/2026: «Ver paradas (0)» encima de una ruta
+  /// recién armada con sus kilómetros y sus kilos al lado.
+  void elegir(String? rutaId) {
+    final mapa = ref.read(equivalenciasProvider).value;
+    state = mapa?[rutaId] ?? rutaId;
+  }
 }
 
 final rutaElegidaProvider = NotifierProvider<RutaElegida, String?>(

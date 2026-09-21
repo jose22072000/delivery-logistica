@@ -399,9 +399,9 @@ UPDATE routes SET
     total_distance = $1,
     total_weight   = $2,
     total_price    = $3,
-    optimized      = true
-WHERE id = $4
-  AND ($5::uuid IS NULL OR branch_id = $5::uuid)
+    optimized      = coalesce($4::boolean, true)
+WHERE id = $5
+  AND ($6::uuid IS NULL OR branch_id = $6::uuid)
 RETURNING id, name, route_code, status, origin_address, origin_lat, origin_lng,
           total_distance, total_weight, total_price, delivery_date, vehicle_id,
           branch_id, started_at, finished_at, optimized, created_at, updated_at
@@ -411,6 +411,7 @@ type FijarTotalesDeRutaParams struct {
 	TotalDistance float64     `json:"total_distance"`
 	TotalWeight   float64     `json:"total_weight"`
 	TotalPrice    float64     `json:"total_price"`
+	Optimizado    *bool       `json:"optimizado"`
 	ID            uuid.UUID   `json:"id"`
 	Sucursal      pgtype.UUID `json:"sucursal"`
 }
@@ -439,11 +440,23 @@ type FijarTotalesDeRutaRow struct {
 // Los totales, ya con las paradas puestas y el recorrido calculado.
 // `total_distance` es el CIRCUITO CERRADO: los tramos más el regreso al origen. El camión
 // vuelve, y no contar la vuelta subestima el viaje justo a la mitad de las rutas largas.
+//
+// `optimized` DICE QUIÉN ORDENÓ LAS PARADAS, y aquí estaba clavado a `true`. Daba igual
+// que el orden fuese el que la persona puso a mano: la ruta se guardaba diciendo que lo
+// había calculado la máquina. Quien lo lee después —la pantalla, un informe, alguien
+// decidiendo si vuelve a optimizar— se creía esa firma, y reoptimizar «lo que ya estaba
+// optimizado» es justo lo que nadie hace. El orden del logístico se perdía sin que nadie
+// lo dijera.
+//
+// Va como `narg` y no como `arg` a propósito: NULL significa «lo ordenó la máquina», que
+// es lo que hacía este UPDATE desde siempre, así que ningún llamador que no lo mande
+// cambia de comportamiento por esta línea. Quien sabe la respuesta la manda.
 func (q *Queries) FijarTotalesDeRuta(ctx context.Context, arg FijarTotalesDeRutaParams) (FijarTotalesDeRutaRow, error) {
 	row := q.db.QueryRow(ctx, fijarTotalesDeRuta,
 		arg.TotalDistance,
 		arg.TotalWeight,
 		arg.TotalPrice,
+		arg.Optimizado,
 		arg.ID,
 		arg.Sucursal,
 	)

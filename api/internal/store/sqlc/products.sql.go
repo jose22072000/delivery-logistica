@@ -148,6 +148,106 @@ func (q *Queries) BuscarProductoPorSku(ctx context.Context, arg BuscarProductoPo
 	return i, err
 }
 
+const diferenciasDeProductos = `-- name: DiferenciasDeProductos :many
+
+SELECT
+    p.id, p.name, p.weight, p.packaging, p.units_per_package, p.category,
+    p.sku, p.sucursal_codigo, p.price, p.stock, p.unit, p.traido_at,
+    p.created_at, p.updated_at
+FROM products p
+WHERE
+    ($1::text IS NULL OR p.sucursal_codigo = $1::text)
+    AND lower(btrim(coalesce(p.category, ''))) NOT IN ('serv', 'servicio', 'servicios')
+    AND lower(coalesce(p.name, '')) NOT LIKE '%entrega a domicilio%'
+    AND lower(coalesce(p.name, '')) NOT LIKE '%servicio de entrega%'
+    -- ` + "`" + `desde` + "`" + ` ESTRICTO y ` + "`" + `hasta` + "`" + ` INCLUSIVO, como en los pedidos: dos ventanas seguidas no
+    -- se pisan ni dejan hueco. Y ` + "`" + `hasta` + "`" + ` hace falta DE VERDAD aquí: sin él se servirían
+    -- filas por encima de la ventana y el corte devolvería una marca mayor que el ` + "`" + `hasta` + "`" + `
+    -- de la respuesta, que es otra manera de dejar filas por debajo de la raya.
+    AND ($2::timestamptz IS NULL OR p.updated_at > $2::timestamptz)
+    AND ($3::timestamptz IS NULL OR p.updated_at <= $3::timestamptz)
+    AND (
+        $4::timestamptz IS NULL
+        OR p.updated_at > $4::timestamptz
+        OR (p.updated_at = $4::timestamptz
+            AND p.id > $5::uuid)
+    )
+ORDER BY p.updated_at ASC, p.id ASC
+LIMIT $6
+`
+
+type DiferenciasDeProductosParams struct {
+	Sucursal    *string            `json:"sucursal"`
+	Desde       pgtype.Timestamptz `json:"desde"`
+	Hasta       pgtype.Timestamptz `json:"hasta"`
+	CursorMarca pgtype.Timestamptz `json:"cursor_marca"`
+	CursorID    pgtype.UUID        `json:"cursor_id"`
+	Tope        int32              `json:"tope"`
+}
+
+// ---------------------------------------------------------------------------
+// El catálogo de la bajada del aparato  (GET /api/sync/cambios)
+// ---------------------------------------------------------------------------
+// Lo que cambió en el catálogo, ORDENADO POR LA MARCA y acotado por un cursor.
+//
+// Es la misma forma que `DiferenciasDePedidos`, y está copiada a propósito en vez de
+// inventada otra vez: quien contesta la bajada devuelve como `hasta` la marca de la ÚLTIMA
+// FILA SERVIDA y no su reloj, y para eso el orden tiene que ser el de la marca. Con el
+// orden por nombre que usa la pantalla, marcar `truncado` y devolver el reloj deja lo que
+// no cupo POR DEBAJO del próximo `desde`, y eso no lo vuelve a pedir nadie nunca más
+// (`CLAUDE.md` §3). Pasó con el padrón: 2.000 clientes redondos de 8.034.
+//
+// EL CURSOR LLEVA LA MARCA Y EL ID, y el id no es un adorno. El traspaso metió el catálogo
+// entero en UNA transacción, y `now()` es la del inicio de la transacción: miles de filas
+// comparten `updated_at` al microsegundo. Un cursor de sólo marca o no avanza —vuelve a
+// servir el grupo entero para siempre— o se salta lo que quedaba del grupo. Con `(marca,
+// id)` la tanda siguiente empieza EXACTAMENTE donde acabó la anterior, comparta marca o no.
+//
+// Los tres filtros de líneas de servicio se repiten aquí y tienen que seguir repetidos: un
+// «ENTREGA A DOMICILIO» que no sale en la pantalla pero sí baja al teléfono es el mismo
+// cobro duplicado, en el aparato que trabaja sin conexión y sin nadie que lo desmienta.
+func (q *Queries) DiferenciasDeProductos(ctx context.Context, arg DiferenciasDeProductosParams) ([]Product, error) {
+	rows, err := q.db.Query(ctx, diferenciasDeProductos,
+		arg.Sucursal,
+		arg.Desde,
+		arg.Hasta,
+		arg.CursorMarca,
+		arg.CursorID,
+		arg.Tope,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Product
+	for rows.Next() {
+		var i Product
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Weight,
+			&i.Packaging,
+			&i.UnitsPerPackage,
+			&i.Category,
+			&i.Sku,
+			&i.SucursalCodigo,
+			&i.Price,
+			&i.Stock,
+			&i.Unit,
+			&i.TraidoAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const guardarProductoDelCatalogo = `-- name: GuardarProductoDelCatalogo :one
 
 INSERT INTO products (
@@ -246,24 +346,14 @@ WHERE
     AND lower(btrim(coalesce(p.category, ''))) NOT IN ('serv', 'servicio', 'servicios')
     AND lower(coalesce(p.name, '')) NOT LIKE '%entrega a domicilio%'
     AND lower(coalesce(p.name, '')) NOT LIKE '%servicio de entrega%'
-    -- LO QUE CAMBIÓ DESDE LA ÚLTIMA VEZ. Ver el comentario largo de ` + "`" + `ListarClientes` + "`" + `:
-    -- el catálogo se traía entero en cada arranque para descartarlo después en Go.
-    -- ` + "`" + `updated_at` + "`" + ` NULL cuenta como cambiado, igual que en ` + "`" + `cambioDesde` + "`" + `.
-    AND (
-        $3::timestamptz IS NULL
-        OR p.updated_at IS NULL
-        OR p.updated_at > $3::timestamptz
-    )
 ORDER BY p.name ASC
-LIMIT $5 OFFSET $4
+LIMIT $3
 `
 
 type ListarProductosParams struct {
-	Sucursal       *string            `json:"sucursal"`
-	Q              *string            `json:"q"`
-	CambiadoDesde  pgtype.Timestamptz `json:"cambiado_desde"`
-	Desplazamiento int32              `json:"desplazamiento"`
-	Limite         int32              `json:"limite"`
+	Sucursal *string `json:"sucursal"`
+	Q        *string `json:"q"`
+	Limite   int32   `json:"limite"`
 }
 
 // Catálogo. Se llena solo: PEDIDO sondea Ventra y aquí se copia lo que él ya tiene.
@@ -292,17 +382,12 @@ type ListarProductosParams struct {
 //
 // Se compara la frase entera: con «entrega» a secas, cualquier producto que la mencionara
 // desaparecería del catálogo y nadie sabría por qué.
-// El OFFSET es para la bajada del aparato: el catálogo se sirve por tandas y la
-// siguiente tiene que empezar donde acabó la anterior. Sin él, `truncado` sería una
-// promesa que no se puede cumplir — el aparato vuelve a pedir y recibe lo mismo.
+// ESTA CONSULTA ES LA DE LA PANTALLA, Y SÓLO LA DE LA PANTALLA. Ordena por nombre, que es
+// como se busca a ojo, y por eso NO sirve para la bajada del aparato: «los 2.000 primeros
+// por nombre» son 2.000 cualesquiera y no hay última fila servida que devolver. La bajada
+// va por `DiferenciasDeProductos`, aquí abajo.
 func (q *Queries) ListarProductos(ctx context.Context, arg ListarProductosParams) ([]Product, error) {
-	rows, err := q.db.Query(ctx, listarProductos,
-		arg.Sucursal,
-		arg.Q,
-		arg.CambiadoDesde,
-		arg.Desplazamiento,
-		arg.Limite,
-	)
+	rows, err := q.db.Query(ctx, listarProductos, arg.Sucursal, arg.Q, arg.Limite)
 	if err != nil {
 		return nil, err
 	}

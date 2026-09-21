@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../diseno/anchos.dart';
 import '../nucleo/plataforma.dart';
+import 'aviso_de_version_nueva.dart';
 import 'barra_lateral.dart';
 import 'barra_superior.dart';
 import 'franja_de_estado.dart';
@@ -14,6 +15,8 @@ import 'pantalla_registrada.dart';
 /// De arriba abajo y siempre en el mismo orden:
 ///
 ///   barra superior (64 px)  ← titulo, menu en movil, sucursal, moneda, avatar
+///   AVISO DE VERSION NUEVA  ← solo cuando la hay; recargar en web, instalar en
+///                             el aparato
 ///   FRANJA DE ESTADO        ← de que hora son los datos y cuantos sin subir
 ///   la pantalla
 ///
@@ -36,6 +39,23 @@ import 'pantalla_registrada.dart';
 /// Lo que se quita es el aparato de PREPARARSE para no tener conexion, no el
 /// aviso de que ahora mismo no la hay: si la web pierde la red a mitad, eso
 /// sigue saliendo por su sitio de siempre (ver el informe).
+///
+/// ## El aviso de version nueva va AQUI, y en los TRES destinos
+///
+/// Es la unica pieza del armazon que sale tambien en la web, y no es una
+/// excepcion a §1 sino su caso mas claro: la web es justo donde una pestaña
+/// lleva abierta desde ayer con el paquete de anteayer, y ahi lo que hace falta
+/// es **recargar** —dos segundos, sin nada que perder, porque la web no tiene ni
+/// copia ni cola—. Lo que cambia por destino es el mensaje y el gesto, no si
+/// existe; eso lo decide `aviso_de_version_nueva.dart`, que es el unico sitio
+/// donde se mira.
+///
+/// Va en el armazon y no en una pantalla por lo mismo que el patron lo mete en
+/// su `layout.tsx`: quien tiene la version vieja la tiene abierta en la pantalla
+/// en la que trabaja, no en la que se acuerde de visitar. **La puerta
+/// (`/acceso`) queda fuera**, porque va sin armazon — y esta bien: alli todavia
+/// no hay nada que perder ni nada a medias, y el aviso sale en cuanto se entra.
+///
 class Armazon extends ConsumerWidget {
   const Armazon({
     required this.pantallas,
@@ -104,6 +124,13 @@ class Armazon extends ConsumerWidget {
                       ? null
                       : () => Scaffold.of(contexto).openDrawer(),
                 ),
+                // ENCIMA DE LA FRANJA DE ESTADO, y sin `if`: el aviso decide
+                // por si mismo si tiene algo que decir en este destino, y casi
+                // siempre no tiene nada y no ocupa un pixel. Arriba del todo
+                // porque cuando sale es mas importante que la hora de los
+                // datos: con la version vieja, la hora puede estar bien y la
+                // pantalla seguir mintiendo.
+                const AvisoDeVersionNueva(),
                 if (hayDiaQueTraer) const FranjaDeEstado(),
                 Expanded(child: child),
               ],

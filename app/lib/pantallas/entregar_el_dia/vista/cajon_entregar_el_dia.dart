@@ -13,6 +13,8 @@ import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
 import '../../../nucleo/sincro/ciclo.dart';
+import '../../../nucleo/sincro/sucursal_del_aparato.dart';
+import '../../rutas/estado/proveedores_rutas.dart';
 import '../../sincronizacion/vista/fila_de_rechazo.dart';
 import '../datos/textos.dart';
 import '../estado/entregar_el_dia.dart';
@@ -71,6 +73,13 @@ class _CajonDeEntregarElDiaState extends ConsumerState<_CajonDeEntregarElDia> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // DE QUE SUCURSAL ES ESTE APARATO, y sólo cuando hace falta.
+          //
+          // Quien tiene su sucursal no ve esto nunca: la pone el servidor con la
+          // sesión. Quien ve las ocho no tiene ninguna, y sin una el alta del
+          // aparato contesta 400 y **no sube ni un apunte** — pasó el
+          // 21/09/2026 con una ruta entera hecha sin señal esperando.
+          const _DeQueSucursalEsEsteAparato(),
           if (marcha.enVuelo)
             _Subiendo(marcha: marcha)
           else if (entrego != null)
@@ -82,6 +91,61 @@ class _CajonDeEntregarElDiaState extends ConsumerState<_CajonDeEntregarElDia> {
           // que ensena que existe, y el dia que aparezca algo alguien ya sabra
           // donde mirar.
           _Bandeja(rechazados: rechazados),
+        ],
+      ),
+    );
+  }
+}
+
+/// La pregunta que faltaba: **¿de qué sucursal es este aparato?**
+///
+/// Sale sólo si hace falta —no hay ninguna guardada y quien mira no tiene la
+/// suya, o sea que está en «Todas»— y se va en cuanto se contesta. No se elige
+/// por nadie: un aparato dado de alta en la sucursal equivocada baja los pedidos
+/// de otra gente y sube el trabajo a donde no es.
+class _DeQueSucursalEsEsteAparato extends ConsumerWidget {
+  const _DeQueSucursalEsEsteAparato();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final delAparato = ref.watch(sucursalDelAparatoProvider);
+    final mirada = ref.watch(sucursalMiradaProvider);
+    if (delAparato != null || mirada != null) return const SizedBox.shrink();
+
+    final sucursales = ref.watch(sucursalesProvider).value ?? const [];
+    if (sucursales.length < 2) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: Aire.xl),
+      padding: const EdgeInsets.all(Aire.lg),
+      decoration: BoxDecoration(
+        color: Colores.ambarFondo,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colores.ambar.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            TextosDeEntregarElDia.deQueSucursalTitulo,
+            style: Tipos.texto(tamano: 15, peso: FontWeight.w600),
+          ),
+          const SizedBox(height: Aire.sm),
+          Text(TextosDeEntregarElDia.deQueSucursalPorque),
+          const SizedBox(height: Aire.lg),
+          Wrap(
+            spacing: Aire.sm,
+            runSpacing: Aire.sm,
+            children: [
+              for (final s in sucursales)
+                OutlinedButton(
+                  onPressed: () => unawaited(
+                    ref.read(sucursalDelAparatoProvider.notifier).poner(s.id),
+                  ),
+                  child: Text(s.name),
+                ),
+            ],
+          ),
         ],
       ),
     );

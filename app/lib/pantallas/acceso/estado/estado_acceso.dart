@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/identidad/almacen_sesion.dart';
+import '../../../nucleo/identidad/entrada_por_accesos.dart';
 import '../../../nucleo/proveedores.dart';
 import '../datos/servicio_acceso.dart';
 
@@ -8,6 +9,12 @@ final servicioAccesoProvider = Provider<ServicioDeAcceso>(
   (ref) => ServicioDeAcceso(
     auth: ref.watch(dioAuthProvider),
     almacen: ref.watch(almacenSesionProvider),
+    // La puerta de la WEB, y sólo en la web: allí cerrar sesión es pasar por
+    // Accesos para que retire la cookie. En la APK y en el escritorio va `null`
+    // y todo sigue exactamente igual que hasta hoy.
+    porAccesos: ref.watch(entraPorAccesosProvider)
+        ? ref.watch(entradaPorAccesosProvider)
+        : null,
   ),
 );
 

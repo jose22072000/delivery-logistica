@@ -10,6 +10,7 @@ import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/tema.dart';
 import '../datos/almacen_api.dart';
 import '../estado/estado_almacenes.dart';
+import 'almacenes_de_la_ultima_bajada.dart';
 import 'editor_almacen.dart';
 
 /// Almacenes — `/warehouses`. Pliego: `pantallas.md` §6.
@@ -125,6 +126,12 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
             style: tema.textTheme.bodySmall,
           ),
           const SizedBox(height: 16),
+          // DE CUÁNDO SON LOS QUE TIENE EL APARATO. Esta pantalla lee de Accesos
+          // en vivo, pero lo que el aparato usa para medir el domicilio es su
+          // copia, y esa es de la última vez que hubo red. Mirar aquí una lista
+          // recién traída y salir a la calle con otra distinta es exactamente el
+          // caso que esto dice en voz alta. En la web no pinta nada (regla 1).
+          const AlmacenesDeLaUltimaBajada(),
           if (datos.error case final fallo?)
             _Fallo(
               fallo: fallo,

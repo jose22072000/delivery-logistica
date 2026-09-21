@@ -5,6 +5,8 @@
 //  1. Configuración. Si falta algo, se muere AQUÍ, con un mensaje que dice qué falta.
 //     Nunca un 500 a media tarde en la pantalla de alguien que está cargando un camión.
 //  2. Base de datos, con ping. Un proceso vivo que no llega a Postgres está caído.
+//     2-bis. Y AL DÍA: con la base atrasada no se arranca. Un contenedor que no levanta se ve
+//     en el despliegue; una flota congelada con la web en verde, no.
 //  3. Servidor, con apagado ordenado.
 package main
 
@@ -60,6 +62,16 @@ func correr() error {
 		return err
 	}
 	defer almacen.Cerrar()
+
+	// LA BASE TIENE QUE ESTAR AL DÍA, y si no lo está esto se muere aquí.
+	//
+	// Es el paso 2-bis y va justo detrás del ping, antes de servir nada. El 17/09/2026 la
+	// API se desplegó con la 00006 sin aplicar y estuvo un día entero «arrancada»:
+	// instalaciones nuevas y la web, verdes; la flota que ya estaba en la calle, congelada
+	// con un 500 en la bajada por diferencias que no vio nadie. Ver `db/migraciones.go`.
+	if err := almacen.ExigirMigraciones(ctx); err != nil {
+		return err
+	}
 
 	reg.Info("arrancando",
 		"version", cfg.Version,

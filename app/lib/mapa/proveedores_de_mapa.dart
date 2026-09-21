@@ -13,6 +13,7 @@ import '../nucleo/red/entorno.dart';
 import '../nucleo/registro/registro.dart';
 import '../pantallas/rutas/datos/mapa_en_vivo.dart';
 import 'anuncio_de_mapa.dart';
+import 'calles_del_paquete.dart';
 import 'carpeta_del_mapa.dart';
 import 'carpeta_en_disco.dart';
 import 'descarga_de_mapa.dart';
@@ -141,4 +142,39 @@ final fondoConPaqueteProvider = Provider<FondoDeCalles>((ref) {
   final paquete = ref.watch(paqueteAbiertoProvider).value;
   if (paquete == null) return red;
   return FondoDelPaquete(paquete, respaldo: red);
+});
+
+/// EL RECORRIDO POR CALLES QUE HAY QUE ENCHUFAR AL MAPA DE LA RUTA.
+///
+/// El gemelo de [fondoConPaqueteProvider], para la otra mitad del mapa. Y es la
+/// mitad que faltaba: el 21/09/2026 el fondo ya salía del paquete —las calles se
+/// veían con el avión puesto— y encima de ellas la ruta seguía dibujándose en
+/// líneas rectas de parada a parada. Jose:
+///
+/// > «y ademas recontra la ruta no es logica es son rectas eso no lo queremos te
+/// > dije»
+///
+/// El motivo era que `recorridoPorCallesProvider` sólo sabía de OSRM, que es una
+/// petición HTTP. Con el paquete delante, el recorrido sale de la misma
+/// geometría con la que se pinta el fondo.
+///
+/// El orden es paquete → red, igual que en el fondo y por lo mismo: el paquete
+/// es instantáneo, no gasta datos y es lo único que hay en el patio de un
+/// almacén. Con señal, el paquete contesta primero **y mejor**: OSRM tarda
+/// segundos por una conexión de las de allá, y esto son decenas de
+/// milisegundos.
+///
+/// ## Por qué la red se construye aquí y no se pide por `ref.watch`
+///
+/// Lo mismo que en [fondoConPaqueteProvider], y con el mismo final: **éste es el
+/// que sustituye a `recorridoPorCallesProvider`**, así que mirarlo para sacar el
+/// respaldo sería mirarse a sí mismo y Riverpod entra en dependencia circular.
+/// Revienta al abrir una ruta, no al arrancar.
+final recorridoConPaqueteProvider = Provider<RecorridoPorCalles>((ref) {
+  // El de OSRM, montado aquí mismo. Es el mismo que monta
+  // `recorridoPorCallesProvider` por defecto.
+  final red = CallesDeOsrm();
+  final paquete = ref.watch(paqueteAbiertoProvider).value;
+  if (paquete == null) return red;
+  return CallesDelPaquete(paquete, respaldo: red);
 });

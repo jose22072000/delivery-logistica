@@ -36,6 +36,20 @@ void main() {
         fondoDeCallesProvider.overrideWith(
           (ref) => ref.watch(fondoConPaqueteProvider),
         ),
+        // Y LA RUTA POR CALLES, que es la otra mitad del mismo mapa.
+        //
+        // Sin esta línea pasa lo que Jose vio el 21/09/2026 con el avión
+        // puesto: el fondo salía del paquete —las calles de La Habana se
+        // veían— y encima la ruta se dibujaba en líneas rectas de parada a
+        // parada, porque el único enrutador que había era una petición a
+        // OSRM. «la ruta no es logica es son rectas eso no lo queremos te
+        // dije». La geometría para enrutar estaba ya dentro del aparato.
+        //
+        // En la web no hay paquete y el proveedor cae solo a OSRM, igual que
+        // el fondo.
+        recorridoPorCallesProvider.overrideWith(
+          (ref) => ref.watch(recorridoConPaqueteProvider),
+        ),
       ],
       child: const RepartoApp(),
     ),

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -328,5 +329,153 @@ func TestNoSeMandanCabecerasQueNadieLee(t *testing.T) {
 	}
 	if vistas.Get("X-Apunte") != "k" {
 		t.Errorf("falta X-Apunte: %q", vistas.Get("X-Apunte"))
+	}
+}
+
+// EL `hasta` Y EL `continuar` DE LA RESPUESTA SE LEEN, y el cursor además se reenvía.
+//
+// Aquí estuvo el agujero del §3 visto desde este lado: `sobreCambios` tenía dos campos
+// —`cambios` y `truncado`— y los otros dos se tiraban al decodificar. Sin `hasta`, quien
+// llama no tiene más marca que la que él mismo mandó, así que una tanda cortada se anota
+// como si hubiera llegado hasta el reloj y **lo que no cupo no lo vuelve a pedir nadie**.
+// Sin `continuar`, el catálogo y el padrón no se pueden continuar cuando miles de filas
+// comparten la misma marca, que es lo que hay en producción desde el traspaso.
+func TestSeLeenElHastaYElCursorDeLaRespuesta(t *testing.T) {
+	servido := "2026-09-14T10:41:07.5Z"
+	var vista string
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			vista = r.URL.RequestURI()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"hasta": "` + servido + `",
+				"completa": false,
+				"truncado": true,
+				"continuar": "elCursorDelReparto",
+				"cambios": {"customers": {"puestos": [], "quitados": []}}
+			}`))
+		}))
+	defer servidor.Close()
+
+	c := Nuevo(servidor.URL, "clave-de-prueba", 5*time.Second)
+	desde := time.Date(2026, 9, 14, 8, 0, 0, 0, time.UTC)
+	techo := time.Date(2026, 9, 14, 11, 2, 31, 0, time.UTC)
+
+	b, err := c.Diferencias(context.Background(), sincro.Ventana{
+		Sucursal:  uuid.New(),
+		Desde:     &desde,
+		Hasta:     techo,
+		Tope:      500,
+		Continuar: "elCursorDelAparato",
+	})
+	if err != nil {
+		t.Fatalf("no tenía que fallar: %v", err)
+	}
+
+	esperado, _ := time.Parse(time.RFC3339Nano, servido)
+	if !b.Hasta.Equal(esperado) {
+		t.Fatalf("no se leyó el «hasta» de la respuesta: %v. Sin él, quien llama anota la "+
+			"marca que mandó y se salta lo que el reparto no llegó a servir", b.Hasta)
+	}
+	if !b.Truncado {
+		t.Fatalf("no se leyó «truncado»")
+	}
+	if b.Continuar != "elCursorDelReparto" {
+		t.Fatalf("no se leyó «continuar»: %q", b.Continuar)
+	}
+	if _, hay := b.Cambios["customers"]; !hay {
+		t.Fatalf("no se leyeron los cambios: %v", b.Cambios)
+	}
+	if !strings.Contains(vista, "continuar=elCursorDelAparato") {
+		t.Fatalf("el cursor del aparato no se reenvió al reparto: %s", vista)
+	}
+}
+
+// Y sin cursor no se manda el parámetro vacío: un `continuar=` vacío no es «empieza de
+// cero» por casualidad, lo es porque el reparto lo trata así, y mandarlo sólo confunde al
+// leer un registro.
+func TestSinCursorNoSeMandaElParametro(t *testing.T) {
+	var vista string
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			vista = r.URL.RequestURI()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"hasta":"2026-09-14T11:02:31Z","cambios":{}}`))
+		}))
+	defer servidor.Close()
+
+	c := Nuevo(servidor.URL, "clave-de-prueba", 5*time.Second)
+	if _, err := c.Diferencias(context.Background(), sincro.Ventana{
+		Sucursal: uuid.New(),
+		Hasta:    time.Date(2026, 9, 14, 11, 2, 31, 0, time.UTC),
+		Tope:     500,
+	}); err != nil {
+		t.Fatalf("no tenía que fallar: %v", err)
+	}
+	if strings.Contains(vista, "continuar") {
+		t.Fatalf("se mandó el cursor sin tenerlo: %s", vista)
+	}
+}
+
+// EL ID DE UNA RUTA RECIÉN CREADA VIENE DENTRO DE `ruta`, NO EN LA RAÍZ.
+//
+// Ésta es la prueba del fallo que se pasó una tarde escondido el 21/09/2026: se armaba una
+// ruta con sus paradas, subía bien, el servidor la guardaba entera —comprobado en su base:
+// 5 paradas— y el teléfono enseñaba «Ver paradas (0)» con los kilómetros al lado.
+//
+// La causa era de una línea: aquí se leía sólo `id` en la raíz, y el reparto contesta al
+// crear una ruta con `{"ruta": {...}, "avisos": {...}}`. Sin id no hay equivalencia, el
+// `local-…` del aparato no se sustituye nunca, y los pedidos —que sí bajan enganchados al
+// id de verdad— dejan de verse en la ruta que el aparato sigue mirando.
+//
+// Las dos formas van juntas a propósito: leer sólo una de las dos es justo el fallo.
+func TestElIDDeLoCreadoSeLeeDeLasDosFormas(t *testing.T) {
+	t.Parallel()
+
+	const real = "0199b1f0-4444-7000-8000-000000000004"
+
+	for _, caso := range []struct {
+		nombre string
+		cuerpo string
+		quiere string
+	}{
+		{"en la raíz, como contestan los demás", `{"id":"` + real + `"}`, real},
+		{
+			"dentro de `ruta`, como contesta crear una ruta",
+			`{"ruta":{"id":"` + real + `","routeCode":"RT-20260921-009"},"avisos":{}}`,
+			real,
+		},
+		{"sin id: hay apuntes que no crean nada", `{"ok":true}`, ""},
+	} {
+		t.Run(caso.nombre, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusCreated)
+					_, _ = w.Write([]byte(caso.cuerpo))
+				}))
+			defer srv.Close()
+
+			id, err := Nuevo(srv.URL, "clave", time.Second).
+				Aplicar(context.Background(), sincro.Peticion{
+					Metodo: http.MethodPost,
+					Ruta:   "/routes",
+					Cuerpo: []byte(`{}`),
+					Clave:  "k1",
+				})
+			if err != nil {
+				t.Fatalf("no debería fallar: %v", err)
+			}
+			salio := ""
+			if id != nil {
+				salio = id.String()
+			}
+			if salio != caso.quiere {
+				t.Errorf("EL ID DE LO CREADO NO VUELVE AL APARATO: se esperaba %q y salió %q. "+
+					"Sin él, el aparato se queda con su `local-…` y la ruta se le ve vacía "+
+					"aunque arriba tenga todas sus paradas.", caso.quiere, salio)
+			}
+		})
 	}
 }

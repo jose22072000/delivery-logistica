@@ -63,10 +63,17 @@ entra en auth y la API le contesta 401 sin decir por qué.
 DATABASE_URL=postgres://<usuario>:<clave>@procovar-postgres-nlfols:5432/procovar_reparto_sync
 REPARTO_URL=http://reparto-api-xzlmhw:8080
 REPARTO_API_KEY=<la de PEDIDO, ver abajo>
-SYNC_IDENTIDAD=cabeceras
+SYNC_IDENTIDAD=token
 JWT_SECRET=<el mismo>
 PUERTO=8080
 ```
+
+**`SYNC_IDENTIDAD=token`, no `cabeceras`** (corregido el 21/09/2026; aquí ponía el otro).
+`cabeceras` espera que un proxy delante haya verificado el token y ponga `X-Persona`, y
+ese proxy **no existe**: Traefik enruta `/sync` directo al contenedor, la cabecera llega
+vacía y el servicio contesta **401 a todo**. El cliente lee un 401 que no se arregla
+renovando como «se acabó la sesión» y echa al logístico a la pantalla de acceso justo
+cuando le vuelve la señal. El porqué entero, en `docs/despliegue.md` §3.3.
 
 Se llama **`REPARTO_URL`**, no `REPARTO_API_URL`. Y las tres de abajo son obligatorias: sin
 ellas el servicio **se niega a arrancar** y dice cuáles faltan, que es lo correcto.
@@ -75,10 +82,30 @@ ellas el servicio **se niega a arrancar** y dice cuáles faltan, que es lo corre
 
 ```
 DATABASE_URL=<la misma que reparto-api>
-PEDIDO_API_URL=<la interna de pedido-api>
-DELIVERY_URL=http://reparto-api:8080
+PEDIDO_API_URL=<la interna de pedido-api, con su nombre completo: http://pedido-api-zcuspu:PUERTO>
+DELIVERY_URL=http://reparto-api-xzlmhw:8080
 SERVICE_API_KEY=<la misma>
+ENTORNO=produccion
 ```
+
+`DELIVERY_URL` con el **nombre completo** del servicio, como las de arriba: `reparto-api`
+a secas no resuelve. Y hay que ponerla: «vacía = a mí mismo» es una regla de la api, y
+esto no es la api.
+
+Las dos claves son **la misma** que la de `reparto-api`, y no es un detalle: con una
+distinta el espejo arranca, le pide los pedidos a PEDIDO y se come un **401 al meterlos**.
+Los trae y no los guarda, sin que nadie lo vea.
+
+Todo lo demás tiene valores por defecto medidos (`docs/despliegue.md` §3.2) y no se toca
+sin un motivo escrito.
+
+**Esta Application no lleva Container Port, ni dominio, ni sondeo de salud, y su Command
+se deja vacío.** En particular **nada de `--once`**: con esa bandera el espejo hace una
+pasada, sale, Dokploy lo relevanta y queda un bucle de reinicios que además machaca a
+PEDIDO con la pasada entera cada vez. El ciclo ya lo lleva el proceso dentro, cada minuto.
+Por qué es una Application y no un trabajo a mano como las migraciones, y **qué se rompe
+el día que se pare** (el tablero se queda con los pedidos de la última pasada y no lo dice
+nadie): `docs/despliegue.md` §2-bis.
 
 ### `reparto-web`
 

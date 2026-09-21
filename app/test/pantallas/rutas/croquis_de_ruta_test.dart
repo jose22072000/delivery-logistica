@@ -77,6 +77,32 @@ class FondoQueSiTrae implements FondoDeCalles {
   }
 }
 
+/// Un fondo que se queda esperando y contesta cuando se le dice. Sirve para
+/// mirar qué pasa **en el momento en que llega** una tesela, que es donde se
+/// decide si el mapa se repinta.
+class UnaTeselaQueLlega implements FondoDeCalles {
+  UnaTeselaQueLlega(this.imagen);
+
+  final ui.Image imagen;
+  final _pendientes = <Completer<ui.Image?>>[];
+
+  @override
+  Future<ui.Image?> tesela(int z, int x, int y) {
+    final c = Completer<ui.Image?>();
+    _pendientes.add(c);
+    return c.future;
+  }
+
+  int get cuantasPendientes => _pendientes.length;
+
+  void contesta() {
+    for (final c in _pendientes) {
+      if (!c.isCompleted) c.complete(imagen);
+    }
+    _pendientes.clear();
+  }
+}
+
 /// Un enrutador que SI contesta, y apunta por donde le mandaron pasar.
 class CallesQueSiContestan implements RecorridoPorCalles {
   CallesQueSiContestan(this.linea);
@@ -97,6 +123,12 @@ class CallesQueSiContestan implements RecorridoPorCalles {
 }
 
 void main() {
+  // EL ALMACÉN DE TESELAS ES DE MÓDULO —para no volver a pedirlas al cambiar de
+  // pestaña— así que sobrevive de una prueba a la siguiente. Sin vaciarlo, una
+  // prueba que guarda teselas hace que la de «sin señal» las vea y el mapa se
+  // dé por «con calles». Pasó el 21/09/2026.
+  setUp(olvidarLoTraidoDelMapa);
+
   group('donde cae cada parada', () {
     test('van en el orden de visita y con su numero', () {
       final trazado = trazar(
@@ -358,6 +390,51 @@ void main() {
       expect(cerca.zoom, normal.zoom + 2);
       // La barra de kilómetros también: al acercar, un píxel mide menos.
       expect(cerca.kmPorPixel, lessThan(normal.kmPorPixel));
+    });
+
+    testWidgets('cuando LLEGA una tesela, el mapa se repinta', (
+      tester,
+    ) async {
+      // Visto en el teléfono el 21/09/2026, con el mapa de Cuba bajado y el
+      // avión puesto: una sola tesela dibujada arriba a la izquierda y el resto
+      // del recuadro en blanco, mientras el texto decía «Mapa de calles». Las
+      // teselas llegaban y nadie volvía a pintar.
+      //
+      // La causa: el almacén de teselas es de MÓDULO —para no volver a pedirlas
+      // al cambiar de pestaña— así que el pintor viejo y el nuevo sostienen el
+      // mismo objeto, y `viejo.teselas.length != teselas.length` compara un
+      // mapa consigo mismo. Siempre falso. Ahora hay un sello que sólo sube.
+      //
+      // La prueba mira el PINTOR, no un píxel: es donde se decide, y un píxel
+      // de una tesela de mentira no distingue «no se pintó» de «se pintó gris».
+      olvidarLoTraidoDelMapa();
+      final calles = UnaTeselaQueLlega((await tester.runAsync(unaTesela))!);
+      await pintar(tester, tresParadas, fondo: calles);
+
+      CustomPainter pintorDeAhora() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((c) => c.painter)
+          .whereType<CustomPainter>()
+          .first;
+
+      // Las teselas se piden en un `addPostFrameCallback`, así que hace falta
+      // un fotograma para que la petición salga siquiera.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final antes = pintorDeAhora();
+      calles.contesta();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+        pintorDeAhora().shouldRepaint(antes),
+        isTrue,
+        reason:
+            'LLEGÓ UNA TESELA Y EL MAPA NO SE REPINTA: el almacén es compartido, '
+            'así que comparar su tamaño compara un objeto consigo mismo. Hace '
+            'falta un sello que suba con cada tesela guardada.',
+      );
     });
 
     testWidgets('los botones de acercar y alejar MUEVEN el mapa', (

@@ -168,10 +168,7 @@ class Trazado {
 
   /// La ida: almacen → parada 1 → parada 2 → … Sin cerrar el circuito, igual
   /// que `tramos()` en `geo.dart`.
-  List<Offset> get ida => [
-    ?origen,
-    for (final p in paradas) p.donde,
-  ];
+  List<Offset> get ida => [?origen, for (final p in paradas) p.donde];
 
   /// Donde cae un punto cualquiera. Lo usa la linea por carretera, que trae
   /// cientos de puntos que no son paradas.
@@ -295,7 +292,8 @@ Trazado trazar(
     paradas: const [],
     // El arrastre se resta del centro: mover el mapa a la derecha es mirar un
     // trozo que está más a la izquierda.
-    centroAncho: (minAncho + maxAncho) / 2 - arrastre.dx / (escala * acercamiento),
+    centroAncho:
+        (minAncho + maxAncho) / 2 - arrastre.dx / (escala * acercamiento),
     centroAlto: (minAlto + maxAlto) / 2 - arrastre.dy / (escala * acercamiento),
     escala: escala * acercamiento,
     tamano: tamano,
@@ -341,6 +339,7 @@ class CroquisDeRuta extends StatefulWidget {
     required this.fondo,
     required this.porCalles,
     this.onQueSeVe,
+    this.aPantallaCompleta = false,
     super.key,
   });
 
@@ -355,6 +354,16 @@ class CroquisDeRuta extends StatefulWidget {
 
   /// Se avisa cuando cambia lo que se esta viendo, para que la pantalla lo diga.
   final void Function(QueSeVe)? onQueSeVe;
+
+  /// A PANTALLA COMPLETA NO HAY LISTA DEBAJO, y eso cambia los gestos.
+  ///
+  /// Dentro del detalle de la ruta el mapa vive en medio de una lista que se
+  /// desplaza, asi que **un dedo es de la lista** y el mapa solo atiende dos
+  /// dedos: si no, arrastrar sobre el mapa deja al chofer sin poder llegar al
+  /// final de la pantalla (pasó, 17/09/2026). Abierto a pantalla completa no hay
+  /// nada debajo que pueda perder el gesto, asi que **un dedo mueve el mapa**,
+  /// que es lo que hace cualquier mapa del mundo.
+  final bool aPantallaCompleta;
 
   /// La clave con la que la prueba lo encuentra. Buscarlo por su tipo ataria la
   /// prueba a como esta hecho el dibujo.
@@ -381,16 +390,126 @@ class CroquisDeRuta extends StatefulWidget {
 /// navegador. El recorrido va por id de ruta, que es lo que lo identifica;
 /// las teselas por su `z/x/y`, que es lo mismo en todas las rutas.
 final _teselasTraidas = <String, ui.Image>{};
+
+/// CUANTAS TESELAS SE HAN GUARDADO YA, en total y desde que arrancó.
+///
+/// Existe porque el almacén de arriba es **de módulo**: el pintor viejo y el
+/// nuevo sostienen el MISMO objeto, así que `viejo.teselas.length !=
+/// teselas.length` compara un mapa consigo mismo y **siempre da falso**. El
+/// resultado, visto en el teléfono el 21/09/2026 con el mapa de Cuba bajado y
+/// el avión puesto: una sola tesela dibujada arriba a la izquierda y el resto
+/// del recuadro en blanco, mientras el texto decía «Mapa de calles». Las
+/// teselas llegaban; nadie volvía a pintar.
+///
+/// Un contador que sólo sube es lo que hace comparable un almacén compartido:
+/// no dice cuáles hay, dice **que hay una más que antes**, que es justo lo que
+/// `shouldRepaint` necesita saber.
+///
+/// Lo rompí yo el 17/09 al mover las teselas fuera del `State` para no volver a
+/// pedirlas al cambiar de pestaña. La ganancia era real; el precio, que la
+/// única señal de cambio que había dejó de cambiar.
+int _selloDeLasTeselas = 0;
 final _recorridosTraidos = <String, List<Punto>>{};
 final _regresosTraidos = <String, List<Punto>>{};
+
+/// Guarda una tesela Y SUBE EL SELLO. **Las dos cosas van juntas siempre**, y
+/// por eso es una funcion y no dos lineas sueltas: la primera vez que escribi
+/// esto la tesela se guardaba y el sello se quedaba donde estaba, asi que el
+/// pintor nuevo y el viejo daban el mismo numero y Flutter se ahorraba el
+/// repintado. En el telefono se veia una tesela pintada arriba a la izquierda y
+/// el resto del recuadro en blanco.
+void _guardarTeselaTraida(String clave, ui.Image imagen) {
+  _teselasTraidas[clave] = imagen;
+  _selloDeLasTeselas++;
+}
 
 /// Para las pruebas: dos casos seguidos no pueden compartir lo traido por el
 /// anterior, o el segundo pasa sin pedir nada y no prueba lo que dice.
 @visibleForTesting
 void olvidarLoTraidoDelMapa() {
   _teselasTraidas.clear();
+  _selloDeLasTeselas++;
   _recorridosTraidos.clear();
   _regresosTraidos.clear();
+}
+
+/// EL PELLIZCO DEL TELEFONO, y por que es una subclase y no un `GestureDetector`.
+///
+/// Jose, 21/09/2026, con la APK en la mano: «en el apk los gestos de alejar y
+/// acercar en el mapa no estan funcionando tampoco» y «ni me puedo mover en el
+/// mapa desde la apk estoy sellado ahi y no me puedo mover». Las dos cosas eran
+/// verdad y las dos salian de aqui: el arrastre estaba filtrado a
+/// `kind == mouse`, y el pellizco solo se atendia como `PointerScaleEvent`, que
+/// es lo que manda un **trackpad**. Un telefono manda dos dedos, y a esos no los
+/// miraba nadie. En el movil el mapa estaba sellado: ni acercar, ni mover.
+///
+/// Un `ScaleGestureRecognizer` de los normales no sirve, y esa es la parte que
+/// hay que entender antes de tocar esto: **tambien reclama el gesto de un solo
+/// dedo** —lo trata como desplazamiento—, asi que le gana el tiron a la lista
+/// del detalle y el chofer se queda sin poder bajar la pantalla. Es exactamente
+/// el fallo del 17/09/2026: «los scrolls no funcionan en ninguna pantalla».
+///
+/// Por eso esto **solo entra en la subasta de gestos con dos dedos puestos**.
+/// Con uno no reclama nada y la lista sigue mandando, igual que hasta ahora.
+///
+/// HONESTIDAD SOBRE ESTA GUARDA, medida el 21/09/2026 con una mutacion: si se
+/// quita, la prueba «y un solo dedo sigue siendo de la lista» **sigue verde**.
+/// No es que la prueba sea floja: es que hoy la lista gana igual, porque su
+/// umbral de arrastre (`kTouchSlop`) es menor que el de desplazamiento del
+/// pellizco (`kPanSlop`), asi que acepta antes y cierra la subasta. O sea que
+/// esto es un cinturon: sujeta el dia que alguien baje ese umbral, meta el mapa
+/// en algo que no se desplace en vertical, o Flutter cambie los suyos. **Se
+/// queda, y se queda dicho que ninguna prueba lo distingue.**
+class _PellizcoDeDosDedos extends ScaleGestureRecognizer {
+  @override
+  void resolve(GestureDisposition disposicion) {
+    if (disposicion == GestureDisposition.accepted && pointerCount < 2) return;
+    super.resolve(disposicion);
+  }
+}
+
+/// EL ARRASTRE DEL MAPA CON UN DEDO, y lo que cuesta.
+///
+/// Esto entra en la subasta de gestos y **le gana el tiron a la lista** que hay
+/// debajo en el detalle de la ruta. O sea: con el dedo encima del mapa, la
+/// pantalla ya no baja; para bajarla hay que arrastrar fuera del mapa.
+///
+/// Lo sabemos porque ya pasó al reves: el 17/09/2026 el mapa se quedaba con el
+/// gesto y Jose se quedó sin poder llegar a los botones del final —«los scrolls
+/// no funcionan en ninguna pantalla»—, y por eso el arrastre estuvo hasta hoy
+/// limitado al raton. **Es una decision suya, tomada el 21/09/2026 con el precio
+/// delante**: se le ofreció dejarlo con dos dedos y el boton de pantalla
+/// completa, y contestó «que un dedo mueva el mapa ahi mismo».
+///
+/// Asi que el mapa se queda el arrastre y la lista se desplaza por fuera de el.
+/// Si alguien vuelve a cambiar esto, que sea con Jose delante y no por leer el
+/// comentario del 17.
+class _ArrastreDelMapa extends PanGestureRecognizer {
+  /// Y RECLAMA EL GESTO ANTES QUE NADIE: a los 3 pixeles.
+  ///
+  /// Esto se escribio dos veces el mismo dia y la segunda es la que vale.
+  ///
+  /// Primero se dejo el umbral normal de panoramica: el doble que el de la
+  /// lista, asi que en un tiron lento la lista aceptaba antes y ganaba ella.
+  /// Despues se igualo al de la lista (18 px), y entonces pasaba lo peor de
+  /// todo: **los primeros 18 pixeles se los llevaba la lista y a partir de ahi
+  /// el mapa**. O sea que un tiron movia un poco la pantalla Y un poco el mapa.
+  /// Jose, probandolo: «sigo haciendo scroll cuando toco el mapa, cuando toco el
+  /// mapa no puedo hacer scroll». Las dos frases son la misma queja: no se sabe
+  /// que va a pasar.
+  ///
+  /// Con 3 pixeles la regla es de una linea y no tiene excepciones: **el dedo
+  /// encima del mapa mueve el mapa; la pantalla se baja tocando fuera del mapa**.
+  /// No es cero para que un TOQUE siga siendo un toque —abrir el globo de una
+  /// parada—: un dedo quieto no llega a 3 px, uno que arrastra los pasa en el
+  /// primer fotograma.
+  static const _loQueEsUnArrastre = 3.0;
+
+  @override
+  bool hasSufficientGlobalDistanceToAccept(
+    PointerDeviceKind pointerDeviceKind,
+    double? deviceTouchSlop,
+  ) => globalDistanceMoved.abs() > _loQueEsUnArrastre;
 }
 
 class _CroquisDeRutaState extends State<CroquisDeRuta> {
@@ -417,6 +536,7 @@ class _CroquisDeRutaState extends State<CroquisDeRuta> {
       for (final p in widget.recorrido.dibujables) p.id,
     ].join('|');
   }
+
   String? _laVistaQueSePidio;
 
   /// CUANTO SE HA ACERCADO. `1` es el encuadre que cabe entero, que es como
@@ -430,9 +550,12 @@ class _CroquisDeRutaState extends State<CroquisDeRuta> {
   /// mitad de la ruta fuera del recuadro y no hay forma de ir a verla.
   var _arrastre = Offset.zero;
 
-  /// El punto donde empezó el arrastre con el ratón. `null` = no se está
-  /// arrastrando.
-  Offset? _desdeDonde;
+  /// Donde estaba el mapa cuando se posaron los dos dedos. El pellizco se
+  /// calcula SIEMPRE contra esto y nunca contra el fotograma anterior: acumular
+  /// incrementos redondea y el mapa se va yendo solo.
+  double _acercamientoAlEmpezar = 1;
+  Offset _arrastreAlEmpezar = Offset.zero;
+  Offset _focoAlEmpezar = Offset.zero;
 
   /// LOS TOPES.
   ///
@@ -478,7 +601,7 @@ class _CroquisDeRutaState extends State<CroquisDeRuta> {
     // dispararse cuando ya estaban —sólo corría al LLEGAR una—. Resultado: el
     // mapa pintaba las calles y debajo ponía «el mapa de calles no cargó».
     // Un diagnóstico falso es peor que no decir nada.
-    _avisar();
+    _avisar(trazado);
     final vista =
         '${trazado.zoom}/${trazado.centroAncho}/${trazado.centroAlto}';
     if (_laVistaQueSePidio != vista) {
@@ -488,7 +611,7 @@ class _CroquisDeRutaState extends State<CroquisDeRuta> {
         if (_teselas.containsKey(clave)) continue;
         widget.fondo.tesela(t.z, t.x, t.y).then((imagen) {
           if (!mounted || imagen == null) return;
-          setState(() => _teselas[clave] = imagen);
+          setState(() => _guardarTeselaTraida(clave, imagen));
           _avisar();
         });
       }
@@ -543,187 +666,227 @@ class _CroquisDeRutaState extends State<CroquisDeRuta> {
     }
   }
 
-  void _avisar() => widget.onQueSeVe?.call((
-    conCalles: _teselas.isNotEmpty,
-    recorridoPorCarretera: _porCarretera != null,
-  ));
+  /// LO QUE SE ESTÁ VIENDO **EN ESTA VISTA**, no lo que haya en memoria.
+  ///
+  /// `_teselas.isNotEmpty` era mentira desde que el almacén pasó a ser de
+  /// módulo: bastaba una tesela guardada de otra ruta, de otro zoom o de otro
+  /// rato con señal para que la pantalla dijera «Mapa de calles» encima de un
+  /// recuadro en blanco. Un diagnóstico falso es peor que no decir nada — la
+  /// regla 4 de la casa.
+  ///
+  /// Ahora se pregunta por las teselas que hacen falta **aquí y ahora**, y basta
+  /// una: con el resto llegando, el mapa ya no es un croquis.
+  void _avisar([Trazado? trazado]) {
+    final hacenFalta = trazado?.teselasQueHacenFalta() ?? const [];
+    final conCalles = hacenFalta.isEmpty
+        ? _teselas.isNotEmpty
+        : hacenFalta.any((t) => _teselas.containsKey('${t.z}/${t.x}/${t.y}'));
+    widget.onQueSeVe?.call((
+      conCalles: conCalles,
+      recorridoPorCarretera: _porCarretera != null,
+    ));
+  }
 
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      DecoratedBox(
-        key: CroquisDeRuta.clave,
-        decoration: BoxDecoration(
-          color: Colores.blanco,
-          border: Border.all(color: Colores.linea),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: LayoutBuilder(
-            builder: (context, cajon) {
-              final tamano = Size(
-                cajon.maxWidth,
-                altoDelMapa(cajon.maxWidth),
-              );
-              return SizedBox.fromSize(
-                size: tamano,
-                child: Builder(
-                  builder: (context) {
-                    final trazado = trazar(
-                      widget.recorrido,
-                      tamano,
-                      acercamiento: _acercamiento,
-                      arrastre: _arrastre,
-                    );
-                    if (!trazado.estaVacio) {
-                      WidgetsBinding.instance.addPostFrameCallback(
-                        (_) => _pedirLasMejoras(trazado),
+      // A pantalla completa el mapa se come el alto que haya; dentro del detalle
+      // mide lo que diga `altoDelMapa`. Un `Expanded` dentro de una lista que se
+      // desplaza revienta, y el detalle es justo eso, asi que va con condicion.
+      _conElAltoQueToca(
+        DecoratedBox(
+          key: CroquisDeRuta.clave,
+          decoration: BoxDecoration(
+            color: Colores.blanco,
+            border: Border.all(color: Colores.linea),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: LayoutBuilder(
+              builder: (context, cajon) {
+                final tamano = Size(
+                  cajon.maxWidth,
+                  widget.aPantallaCompleta && cajon.maxHeight.isFinite
+                      ? cajon.maxHeight
+                      : altoDelMapa(cajon.maxWidth),
+                );
+                return SizedBox.fromSize(
+                  size: tamano,
+                  child: Builder(
+                    builder: (context) {
+                      final trazado = trazar(
+                        widget.recorrido,
+                        tamano,
+                        acercamiento: _acercamiento,
+                        arrastre: _arrastre,
                       );
-                    }
-                    // SOLO `onTapUp`. **Ni arrastrar ni pellizcar**, y no por
-                    // falta de ganas: un reconocedor de arrastre aqui dentro le
-                    // gana el gesto a la lista que hay debajo, y entonces
-                    // arrastrar sobre el mapa deja de desplazar el detalle —que
-                    // es justo como el chofer se queda sin poder llegar al final
-                    // de la pantalla. Un toque no compite con un arrastre, asi
-                    // que la lista sigue mandando.
-                    return Listener(
-                      // LA RUEDA DEL RATON ACERCA Y ALEJA.
-                      //
-                      // Jose, 17/09/2026: «con la rueda del mouse no puedo ni
-                      // alejar ni acercar tampoco». En un escritorio es el
-                      // gesto natural y los botones no lo sustituyen.
-                      //
-                      // Va en un `Listener` con `onPointerSignal` y **no** en
-                      // un reconocedor de gestos: la rueda es una senal de
-                      // puntero, no un arrastre, asi que esto no le quita el
-                      // gesto a la lista que hay debajo. Un dedo sigue
-                      // desplazando la pantalla como antes — lo vigila la
-                      // prueba «arrastrar SOBRE EL MAPA sigue desplazando la
-                      // lista», que sigue verde.
-                      //
-                      // `scrollDelta.dy` negativo es rueda hacia arriba, que en
-                      // todos los mapas es acercar.
-                      // EL ARRASTRE, SOLO CON EL RATON.
-                      //
-                      // Va en un `Listener` y no en un `GestureDetector` a
-                      // propósito: un reconocedor de arrastre entra en la
-                      // subasta de gestos y **le gana el tirón a la lista**, y
-                      // entonces el dedo sobre el mapa deja de poder bajar la
-                      // pantalla — que es como el chofer se queda sin llegar al
-                      // final. Un `Listener` no compite con nadie.
-                      //
-                      // Y se filtra por `kind == mouse`: en un teléfono el
-                      // dedo sigue desplazando la lista como siempre. Para
-                      // mover el mapa en el móvil están los botones de acercar
-                      // y el de encuadrar. Lo vigila la prueba «arrastrar SOBRE
-                      // EL MAPA sigue desplazando la lista».
-                      onPointerDown: (p) {
-                        if (p.kind != PointerDeviceKind.mouse) return;
-                        _desdeDonde = p.position;
-                      },
-                      onPointerMove: (p) {
-                        final desde = _desdeDonde;
-                        if (desde == null) return;
-                        setState(() {
-                          _arrastre += p.position - desde;
-                          _desdeDonde = p.position;
-                        });
-                      },
-                      onPointerUp: (_) => _desdeDonde = null,
-                      onPointerCancel: (_) => _desdeDonde = null,
-                      onPointerSignal: (senal) {
-                        // EL PELLIZCO DEL TRACKPAD, que NO es una rueda.
+                      if (!trazado.estaVacio) {
+                        WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => _pedirLasMejoras(trazado),
+                        );
+                      }
+                      // SOLO `onTapUp`. **Ni arrastrar ni pellizcar**, y no por
+                      // falta de ganas: un reconocedor de arrastre aqui dentro le
+                      // gana el gesto a la lista que hay debajo, y entonces
+                      // arrastrar sobre el mapa deja de desplazar el detalle —que
+                      // es justo como el chofer se queda sin poder llegar al final
+                      // de la pantalla. Un toque no compite con un arrastre, asi
+                      // que la lista sigue mandando.
+                      return Listener(
+                        // LA RUEDA DEL RATON ACERCA Y ALEJA.
                         //
-                        // Jose, 17/09/2026: «con el touchpad no hace nada, no
-                        // se acerca o se aleja con los gestos». Y es que el
-                        // navegador manda el pellizco de dos dedos como un
-                        // evento de ESCALA propio (`PointerScaleEvent`), no
-                        // como un desplazamiento — yo sólo miraba la rueda, así
-                        // que el gesto más natural del portátil no hacía nada.
+                        // Jose, 17/09/2026: «con la rueda del mouse no puedo ni
+                        // alejar ni acercar tampoco». En un escritorio es el
+                        // gesto natural y los botones no lo sustituyen.
                         //
-                        // Aquí no hace falta Ctrl: un pellizco no es un
-                        // desplazamiento, así que no le quita nada a la lista.
-                        if (senal is PointerScaleEvent) {
-                          final nuevo = (_acercamiento * senal.scale).clamp(
+                        // Va en un `Listener` con `onPointerSignal` y **no** en
+                        // un reconocedor de gestos: la rueda es una senal de
+                        // puntero, no un arrastre, asi que esto no le quita el
+                        // gesto a la lista que hay debajo. Un dedo sigue
+                        // desplazando la pantalla como antes — lo vigila la
+                        // prueba «arrastrar SOBRE EL MAPA sigue desplazando la
+                        // lista», que sigue verde.
+                        //
+                        // `scrollDelta.dy` negativo es rueda hacia arriba, que en
+                        // todos los mapas es acercar.
+                        // El arrastre YA NO VIVE AQUI: ver `_ArrastreDelMapa`,
+                        // el reconocedor que hay debajo. Aqui se quedan la rueda
+                        // y el pellizco del trackpad, que son señales de puntero
+                        // y no compiten con nadie.
+                        onPointerSignal: (senal) {
+                          // EL PELLIZCO DEL TRACKPAD, que NO es una rueda.
+                          //
+                          // Jose, 17/09/2026: «con el touchpad no hace nada, no
+                          // se acerca o se aleja con los gestos». Y es que el
+                          // navegador manda el pellizco de dos dedos como un
+                          // evento de ESCALA propio (`PointerScaleEvent`), no
+                          // como un desplazamiento — yo sólo miraba la rueda, así
+                          // que el gesto más natural del portátil no hacía nada.
+                          //
+                          // Aquí no hace falta Ctrl: un pellizco no es un
+                          // desplazamiento, así que no le quita nada a la lista.
+                          if (senal is PointerScaleEvent) {
+                            final nuevo = (_acercamiento * senal.scale).clamp(
+                              acercamientoMinimo,
+                              acercamientoMaximo,
+                            );
+                            if (nuevo != _acercamiento) {
+                              setState(() => _acercamiento = nuevo);
+                            }
+                            return;
+                          }
+                          if (senal is! PointerScrollEvent) return;
+                          // **SOLO CON CTRL**, como los mapas embebidos de toda
+                          // la vida. Jose, 17/09/2026: «no sale la parte de abajo
+                          // de la card, esos botones que pusiste allá abajo».
+                          //
+                          // Era culpa de esto: al hacer que la rueda acercara, la
+                          // rueda dejo de desplazar la pagina, y el mapa mide 320
+                          // px de alto en medio del detalle — o sea que con el
+                          // raton encima no habia forma de llegar a los cuatro
+                          // botones que hay debajo. Un mapa que secuestra el
+                          // desplazamiento deja media pantalla inalcanzable.
+                          //
+                          // Con Ctrl acerca; sin Ctrl el gesto sigue su camino y
+                          // la pagina baja. Los botones de `+` y `−` siguen ahi
+                          // para quien no sepa lo del Ctrl, que son casi todos.
+                          if (!HardwareKeyboard.instance.isControlPressed &&
+                              !HardwareKeyboard.instance.isMetaPressed) {
+                            return;
+                          }
+                          final hacia = senal.scrollDelta.dy < 0
+                              ? _acercamiento * _pasoDeLaRueda
+                              : _acercamiento / _pasoDeLaRueda;
+                          final nuevo = hacia.clamp(
                             acercamientoMinimo,
                             acercamientoMaximo,
                           );
                           if (nuevo != _acercamiento) {
                             setState(() => _acercamiento = nuevo);
                           }
-                          return;
-                        }
-                        if (senal is! PointerScrollEvent) return;
-                        // **SOLO CON CTRL**, como los mapas embebidos de toda
-                        // la vida. Jose, 17/09/2026: «no sale la parte de abajo
-                        // de la card, esos botones que pusiste allá abajo».
-                        //
-                        // Era culpa de esto: al hacer que la rueda acercara, la
-                        // rueda dejo de desplazar la pagina, y el mapa mide 320
-                        // px de alto en medio del detalle — o sea que con el
-                        // raton encima no habia forma de llegar a los cuatro
-                        // botones que hay debajo. Un mapa que secuestra el
-                        // desplazamiento deja media pantalla inalcanzable.
-                        //
-                        // Con Ctrl acerca; sin Ctrl el gesto sigue su camino y
-                        // la pagina baja. Los botones de `+` y `−` siguen ahi
-                        // para quien no sepa lo del Ctrl, que son casi todos.
-                        if (!HardwareKeyboard.instance.isControlPressed &&
-                            !HardwareKeyboard.instance.isMetaPressed) {
-                          return;
-                        }
-                        final hacia = senal.scrollDelta.dy < 0
-                            ? _acercamiento * _pasoDeLaRueda
-                            : _acercamiento / _pasoDeLaRueda;
-                        final nuevo = hacia.clamp(
-                          acercamientoMinimo,
-                          acercamientoMaximo,
-                        );
-                        if (nuevo != _acercamiento) {
-                          setState(() => _acercamiento = nuevo);
-                        }
-                      },
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTapUp: (toque) =>
-                            _tocar(trazado, toque.localPosition),
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: CustomPaint(
-                              painter: _PintorDelCroquis(
-                                recorrido: widget.recorrido,
-                                teselas: _teselas,
-                                porCarretera: _porCarretera,
-                                regresoPorCarretera: _regreso,
-                                textos: DefaultTextStyle.of(context).style,
-                                acercamiento: _acercamiento,
-                                arrastre: _arrastre,
-                              ),
+                        },
+                        child: RawGestureDetector(
+                          gestures: <Type, GestureRecognizerFactory>{
+                            _PellizcoDeDosDedos:
+                                GestureRecognizerFactoryWithHandlers<
+                                  _PellizcoDeDosDedos
+                                >(_PellizcoDeDosDedos.new, (reconocedor) {
+                                  reconocedor
+                                    ..onStart = (gesto) {
+                                      _acercamientoAlEmpezar = _acercamiento;
+                                      _arrastreAlEmpezar = _arrastre;
+                                      _focoAlEmpezar = gesto.localFocalPoint;
+                                    }
+                                    ..onUpdate = (gesto) =>
+                                        _pellizcar(gesto, tamano);
+                                }),
+                            _ArrastreDelMapa:
+                                GestureRecognizerFactoryWithHandlers<
+                                  _ArrastreDelMapa
+                                >(_ArrastreDelMapa.new, (reconocedor) {
+                                  reconocedor.onUpdate = (gesto) =>
+                                      setState(() => _arrastre += gesto.delta);
+                                }),
+                          },
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapUp: (toque) =>
+                                _tocar(trazado, toque.localPosition),
+                            child: Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: CustomPaint(
+                                    painter: _PintorDelCroquis(
+                                      recorrido: widget.recorrido,
+                                      teselas: _teselas,
+                                      sello: _selloDeLasTeselas,
+                                      porCarretera: _porCarretera,
+                                      regresoPorCarretera: _regreso,
+                                      textos: DefaultTextStyle.of(context)
+                                          .style,
+                                      acercamiento: _acercamiento,
+                                      arrastre: _arrastre,
+                                    ),
+                                  ),
+                                ),
+                                ..._globo(trazado, tamano),
+                                if (!widget.aPantallaCompleta)
+                                  Positioned(
+                                    right: 8,
+                                    top: 8,
+                                    child: _Boton(
+                                      icono: Icons.open_in_full,
+                                      rotulo: 'Ver el mapa a pantalla completa',
+                                      alPulsar: () => abrirElMapaEnGrande(
+                                        context,
+                                        recorrido: widget.recorrido,
+                                        fondo: widget.fondo,
+                                        porCalles: widget.porCalles,
+                                      ),
+                                    ),
+                                  ),
+                                _BotonesDeZoom(
+                                  acercamiento: _acercamiento,
+                                  alCambiar: (cuanto) => setState(() {
+                                    // Volver al encuadre devuelve TAMBIÉN el
+                                    // arrastre: si no, «ver la ruta entera» deja el
+                                    // mapa a la escala buena y mirando a otro sitio.
+                                    if (cuanto == 1) _arrastre = Offset.zero;
+                                    _acercamiento = cuanto;
+                                  }),
+                                ),
+                              ],
                             ),
                           ),
-                          ..._globo(trazado, tamano),
-                            _BotonesDeZoom(
-                              acercamiento: _acercamiento,
-                              alCambiar: (cuanto) => setState(() {
-                                // Volver al encuadre devuelve TAMBIÉN el
-                                // arrastre: si no, «ver la ruta entera» deja el
-                                // mapa a la escala buena y mirando a otro sitio.
-                                if (cuanto == 1) _arrastre = Offset.zero;
-                                _acercamiento = cuanto;
-                              }),
-                            ),
-                          ],
                         ),
-                      ),
-                    );
-                  },
-                ),
-              );
-            },
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -731,6 +894,37 @@ class _CroquisDeRutaState extends State<CroquisDeRuta> {
       const _Leyenda(),
     ],
   );
+
+  Widget _conElAltoQueToca(Widget caja) =>
+      widget.aPantallaCompleta ? Expanded(child: caja) : caja;
+
+  /// EL PELLIZCO: acerca **hacia donde estan los dedos**, no hacia el centro.
+  ///
+  /// Un punto del mapa cae en `centro + mundo·escala·acercamiento + arrastre`.
+  /// Si al multiplicar el acercamiento por `k` no se toca el arrastre, lo que
+  /// hay bajo los dedos se escapa hacia una esquina y es imposible mirar una
+  /// manzana concreta: hay que acercar y correr el mapa a la vez. De ahi sale
+  /// esta cuenta, que ademas se lleva gratis el **mover con dos dedos**, porque
+  /// usa donde estan los dedos AHORA contra donde se posaron.
+  void _pellizcar(ScaleUpdateDetails gesto, Size caja) {
+    // Un solo dedo no es un pellizco: es la lista desplazandose.
+    if (gesto.pointerCount < 2) return;
+    final nuevo = (_acercamientoAlEmpezar * gesto.scale).clamp(
+      acercamientoMinimo,
+      acercamientoMaximo,
+    );
+    final k = nuevo / _acercamientoAlEmpezar;
+    final centro = Offset(caja.width / 2, caja.height / 2);
+    final arrastre =
+        gesto.localFocalPoint -
+        centro -
+        (_focoAlEmpezar - centro - _arrastreAlEmpezar) * k;
+    if (nuevo == _acercamiento && arrastre == _arrastre) return;
+    setState(() {
+      _acercamiento = nuevo;
+      _arrastre = arrastre;
+    });
+  }
 
   void _tocar(Trazado trazado, Offset donde) {
     PuntoDelCroquis? masCerca;
@@ -905,7 +1099,9 @@ void _dibujarEstrella(Canvas lienzo, Offset centro, double radio, Color color) {
       centro.dx + r * math.cos(angulo),
       centro.dy + r * math.sin(angulo),
     );
-    i == 0 ? camino.moveTo(punto.dx, punto.dy) : camino.lineTo(punto.dx, punto.dy);
+    i == 0
+        ? camino.moveTo(punto.dx, punto.dy)
+        : camino.lineTo(punto.dx, punto.dy);
   }
   camino.close();
   lienzo.drawPath(camino, Paint()..color = color);
@@ -994,10 +1190,7 @@ class _PintorDelSimbolo extends CustomPainter {
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    pintor.paint(
-      lienzo,
-      centro - Offset(pintor.width / 2, pintor.height / 2),
-    );
+    pintor.paint(lienzo, centro - Offset(pintor.width / 2, pintor.height / 2));
   }
 
   void _palomita(Canvas lienzo, Offset centro) {
@@ -1024,6 +1217,7 @@ class _PintorDelCroquis extends CustomPainter {
   _PintorDelCroquis({
     required this.recorrido,
     required this.teselas,
+    required this.sello,
     required this.porCarretera,
     required this.regresoPorCarretera,
     required this.textos,
@@ -1033,6 +1227,9 @@ class _PintorDelCroquis extends CustomPainter {
 
   final Recorrido recorrido;
   final Map<String, ui.Image> teselas;
+
+  /// Ver [_selloDeLasTeselas]: lo único comparable de un almacén compartido.
+  final int sello;
   final List<Punto>? porCarretera;
   final List<Punto>? regresoPorCarretera;
   final TextStyle textos;
@@ -1099,11 +1296,7 @@ class _PintorDelCroquis extends CustomPainter {
           _rayas(lienzo, a, b, pincel);
         }
       } else {
-        final (a, b) = _corrido(
-          trazado.paradas.last.donde,
-          origen,
-          aparte,
-        );
+        final (a, b) = _corrido(trazado.paradas.last.donde, origen, aparte);
         _rayas(lienzo, a, b, pincel);
       }
     }
@@ -1399,7 +1592,7 @@ class _PintorDelCroquis extends CustomPainter {
   @override
   bool shouldRepaint(_PintorDelCroquis viejo) =>
       !identical(viejo.recorrido, recorrido) ||
-      viejo.teselas.length != teselas.length ||
+      viejo.sello != sello ||
       !identical(viejo.porCarretera, porCarretera) ||
       !identical(viejo.regresoPorCarretera, regresoPorCarretera) ||
       viejo.acercamiento != acercamiento ||
@@ -1432,8 +1625,7 @@ class _BotonesDeZoom extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final puedeAcercar =
-        acercamiento < _CroquisDeRutaState.acercamientoMaximo;
+    final puedeAcercar = acercamiento < _CroquisDeRutaState.acercamientoMaximo;
     final puedeAlejar = acercamiento > _CroquisDeRutaState.acercamientoMinimo;
     // El de encuadrar sale cuando NO se está en el encuadre, se haya llegado
     // ahí acercando o alejando.
@@ -1522,4 +1714,68 @@ class _Boton extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EL MAPA EN GRANDE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Abre el mapa a pantalla completa.
+///
+/// Jose, 21/09/2026, con la APK: «ni me puedo mover en el mapa desde la apk
+/// estoy sellado ahi y no me puedo mover». Dentro del detalle el mapa no puede
+/// quedarse con el arrastre de un dedo —es el de la lista, y sin el no se llega
+/// al final de la pantalla—, asi que con dos dedos se pellizca y se mueve, y
+/// para mirar el mapa de verdad se abre aqui: **sin lista debajo, un dedo lo
+/// mueve**, como en cualquier mapa.
+Future<void> abrirElMapaEnGrande(
+  BuildContext context, {
+  required Recorrido recorrido,
+  required FondoDeCalles fondo,
+  required RecorridoPorCalles porCalles,
+}) => Navigator.of(context).push<void>(
+  MaterialPageRoute<void>(
+    fullscreenDialog: true,
+    builder: (_) =>
+        MapaEnGrande(recorrido: recorrido, fondo: fondo, porCalles: porCalles),
+  ),
+);
+
+/// La pantalla del mapa en grande. **Publica para poder montarla en una prueba**
+/// sin tener que navegar hasta ella.
+class MapaEnGrande extends StatelessWidget {
+  const MapaEnGrande({
+    required this.recorrido,
+    required this.fondo,
+    required this.porCalles,
+    super.key,
+  });
+
+  final Recorrido recorrido;
+  final FondoDeCalles fondo;
+  final RecorridoPorCalles porCalles;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colores.blanco,
+    appBar: AppBar(
+      title: const Text('Mapa de la ruta'),
+      // La ✕ nunca puede desaparecer: es regla de la casa en todos los
+      // proyectos de Procovar.
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Cerrar el mapa',
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    ),
+    body: Padding(
+      padding: const EdgeInsets.all(12),
+      child: CroquisDeRuta(
+        recorrido: recorrido,
+        fondo: fondo,
+        porCalles: porCalles,
+        aPantallaCompleta: true,
+      ),
+    ),
+  );
 }

@@ -27,7 +27,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -1548,9 +1547,17 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 		// no contar la vuelta subestima el viaje justo a la mitad de las rutas largas.
 		distancia += kmHaversine(anteriorLat, anteriorLng, almacen.Lat, almacen.Lng)
 
+		// QUIEN ORDENÓ LAS PARADAS, dicho de verdad.
+		//
+		// Aquí el orden por defecto es **el del logístico** (§5.4 de `tablero.md`): se
+		// reordena por cercanía sólo si lo pide. Pero esta llamada no mandaba el campo,
+		// y sin él el SQL deja `optimized` en `true` — o sea que la ruta quedaba firmada
+		// como «la ordenó la máquina» aunque el orden lo hubiera puesto una persona a
+		// mano, arrastrando tarjetas. Quien lo lea después no tiene forma de saberlo.
+		optimizado := c.Optimizar.Con(false)
 		if _, err := tx.TableroFijarTotalesDeRuta(r.Context(), sqlc.FijarTotalesDeRutaParams{
 			TotalDistance: distancia, TotalWeight: pesoTotal, TotalPrice: costoTotal,
-			ID: ruta.ID,
+			ID: ruta.ID, Optimizado: &optimizado,
 		}); err != nil {
 			return err
 		}
@@ -1723,29 +1730,44 @@ func porCliente(filas []sqlc.ListarPedidosSinColocarRow) map[string]int {
 	return m
 }
 
-// porCercania es el greedy del vecino más próximo, el mismo del armador de siempre. Sólo
-// se aplica si lo piden: el orden por defecto es el del logístico.
+// porCercania ordena la columna por el camino que hará el camión.
+//
+// Era el greedy del vecino más próximo pelado, y por eso Jose lo vio y dijo lo que dijo el
+// 21/09/2026: «esa planificada está mal, no hace ruta lógica ni nada». Tenía razón, y no
+// era esta pantalla nada más: el greedy deja cruces y un último tramo larguísimo de vuelta
+// al almacén. Ahora llama a `ordenDeVisita` —el mismo que arma la ruta, con 2-opt y
+// Or-opt—, así que **la columna se ordena igual que se ordenará la ruta**. Si no, el
+// logístico ve un orden en el tablero y otro distinto en la ruta creada, y no hay forma de
+// saber cuál es el bueno.
+//
+// Sólo se aplica si lo piden: el orden por defecto sigue siendo el del logístico.
+//
+// LOS PEDIDOS SIN COORDENADAS SE QUEDAN AL FINAL, en su orden, y esto es un arreglo de
+// paso: antes entraban al cálculo con `coord(nil) == 0`, o sea el golfo de Guinea, y
+// arrastraban el orden de todos los demás hacia un punto que no existe. Un orden así se lee
+// perfectamente bien y está mal, que es lo peor que le puede pasar a esta pantalla.
 func porCercania(pedidos []sqlc.PedidosDeColumnaParaArmarRutaRow, lat, lng float64) []sqlc.PedidosDeColumnaParaArmarRutaRow {
 	// Copia estable primero, para que dos llamadas con los mismos datos den lo mismo.
 	quedan := append([]sqlc.PedidosDeColumnaParaArmarRutaRow(nil), pedidos...)
 	sort.SliceStable(quedan, func(i, j int) bool { return quedan[i].Posicion < quedan[j].Posicion })
 
-	orden := make([]sqlc.PedidosDeColumnaParaArmarRutaRow, 0, len(quedan))
-	curLat, curLng := lat, lng
-	for len(quedan) > 0 {
-		mejor, mejorKm := 0, math.MaxFloat64
-		for i, p := range quedan {
-			km := kmHaversine(curLat, curLng, coord(p.EndLat), coord(p.EndLng))
-			if km < mejorKm {
-				mejor, mejorKm = i, km
-			}
+	porID := make(map[uuid.UUID]sqlc.PedidosDeColumnaParaArmarRutaRow, len(quedan))
+	paradas := make([]paradaGeo, 0, len(quedan))
+	sinSitio := make([]sqlc.PedidosDeColumnaParaArmarRutaRow, 0)
+	for _, p := range quedan {
+		if p.EndLat == nil || p.EndLng == nil {
+			sinSitio = append(sinSitio, p)
+			continue
 		}
-		p := quedan[mejor]
-		orden = append(orden, p)
-		curLat, curLng = coord(p.EndLat), coord(p.EndLng)
-		quedan = append(quedan[:mejor], quedan[mejor+1:]...)
+		porID[p.ID] = p
+		paradas = append(paradas, paradaGeo{id: p.ID, lat: *p.EndLat, lng: *p.EndLng})
 	}
-	return orden
+
+	orden := make([]sqlc.PedidosDeColumnaParaArmarRutaRow, 0, len(quedan))
+	for _, id := range ordenDeVisita(lat, lng, paradas) {
+		orden = append(orden, porID[id])
+	}
+	return append(orden, sinSitio...)
 }
 
 func coord(v *float64) float64 {

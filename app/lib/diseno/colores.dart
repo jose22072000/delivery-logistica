@@ -362,4 +362,36 @@ abstract final class ColoresDelMapa {
   static const via = Color(0xFF9A8C77);
   static const troncal = Color(0xFFD9A441);
   static const nucleo = Colores.tinta;
+
+  /// El nombre de una calle escrito sobre su trazo. Es un tono más flojo que el
+  /// de un núcleo **a propósito**: en una tesela de La Habana entran veinte
+  /// nombres de calle y dos de barrio, y con la misma tinta los veinte gritan
+  /// igual que los dos y se pierde de un vistazo dónde está uno.
+  static const rotuloDeCalle = Color(0xFF5B5346);
+
+  // --- Las capas de relleno, desde el 21/09/2026 --------------------------
+  //
+  // Jose, comparando el mapa con conexión contra el nuestro: «ya ves como esta
+  // ese mapa mucho mejor necesito uno asi». Lo que veía de más era esto: el
+  // suelo y las manzanas. Sin ellas, entre calle y calle sólo hay papel, y un
+  // barrio de La Habana y uno de Holguín se dibujan igual.
+  //
+  // Los tonos van FLOJOS y cerca del papel a propósito: esto es el fondo sobre
+  // el que se lee la ruta, y una mancha fuerte se come la línea azul. En un
+  // mapa, lo que se mira es el camino; el resto está para saber dónde cae.
+  static const bosque = Color(0xFFDCE6D2);
+  static const parque = Color(0xFFD6E7C8);
+  static const hierba = Color(0xFFE3EBDA);
+  static const urbano = Color(0xFFEDE7DE);
+  static const industrial = Color(0xFFE6E0E6);
+  static const portuario = Color(0xFFE2DCE8);
+
+  /// Las manzanas. Un pelo más oscuras que lo urbano —que es la mancha sobre la
+  /// que caen— o no se distinguirían de ella.
+  static const edificio = Color(0xFFDCD3C6);
+
+  /// La vía del tren. Gris azulado y fina: cruza el mapa y no puede competir
+  /// con las carreteras, pero es una referencia que se reconoce desde el
+  /// camión.
+  static const tren = Color(0xFF8C8A93);
 }

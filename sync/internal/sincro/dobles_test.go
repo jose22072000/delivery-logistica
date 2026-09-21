@@ -385,15 +385,30 @@ type origenFalso struct {
 	ventanas []Ventana
 	cambios  Cambios
 	truncado bool
-	err      error
+	// hasta es lo que el reparto dice haber servido DE VERDAD. Cero = un reparto que no la
+	// manda, y entonces vale la del propio servicio.
+	hasta     time.Time
+	continuar string
+	err       error
+	// responder, si está, manda sobre todo lo demás: sirve para encadenar tandas de
+	// verdad, que es la única forma de ver un truncamiento que pierde filas.
+	responder func(v Ventana) Bajada
 }
 
-func (o *origenFalso) Diferencias(ctx context.Context, v Ventana) (Cambios, bool, error) {
+func (o *origenFalso) Diferencias(_ context.Context, v Ventana) (Bajada, error) {
 	o.ventanas = append(o.ventanas, v)
 	if o.err != nil {
-		return nil, false, o.err
+		return Bajada{}, o.err
 	}
-	return o.cambios, o.truncado, nil
+	if o.responder != nil {
+		return o.responder(v), nil
+	}
+	return Bajada{
+		Cambios:   o.cambios,
+		Hasta:     o.hasta,
+		Truncado:  o.truncado,
+		Continuar: o.continuar,
+	}, nil
 }
 
 // ---------------------------------------------------------------------------

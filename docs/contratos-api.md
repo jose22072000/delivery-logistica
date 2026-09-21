@@ -45,6 +45,13 @@ sucursal no existe. Se usa donde la elección no debe comerse la lista con la qu
   `[id]`. Bucle: desde el punto actual (inicio = origen) se elige la parada no visitada de
   menor distancia haversine, se saca de la lista y se añade al recorrido. Devuelve ids
   ordenados.
+  **Aquí nos separamos del patrón desde el 21/09/2026**: el greedy pelado deja cruces y un
+  último tramo larguísimo de vuelta al almacén —Jose, viéndolo: «esa planificada está mal,
+  no hace ruta lógica ni nada»—. El reparto arranca de ese mismo greedy y después le pasa
+  **2-opt y Or-opt sobre el circuito cerrado** (`ordenDeVisita`, escrito igual en
+  `api/internal/api/rutas.go` y en `app/lib/pantallas/rutas/datos/geo.dart`, atados por
+  `docs/orden-de-paradas.casos.json`). Baja un 17% los km en un reparto de La Habana de 12
+  paradas. El orden resultante **no** coincide con el del patrón, y es a propósito.
 - `calculateRouteSegments(origin, orderedStops)`: array de distancias consecutivas
   `origen→p1, p1→p2, ...`.
 - `costoDomicilioEntrega(tarifaBaseCup, cupPorUsd, km, kg)`:
@@ -207,6 +214,12 @@ endLng IS NOT NULL` y, si hay sucursal de ruta, `AND branchId = <sucursal>`.
 - Actualiza cada `Order`: `routeId`, `ultimaRutaId` (ambos = id de la ruta), `stopOrder =
   i+1`, `tripLeg = 'outbound'`, `segmentKm`, `price = pedidoCosto || 0`.
 - Actualiza la `Route`: `totalDistance`, `totalWeight`, `totalPrice`, `optimized = true`.
+  - **Nos separamos aquí (21/09/2026):** el cuerpo acepta además `optimizar` (booleano,
+    por defecto `true`, que es este mismo comportamiento y el que mandan las APK ya
+    instaladas). Con `optimizar:false` **no se reordena**: se respeta el orden en que
+    vinieron los `orderIds` y la ruta se guarda con `optimized = false`. `optimized` es la
+    firma de quién decidió el orden; escribir `true` sobre un orden puesto a mano es una
+    firma falsa, y quien la lee después da por calculado lo que nadie calculó.
 - **NO ocupa el vehículo** (el camión se marca `in_use` al pasar la ruta a `in_progress`).
 - `avisarCambio('rutas')`.
 - `avisarEstadoDeFondo` con `{ pedidoId: externalId, estado: 'despachado' }` para los pedidos

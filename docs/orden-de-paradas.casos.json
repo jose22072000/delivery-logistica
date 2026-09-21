@@ -1,0 +1,311 @@
+{
+  "queEsEsto": "El orden en que el camion visita las paradas, calculado DOS VECES: en el aparato (`app/lib/pantallas/rutas/datos/geo.dart`, `ordenDeVisita`) y en el servidor (`api/internal/api/rutas.go`, `ordenDeVisita`). Las dos tienen que dar EXACTAMENTE el mismo orden o la ruta que armo el logistico sin señal deja de cuadrar con la que arma el servidor, y eso no lo enseña ninguna pantalla: sale una ruta con sentido en un sitio y otra distinta en el otro, las dos creibles. Este fichero es lo que las ata (CLAUDE.md §3-bis: se atan con una prueba, no con un comentario).",
+  "quienLoLee": [
+    "app/test/pantallas/rutas/geo_test.dart",
+    "api/internal/api/orden_de_paradas_test.go"
+  ],
+  "elAlgoritmo": "Vecino mas proximo y despues 2-opt y Or-opt (mover 1, 2 o 3 paradas seguidas) sobre el circuito CERRADO —almacen → paradas → almacen—, hasta que no mejore o hasta `topeDePasadasDeMejora`. Se aplica la PRIMERA mejora que aparece, no la mejor, y siempre en el mismo orden de barrido: 2-opt entero y despues Or-opt entero. Quedarse con «la mejor» obligaria a desempatar entre dos mejoras iguales, y ahi es donde los dos lenguajes se separarian.",
+  "mejoraMinimaKm": 1e-09,
+  "porQueEseEpsilon": "Las comparaciones de mejora van contra `-mejoraMinimaKm`, NUNCA contra 0 a secas. Dos recorridos de la misma longitud no dan el mismo double: el orden de las sumas cambia el ultimo bit, asi que A «mejora» a B por 1e-16 km y B a A por otro tanto, y el bucle no termina — ni termina igual en Dart que en Go, porque sus `sin`/`cos` redondean distinto en el ultimo bit. 1e-9 km es un micrometro. Margen comprobado: la decision mas ajustada de todos estos casos son 8 metros, siete ordenes de magnitud por encima del epsilon.",
+  "topeDePasadasDeMejora": 50,
+  "toleranciaKm": 1e-05,
+  "comoSeLee": "Para cada caso: `ordenVecinoMasProximo` es lo que da el greedy pelado (la vara de medir) y `ordenEsperado` es lo que tiene que devolver `ordenDeVisita`. Los km son los del circuito cerrado, con la vuelta al almacen dentro, y se comparan con `toleranciaKm`. Si se cambia el algoritmo hay que regenerar los dos ordenes A LA VEZ y las dos pruebas tienen que seguir verdes: si solo se toca un lado, se pone rojo.",
+  "casos": [
+    {
+      "nombre": "habana-12",
+      "nota": "Un reparto de La Habana: doce paradas por toda la ciudad, dadas como salen de la base (sin ningun orden).",
+      "origen": {
+        "lat": 23.0472,
+        "lng": -82.3411
+      },
+      "paradas": [
+        {
+          "id": "alamar",
+          "lat": 23.16,
+          "lng": -82.27
+        },
+        {
+          "id": "playa",
+          "lat": 23.11,
+          "lng": -82.43
+        },
+        {
+          "id": "habana-vieja",
+          "lat": 23.135,
+          "lng": -82.35
+        },
+        {
+          "id": "cotorro",
+          "lat": 23.035,
+          "lng": -82.26
+        },
+        {
+          "id": "vedado",
+          "lat": 23.14,
+          "lng": -82.39
+        },
+        {
+          "id": "guanabacoa",
+          "lat": 23.125,
+          "lng": -82.3
+        },
+        {
+          "id": "marianao",
+          "lat": 23.09,
+          "lng": -82.44
+        },
+        {
+          "id": "cerro",
+          "lat": 23.115,
+          "lng": -82.38
+        },
+        {
+          "id": "san-miguel",
+          "lat": 23.07,
+          "lng": -82.31
+        },
+        {
+          "id": "centro",
+          "lat": 23.137,
+          "lng": -82.367
+        },
+        {
+          "id": "diez-octubre",
+          "lat": 23.095,
+          "lng": -82.355
+        },
+        {
+          "id": "regla",
+          "lat": 23.128,
+          "lng": -82.33
+        }
+      ],
+      "ordenVecinoMasProximo": [
+        "san-miguel",
+        "diez-octubre",
+        "cerro",
+        "centro",
+        "habana-vieja",
+        "regla",
+        "guanabacoa",
+        "alamar",
+        "vedado",
+        "playa",
+        "marianao",
+        "cotorro"
+      ],
+      "kmVecinoMasProximo": 75.608541,
+      "ordenEsperado": [
+        "diez-octubre",
+        "cerro",
+        "marianao",
+        "playa",
+        "vedado",
+        "centro",
+        "habana-vieja",
+        "regla",
+        "alamar",
+        "guanabacoa",
+        "san-miguel",
+        "cotorro"
+      ],
+      "kmEsperado": 62.754189
+    },
+    {
+      "nombre": "provincia-8",
+      "nota": "Reparto de provincia desde Camaguey: ocho pueblos muy separados. Aqui el greedy se va a Las Tunas y vuelve.",
+      "origen": {
+        "lat": 21.3808,
+        "lng": -77.9169
+      },
+      "paradas": [
+        {
+          "id": "holguin",
+          "lat": 20.8872,
+          "lng": -76.2631
+        },
+        {
+          "id": "ciego",
+          "lat": 21.8404,
+          "lng": -78.7625
+        },
+        {
+          "id": "bayamo",
+          "lat": 20.3797,
+          "lng": -76.6431
+        },
+        {
+          "id": "nuevitas",
+          "lat": 21.5453,
+          "lng": -77.2647
+        },
+        {
+          "id": "manzanillo",
+          "lat": 20.3433,
+          "lng": -77.1167
+        },
+        {
+          "id": "moron",
+          "lat": 22.1083,
+          "lng": -78.6272
+        },
+        {
+          "id": "las-tunas",
+          "lat": 20.9614,
+          "lng": -76.9514
+        },
+        {
+          "id": "florida",
+          "lat": 21.5253,
+          "lng": -78.2231
+        }
+      ],
+      "ordenVecinoMasProximo": [
+        "florida",
+        "ciego",
+        "moron",
+        "nuevitas",
+        "las-tunas",
+        "manzanillo",
+        "bayamo",
+        "holguin"
+      ],
+      "kmVecinoMasProximo": 730.178182,
+      "ordenEsperado": [
+        "florida",
+        "ciego",
+        "moron",
+        "nuevitas",
+        "las-tunas",
+        "holguin",
+        "bayamo",
+        "manzanillo"
+      ],
+      "kmEsperado": 693.403975
+    },
+    {
+      "nombre": "cruce-evidente",
+      "nota": "Cinco paradas puestas para que el vecino mas proximo se deje una para el final y tenga que cruzar el recorrido entero para ir a buscarla.",
+      "origen": {
+        "lat": 23.0,
+        "lng": -82.4
+      },
+      "paradas": [
+        {
+          "id": "cercana",
+          "lat": 23.01,
+          "lng": -82.38
+        },
+        {
+          "id": "noreste",
+          "lat": 23.06,
+          "lng": -82.36
+        },
+        {
+          "id": "este-lejano",
+          "lat": 23.02,
+          "lng": -82.3
+        },
+        {
+          "id": "norte",
+          "lat": 23.07,
+          "lng": -82.41
+        }
+      ],
+      "ordenVecinoMasProximo": [
+        "cercana",
+        "noreste",
+        "norte",
+        "este-lejano"
+      ],
+      "kmVecinoMasProximo": 36.516016,
+      "ordenEsperado": [
+        "cercana",
+        "este-lejano",
+        "noreste",
+        "norte"
+      ],
+      "kmEsperado": 31.258943
+    },
+    {
+      "nombre": "empates",
+      "nota": "Cuatro paradas en cruz alrededor del almacen. Las coordenadas son multiplos de 1/8 de grado A PROPOSITO: asi las diferencias son exactas en binario y norte/sur (y este/oeste) distan EXACTAMENTE lo mismo en los dos lenguajes. El desempate lo gana la primera de la lista.",
+      "origen": {
+        "lat": 23.125,
+        "lng": -82.375
+      },
+      "paradas": [
+        {
+          "id": "norte",
+          "lat": 23.25,
+          "lng": -82.375
+        },
+        {
+          "id": "sur",
+          "lat": 23.0,
+          "lng": -82.375
+        },
+        {
+          "id": "este",
+          "lat": 23.125,
+          "lng": -82.25
+        },
+        {
+          "id": "oeste",
+          "lat": 23.125,
+          "lng": -82.5
+        }
+      ],
+      "ordenVecinoMasProximo": [
+        "este",
+        "norte",
+        "oeste",
+        "sur"
+      ],
+      "kmVecinoMasProximo": 83.328328,
+      "ordenEsperado": [
+        "este",
+        "norte",
+        "oeste",
+        "sur"
+      ],
+      "kmEsperado": 83.328328
+    },
+    {
+      "nombre": "una-sola",
+      "nota": "Una sola parada: no hay nada que mejorar y el orden es esa parada.",
+      "origen": {
+        "lat": 23.125,
+        "lng": -82.375
+      },
+      "paradas": [
+        {
+          "id": "unica",
+          "lat": 23.14,
+          "lng": -82.39
+        }
+      ],
+      "ordenVecinoMasProximo": [
+        "unica"
+      ],
+      "kmVecinoMasProximo": 4.531921,
+      "ordenEsperado": [
+        "unica"
+      ],
+      "kmEsperado": 4.531921
+    },
+    {
+      "nombre": "ninguna",
+      "nota": "Ninguna parada: el orden es vacio. Ni se cuelga ni devuelve nulo.",
+      "origen": {
+        "lat": 23.125,
+        "lng": -82.375
+      },
+      "paradas": [],
+      "ordenVecinoMasProximo": [],
+      "kmVecinoMasProximo": 0.0,
+      "ordenEsperado": [],
+      "kmEsperado": 0.0
+    }
+  ]
+}

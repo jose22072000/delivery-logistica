@@ -316,6 +316,14 @@ const (
 	DiasPorDefecto = 30
 	DiasMinimo     = 1
 	DiasMaximo     = 120
+	// TopeDelRecosteo es el `limit` que se le pide a PEDIDO en una sola llamada.
+	//
+	// ESTÁ AQUÍ Y NO EN LA URL PARA PODER COMPROBARLO. Escrito a mano dentro del
+	// `fmt.Sprintf` no había con qué comparar lo que volvía, y eso es exactamente el fallo
+	// del §3: se pedía un tope y no se miraba cuántos venían. PEDIDO corta sin decirlo —de
+	// un `limit=5000` vuelven 2.000 clavados— y una ventana de 30 días que hoy son ~13.000
+	// pedidos se recosteaba a medias con un 200 OK.
+	TopeDelRecosteo = 5000
 )
 
 func (s *Servidor) recomputar(w http.ResponseWriter, r *http.Request) {
@@ -353,7 +361,7 @@ func (s *Servidor) recomputar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	desde := time.Now().AddDate(0, 0, -dias).Format("2006-01-02")
-	url := fmt.Sprintf("%s/integration/orders?desde=%s&limit=5000", pedidoURL, desde)
+	url := fmt.Sprintf("%s/integration/orders?desde=%s&limit=%d", pedidoURL, desde, TopeDelRecosteo)
 	if codigo != "" {
 		url += "&sucursalCodigo=" + codigo
 	}
@@ -434,10 +442,32 @@ func (s *Servidor) recomputar(w http.ResponseWriter, r *http.Request) {
 		batch.WeightsSource = "none"
 	}
 
-	httpx.JSON(w, r, http.StatusOK, map[string]any{
+	salida := map[string]any{
 		"total": len(respuesta.Orders), "recosteados": recosteados, "dias": dias,
 		"weightsSource": batch.WeightsSource, "sucursal": quien,
-	})
+	}
+	// SE PIDIÓ UN TOPE: HAY QUE COMPROBAR SI SE ALCANZÓ. Es el tercero de la familia del
+	// §3 y el que quedaba sin cerrar.
+	//
+	// Aquí no se puede paginar —`/integration/orders` de PEDIDO no da cursor ni
+	// desplazamiento; la forma que funciona es partir la ventana en tramos, y eso ya lo
+	// hace `internal/espejo`, que es quien barre el histórico—. Así que lo que toca es lo
+	// otro que manda la regla: **decirlo, nombrando lo que se quedó fuera**. Un recosteo
+	// que contesta «total: 5000, recosteados: 5000» sobre una ventana de 13.000 es una
+	// pantalla verde encima de 8.000 pedidos con el precio viejo, y ésos acaban en la
+	// factura de alguien.
+	if len(respuesta.Orders) >= TopeDelRecosteo {
+		aviso := fmt.Sprintf(
+			"PEDIDO devolvió %d pedidos, que es justo el tope que se le pidió: es casi "+
+				"seguro que hay MÁS en esos %d días y que se han quedado sin recostear. "+
+				"Repite con menos días (?dias=) hasta que el total baje del tope.",
+			len(respuesta.Orders), dias)
+		salida["truncado"] = true
+		salida["aviso"] = aviso
+		httpx.Registro(r).Warn("el recosteo tocó el tope de PEDIDO: puede haber pedidos sin recostear",
+			"tope", TopeDelRecosteo, "dias", dias, "sucursal", quien)
+	}
+	httpx.JSON(w, r, http.StatusOK, salida)
 }
 
 func (s *Servidor) pedirAlEspejo(ctx context.Context, metodo, url string, cuerpo []byte) ([]byte, int, error) {
@@ -518,48 +548,55 @@ type CambiosSalida struct {
 	// decirlo en la pantalla.
 	Faltan []string `json:"faltan,omitempty"`
 	Aviso  string   `json:"aviso,omitempty"`
-	// Continuar es POR DÓNDE SEGUIR en las colecciones que no se pueden trocear por
-	// marca de tiempo: el catálogo y el padrón de clientes. El aparato lo devuelve tal
-	// cual en la petición siguiente (`?continuar=…`) y no lo mira por dentro.
+	// Continuar es POR DÓNDE SEGUIR en el catálogo y en el padrón de clientes. El aparato
+	// lo devuelve tal cual en la petición siguiente (`?continuar=…`) y no lo mira por
+	// dentro.
 	//
-	// EXISTE PORQUE `truncado` SIN ESTO ES MENTIRA. Estas dos colecciones se ordenan por
-	// nombre y no por una marca que avance, así que decir «queda más» y devolver sólo
-	// `hasta` deja al aparato pidiendo lo mismo una y otra vez. Contra producción, el
-	// 15/09/2026, eso dejó 2.000 clientes redondos de 8.034 en el aparato y la bajada se
-	// dio por buena — el modo de fallo que no revienta y que nadie ve hasta que no cuadra
-	// el inventario.
+	// EXISTE POR UN CASO Y SÓLO POR UNO: un grupo de filas con la MISMA marca más grande
+	// que el tope. El traspaso metió los 7.975 clientes de producción en una sola
+	// transacción y `now()` es la del inicio de la transacción, así que los 7.975 comparten
+	// `synced_at` al microsegundo. Ahí `hasta` no basta —cualquier marca que se devuelva o
+	// repite el grupo entero o se salta lo que quedaba—, y el cursor `(marca, id)` es lo
+	// único que puede empezar exactamente donde acabó la tanda anterior.
+	//
+	// EN TODO LO DEMÁS MANDA `hasta`, y es a propósito: quien pierda el cursor a mitad de
+	// la cadena —se reinstala, se corta la red, se acaba el tope de tandas— vuelve a pedir
+	// desde la marca de la última fila servida y no se deja NADA atrás. Un cursor que fuera
+	// la única forma de seguir es un cursor que, perdido, pierde trabajo.
 	Continuar string `json:"continuar,omitempty"`
 }
 
-// porDondeSeguir es lo que viaja dentro de `continuar`.
+// cursorDeTanda es la ÚLTIMA FILA SERVIDA de una colección: su marca y su id.
 //
-// Lleva `Desde` además de los dos desplazamientos, y ésa es la parte que no se ve venir:
-// el catálogo y los clientes se filtran en Go contra el `desde` de la petición, y en la
-// segunda tanda ese `desde` ya es el `hasta` de la primera. Sin conservar el original, la
-// tanda dos pagina hasta el final del padrón sin emitir una sola fila.
-type porDondeSeguir struct {
-	// Empezada dice que este cursor viene de una cadena YA EN MARCHA, y es lo único que
-	// separa las dos cosas que `Desde` vacío significaba a la vez.
-	//
-	// Sin él, «la cadena empezó SIN desde» —una carga inicial— y «todavía no se ha fijado
-	// el desde» —la primera tanda— eran el mismo valor. La tanda 2 de una carga inicial
-	// caía en la rama de «fíjalo ahora» y se quedaba con el `desde` de ESA tanda, que es
-	// el `hasta` que devolvió la primera. Contra ese filtro no pasa ni un cliente: 0
-	// filas, `truncado` a false y la cadena se acaba.
-	//
-	// El aparato se quedaba con **2.000 de los 8.103 clientes y la bajada dada por
-	// completa** — el mismo número y el mismo silencio del incidente del 15/09, que es el
-	// fallo que más caro sale en este proyecto (`CLAUDE.md` §3). Y peor todavía: como la
-	// cadena termina «bien», la guarda del aparato que avisa de una bajada cortada
-	// (`bajada.dart`) tampoco salta. Nadie se entera.
-	Empezada bool `json:"i,omitempty"`
+// Las dos mitades hacen falta. La marca sola no distingue entre las filas de un mismo
+// grupo —y en esta base los grupos son de miles: una transacción, una hora—, así que un
+// corte dentro del grupo con sólo la marca o no avanza o se salta el resto. El id
+// desempata, que es el mismo orden del SQL (`ORDER BY marca ASC, id ASC`).
+type cursorDeTanda struct {
+	// Hay dice que este cursor EXISTE, y va aparte de la marca a propósito: una marca
+	// vacía es un valor legítimo —lo es en las pruebas, y lo sería el día que una columna
+	// dejara de ser NOT NULL—, así que deducir «no hay cursor» de «la marca está a cero»
+	// deja la cadena repitiendo la primera tanda para siempre.
+	Hay   bool      `json:"h"`
+	Marca time.Time `json:"m"`
+	ID    uuid.UUID `json:"i"`
+}
 
-	// Desde es el de la PRIMERA tanda de la cadena. Vacío CON `Empezada` = carga inicial:
-	// sin filtro de marca, que es lo que hace falta para que bajen los 8.103.
-	Desde string `json:"d,omitempty"`
-	// Clientes y Productos son cuántas filas ya se sirvieron de cada uno.
-	Clientes  int32 `json:"c,omitempty"`
-	Productos int32 `json:"p,omitempty"`
+func (c cursorDeTanda) puesto() bool { return c.Hay }
+
+// leer devuelve el cursor como lo quiere `alcance.TandaDelPadron`: nil cuando no hay.
+func (c cursorDeTanda) leer() (*time.Time, *uuid.UUID) {
+	if !c.puesto() {
+		return nil, nil
+	}
+	marca, id := c.Marca, c.ID
+	return &marca, &id
+}
+
+// porDondeSeguir es lo que viaja dentro de `continuar`.
+type porDondeSeguir struct {
+	Productos cursorDeTanda `json:"p"`
+	Clientes  cursorDeTanda `json:"c"`
 }
 
 // leerPorDondeSeguir saca el cursor de la query. Uno ilegible se trata como «empieza de
@@ -578,12 +615,6 @@ func leerPorDondeSeguir(crudo string) porDondeSeguir {
 	}
 	if err := json.Unmarshal(bruto, &d); err != nil {
 		return porDondeSeguir{}
-	}
-	if d.Clientes < 0 {
-		d.Clientes = 0
-	}
-	if d.Productos < 0 {
-		d.Productos = 0
 	}
 	return d
 }
@@ -656,34 +687,11 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	// POR DÓNDE VA LA CADENA. En la primera tanda viene vacío.
 	seguir := leerPorDondeSeguir(q.Get("continuar"))
 
-	// EL `desde` DEL PADRÓN ES EL DE LA PRIMERA TANDA, no el de ésta.
-	//
-	// El aparato relee su marca de frescura en cada vuelta y ya se apuntó el `hasta` de la
-	// anterior, así que el `desde` que manda AVANZA entre tandas. El catálogo y el padrón
-	// se trocean por desplazamiento —van ordenados por nombre—, de modo que si el filtro
-	// de marca se moviera con él, la tanda 2 pediría «lo que cambió desde hace un
-	// segundo» sobre las filas 2.000 a 4.000 y no emitiría ninguna.
-	//
-	// Por eso se fija en la primera tanda y viaja dentro del cursor. Y por eso hay que
-	// distinguir «la cadena empezó sin `desde`» de «todavía no se ha fijado»: ver
-	// `porDondeSeguir.Empezada`.
-	desdeDelPadron := desde
-	switch {
-	case seguir.Empezada && seguir.Desde == "":
-		// Carga inicial ya en marcha: SIN filtro de marca. Es lo que deja que bajen los
-		// 8.103 clientes y no los 2.000 primeros.
-		desdeDelPadron = nil
-	case seguir.Empezada:
-		if t, err := time.Parse(time.RFC3339Nano, seguir.Desde); err == nil {
-			desdeDelPadron = &t
-		}
-	default:
-		// Primera tanda: se fija lo que vale para toda la cadena.
-		seguir.Empezada = true
-		if desde != nil {
-			seguir.Desde = desde.Format(time.RFC3339Nano)
-		}
-	}
+	// EL `desde` DE LA PETICIÓN VALE PARA TODAS LAS COLECCIONES, incluidas las dos que se
+	// continúan por cursor. Aquí vivía un `desdeDelPadron` que conservaba el `desde` de la
+	// primera tanda dentro del propio cursor, y ya no hace falta: el cursor es ahora
+	// `(marca, id)` de la última fila servida, así que él mismo dice desde dónde seguir y
+	// el `desde` de la petición sólo se mira cuando no hay cursor.
 
 	salida := CambiosSalida{
 		Hasta:    hasta,
@@ -902,23 +910,34 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	salida.Cambios["routes"] = conjuntoCon(puestos, quitadas)
 
 	// --- Catálogo -----------------------------------------------------------
-	productos, err := a.EspejoListarProductos(r.Context(), tope, seguir.Productos, desdeDelPadron)
+	// UNA FILA DE MÁS, igual que en los pedidos: con exactamente `tope` filas no hay forma
+	// de distinguir «caben justo» de «hay más», y dar por buena la primera deja al aparato
+	// sin volver a pedir lo que falta.
+	marcaCursor, idCursor := seguir.Productos.leer()
+	productos, err := a.EspejoDiferenciasDeProductos(r.Context(), alcance.TandaDelPadron{
+		Desde: desde, Hasta: hasta, Tope: tope + 1,
+		CursorMarca: marcaCursor, CursorID: idCursor,
+	})
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
-	// LA TANDA SIGUIENTE EMPIEZA DONDE ACABÓ ÉSTA. Antes esto era
-	// `truncado = truncado || len(productos) >= TopeDeBajada` y nada más: se decía que
-	// quedaba más y no había por dónde seguir.
-	if int32(len(productos)) >= tope {
-		truncado = true
-		siguiente.Productos = seguir.Productos + int32(len(productos))
-	}
+	// LA TANDA SIGUIENTE EMPIEZA DONDE ACABÓ ÉSTA, y el `hasta` que se devuelve es la
+	// marca de la última fila servida. Antes esto era
+	// `truncado = truncado || len(productos) >= TopeDeBajada` sobre una lista ordenada por
+	// NOMBRE: se decía que quedaba más y la marca que se devolvía era el reloj, así que lo
+	// que no cupo quedaba por debajo del próximo `desde` y no lo pedía nadie nunca más.
+	productos, curProd, corteProdTanda := tandaDeLaBajada(r, productos, int(tope), "products",
+		func(p sqlc.Product) time.Time { return p.UpdatedAt.Time },
+		func(p sqlc.Product) uuid.UUID { return p.ID })
+	siguiente.Productos = curProd
+	anotarCorte(corteProdTanda)
 	puestos = nil
 	for _, p := range productos {
-		if !cambioDesde(p.UpdatedAt, desdeDelPadron) {
-			continue
-		}
+		// SIN `cambioDesde` AQUÍ, y no se olvidó: el filtro por marca vive EN EL SQL desde
+		// el 16/09/2026. Volver a filtrar en Go sobre las filas ya servidas descuadraría
+		// la cuenta del corte —se emitirían menos filas de las que el cursor da por
+		// servidas— y eso es exactamente cómo se pierde una fila sin que salte nada.
 		puestos = append(puestos, map[string]any{
 			"id": p.ID, "name": p.Name, "weight": p.Weight, "sku": p.Sku,
 			"sucursalCodigo": p.SucursalCodigo, "price": p.Price, "stock": p.Stock,
@@ -961,20 +980,22 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 	// OJO: los clientes se filtran por `synced_at` y no por `updated_at`, porque es lo
 	// único que trae la consulta. Significan cosas parecidas pero no iguales —`synced_at`
 	// es «cuándo lo trajo PEDIDO»—, y mientras sea eso lo que hay, es lo que se usa.
-	clientes, err := a.EspejoListarClientes(r.Context(), tope, seguir.Clientes, desdeDelPadron)
+	marcaCursor, idCursor = seguir.Clientes.leer()
+	clientes, err := a.EspejoDiferenciasDeClientes(r.Context(), alcance.TandaDelPadron{
+		Desde: desde, Hasta: hasta, Tope: tope + 1,
+		CursorMarca: marcaCursor, CursorID: idCursor,
+	})
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
-	if int32(len(clientes)) >= tope {
-		truncado = true
-		siguiente.Clientes = seguir.Clientes + int32(len(clientes))
-	}
+	clientes, curCli, corteCliTanda := tandaDeLaBajada(r, clientes, int(tope), "customers",
+		func(c sqlc.DiferenciasDeClientesRow) time.Time { return c.SyncedAt.Time },
+		func(c sqlc.DiferenciasDeClientesRow) uuid.UUID { return c.ID })
+	siguiente.Clientes = curCli
+	anotarCorte(corteCliTanda)
 	puestos = nil
 	for _, c := range clientes {
-		if !cambioDesde(c.SyncedAt, desdeDelPadron) {
-			continue
-		}
 		puestos = append(puestos, map[string]any{
 			"id": c.ID, "name": c.Name, "phone": c.Phone, "address": c.Address,
 			"municipio": c.Municipio, "zona": c.Zona, "lat": c.Lat, "lng": c.Lng,
@@ -1168,11 +1189,10 @@ func (s *Servidor) cambiosDesde(w http.ResponseWriter, r *http.Request) {
 
 	salida.Truncado = truncado
 	if truncado {
-		// POR DÓNDE SEGUIR, siempre que se diga que queda más. Va incluso cuando lo que
-		// quedó corto fueron los pedidos —que se continúan por `hasta`— porque el cursor
-		// lleva además el `desde` original de la cadena, y sin él la tanda siguiente
-		// filtraría el padrón de clientes contra una marca que ya avanzó y no emitiría
-		// una sola fila.
+		// POR DÓNDE SEGUIR, siempre que se diga que queda más, y también cuando lo que
+		// quedó corto fueron los pedidos: el catálogo y el padrón ya sirvieron su tanda y
+		// el cursor evita volver a mandarla. Quien no lo devuelva NO pierde nada —para eso
+		// `hasta` es la marca de la última fila servida—, sólo repite trabajo.
 		salida.Continuar = siguiente.escribir()
 	}
 	httpx.JSON(w, r, http.StatusOK, salida)
@@ -1496,6 +1516,68 @@ func recortarPorMarca[T any](r *http.Request, filas []T, tope int, marca func(T)
 	}
 	corte := marca(servidas[i])
 	return servidas[:i+1], &corte
+}
+
+// tandaDeLaBajada recorta una colección que se continúa por cursor —el catálogo y el
+// padrón— y devuelve las tres cosas que hacen falta para que un tope no pierda nada:
+//
+//  1. LAS FILAS SERVIDAS. Se le pasa la tanda pedida con UNA FILA DE MÁS (`tope+1`): con
+//     exactamente `tope` no hay forma de distinguir «caben justo» de «hay más y no caben»,
+//     y dar por buena la primera deja al aparato sin volver a pedir lo que falta.
+//  2. EL CURSOR de la última fila servida, `(marca, id)`. Es lo único que sirve cuando un
+//     grupo de filas con la misma marca es más grande que el tope, que aquí no es un caso
+//     de laboratorio: el traspaso metió los 7.975 clientes en una transacción y comparten
+//     `synced_at` al microsegundo.
+//  3. LA MARCA SEGURA para devolver como `hasta`: la mayor cuyo grupo se sirvió ENTERO.
+//     Quien pierda el cursor vuelve a pedir desde ahí y no se deja una sola fila.
+//
+// Nil como marca es «cupo todo», que es el caso normal y el que no lleva `truncado`.
+func tandaDeLaBajada[T any](r *http.Request, filas []T, tope int, coleccion string,
+	marca func(T) time.Time, id func(T) uuid.UUID) ([]T, cursorDeTanda, *time.Time) {
+
+	cursor := func(servidas []T) cursorDeTanda {
+		if len(servidas) == 0 {
+			return cursorDeTanda{}
+		}
+		u := servidas[len(servidas)-1]
+		return cursorDeTanda{Hay: true, Marca: marca(u), ID: id(u)}
+	}
+
+	if tope <= 0 || len(filas) <= tope {
+		return filas, cursor(filas), nil
+	}
+
+	servidas := filas[:tope]
+	ultima := marca(servidas[tope-1])
+	primeraQueNoCabe := marca(filas[tope])
+
+	// El grupo de `ultima` cabe entero: se corta limpio por ahí.
+	if primeraQueNoCabe.After(ultima) {
+		return servidas, cursor(servidas), &ultima
+	}
+
+	// EL GRUPO ESTÁ PARTIDO. Las filas se sirven igual —el cursor sabe por dónde seguir—,
+	// pero `ultima` YA NO SIRVE como `hasta`: devolverla dejaría fuera lo que queda del
+	// grupo para cualquiera que vuelva a pedir por marca. Se retrocede a la marca anterior,
+	// que sí está servida entera.
+	i := tope - 1
+	for i >= 0 && !marca(servidas[i]).Before(ultima) {
+		i--
+	}
+	if i >= 0 {
+		anterior := marca(servidas[i])
+		return servidas, cursor(servidas), &anterior
+	}
+
+	// TODA LA TANDA ES UN SOLO GRUPO y no cabe: no hay ninguna marca servida entera. Se
+	// devuelve la anterior por un microsegundo —que es la resolución de un `timestamptz` de
+	// Postgres, así que no se salta ninguna fila— y se deja dicho: a partir de aquí, el
+	// cursor es lo ÚNICO que hace avanzar la cadena, y quien lo pierda repetirá esta misma
+	// tanda para siempre en vez de perder filas. De los dos males, ése es el que se ve.
+	httpx.Registro(r).Warn("una sola marca no cabe en el tope de la bajada: sin el cursor la cadena no avanza",
+		"coleccion", coleccion, "marca", ultima, "tope", tope)
+	antes := ultima.Add(-time.Microsecond)
+	return servidas, cursor(servidas), &antes
 }
 
 // laMasAtrasada: de dos cortes, el que menos avanza. Nil es «no hubo corte», así que no
