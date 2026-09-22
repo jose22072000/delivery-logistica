@@ -125,16 +125,9 @@ class AccionesDeRuta {
 
     final pedidos = await _pedidosArmables(pedidoIds, sucursalId);
 
-    if (pedidos.isEmpty) {
-      throw const RechazoLocal(
-        'Los pedidos seleccionados ya no están disponibles',
-      );
-    }
     if (pedidos.length < pedidoIds.length) {
-      final faltan = pedidoIds.length - pedidos.length;
       throw RechazoLocal(
-        '$faltan de los ${pedidoIds.length} pedidos ya están en otra ruta. '
-        'Vuelve a elegirlos.',
+        await _porQueNoSePuedenArmar(pedidoIds, pedidos, sucursalId),
       );
     }
 
@@ -318,6 +311,16 @@ class AccionesDeRuta {
             o.id.isIn(ids) &
             o.source.equals(Procedencia.pedido) &
             o.routeId.isNull() &
+            // ARCHIVADO Y ENTREGADO, que faltaban — 22/09/2026.
+            //
+            // El servidor los descarta (`PedidosParaArmarRuta`) y aquí no se
+            // miraban, así que el aparato dejaba armar la ruta, la encolaba, y
+            // el «no» llegaba horas después a la bandeja de rechazados. Peor
+            // todavía con un entregado: conserva su `routeId`, así que se
+            // colaba sólo si la ruta que lo llevó se borró — y volver a
+            // subirlo a un camión es ir a casa de alguien que ya recibió.
+            o.archivado.equals(false) &
+            o.deliveredAt.isNull() &
             o.endLat.isNotNull() &
             o.endLng.isNotNull() &
             (sucursalId == null || sucursalId.isEmpty
@@ -325,6 +328,112 @@ class AccionesDeRuta {
                 : o.branchId.equals(sucursalId)),
       );
     return consulta.get();
+  }
+
+  /// POR QUÉ NO SE PUEDEN ARMAR, pedido a pedido y con el motivo de VERDAD.
+  ///
+  /// ## El aparato se había quedado atrás — 22/09/2026
+  ///
+  /// Aquí se decía siempre lo mismo: «N de los M pedidos ya están en otra ruta.
+  /// Vuelve a elegirlos.» El servidor **ya no dice eso** —lo cambió el 21/09 por
+  /// esto mismo, motivo a motivo (`api/internal/api/rutas.go`,
+  /// `porQueNoSeArma`)— y el aparato se quedó con el literal viejo. Que es peor
+  /// que no tener mensaje: la criba descarta por seis motivos distintos y cinco
+  /// de cada seis veces el aviso señalaba el sitio equivocado. Alguien vuelve a
+  /// la lista, elige otros pedidos, y le pasa otra vez lo mismo.
+  ///
+  /// «Vuelve a elegirlos» sólo vale para uno de los seis. Para un pedido sin
+  /// coordenadas o archivado en PEDIDO, volver a elegirlo es justo lo que no
+  /// arregla nada.
+  ///
+  /// **Palabra por palabra igual que el servidor**, porque el mismo «no» puede
+  /// llegar por los dos caminos —aquí al armar, o horas después en la bandeja de
+  /// rechazados— y leerlo distinto enseña que la aplicación miente a veces.
+  /// `armado_test.dart` los compara carácter a carácter.
+  Future<String> _porQueNoSePuedenArmar(
+    List<String> pedidos,
+    List<Pedido> armables,
+    String? sucursalId,
+  ) async {
+    final buenos = {for (final p in armables) p.id};
+    // Los repetidos NO cuentan: mandar dos veces el mismo id es una lista mal
+    // hecha, no un conflicto. Es lo que hace `faltanDelArmado` en el servidor.
+    final fuera = <String>[];
+    final visto = <String>{};
+    for (final id in pedidos) {
+      if (!visto.add(id)) continue;
+      if (!buenos.contains(id)) fuera.add(id);
+    }
+
+    // Se leen SIN ningún filtro: hace falta saber qué tiene cada fila, no si
+    // pasa la criba. Que un pedido ni siquiera esté aquí también es respuesta.
+    final filas =
+        await (_base.select(_base.orders)..where((o) => o.id.isIn(fuera))).get();
+    final porId = {for (final f in filas) f.id: f};
+
+    // El CÓDIGO de la ruta, para poder decir en cuál va. «Ya va en la ruta
+    // RT-20260922-003» dice dónde mirar; «ya va en otra ruta» deja quince rutas
+    // que abrir.
+    final rutas = <String, String?>{};
+    final idsDeRuta = <String>{
+      for (final f in filas)
+        if (f.routeId != null) f.routeId!,
+    };
+    if (idsDeRuta.isNotEmpty) {
+      final encontradas = await (_base.select(
+        _base.routes,
+      )..where((r) => r.id.isIn(idsDeRuta.toList()))).get();
+      for (final r in encontradas) {
+        rutas[r.id] = r.routeCode;
+      }
+    }
+
+    // EL ORDEN ES EL DEL SERVIDOR y no es casual: el entregado va PRIMERO
+    // porque conserva su `routeId`, y mirando la ruta antes se le contaría al
+    // logístico que «otro lo subió a un camión» cuando ese pedido ya está en
+    // casa del cliente. Lo que hay que hacer es distinto.
+    String motivo(Pedido p) {
+      if (p.deliveredAt != null || p.resultado == ResultadoParada.entregado) {
+        return 'ya se entregó y no puede volver a un camión';
+      }
+      if (p.routeId != null) {
+        final codigo = rutas[p.routeId];
+        if (codigo != null && codigo.isNotEmpty) {
+          return 'ya va en la ruta $codigo';
+        }
+        return 'ya va en otra ruta';
+      }
+      if (p.archivado) return 'PEDIDO lo archivó';
+      if (p.endLat == null || p.endLng == null) {
+        return 'sin coordenadas de entrega';
+      }
+      if (p.source != Procedencia.pedido) return 'no vino de PEDIDO';
+      // No debería llegar aquí. Si llega, es que la criba cambió y esto no:
+      // decirlo es mejor que inventar un motivo, que es lo que se acaba de
+      // quitar.
+      return 'cambió mientras se armaba';
+    }
+
+    final detalle = <String>[];
+    for (final id in fuera) {
+      if (detalle.length >= 5) break;
+      final p = porId[id];
+      if (p == null) {
+        // NO EXISTE Y NO ES TUYO SON LO MISMO desde fuera: decir «existe pero es
+        // de Holguín» ya es contar algo de Holguín.
+        detalle.add('$id (no existe o no es de tu sucursal)');
+        continue;
+      }
+      detalle.add('${p.operationNumber ?? p.customerName} (${motivo(p)})');
+    }
+
+    final cola = fuera.length > detalle.length
+        ? ' y ${fuera.length - detalle.length} más.'
+        : '.';
+    // La M es `pedidos.length`, lo que la persona marcó en la pantalla y tiene
+    // delante mientras lee el aviso, no el número de ids distintos.
+    return '${fuera.length} de los ${pedidos.length} pedidos elegidos no pueden '
+        'ir en esta ruta: ${detalle.join(", ")}$cola';
   }
 
   /// El mensaje compuesto de los no facturados, letra a letra como el servidor:

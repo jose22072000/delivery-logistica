@@ -33,6 +33,7 @@ import '../datos/meter_la_zona.dart';
 import '../datos/repositorio_rutas.dart';
 import '../../tablero/estado/proveedores.dart';
 import '../estado/proveedores_rutas.dart';
+import 'aviso_de_rechazo.dart';
 
 class AsistenteNuevaRuta extends ConsumerStatefulWidget {
   const AsistenteNuevaRuta({super.key});
@@ -158,6 +159,9 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   bool _arranqueResuelto = false;
 
   bool _generando = false;
+
+  /// El último «no» del armado, mientras no se cierre. `null` = no hay ninguno.
+  String? _rechazo;
 
   @override
   void dispose() {
@@ -321,23 +325,47 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
       // «Generar Ruta» cortado, que es lo mismo que no estar—. Con `Spacer` no
       // se arregla: el hueco es un hijo flexible más y el botón se quedaría a
       // media anchura también en un monitor.
-      pie: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      pie: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextButton(
-            onPressed: () => Navigator.of(context).maybePop(),
-            child: const Text('Cancelar'),
-          ),
-          const SizedBox(width: Aire.sm),
-          Flexible(
-            child: FilledButton(
-              onPressed: puedeGenerar ? _generar : null,
-              child: Text(
-                _generando ? 'Generando ruta...' : 'Generar Ruta',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+          // EL «NO» DEL SERVIDOR, DENTRO DEL CAJÓN Y ENCIMA DEL BOTÓN.
+          //
+          // Esto salía por `showSnackBar`, y un `SnackBar` lo pinta el
+          // `ScaffoldMessenger` de la pantalla de detrás: **debajo del cajón**.
+          // O sea que el mensaje existía, se componía con su motivo y no lo veía
+          // nadie. Desde fuera —Jose, 22/09/2026, pulsando «Generar Ruta» tres
+          // veces seguidas— la aplicación «no hace nada y no dice nada», que es
+          // la peor forma de decir que no.
+          //
+          // Va pegado al botón que lo provocó, a propósito: quien acaba de
+          // pulsar está mirando ahí.
+          if (_rechazo != null) ...[
+            AvisoDeRechazo(
+              mensaje: _rechazo!,
+              alCerrar: () => setState(() => _rechazo = null),
             ),
+            const SizedBox(height: Aire.sm),
+          ],
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              TextButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                child: const Text('Cancelar'),
+              ),
+              const SizedBox(width: Aire.sm),
+              Flexible(
+                child: FilledButton(
+                  onPressed: puedeGenerar ? _generar : null,
+                  child: Text(
+                    _generando ? 'Generando ruta...' : 'Generar Ruta',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -997,7 +1025,12 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   }
 
   Future<void> _generar() async {
-    setState(() => _generando = true);
+    // El «no» de antes se quita al volver a intentarlo: dejarlo puesto encima
+    // del botón mientras se está generando diría que acaba de fallar otra vez.
+    setState(() {
+      _generando = true;
+      _rechazo = null;
+    });
     final mensajero = ScaffoldMessenger.maybeOf(context);
     final navegador = Navigator.of(context);
     try {
@@ -1017,8 +1050,10 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
       ref.read(rutaElegidaProvider.notifier).elegir(rutaId);
       navegador.maybePop();
     } on RechazoLocal catch (fallo) {
-      // Los errores del armado salen como aviso emergente, **no dentro del
-      // cajon**, y con el texto literal del servidor.
+      // DENTRO del cajón, que es donde está mirando quien pulsó. Y también por
+      // el mensajero, para quien tenga el cajón a pantalla completa en un
+      // monitor y el pie fuera de su vista.
+      if (mounted) setState(() => _rechazo = fallo.mensaje);
       mensajero?.showSnackBar(SnackBar(content: Text(fallo.mensaje)));
     } finally {
       if (mounted) setState(() => _generando = false);

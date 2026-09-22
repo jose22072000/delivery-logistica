@@ -67,6 +67,22 @@ void main() {
 
   tearDown(() => base.close());
 
+  /// Arma y comprueba el mensaje **carácter a carácter**. Es a propósito: el
+  /// mismo «no» llega por dos caminos —aquí al armar, o en la bandeja de
+  /// rechazados horas después— y leerlo distinto enseña que la aplicación miente
+  /// a veces.
+  Future<void> esperaRechazo(List<String> pedidoIds, String mensaje) async {
+    await expectLater(
+      () => acciones.armar(
+        vehiculoId: 'V1',
+        pedidoIds: pedidoIds,
+        origenLat: 0,
+        origenLng: 0,
+      ),
+      throwsA(isA<RechazoLocal>().having((r) => r.mensaje, 'mensaje', mensaje)),
+    );
+  }
+
   Future<String> armarLasTres() => acciones.armar(
     vehiculoId: 'V1',
     pedidoIds: ['q1', 'q2', 'q3'],
@@ -195,45 +211,131 @@ void main() {
       );
     });
 
-    test('ninguno disponible', () async {
-      expect(
-        () => acciones.armar(
-          vehiculoId: 'V1',
-          pedidoIds: const ['no-existe'],
-          origenLat: 0,
-          origenLng: 0,
-        ),
-        throwsA(
-          isA<RechazoLocal>().having(
-            (r) => r.mensaje,
-            'mensaje',
-            'Los pedidos seleccionados ya no están disponibles',
-          ),
-        ),
+    test('uno que no existe: no se dice si es de otra sucursal', () async {
+      // «No existe» y «no es tuyo» se contestan igual a propósito: decir «existe
+      // pero es de Holguín» ya es contar algo de Holguín.
+      await esperaRechazo(
+        const ['no-existe'],
+        '1 de los 1 pedidos elegidos no pueden ir en esta ruta: '
+        'no-existe (no existe o no es de tu sucursal).',
       );
     });
 
-    test('alguno ya esta en otra ruta: se dice CUANTOS', () async {
-      await sembrarRuta(base, id: 'R9');
-      await (base.update(base.orders)..where((o) => o.id.equals('q2'))).write(
-        const OrdersCompanion(routeId: Value('R9')),
-      );
+    // EL MENSAJE QUE MENTÍA — 22/09/2026.
+    //
+    // Aquí decía siempre «N de los M pedidos ya están en otra ruta. Vuelve a
+    // elegirlos.», y la criba descarta por SEIS motivos distintos. El servidor
+    // lo arregló el 21/09 y el aparato se quedó con el literal viejo, así que
+    // cinco de cada seis veces el aviso señalaba el sitio equivocado.
+    //
+    // Cada motivo tiene su prueba porque cada uno se arregla de una forma
+    // distinta, y ése es justo el punto: «vuelve a elegirlos» sólo vale para
+    // uno de los seis.
+    group('el motivo que se dice es el de VERDAD', () {
+      test('ya va en otra ruta, Y SE NOMBRA la ruta', () async {
+        // «Ya va en la ruta RT-20260922-003» dice dónde mirar; «ya va en otra
+        // ruta» deja quince rutas que abrir.
+        await sembrarRuta(base, id: 'R9', codigo: 'RT-20260922-003');
+        await (base.update(base.orders)..where((o) => o.id.equals('q2'))).write(
+          const OrdersCompanion(routeId: Value('R9')),
+        );
 
-      expect(
-        () => acciones.armar(
-          vehiculoId: 'V1',
-          pedidoIds: ['q1', 'q2', 'q3'],
-          origenLat: 0,
-          origenLng: 0,
-        ),
-        throwsA(
-          isA<RechazoLocal>().having(
-            (r) => r.mensaje,
-            'mensaje',
-            '1 de los 3 pedidos ya están en otra ruta. Vuelve a elegirlos.',
+        await esperaRechazo(
+          const ['q1', 'q2', 'q3'],
+          '1 de los 3 pedidos elegidos no pueden ir en esta ruta: '
+          'F-002 (ya va en la ruta RT-20260922-003).',
+        );
+      });
+
+      test('ya se entregó: va ANTES que la ruta', () async {
+        // Un entregado conserva su `routeId`. Mirando la ruta primero se le
+        // contaría al logístico que «otro lo subió a un camión» cuando ese
+        // pedido ya está en casa del cliente, y lo que hay que hacer es otra
+        // cosa. El orden de los motivos no es decorativo.
+        await sembrarRuta(base, id: 'R9', codigo: 'RT-20260922-003');
+        await (base.update(base.orders)..where((o) => o.id.equals('q2'))).write(
+          OrdersCompanion(
+            routeId: const Value('R9'),
+            deliveredAt: Value(DateTime.utc(2026, 9, 22)),
           ),
-        ),
-      );
+        );
+
+        await esperaRechazo(
+          const ['q1', 'q2', 'q3'],
+          '1 de los 3 pedidos elegidos no pueden ir en esta ruta: '
+          'F-002 (ya se entregó y no puede volver a un camión).',
+        );
+      });
+
+      test('PEDIDO lo archivó', () async {
+        // Volver a elegirlo NO lo arregla: hay que desarchivarlo en PEDIDO.
+        await (base.update(base.orders)..where((o) => o.id.equals('q2'))).write(
+          const OrdersCompanion(archivado: Value(true)),
+        );
+
+        await esperaRechazo(
+          const ['q1', 'q2', 'q3'],
+          '1 de los 3 pedidos elegidos no pueden ir en esta ruta: '
+          'F-002 (PEDIDO lo archivó).',
+        );
+      });
+
+      test('sin coordenadas de entrega', () async {
+        await (base.update(base.orders)..where((o) => o.id.equals('q2'))).write(
+          const OrdersCompanion(endLat: Value(null), endLng: Value(null)),
+        );
+
+        await esperaRechazo(
+          const ['q1', 'q2', 'q3'],
+          '1 de los 3 pedidos elegidos no pueden ir en esta ruta: '
+          'F-002 (sin coordenadas de entrega).',
+        );
+      });
+
+      test('no vino de PEDIDO', () async {
+        await (base.update(base.orders)..where((o) => o.id.equals('q2'))).write(
+          const OrdersCompanion(source: Value('manual')),
+        );
+
+        await esperaRechazo(
+          const ['q1', 'q2', 'q3'],
+          '1 de los 3 pedidos elegidos no pueden ir en esta ruta: '
+          'F-002 (no vino de PEDIDO).',
+        );
+      });
+
+      test('varios a la vez, cada uno con el suyo', () async {
+        // Dos motivos distintos en el mismo aviso. Si esto se leyera «2 ya están
+        // en otra ruta», quien lo lee arreglaría uno y el otro seguiría ahí.
+        await sembrarRuta(base, id: 'R9', codigo: 'RT-20260922-003');
+        await (base.update(base.orders)..where((o) => o.id.equals('q2'))).write(
+          const OrdersCompanion(routeId: Value('R9')),
+        );
+        await (base.update(base.orders)..where((o) => o.id.equals('q3'))).write(
+          const OrdersCompanion(archivado: Value(true)),
+        );
+
+        await esperaRechazo(
+          const ['q1', 'q2', 'q3'],
+          '2 de los 3 pedidos elegidos no pueden ir en esta ruta: '
+          'F-002 (ya va en la ruta RT-20260922-003), F-003 (PEDIDO lo archivó).',
+        );
+      });
+
+      test('un id repetido no cuenta como un conflicto', () async {
+        // Mandar dos veces el mismo id es una lista mal hecha, no un conflicto.
+        // Contarlo mandaría a buscar una ruta que no existe.
+        await sembrarRuta(base, id: 'R9', codigo: 'RT-20260922-003');
+        await (base.update(base.orders)..where((o) => o.id.equals('q2'))).write(
+          const OrdersCompanion(routeId: Value('R9')),
+        );
+
+        await esperaRechazo(
+          const ['q1', 'q2', 'q2', 'q3'],
+          '1 de los 4 pedidos elegidos no pueden ir en esta ruta: '
+          'F-002 (ya va en la ruta RT-20260922-003).',
+        );
+      });
     });
 
     test('en una ruta sólo entra lo facturado y que cuadre', () async {

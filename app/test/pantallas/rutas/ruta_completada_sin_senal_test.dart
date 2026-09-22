@@ -226,6 +226,12 @@ void main() {
     // nombre el pedido a mano. Son tres puertas al mismo sitio y las tres
     // tienen que estar cerradas: basta con que una se quede abierta para que
     // salga un segundo camión con un bulto ya entregado.
+    //
+    // EL MOTIVO, Y NO «ya no están disponibles» — 22/09/2026. Aquí se esperaba
+    // el mensaje genérico, y para un pedido ENTREGADO ese mensaje es el que más
+    // daño hace: manda a volver a elegirlo, cuando lo que pasa es que el bulto
+    // ya está en casa del cliente. Es el mismo literal que contesta el servidor
+    // (`api/internal/api/rutas.go`, `porQueNoSeArma`).
     await expectLater(
       acciones().armar(
         vehiculoId: 'v1',
@@ -238,7 +244,8 @@ void main() {
         isA<RechazoLocal>().having(
           (e) => e.mensaje,
           'mensaje',
-          'Los pedidos seleccionados ya no están disponibles',
+          '1 de los 1 pedidos elegidos no pueden ir en esta ruta: '
+              'p1 (ya se entregó y no puede volver a un camión).',
         ),
       ),
     );
