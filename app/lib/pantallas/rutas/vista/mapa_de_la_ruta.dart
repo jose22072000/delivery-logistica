@@ -30,9 +30,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../diseno/colores.dart';
+import '../../../mapa/proveedores_de_mapa.dart';
 import '../../../nucleo/plataforma.dart';
+import '../../mapa/registro.dart';
 import '../../pedidos/datos/formato.dart';
 import '../datos/abrir_y_compartir.dart';
 import '../datos/enlace_de_la_ruta.dart';
@@ -61,7 +64,8 @@ abstract final class TextosDelMapa {
 
   /// Sin calles, en el navegador. Ni una palabra sobre la cobertura: si la
   /// página cargó, conexión hay, y lo que falló fue el fondo del mapa.
-  static const croquisEnLaWeb = 'El mapa de calles no cargó: esto es el croquis.';
+  static const croquisEnLaWeb =
+      'El mapa de calles no cargó: esto es el croquis.';
 
   static const recorridoPorCarretera = 'Recorrido por las calles.';
 
@@ -160,9 +164,8 @@ class _MapaDeLaRutaState extends ConsumerState<MapaDeLaRuta> {
       children: [
         Text(
           'Recorrido',
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+          style: Theme.of(context).textTheme.titleSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
 
@@ -192,6 +195,23 @@ class _MapaDeLaRutaState extends ConsumerState<MapaDeLaRuta> {
             TextosDelMapa.queSeEstaViendo(_queSeVe, enElAparato: enElAparato),
             style: TextStyle(fontSize: 11, color: Colores.gris),
           ),
+        ],
+
+        // SIN MAPA DESCARGADO, SE DICE Y SE OFRECE BAJARLO.
+        //
+        // Jose, 21/09/2026, con el avión puesto y el croquis a secas delante:
+        // «y por qué sin conexión no tenía el mapa, pon un mensaje que salga
+        // ahí la opción de que se descargue el mapa». Tenía razón: la pantalla
+        // decía «se ve igual sin señal» y no decía lo único que hay que hacer
+        // para que eso sea verdad.
+        //
+        // Sale **sólo en la APK y el escritorio** (regla 1: en la web no existe
+        // el aparato de sin-conexión) y **sólo si no hay paquete**. Con el mapa
+        // ya bajado no se dice nada: un aviso que sale siempre deja de leerse.
+        if (enElAparato &&
+            ref.watch(paqueteGuardadoProvider).value == null) ...[
+          const SizedBox(height: 8),
+          _SinMapaDescargado(),
         ],
 
         // LO QUE NO VIAJA EN EL ENLACE, con su numero y su motivo. El comentario
@@ -355,4 +375,42 @@ class _Acciones extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// «No tienes el mapa de Cuba» + el botón que lleva a bajarlo.
+///
+/// Es un aviso con salida, no un cartel: el croquis funciona sin el mapa —las
+/// paradas, su orden y el recorrido se dibujan igual—, así que esto no bloquea
+/// nada. Lo que hace es contar que **las calles de fondo se bajan una vez** y
+/// llevar allí de un toque, en vez de dejar a alguien buscando en el menú.
+class _SinMapaDescargado extends StatelessWidget {
+  const _SinMapaDescargado();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: Colores.ambarFondo,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: Colores.ambar.withValues(alpha: 0.35)),
+    ),
+    child: Row(
+      children: [
+        Icon(Icons.map_outlined, size: 18, color: Colores.ambar),
+        const SizedBox(width: 8),
+        const Expanded(
+          child: Text(
+            'Sin el mapa de Cuba descargado, aquí sólo se dibujan las paradas y '
+            'el recorrido. Se baja una vez y se queda en el aparato.',
+            style: TextStyle(fontSize: 11),
+          ),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(
+          onPressed: () => context.go(caminoDelMapaSinConexion),
+          child: const Text('Descargar'),
+        ),
+      ],
+    ),
+  );
 }

@@ -17,8 +17,16 @@ import 'pantalla_mapa_sin_conexion.dart';
 /// quita pero la ruta también, abrir el enlace en la web daría un 404 de la
 /// aplicación en vez de una pantalla que explica por qué eso no va con ella. La
 /// pantalla trata el caso (`MapaNoAplica`) y lo dice con palabras.
+/// El camino de la pantalla, en UN SOLO SITIO.
+///
+/// Lo usa también el aviso del detalle de la ruta («Sin el mapa de Cuba
+/// descargado…»), y una cadena repetida a mano en dos pantallas es como se
+/// acaba navegando a una ruta que se movió — el §3-quater de `CLAUDE.md` con
+/// otra cara.
+const caminoDelMapaSinConexion = '/mapa-sin-conexion';
+
 PantallaRegistrada registrarMapaSinConexion() => PantallaRegistrada(
-  ruta: '/mapa-sin-conexion',
+  ruta: caminoDelMapaSinConexion,
   titulo: TextosDelMapaGuardado.titulo,
   icono: Icons.map_outlined,
   enElMenu: Destino.trabajaSinConexion,
