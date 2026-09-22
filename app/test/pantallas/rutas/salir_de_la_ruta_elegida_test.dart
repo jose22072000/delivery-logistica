@@ -6,18 +6,29 @@
 // Era literal. `rutaElegidaProvider` se ponía al tocar una tarjeta y el ÚNICO
 // sitio que lo soltaba era completar la ruta. Una ruta ya completada no se puede
 // completar otra vez, así que quien abría una del `Historial` se quedaba dentro.
-// Y en el teléfono duele el doble, porque ahí el detalle **sustituye** a la
-// lista: no queda nada de la pantalla anterior a lo que volver.
 //
-// Son dos salidas y hacen falta las dos:
+// # Lo que cambió el 22/09/2026, y por qué esta prueba se reescribió
 //
-//  * la ✕ de la cabecera del detalle, que se ve y no desaparece nunca (regla 4
-//    de la casa), y que a cualquier ancho deselecciona;
+// Hasta ese día, en el teléfono el detalle SUSTITUÍA a la lista dentro de la
+// misma pantalla, y la salida era una barra fija de «Volver a la lista» encima
+// del detalle (`claveDeVolverALaLista`). Esa barra ya no existe: el detalle del
+// móvil va en un **cajón** (`CajonDelDetalleDeRuta`), o sea en una ruta modal
+// que tapa la pantalla entera. Jose: «ponlo en un drawer en el movil para ver
+// eso y asi queda mejor para no andar navegando».
+//
+// Lo que se comprueba aquí no cambió —de una ruta abierta se sale, y por tres
+// caminos distintos—; lo que cambió es por dónde se sale en el teléfono:
+//
+//  * la ✕ de la cabecera del cajón, que es la de la regla de la casa: vive
+//    fuera del cuerpo desplazable y no se puede perder de vista;
 //  * el botón de atrás del sistema, que en un teléfono es lo primero que se
-//    pulsa — y que tiene que soltar la ruta SIN sacar de Rutas.
+//    pulsa — y que tiene que cerrar el cajón SIN sacar de Rutas;
+//  * y en escritorio, donde no hay cajón sino panel de al lado, la ✕ de la
+//    cabecera del propio detalle, que deselecciona.
 //
 // Que completar una ruta siga soltándola lo vigila
-// `pestana_sigue_a_la_ruta_test.dart`, y no se toca.
+// `pestana_sigue_a_la_ruta_test.dart`, y no se toca. Que el cajón se abra y que
+// desde dentro no se pueda navegar a otra pestaña, `el_detalle_va_en_un_cajon_test.dart`.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +37,7 @@ import 'package:reparto/diseno/pestanas.dart';
 import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/frescura/frescura.dart';
 import 'package:reparto/nucleo/proveedores.dart';
+import 'package:reparto/pantallas/pedidos/vista/kit.dart';
 import 'package:reparto/pantallas/rutas/vista/detalle_ruta.dart';
 import 'package:reparto/pantallas/rutas/vista/pantalla_rutas.dart';
 import 'package:reparto/textos/textos.dart';
@@ -52,6 +64,14 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
   }
+
+  /// La ✕ del cajón del móvil: la de la CABECERA DEL CAJÓN, no la del detalle.
+  /// Se busca dentro del `Cajon` a propósito — buscarla por el icono ataría la
+  /// prueba al dibujo, y por el tooltip a secas cogería cualquier otra.
+  final equisDelCajon = find.descendant(
+    of: find.byType(Cajon),
+    matching: find.byTooltip('Cerrar'),
+  );
 
   Future<void> pintar(WidgetTester tester, {required double ancho}) async {
     // SE SIEMBRA AQUÍ, DENTRO DE LA PRUEBA, y no en el `setUp`: el `setUp` corre
@@ -108,39 +128,52 @@ void main() {
     await asentar(tester);
   }
 
-  testWidgets('en un TELÉFONO la barra de volver devuelve a la lista', (
+  testWidgets('en un TELÉFONO la ✕ del cajón devuelve a la lista', (
     tester,
   ) async {
     await pintar(tester, ancho: 420);
 
-    // Dentro: el detalle ha sustituido a la lista.
+    // Dentro: el detalle se abrió en un cajón por encima de la lista.
     expect(find.byType(DetalleDeRuta), findsOneWidget);
     expect(
-      find.byKey(claveDeVolverALaLista),
+      equisDelCajon,
       findsOneWidget,
       reason:
-          'la barra de «Volver a la lista» no puede faltar: en el teléfono el '
-          'detalle sustituye a la lista y es la única salida que se ve',
+          'la ✕ de la cabecera del cajón no puede faltar: vive fuera del cuerpo '
+          'desplazable, así que es la única salida que no se puede perder de '
+          'vista por mucho que se baje (regla 4 de la casa)',
     );
 
-    await tester.tap(find.byKey(claveDeVolverALaLista));
+    await tester.tap(equisDelCajon);
     await asentar(tester);
 
     expect(
       find.byType(DetalleDeRuta),
       findsNothing,
-      reason: 'pulsar la ✕ tiene que soltar la ruta elegida',
+      reason: 'pulsar la ✕ tiene que cerrar el cajón',
     );
     expect(
       find.text('RT-VIEJA'),
       findsOneWidget,
       reason: 'y devolver la lista, que es de donde se venía',
     );
+    // Y la ruta queda SOLTADA, no sólo tapada: si el provider se quedara puesto,
+    // la tarjeta seguiría marcada y volver a tocarla no abriría nada, porque el
+    // valor no cambiaría.
+    await tester.tap(find.text('RT-VIEJA'));
+    await asentar(tester);
+    expect(
+      find.byType(DetalleDeRuta),
+      findsOneWidget,
+      reason:
+          'cerrar y volver a tocar la misma ruta tiene que abrirla otra vez: '
+          'cerrar el cajón suelta la ruta elegida',
+    );
 
     await desmontar(tester);
   });
 
-  testWidgets('el botón de ATRÁS suelta la ruta y NO sale de Rutas', (
+  testWidgets('el botón de ATRÁS cierra el cajón y NO sale de Rutas', (
     tester,
   ) async {
     await pintar(tester, ancho: 420);
@@ -199,6 +232,14 @@ void main() {
       await tester.tap(find.byKey(claveDeVolverDeLaQueNoEsta));
       await asentar(tester);
       expect(find.byType(DetalleDeRuta), findsNothing);
+      expect(
+        find.byType(Cajon),
+        findsNothing,
+        reason:
+            'ese botón suelta la ruta desde DENTRO del cajón, sin tocar la ✕: '
+            'si el cajón no se cerrara solo se quedaría un panel vacío encima '
+            'de la lista y sin nada que enseñar',
+      );
 
       await desmontar(tester);
     },
@@ -211,8 +252,16 @@ void main() {
     await pintar(tester, ancho: 1400);
 
     expect(find.byType(DetalleDeRuta), findsOneWidget);
-    // En escritorio no hay barra de volver —la lista se ve al lado—: lo que hay
-    // es la ✕ de la cabecera del detalle, que deselecciona.
+    expect(
+      find.byType(Cajon),
+      findsNothing,
+      reason:
+          'EN ESCRITORIO NO SE TOCA NADA: ahí el detalle va en el panel de la '
+          'derecha, con la lista al lado. El cajón es del móvil, donde el '
+          'detalle no cabía junto a la lista',
+    );
+    // En escritorio no hay cajón —la lista se ve al lado—: lo que hay es la ✕
+    // de la cabecera del detalle, que deselecciona.
     await tester.tap(find.byKey(claveDeLaEquisDelDetalle));
     await asentar(tester);
 

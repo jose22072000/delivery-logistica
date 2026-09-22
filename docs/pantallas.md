@@ -149,6 +149,34 @@ Botón `Ver e imprimir`. Mismas 4 columnas.
 - **Cuando el servidor no puede sumarlo:**
   `Son demasiados pedidos para sumarlos. Acotá por día o sucursal y sale.`
 
+#### Los números que NO se enseñan — 22/09/2026
+
+Con el mismo filtro, la franja decía `10 producto(s) · 3185 empaques · 0.0 kg` y la hoja
+imprimible decía `264 pedido(s) · 24891.0 kg`. Los dos eran ciertos cada uno en su
+definición —uno suma el peso resuelto **por producto**, el otro el del **conjunto de
+pedidos**— y juntos sólo pueden hacer una cosa: que quien carga el camión se crea que no
+pesa nada.
+
+Las dos reglas que quedaron, y las dos son la misma:
+
+- **El total por producto (kg y unidades) es nulo mientras falte UNO**, y entonces se
+  escribe cuántos faltan por emparejar (`3 de 10 productos sin peso`) en vez de una cifra.
+  Sumar lo que hay y callar lo que falta es la misma mentira con menos escándalo: ocho de
+  diez resueltos dan un peso que parece completo y se queda corto.
+- **Las unidades salen del catálogo** (`empaques × unitsPerPackage`), no de `quantity`.
+  `quantity` unas veces trae unidades y otras repite los bultos: por eso la hoja llegó a
+  decir `SERVILLETA PROSITO PACA 24P · 7 empaques · 4 unidades` —cuatro unidades dentro de
+  siete pacas— y `SOPA DE POLLO CAJA 72 P · 15 empaques · 15 unidades`. Sin catálogo se
+  pinta `—`.
+
+La **cabecera de la hoja no cambia**: el peso del conjunto de pedidos sí se sabe entero, así
+que sigue siendo un número siempre.
+
+En el **móvil** el bloque no cuelga debajo de la lista: se abre en su **cajón** desde un
+botón que dice cuántos pedidos van contados. Debajo de la lista había que bajar por
+doscientos y pico pedidos peleándose con dos desplazamientos, con el pie fijo tapando el
+final — «y el pre-despacho, que no lo veo».
+
 ### Tabla de pedidos
 
 Columnas por orden (la etiqueta literal es la que se pinta):

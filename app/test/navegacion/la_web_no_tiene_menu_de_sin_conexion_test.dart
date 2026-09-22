@@ -62,5 +62,28 @@ void main() {
           'el aparato no le sirve a nadie y sólo explica algo que en su caso '
           'no pasa. Va con `enElMenu: Destino.trabajaSinConexion`.',
     );
+
+    // SINCRONIZACIÓN, por lo mismo y con una factura medida — 22/09/2026.
+    //
+    // Estuvo en `enElMenu: true` fijo, y en la web la entrada no llegaba ni a
+    // abrirse: `GET /sync/estado` contestaba `401` —el sincronizador habla con
+    // aparatos dados de alta y un navegador no lo es—, el cliente daba la
+    // sesión por muerta y el portero rebotaba a `/acceso?volverA=…`, que
+    // volvía a entrar y volvía a pedir. Treinta peticiones en poco más de un
+    // minuto.
+    //
+    // El subconjunto de arriba NO cazaba esto: una entrada que existe en los
+    // dos sitios no aparece en la diferencia. Por eso cada pantalla de
+    // sin-conexión se nombra aquí una a una.
+    expect(
+      enLaWeb.contains('/sincronizacion'),
+      isFalse,
+      reason:
+          'SINCRONIZACIÓN SALE EN EL MENÚ DE LA WEB. Lo que enseña son '
+          'aparatos y su cola —quién lleva sin subir, qué le queda pendiente y '
+          'qué se le rechazó—, o sea el aparato de prepararse para quedarse '
+          'sin señal: es de la APK y del escritorio. Va con '
+          '`enElMenu: Destino.trabajaSinConexion`.',
+    );
   });
 }

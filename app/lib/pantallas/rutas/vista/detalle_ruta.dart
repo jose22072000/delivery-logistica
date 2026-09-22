@@ -42,9 +42,23 @@ import 'mapa_de_la_ruta.dart';
 const rellenoAlFinalDelDetalle = 56.0;
 
 class DetalleDeRuta extends ConsumerWidget {
-  const DetalleDeRuta({required this.rutaId, super.key});
+  const DetalleDeRuta({required this.rutaId, this.enCajon = false, super.key});
 
   final String rutaId;
+
+  /// ¿VA DENTRO DE UN [Cajon]? (el móvil, ver [CajonDelDetalleDeRuta]).
+  ///
+  /// Cambia dos cosas y nada más:
+  ///
+  ///  * **Quien desplaza.** Aquí fuera esto es un `ListView` y se desplaza solo;
+  ///    dentro del cajón el que se desplaza es el cuerpo del cajón, y un
+  ///    `ListView` dentro de otro desplazable es un alto sin límite, o sea el
+  ///    error de «vertical viewport was given unbounded height». Así que ahí
+  ///    dentro esto es una `Column` a secas.
+  ///  * **La cabecera.** El cajón ya trae el código de la ruta en su título y la
+  ///    ✕ que no desaparece nunca; repetir aquí las dos cosas es gastar el alto
+  ///    del teléfono, que es justo lo que se venía a arreglar.
+  final bool enCajon;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -89,6 +103,37 @@ class DetalleDeRuta extends ConsumerWidget {
       sucursal: datos.sucursal,
     );
 
+    final piezas = <Widget>[
+      // La cabecera, SÓLO fuera del cajón: dentro, el código de la ruta y la ✕
+      // los pone el propio cajón (ver [enCajon]).
+      if (!enCajon) ...[
+        _Cabecera(ruta: conTodo),
+        const SizedBox(height: 8),
+      ],
+      _Acciones(ruta: conTodo),
+      const SizedBox(height: 12),
+      _LineaDeDatos(ruta: conTodo),
+      const SizedBox(height: 12),
+      // EL MAPA, con sus cuatro gestos —abrir en Google Maps, WhatsApp,
+      // compartir y copiar. Antes aqui habia medio gesto: un boton que
+      // copiaba el enlace al portapapeles y nada mas, con el mapa sin portar
+      // del Next. Jose, 17/09/2026: «El mapa, ¿por qué no me sale el mapa con
+      // la ruta, si teníamos hasta para compartir la ruta por WhatsApp?».
+      MapaDeLaRuta(ruta: conTodo),
+      const SizedBox(height: 12),
+      _Paradas(ruta: conTodo),
+    ];
+
+    // Dentro del cajón el que se desplaza es el cuerpo del cajón: aquí una
+    // `Column` y nada más. Un `ListView` dentro de un `SingleChildScrollView`
+    // revienta por alto sin límite.
+    if (enCajon) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: piezas,
+      );
+    }
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(
         12,
@@ -96,22 +141,78 @@ class DetalleDeRuta extends ConsumerWidget {
         12,
         rellenoAlFinalDelDetalle,
       ),
-      children: [
-        _Cabecera(ruta: conTodo),
-        const SizedBox(height: 8),
-        _Acciones(ruta: conTodo),
-        const SizedBox(height: 12),
-        _LineaDeDatos(ruta: conTodo),
-        const SizedBox(height: 12),
-        // EL MAPA, con sus cuatro gestos —abrir en Google Maps, WhatsApp,
-        // compartir y copiar. Antes aqui habia medio gesto: un boton que
-        // copiaba el enlace al portapapeles y nada mas, con el mapa sin portar
-        // del Next. Jose, 17/09/2026: «El mapa, ¿por qué no me sale el mapa con
-        // la ruta, si teníamos hasta para compartir la ruta por WhatsApp?».
-        MapaDeLaRuta(ruta: conTodo),
-        const SizedBox(height: 12),
-        _Paradas(ruta: conTodo),
-      ],
+      children: piezas,
+    );
+  }
+}
+
+/// EL DETALLE DE LA RUTA, EN UN CAJÓN. **La forma del móvil.**
+///
+/// Jose, 22/09/2026: «cuando estoy viendo un detalle de una ruta me puedo mover
+/// por los diferentes tabs eso no lo quiero ponlo en un drawer en el movil para
+/// ver eso y asi queda mejor para no andar navegando».
+///
+/// Hasta hoy, en el teléfono el detalle SUSTITUÍA a la lista dentro de la misma
+/// pantalla, y eso traía las dos cosas que Jose pedía quitar:
+///
+///  * la cabecera de la lista —el buscador, los filtros y las tres pestañas—
+///    seguía clavada arriba encima del detalle, donde ya no sirve de nada.
+///    Medido en un teléfono de 2340 px de alto: **~1050 px** de cabecera y el
+///    mapa de la ruta metido en una rendija de ~270 px, con sus mandos de + / −
+///    y el de pantalla completa fuera de la vista;
+///  * y el carrusel de pestañas seguía vivo debajo, así que con una ruta abierta
+///    se podía deslizar a `Historial` — o sea, navegar a otro sitio desde dentro
+///    de un detalle.
+///
+/// Un cajón resuelve las dos de una vez y sin condiciones nuevas: es una ruta
+/// modal, o sea que **tapa la pantalla entera** (también la barra lateral y la
+/// superior del armazón, que un `Stack` de dentro no alcanzaría) y **se come
+/// todos los gestos** de lo que hay debajo. Se mira la ruta, se cierra, y la
+/// lista sigue exactamente donde estaba: misma pestaña, mismo desplazamiento,
+/// misma página.
+///
+/// La ✕ es la de la cabecera del cajón, la de la regla de la casa: fuera del
+/// cuerpo desplazable, así que no se puede perder de vista por mucho que se baje.
+class CajonDelDetalleDeRuta extends ConsumerWidget {
+  const CajonDelDetalleDeRuta({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final elegida = ref.watch(rutaElegidaProvider);
+
+    // SI LA RUTA SE SUELTA DESDE DENTRO, EL CAJÓN SE CIERRA SOLO.
+    //
+    // Hay tres sitios que la sueltan sin tocar la ✕: completar la ruta (que
+    // además se va al `Historial`), el «Volver a la lista» de una ruta que ya no
+    // está, y el cierre cuando completa. Sin esto, cualquiera de los tres deja
+    // el cajón abierto encima de una ruta que ya no hay.
+    //
+    // Después del fotograma, no dentro: sacar una ruta del `Navigator` en plena
+    // construcción es el «markNeedsBuild called during build» de siempre.
+    ref.listen<String?>(rutaElegidaProvider, (_, ahora) {
+      if (ahora != null) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) Navigator.of(context).maybePop();
+      });
+    });
+
+    final datos = elegida == null
+        ? null
+        : ref.watch(rutaConTodoProvider(elegida)).value;
+    final subtitulo = [
+      if ((datos?.ruta.name ?? '').isNotEmpty) datos!.ruta.name!,
+      if ((datos?.sucursal?.name ?? '').isNotEmpty) datos!.sucursal!.name,
+    ].join(' · ');
+
+    return Cajon(
+      // El código de la ruta manda: es lo que se viene a mirar. Mientras no ha
+      // llegado la fila no se inventa un código, se dice de qué va el panel.
+      titulo: datos?.ruta.routeCode ?? datos?.ruta.id ?? 'Detalle de la ruta',
+      subtitulo: subtitulo.isEmpty ? null : subtitulo,
+      ancho: AnchoCajon.xl,
+      cuerpo: elegida == null
+          ? const SizedBox.shrink()
+          : DetalleDeRuta(rutaId: elegida, enCajon: true),
     );
   }
 }

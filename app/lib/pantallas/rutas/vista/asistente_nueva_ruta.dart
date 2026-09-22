@@ -92,6 +92,9 @@ class AsistenteNuevaRuta extends ConsumerStatefulWidget {
   /// La línea fija de debajo de la lista: cuántos van y cuánto pesan.
   static const claveDelResumen = ValueKey('resumen-de-lo-elegido');
 
+  /// El botón que abre el pre-despacho en el móvil.
+  static const claveDelBotonDePreDespacho = ValueKey('boton-pre-despacho');
+
   /// La caja del pre-despacho. En escritorio va al lado de la lista; por debajo
   /// de [anchoDosColumnas], debajo.
   static const claveDelPreDespacho = ValueKey('caja-del-pre-despacho');
@@ -998,6 +1001,17 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     return LayoutBuilder(
       builder: (contexto, medidas) {
         if (medidas.maxWidth < AsistenteNuevaRuta.anchoDosColumnas) {
+          // EN EL MÓVIL EL PRE-DESPACHO VA EN SU CAJÓN — 22/09/2026.
+          //
+          // Aquí colgaba debajo de la lista, y la lista son doscientos y pico
+          // pedidos: para llegar al pre-despacho había que bajar por todos
+          // ellos peleándose con dos desplazamientos —el de la lista y el del
+          // paso—, con el pie fijo abajo tapando el final. Jose: «y el
+          // pre-despacho, que no lo veo».
+          //
+          // Cajón, como todo lo de este proyecto en móvil. Y el botón lleva
+          // dentro lo que hay, para que no haya que abrirlo sólo para ver si
+          // hay algo.
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1005,7 +1019,10 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
               const SizedBox(height: Aire.lg),
               Divider(height: 1, thickness: 1, color: Colores.linea),
               const SizedBox(height: Aire.lg),
-              columnaPreDespacho,
+              _BotonDePreDespacho(
+                elegidos: _elegidos.length,
+                alAbrir: () => _abrirPreDespacho(contexto, columnaPreDespacho),
+              ),
             ],
           );
         }
@@ -1021,6 +1038,22 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
           ],
         );
       },
+    );
+  }
+
+  /// Abre el pre-despacho en su propio cajón. El contenido es **el mismo**
+  /// widget que en escritorio va en la columna de al lado: dos pre-despachos
+  /// distintos serían dos papeles distintos para el mismo almacén.
+  void _abrirPreDespacho(BuildContext contexto, Widget cuerpo) {
+    unawaited(
+      abrirCajon<void>(
+        contexto,
+        (_) => Cajon(
+          titulo: 'Pre-despacho',
+          subtitulo: 'Lo que hay que sacar del almacén',
+          cuerpo: SingleChildScrollView(child: cuerpo),
+        ),
+      ),
     );
   }
 
@@ -1664,6 +1697,34 @@ class _ZonasDelTablero extends ConsumerWidget {
           const SizedBox(height: 6),
           Wrap(spacing: 6, runSpacing: 6, children: fichas),
         ],
+      ),
+    );
+  }
+}
+
+/// El botón que abre el pre-despacho en el móvil, con lo que hay dentro.
+///
+/// Dice cuántos pedidos van contados para que no haya que abrirlo sólo para
+/// ver si hay algo, y se apaga sin ninguno: un cajón vacío no es una hoja.
+class _BotonDePreDespacho extends StatelessWidget {
+  const _BotonDePreDespacho({required this.elegidos, required this.alAbrir});
+
+  final int elegidos;
+  final VoidCallback alAbrir;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        key: AsistenteNuevaRuta.claveDelBotonDePreDespacho,
+        onPressed: elegidos == 0 ? null : alAbrir,
+        icon: const Icon(Icons.inventory_2_outlined, size: 18),
+        label: Text(
+          elegidos == 0
+              ? 'Pre-despacho — elige pedidos primero'
+              : 'Pre-despacho de los $elegidos elegidos',
+        ),
       ),
     );
   }

@@ -357,7 +357,16 @@ void main() {
     await desmontar(tester);
   });
 
-  testWidgets('en móvil el pre-despacho cae DEBAJO de la lista', (
+  // EN EL MÓVIL EL PRE-DESPACHO SE ABRE EN SU CAJÓN — 22/09/2026.
+  //
+  // Antes caía debajo de la lista, y esta misma prueba lo sujetaba así. Pero
+  // «debajo de la lista» son doscientos y pico pedidos por delante, con dos
+  // desplazamientos —el de la lista y el del paso— y el pie fijo tapando el
+  // final. Jose: «y el pre-despacho, que no lo veo».
+  //
+  // Cajón, como todo lo de este proyecto en móvil, y el botón dice lo que hay
+  // dentro para no tener que abrirlo sólo para mirar.
+  testWidgets('en el MÓVIL se llega al pre-despacho sin bajar por la lista', (
     tester,
   ) async {
     await sembrarLoBasico();
@@ -365,16 +374,21 @@ void main() {
     await pintar(tester, pantalla: const Size(390, 844));
     await llegarAlPaso4(tester);
 
-    final preDespacho = find.byKey(AsistenteNuevaRuta.claveDelPreDespacho);
-    expect(preDespacho, findsOneWidget);
-    expect(
-      tester.getRect(preDespacho).top,
-      greaterThanOrEqualTo(tester.getRect(laCaja).bottom),
-      reason:
-          'En un teléfono el pre-despacho está al lado de la lista: dos '
-          'columnas en 390 px son dos columnas de palabras partidas.',
-    );
+    // La columna de al lado NO está: en 390 px dos columnas son dos columnas
+    // de palabras partidas.
+    expect(find.byKey(AsistenteNuevaRuta.claveDelPreDespacho), findsNothing);
 
+    final boton = find.byKey(AsistenteNuevaRuta.claveDelBotonDePreDespacho);
+    expect(boton, findsOneWidget);
+    // Sin nada elegido no se abre, y se dice por qué: un cajón vacío no es una
+    // hoja.
+    expect(tester.widget<OutlinedButton>(boton).onPressed, isNull);
+    expect(find.textContaining('elige pedidos primero'), findsOneWidget);
+
+    // AQUÍ NO SE ELIGE NI SE ABRE EL CAJÓN. Las dos cosas consultan Drift, y
+    // dentro de un `testWidgets` eso **cuelga la prueba en vez de fallar**
+    // (`CLAUDE.md` §5): se midió, y son diez minutos hasta el plazo. Lo que hay
+    // dentro lo prueban `pre_despacho_test.dart` y `imprimir_test.dart`.
     await desmontar(tester);
   });
 
@@ -429,17 +443,21 @@ void main() {
     await asentar(tester);
     expect(find.textContaining('1 pedidos seleccionados'), findsOneWidget);
 
-    // Y SE LLEGA AL FINAL DEL PASO: el pre-despacho, que en un móvil es lo
-    // último de todo, se alcanza entero.
+    // Y SE LLEGA AL FINAL DEL PASO. En un móvil lo último de todo es el botón
+    // que abre el pre-despacho en su cajón (antes era el bloque entero colgando
+    // debajo de la lista, y por eso no se veía: «y el pre-despacho, que no lo
+    // veo»).
     final cuerpo = await hastaElFinalDelPaso(tester);
     expect(cuerpo.maxScrollExtent, greaterThan(0));
-    final preDespacho = find.byKey(AsistenteNuevaRuta.claveDelPreDespacho);
     expect(
-      aLaVista(tester, preDespacho),
+      aLaVista(
+        tester,
+        find.byKey(AsistenteNuevaRuta.claveDelBotonDePreDespacho),
+      ),
       isTrue,
       reason:
-          'El final del paso 4 queda cortado por abajo: no se llega a ver el '
-          'pre-despacho entero ni desplazándose hasta el tope.',
+          'El final del paso 4 queda cortado por abajo: no se llega al botón '
+          'del pre-despacho ni desplazándose hasta el tope.',
     );
 
     // EL ARMAZÓN NO SE HA MOVIDO NI UN PÍXEL. Ni la barra de pasos ni el pie.
@@ -471,8 +489,12 @@ void main() {
     await hastaLaLista(tester, 844);
     await tester.tap(find.byType(CheckboxListTile).first);
     await asentar(tester);
-    // El pre-despacho es lo último del paso en un móvil: hay que bajar hasta él.
+    // En un móvil el pre-despacho vive en su cajón: hay que bajar hasta el
+    // botón y abrirlo. Antes colgaba al final del paso, que es lo que hacía que
+    // no se viera.
     await hastaElFinalDelPaso(tester);
+    await tester.tap(find.byKey(AsistenteNuevaRuta.claveDelBotonDePreDespacho));
+    await asentar(tester);
     await tester.tap(find.widgetWithText(OutlinedButton, 'Ver e imprimir'));
     await asentar(tester);
 
@@ -523,6 +545,21 @@ void main() {
       lessThan(tester.getRect(laCaja).bottom),
     );
 
+    await desmontar(tester);
+  });
+
+  testWidgets('en ESCRITORIO sigue en su columna, sin cajón', (tester) async {
+    // La pareja: en un monitor hay sitio de sobra al lado, y obligar a abrir un
+    // cajón para ver lo que cabe a la derecha es trabajo de más.
+    await sembrarLoBasico();
+    await sembrarPedidos(3);
+    await pintar(tester, pantalla: const Size(1440, 1000));
+    await llegarAlPaso4(tester);
+
+    expect(
+      find.byKey(AsistenteNuevaRuta.claveDelBotonDePreDespacho),
+      findsNothing,
+    );
     await desmontar(tester);
   });
 

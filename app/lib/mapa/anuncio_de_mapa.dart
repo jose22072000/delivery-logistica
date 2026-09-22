@@ -297,8 +297,8 @@ EstadoDelMapa compararElMapa({
     return HayMapaNuevo(
       tengo,
       elMio,
-      'El mapa se actualizó: tienes la versión ${tengo.version} y hay la '
-      '${elMio.version}.',
+      'El mapa se actualizó: tienes la versión ${versionComoSeLee(tengo.version)} '
+      'y hay la ${versionComoSeLee(elMio.version)}.',
       colgados,
     );
   }
@@ -309,12 +309,39 @@ EstadoDelMapa compararElMapa({
     return HayMapaNuevo(
       tengo,
       elMio,
-      'El fichero del mapa cambió sin cambiar de versión (${elMio.version}). '
-      'Conviene volver a bajarlo.',
+      'El fichero del mapa cambió sin cambiar de versión '
+      '(${versionComoSeLee(elMio.version)}). Conviene volver a bajarlo.',
       colgados,
     );
   }
   return MapaAlDia(tengo, colgados);
+}
+
+/// LA VERSIÓN, ESCRITA SIEMPRE IGUAL — 22/09/2026.
+///
+/// En el teléfono de Jose salía esta frase: «tienes la versión **2026-09-21** y
+/// hay la **260922**». Las dos son la misma clase de cosa escrita de dos
+/// formas, porque los paquetes viejos se guardaron cuando el servidor anunciaba
+/// la fecha con guiones y ahora la anuncia como `AAMMDD`. Puestas una al lado
+/// de la otra no se pueden ni comparar de un vistazo, que es justo para lo que
+/// está la frase.
+///
+/// **Esto es sólo para escribirla.** La comparación sigue siendo exacta, texto
+/// contra texto: una versión es una etiqueta que pone el servidor y no nos toca
+/// interpretarla. Normalizar antes de comparar haría que `260922` y
+/// `2026-09-22` se dieran por iguales, y entonces un mapa nuevo con la fecha
+/// escrita de otra forma no se anunciaría nunca.
+String versionComoSeLee(String version) {
+  if (version.length != 6) return version;
+  final n = int.tryParse(version);
+  if (n == null) return version;
+  final mes = int.parse(version.substring(2, 4));
+  final dia = int.parse(version.substring(4, 6));
+  // Si no es una fecha, se deja tal cual: inventarse un mes 17 sería peor que
+  // enseñar los seis dígitos.
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return version;
+  return '20${version.substring(0, 2)}-${version.substring(2, 4)}-'
+      '${version.substring(4, 6)}';
 }
 
 /// «25,8 MB». Con coma, que es como se escriben los números aquí.

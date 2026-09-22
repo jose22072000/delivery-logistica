@@ -64,7 +64,8 @@ abstract final class TextosDelMapaGuardado {
       '${cuantos == 1 ? 'ése' : 'ésos'} hasta actualizarla.';
 
   static String tengo(PaqueteGuardado g) =>
-      'Tienes «${g.titulo}»: ${enMegas(g.bytes)}, versión ${g.version}.';
+      'Tienes «${g.titulo}»: ${enMegas(g.bytes)}, '
+      'versión ${versionComoSeLee(g.version)}.';
 
   static String bajando(int bajados, int total) =>
       'Bajando ${enMegas(bajados)} de ${enMegas(total)} '

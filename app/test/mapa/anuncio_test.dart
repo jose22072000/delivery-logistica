@@ -55,8 +55,10 @@ void main() {
       expect(e, isA<HayMapaNuevo>());
       // El motivo nombra las dos versiones: «hay uno nuevo» a secas no le dice a
       // nadie si le corre prisa.
-      expect((e as HayMapaNuevo).motivo, contains('260801'));
-      expect(e.motivo, contains('260916'));
+      // Y las escribe **como fecha**, las dos igual: ver el grupo «cómo se
+      // escribe la versión» de más abajo.
+      expect((e as HayMapaNuevo).motivo, contains('2026-08-01'));
+      expect(e.motivo, contains('2026-09-16'));
     });
 
     test(
@@ -207,6 +209,52 @@ void main() {
     expect(enMegas(25763142), '25,8 MB');
     expect(enMegas(61089619), '61,1 MB');
     expect(enMegas(91082), '91 kB');
+  });
+
+  // LA VERSIÓN SE ESCRIBE SIEMPRE IGUAL — 22/09/2026.
+  //
+  // En el teléfono salía «tienes la versión 2026-09-21 y hay la 260922»: la
+  // misma clase de cosa escrita de dos formas, porque los paquetes viejos se
+  // guardaron cuando el servidor anunciaba la fecha con guiones. Puestas una al
+  // lado de la otra no se pueden comparar de un vistazo, que es para lo único
+  // que está esa frase.
+  group('cómo se escribe la versión', () {
+    test('AAMMDD se escribe como fecha', () {
+      expect(versionComoSeLee('260922'), '2026-09-22');
+      expect(versionComoSeLee('260101'), '2026-01-01');
+    });
+
+    test('lo que ya viene con guiones se deja igual', () {
+      expect(versionComoSeLee('2026-09-21'), '2026-09-21');
+    });
+
+    test('lo que no es una fecha se deja tal cual', () {
+      // Inventarse un mes 17 sería peor que enseñar los seis dígitos.
+      expect(versionComoSeLee('261722'), '261722');
+      expect(versionComoSeLee('260900'), '260900');
+      expect(versionComoSeLee('abcdef'), 'abcdef');
+      expect(versionComoSeLee('v3'), 'v3');
+    });
+
+    // LA PAREJA, Y ES LA QUE IMPORTA: normalizar es sólo para escribirla.
+    //
+    // Si la comparación normalizara, `260922` y `2026-09-22` se darían por
+    // iguales y un mapa nuevo con la fecha escrita de otra forma **no se
+    // anunciaría nunca**. Una versión es una etiqueta que pone el servidor y no
+    // nos toca interpretarla.
+    test('la comparación NO normaliza: sigue siendo texto contra texto', () {
+      final e = compararElMapa(
+        tengo: guardado('basico', version: '2026-09-22'),
+        colgados: [nivel('basico', version: '260922')],
+      );
+      expect(
+        e,
+        isA<HayMapaNuevo>(),
+        reason: 'dos etiquetas distintas son dos versiones distintas',
+      );
+      // Y el mensaje sí las escribe iguales, que es de lo que iba todo esto.
+      expect((e as HayMapaNuevo).motivo, contains('2026-09-22'));
+    });
   });
 }
 

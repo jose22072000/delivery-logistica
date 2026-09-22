@@ -356,7 +356,24 @@ abstract final class ColoresDelMapa {
 
   // --- El dibujo del paquete de Cuba -------------------------------------
   static const fondo = Colores.papel;
+
+  /// EL AGUA. Los embalses, las lagunas, los ríos anchos **y el mar**.
+  ///
+  /// Que sea uno solo y no dos es la decisión: el agua es agua, y un océano de
+  /// un azul y una bahía de otro sólo dice que alguien los sacó de sitios
+  /// distintos. Lo dibuja `fondo_del_paquete.dart`, que desde el 22/09/2026
+  /// saca el mar de cerrar la línea de costa contra el borde de la tesela —el
+  /// paquete no trae el océano por ningún lado, y por eso hasta esa fecha el
+  /// Atlántico salía del crema de [fondo], indistinguible de tierra firme.
+  ///
+  /// Va flojo y cerca del papel, como los rellenos de al lado: el mapa es el
+  /// fondo sobre el que se lee la ruta, y con esto detrás la línea azul del
+  /// recorrido tiene que seguir mandando.
   static const agua = Color(0xFFCFE0EA);
+
+  /// La raya de la costa, encima del encuentro entre [agua] y [fondo]. Sigue
+  /// haciendo falta con el mar pintado: es lo que marca el borde exacto cuando
+  /// los dos tonos se parecen, y a zoom bajo es lo que dibuja la forma de Cuba.
   static const costa = Color(0xFF7FA3B5);
   static const calle = Color(0xFFBCB2A4);
   static const via = Color(0xFF9A8C77);

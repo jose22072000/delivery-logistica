@@ -309,6 +309,25 @@ abstract final class TextosDeSincronizacion {
 
   static const cargando = 'Cargando el estado de los aparatos...';
 
+  /// LO ÚNICO QUE SE VE DE ESTA PANTALLA EN UN NAVEGADOR — 22/09/2026.
+  ///
+  /// La entrada del menú no está en la web (`registro.dart`, regla 1), pero la
+  /// ruta sí: quien tenga el enlace guardado llega, y lo que encuentra es esto y
+  /// **ni una petición al sincronizador**. Antes encontraba «Cargando el estado
+  /// de los aparatos…» para siempre, con un `401` cada dos segundos por debajo.
+  ///
+  /// No habla de aparatos ni de cola porque en un navegador no hay ninguna de
+  /// las dos: dice de quién es esta pantalla y, sobre todo, **qué pasa aquí en
+  /// su lugar**, que es lo que le hace falta saber a quien acaba de aterrizar.
+  static const enLaWebTitulo = 'Esto es de la aplicación, no de la web';
+
+  static const enLaWeb =
+      'La sincronización es de la aplicación de Android y de la de escritorio, '
+      'que son las que se quedan sin señal y guardan el trabajo hasta poder '
+      'subirlo. En el navegador no hay ni aparato ni cola: cada cosa que se '
+      'hace se guarda en el servidor al momento, y lo que el servidor rechace '
+      'se dice ahí mismo, con su motivo.';
+
   /// Cuanto lleva sin subir, en palabras.
   ///
   /// Las horas son las del SERVIDOR. Recalcularlas aqui con el reloj de este PC

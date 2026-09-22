@@ -58,6 +58,11 @@ import 'pmtiles.dart';
 /// El lado de una tesela en píxeles. El mismo número de siempre.
 const ladoDeTeselaDelPaquete = 256.0;
 
+/// Cuántos niveles se sube como mucho para saber si un sitio es mar, cuando el
+/// paquete no tiene esa tesela. El porqué del tope, en
+/// [FondoDelPaquete._elMarDelAntepasado].
+const saltosParaElMar = 4;
+
 /// Qué grosor y qué color le toca a cada clase de vía, y **desde qué zoom se
 /// dibuja**. Una calle de servicio pintada a z10 es una mancha.
 /// De qué color va cada clase de suelo.
@@ -427,6 +432,505 @@ Rect _cajaDeNombreDePoblacion(Offset donde, String texto, bool grande) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// EL MAR
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Jose, 22/09/2026, alejando el mapa en el teléfono: el océano salía del MISMO
+// crema que la tierra, y en un punto intermedio aparecía una banda azul cortada
+// en línea recta que no seguía ninguna costa.
+//
+// Las dos cosas son el mismo fallo, y no es de color: **el paquete no lleva el
+// mar**. La capa `agua` sólo trae lo que OpenStreetMap dibuja como polígono
+// —embalses, lagunas, ríos anchos y alguna bahía— y además entra a partir del
+// z7 (`aguaDesde`, en `herramientas/mapa-cuba/niveles.go`). El océano no es un
+// polígono en OSM y no lo es en ningún sitio: lo que hay es `natural=coastline`,
+// una LÍNEA. Así que el pintor rellenaba la tesela de papel, dibujaba encima lo
+// que hubiera y el Atlántico se quedaba del color de Pinar del Río.
+//
+// Y la banda recta era la otra mitad de lo mismo: el Golfo de Batabanó SÍ está
+// mapeado como `natural=water`, así que se pintaba de azul — y donde ese
+// polígono se acaba, mar adentro, se acababa el azul con el corte recto del
+// polígono. El mismo mar de dos colores, con una raya en medio que nadie puso
+// en el agua.
+//
+// ## Lo que sí está en el paquete, y basta
+//
+// `costa` viaja **desde el z0** y es la costa entera de Cuba. Y trae dentro,
+// gratis, el dato que hacía falta: en OSM una línea de costa se dibuja SIEMPRE
+// con la tierra a la izquierda según se camina. Es una regla del proyecto, no
+// una costumbre, y la vigilan sus validadores.
+//
+// La tesela le da la vuelta al eje vertical (la `y` crece hacia el sur), así
+// que aquí dentro **la tierra queda a la derecha y el agua a la izquierda**.
+// Con eso, la costa de una tesela se puede cerrar contra el borde del cuadro y
+// sale el mar como polígono. Sin inventar nada: la raya recta que queda en el
+// borde de la tesela es la MISMA que trae la tesela de al lado, así que las dos
+// casan y no se ve.
+//
+// Comprobado contra el paquete de verdad (`cuba-completo`, 22/09/2026): cosiendo
+// los trozos de `costa` por sus extremos salen 0 cabos sueltos en z1, z3, z6,
+// z8, z10 y z12 — o cierran en anillo, o mueren en el borde. Por eso se puede
+// hacer esto y por eso hay una guarda para cuando deje de ser verdad.
+
+/// Un nudo: las coordenadas de tesela de un punto metidas en un entero, para
+/// emparejar extremos por igualdad exacta.
+///
+/// Se puede porque las coordenadas de una tesela vectorial son **enteras** —el
+/// formato las guarda así— y dos vías que comparten un nodo de OSM caen en el
+/// mismo entero. Comparar `Offset` con `==` sobre dobles sería una ruleta.
+int _nudo(Offset p) => (p.dx.round() + 32768) * 65536 + (p.dy.round() + 32768);
+
+/// Une los trozos de `costa` por sus extremos y devuelve las cadenas enteras,
+/// en unidades de tesela.
+///
+/// Hace falta porque la costa llega partida en cientos de trozos —una vía de OSM
+/// cada vez— y un trozo que empieza y acaba en mitad del cuadro no se puede
+/// cerrar contra ningún borde. Cosidos, cada cadena o cierra en anillo (un cayo,
+/// la isla entera) o muere en el borde, que son los dos únicos casos que sabe
+/// tratar [marDeLaCosta].
+@visibleForTesting
+List<List<Offset>> coserLaCosta(List<CapaVectorial> capas) {
+  final trozos = <List<Offset>>[];
+  for (final capa in capas) {
+    if (capa.nombre != 'costa') continue;
+    for (final rasgo in capa.rasgos) {
+      for (final parte in rasgo.partes) {
+        if (parte.length >= 2) trozos.add(parte);
+      }
+    }
+  }
+  if (trozos.isEmpty) return const [];
+
+  final porInicio = <int, List<int>>{};
+  for (var i = 0; i < trozos.length; i++) {
+    porInicio.putIfAbsent(_nudo(trozos[i].first), () => <int>[]).add(i);
+  }
+  // UN TROZO QUE ES CONTINUACIÓN DE OTRO NO PUEDE EMPEZAR UNA CADENA. Si se
+  // empezara por él, la misma costa saldría en dos cadenas y la primera tendría
+  // un cabo suelto en mitad del cuadro — que es justo lo que [marDeLaCosta] no
+  // sabe cerrar y por lo que se rendiría entera.
+  final esContinuacion = List.filled(trozos.length, false);
+  for (var i = 0; i < trozos.length; i++) {
+    for (final j in porInicio[_nudo(trozos[i].last)] ?? const <int>[]) {
+      if (j != i) esContinuacion[j] = true;
+    }
+  }
+
+  final gastado = List.filled(trozos.length, false);
+  final cadenas = <List<Offset>>[];
+
+  List<Offset> seguirDesde(int i) {
+    gastado[i] = true;
+    final cadena = List<Offset>.of(trozos[i]);
+    while (_nudo(cadena.first) != _nudo(cadena.last)) {
+      var siguiente = -1;
+      for (final j in porInicio[_nudo(cadena.last)] ?? const <int>[]) {
+        if (gastado[j]) continue;
+        siguiente = j;
+        break;
+      }
+      if (siguiente < 0) break;
+      gastado[siguiente] = true;
+      cadena.addAll(trozos[siguiente].skip(1));
+    }
+    return cadena;
+  }
+
+  for (var i = 0; i < trozos.length; i++) {
+    if (gastado[i] || esContinuacion[i]) continue;
+    cadenas.add(seguirDesde(i));
+  }
+  // Lo que queda son anillos: ningún trozo suyo es «el primero» porque todos
+  // son continuación del anterior. Se empieza por donde sea, que da igual.
+  for (var i = 0; i < trozos.length; i++) {
+    if (gastado[i]) continue;
+    cadenas.add(seguirDesde(i));
+  }
+  return cadenas;
+}
+
+/// El doble del área con signo de un anillo, en coordenadas de tesela (la `y`
+/// hacia abajo).
+///
+/// **El signo es el dato**, no el tamaño: con la tierra a la derecha, un anillo
+/// de costa con TIERRA dentro —un cayo, la isla— sale negativo, y uno con AGUA
+/// dentro —una laguna abierta al mar— sale positivo. Medido sobre el paquete de
+/// verdad: el anillo de Cuba en la tesela z3/2/3 da −162.500.
+double _areaDoble(List<Offset> anillo) {
+  var a = 0.0;
+  for (var i = 0; i + 1 < anillo.length; i++) {
+    a += anillo[i].dx * anillo[i + 1].dy - anillo[i + 1].dx * anillo[i].dy;
+  }
+  return a;
+}
+
+/// Recorta un segmento al cuadro (Liang-Barsky). `null` si se queda fuera
+/// entero.
+(Offset, Offset)? _recortarSegmento(Offset a, Offset b, Rect cuadro) {
+  final dx = b.dx - a.dx;
+  final dy = b.dy - a.dy;
+  var desde = 0.0;
+  var hasta = 1.0;
+  for (var lado = 0; lado < 4; lado++) {
+    final (p, q) = switch (lado) {
+      0 => (-dx, a.dx - cuadro.left),
+      1 => (dx, cuadro.right - a.dx),
+      2 => (-dy, a.dy - cuadro.top),
+      _ => (dy, cuadro.bottom - a.dy),
+    };
+    if (p == 0) {
+      if (q < 0) return null;
+      continue;
+    }
+    final r = q / p;
+    if (p < 0) {
+      if (r > hasta) return null;
+      if (r > desde) desde = r;
+    } else {
+      if (r < desde) return null;
+      if (r < hasta) hasta = r;
+    }
+  }
+  return (
+    Offset(a.dx + desde * dx, a.dy + desde * dy),
+    Offset(a.dx + hasta * dx, a.dy + hasta * dy),
+  );
+}
+
+/// Recorta una cadena de costa al cuadro, **sin perder el sentido de la
+/// marcha** y partiéndola donde se sale.
+///
+/// Hace falta y no es un detalle: lo que el paquete guarda en una tesela es la
+/// vía ENTERA de OSM que la toca, no el trozo que cae dentro, así que las
+/// cadenas mueren en cualquier sitio del margen —medido: en (4132, 4168) o en
+/// (−371, 2377), no en un borde—. Sin recortar aquí, esos extremos no están en
+/// ningún borde contra el que cerrar y el mar de la tesela se daría por perdido.
+List<List<Offset>> _recortarCadena(List<Offset> cadena, Rect cuadro) {
+  final juntas = math.max(cuadro.width, cuadro.height) * 1e-9 + 1e-12;
+  final trozos = <List<Offset>>[];
+  List<Offset>? actual;
+  for (var i = 0; i + 1 < cadena.length; i++) {
+    final trozo = _recortarSegmento(cadena[i], cadena[i + 1], cuadro);
+    if (trozo == null) {
+      actual = null;
+      continue;
+    }
+    final (p, q) = trozo;
+    if (actual != null && (actual.last - p).distance <= juntas) {
+      actual.add(q);
+    } else {
+      actual = [p, q];
+      trozos.add(actual);
+    }
+  }
+  // Una cadena que venía cerrada no empieza en ningún sitio: el punto por el
+  // que se abrió el anillo es arbitrario y cortar ahí partiría en dos un trozo
+  // que es uno solo.
+  if (trozos.length > 1 &&
+      (cadena.first - cadena.last).distance <= juntas &&
+      (trozos.last.last - trozos.first.first).distance <= juntas) {
+    trozos.last.addAll(trozos.first.skip(1));
+    trozos.removeAt(0);
+  }
+  return [
+    for (final t in trozos)
+      if (t.length >= 2 && (t.first - t.last).distance > juntas || t.length > 2)
+        t,
+  ];
+}
+
+/// De qué lado de la costa cae [punto]: `true` si es agua, `null` si no hay
+/// costa contra la que medir.
+///
+/// Es el desempate de la tesela que está **toda** de un lado y sólo ve costa
+/// fuera de su cuadro. Se mira el segmento de costa más cercano y de qué lado
+/// queda el punto: con la tierra a la derecha, a la izquierda hay agua.
+@visibleForTesting
+bool? esAgua(Offset punto, List<List<Offset>> cadenas) {
+  var masCerca = double.infinity;
+  bool? agua;
+  for (final cadena in cadenas) {
+    for (var i = 0; i + 1 < cadena.length; i++) {
+      final a = cadena[i];
+      final b = cadena[i + 1];
+      final dx = b.dx - a.dx;
+      final dy = b.dy - a.dy;
+      final largo2 = dx * dx + dy * dy;
+      if (largo2 == 0) continue;
+      var t = ((punto.dx - a.dx) * dx + (punto.dy - a.dy) * dy) / largo2;
+      t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      final cx = punto.dx - (a.dx + t * dx);
+      final cy = punto.dy - (a.dy + t * dy);
+      final d2 = cx * cx + cy * cy;
+      if (d2 >= masCerca) continue;
+      masCerca = d2;
+      final lado = dx * (punto.dy - a.dy) - dy * (punto.dx - a.dx);
+      if (lado == 0) continue;
+      agua = lado > 0;
+    }
+  }
+  return agua;
+}
+
+/// Por dónde cae [p] en el borde de [cuadro], medido a lo largo del perímetro
+/// desde la esquina de arriba a la izquierda y **dejando el cuadro a la
+/// izquierda**: arriba de izquierda a derecha, derecha hacia abajo, abajo de
+/// derecha a izquierda e izquierda hacia arriba.
+///
+/// Ese sentido no es una elección: es el que hace que un anillo recorrido así
+/// salga con el área positiva, igual que salen las cadenas de costa al
+/// caminarlas con el agua a la izquierda. Los dos pedazos del anillo del mar
+/// tienen que girar para el mismo lado o el relleno se anula solo.
+///
+/// `null` cuando el punto no está en el borde: eso es un cabo suelto y con uno
+/// solo el mar de esa tesela deja de ser fiable.
+double? _enElBorde(Offset p, Rect cuadro, double tolerancia) {
+  final w = cuadro.width;
+  final h = cuadro.height;
+  double sujeto(double v, double max) => v < 0 ? 0 : (v > max ? max : v);
+  if ((p.dy - cuadro.top).abs() <= tolerancia) {
+    return sujeto(p.dx - cuadro.left, w);
+  }
+  if ((p.dx - cuadro.right).abs() <= tolerancia) {
+    return w + sujeto(p.dy - cuadro.top, h);
+  }
+  if ((p.dy - cuadro.bottom).abs() <= tolerancia) {
+    return w + h + sujeto(cuadro.right - p.dx, w);
+  }
+  if ((p.dx - cuadro.left).abs() <= tolerancia) {
+    return 2 * w + h + sujeto(cuadro.bottom - p.dy, h);
+  }
+  return null;
+}
+
+/// El cierre de emergencia: por el borde, pero **por el lado que menos borde
+/// gasta**.
+///
+/// Sólo se usa cuando el relevo se rompe. Ir hacia adelante como siempre puede
+/// dar la vuelta entera al cuadro, y entonces el mar se traga la tierra que sí
+/// había —se vio en la z8/72/113, que quedó azul con sus dos pueblos dentro—.
+/// Por el arco corto lo peor que sale es un anillo pequeño de más o de menos.
+List<Offset> _porElArcoCorto(double t0, double t1, Rect cuadro) {
+  final perimetro = 2 * (cuadro.width + cuadro.height);
+  var adelante = t1 - t0;
+  if (adelante < 0) adelante += perimetro;
+  if (adelante <= perimetro / 2) return _esquinasEntre(t0, t1, cuadro);
+  return _esquinasEntre(t1, t0, cuadro).reversed.toList();
+}
+
+/// Las esquinas de [cuadro] que hay que meter para ir por el borde desde [t0]
+/// hasta [t1], en el sentido de [_enElBorde]. Sin ellas el mar se cerraría en
+/// diagonal por dentro de la tesela y se comería una esquina de tierra.
+List<Offset> _esquinasEntre(double t0, double t1, Rect cuadro) {
+  final w = cuadro.width;
+  final h = cuadro.height;
+  final perimetro = 2 * (w + h);
+  var hasta = t1 - t0;
+  if (hasta < -1e-9) hasta += perimetro;
+  if (hasta <= 0) return const [];
+
+  final salida = <({double cuanto, Offset donde})>[];
+  for (final esquina in <(double, Offset)>[
+    (0, cuadro.topLeft),
+    (w, cuadro.topRight),
+    (w + h, cuadro.bottomRight),
+    (2 * w + h, cuadro.bottomLeft),
+  ]) {
+    var cuanto = esquina.$1 - t0;
+    if (cuanto < -1e-9) cuanto += perimetro;
+    if (cuanto > 1e-9 && cuanto < hasta) {
+      salida.add((cuanto: cuanto, donde: esquina.$2));
+    }
+  }
+  salida.sort((a, b) => a.cuanto.compareTo(b.cuanto));
+  return [for (final e in salida) e.donde];
+}
+
+/// EL MAR DE UNA TESELA, en anillos ya cerrados y en píxeles.
+///
+/// [lado] es el lado del cuadro que se está dibujando. Cuando se amplía un
+/// antepasado es el del antepasado entero (`256 · aumento`), porque la costa que
+/// trae la tesela es la suya y el recorte al trozo que toca lo hace el lienzo.
+///
+/// Devuelve `null` cuando **no se puede decir**, y eso es tan importante como el
+/// resto:
+///
+///  * Sin capa `costa` no hay nada que responder. Una tesela de tierra adentro
+///    —La Habana a z14— no lleva costa, y ahí el papel es lo correcto.
+///  * Una costa con un cabo suelto en mitad del cuadro tampoco: el anillo que
+///    saldría de cerrarla a ojo pintaría de agua media ciudad. **Antes ninguno
+///    que uno inventado** (regla 4 de la casa).
+@visibleForTesting
+List<List<Offset>>? marDeLaCosta(
+  List<CapaVectorial> capas, {
+  required double lado,
+}) {
+  final costa = [
+    for (final c in capas)
+      if (c.nombre == 'costa') c,
+  ];
+  if (costa.isEmpty || costa.first.extension <= 0) return null;
+  final escala = lado / costa.first.extension;
+
+  final enteras = <List<Offset>>[];
+  for (final cruda in coserLaCosta(capas)) {
+    if (cruda.length < 2) continue;
+    enteras.add([for (final p in cruda) Offset(p.dx * escala, p.dy * escala)]);
+  }
+  if (enteras.isEmpty) return null;
+
+  final cuadro = Rect.fromLTWH(0, 0, lado, lado);
+  final tolerancia = lado * 1e-7 + 1e-9;
+  final cadenas = [
+    for (final entera in enteras) ..._recortarCadena(entera, cuadro),
+  ];
+
+  if (cadenas.isEmpty) {
+    // La costa entera se queda fuera del cuadro: o esto es mar abierto y la
+    // costa que se ve es la de la tesela de al lado, o es tierra adentro. Lo
+    // decide el lado del trozo de costa más cercano.
+    final agua = esAgua(cuadro.center, enteras);
+    if (agua != true) return null;
+    return [
+      [
+        cuadro.topLeft,
+        cuadro.topRight,
+        cuadro.bottomRight,
+        cuadro.bottomLeft,
+        cuadro.topLeft,
+      ],
+    ];
+  }
+
+  final abiertas = <List<Offset>>[];
+  final anillos = <List<Offset>>[];
+  for (final cadena in cadenas) {
+    if ((cadena.first - cadena.last).distance <= tolerancia) {
+      anillos.add(cadena);
+    } else {
+      abiertas.add(cadena);
+    }
+  }
+
+  final empieza = <double>[];
+  final acaba = <double>[];
+  for (final cadena in abiertas) {
+    final a = _enElBorde(cadena.first, cuadro, tolerancia);
+    final b = _enElBorde(cadena.last, cuadro, tolerancia);
+    if (a == null || b == null) return null;
+    empieza.add(a);
+    acaba.add(b);
+  }
+
+  if (abiertas.isEmpty) {
+    if (anillos.isEmpty) return null;
+    // Ninguna costa cortada por el borde: el cuadro entero cae de un lado, y lo
+    // dice el anillo más grande. Con tierra dentro (negativo) es un cayo, o la
+    // isla, y alrededor hay mar; con agua dentro (positivo) es una laguna, y
+    // alrededor hay tierra.
+    var mayor = anillos.first;
+    for (final a in anillos) {
+      if (_areaDoble(a).abs() > _areaDoble(mayor).abs()) mayor = a;
+    }
+    if (_areaDoble(mayor) >= 0) return anillos;
+    return [
+      [
+        cuadro.topLeft,
+        cuadro.topRight,
+        cuadro.bottomRight,
+        cuadro.bottomLeft,
+        cuadro.topLeft,
+      ],
+      ...anillos,
+    ];
+  }
+
+  // EL COSIDO POR EL BORDE. Se camina la costa en su sentido —el agua queda a
+  // la izquierda— y al llegar al borde se sigue por el borde, en el mismo
+  // sentido, hasta el arranque de la siguiente costa. Lo que queda encerrado es
+  // el agua.
+  final orden = List.generate(abiertas.length, (i) => i)
+    ..sort((a, b) => empieza[a].compareTo(empieza[b]));
+  int siguienteTras(double t) {
+    for (final i in orden) {
+      if (empieza[i] > t + 1e-9) return i;
+    }
+    return orden.first;
+  }
+
+  final gastada = List.filled(abiertas.length, false);
+  for (var arranque = 0; arranque < abiertas.length; arranque++) {
+    if (gastada[arranque]) continue;
+    final anillo = <Offset>[];
+    var i = arranque;
+    for (var vueltas = 0; ; vueltas++) {
+      gastada[i] = true;
+      anillo.addAll(abiertas[i]);
+      final j = siguienteTras(acaba[i]);
+      // **EL ANILLO SE CIERRA SIEMPRE POR EL BORDE, NUNCA EN LÍNEA RECTA POR
+      // DENTRO.** La tentación, al llegar al final, es unir el último punto con
+      // el primero y ya; eso dibuja una diagonal a través de la tesela, que es
+      // exactamente la raya inventada que se está arreglando. Por el borde, en
+      // cambio, la raya cae **en el borde de la tesela**, que es el mismo sitio
+      // por el que la de al lado trae la suya: casan y no se ve ninguna.
+      if (j == arranque) {
+        anillo.addAll(_esquinasEntre(acaba[i], empieza[arranque], cuadro));
+        anillo.add(anillo.first);
+        anillos.add(anillo);
+        break;
+      }
+      // EL RELEVO NO LLEGA: el siguiente arranque ya se usó. Pasa cuando los
+      // extremos de la costa en el borde **no se alternan** —uno sale y el
+      // siguiente también sale—, y eso no es un fallo del cosido: es lo que
+      // deja el generador al simplificar. En la z8/72/113 había un lazo de
+      // cuatro puntos que se cruza consigo mismo y cruza cuatro veces el borde
+      // de arriba; recortado, sus dos trozos emparejaban dos veces el mismo
+      // arranque y el anillo grande —el mar de casi toda la tesela— se quedaba
+      // sin cerrar.
+      //
+      // Se cierra igual por el borde, pero **por el lado que menos borde
+      // gasta**. Las tres salidas que se probaron antes están todas mal, y las
+      // tres se vieron en esa misma tesela:
+      //
+      //  * en línea recta contra el arranque: un pico de tierra atravesando el
+      //    Golfo de Guacanayabo en diagonal.
+      //  * hacia adelante como siempre: el borde daba la vuelta entera y la
+      //    tesela quedó azul con sus dos pueblos dentro.
+      //  * tirar el anillo: un cuadro de papel en mitad del mar.
+      if (gastada[j] || vueltas >= abiertas.length) {
+        anillo.addAll(_porElArcoCorto(acaba[i], empieza[arranque], cuadro));
+        anillo.add(anillo.first);
+        anillos.add(anillo);
+        break;
+      }
+      anillo.addAll(_esquinasEntre(acaba[i], empieza[j], cuadro));
+      i = j;
+    }
+  }
+  return anillos;
+}
+
+/// Los anillos, en un solo [Path].
+///
+/// Se expone para que las pruebas pregunten lo único que importa —«¿este punto
+/// es mar?»— con la MISMA regla de relleno que usa el pintor. Armar el camino
+/// aparte en la prueba sería comprobar otro dibujo.
+///
+/// **Todos en uno y con [PathFillType.nonZero]**, que es lo por lo mismo que
+/// está escrito en [FondoDelPaquete._camino]: un anillo que gira al revés
+/// —un cayo dentro del mar— se lee como agujero. En caminos separados el cayo
+/// sería otra mancha de agua encima de sí mismo.
+@visibleForTesting
+Path caminoDelMar(List<List<Offset>> anillos) {
+  final camino = Path();
+  for (final anillo in anillos) {
+    if (anillo.length < 3) continue;
+    camino.addPolygon(anillo, true);
+  }
+  return camino;
+}
+
 /// EL FONDO QUE SALE DEL PAQUETE GUARDADO.
 ///
 /// Si el paquete no tiene esa tesela y hay un [respaldo] —el de OSM— se le
@@ -455,7 +959,13 @@ class FondoDelPaquete implements FondoDeCalles {
     // Sin respaldo, `null` es la respuesta buena: el croquis se dibuja igual y
     // la pantalla dice lo que se está viendo. Nada de cuadros grises.
     final deLaRed = await respaldo?.tesela(z, x, y);
-    return _dibujadas[clave] = deLaRed;
+    if (deLaRed != null) return _dibujadas[clave] = deLaRed;
+
+    // Ni el paquete ni la red. Antes se acababa aquí, y sobre el mar eso es
+    // dejar el papel puesto — o sea, pintar el Atlántico del color de la
+    // tierra. El antepasado sí sabe contestar a una sola pregunta, que es la
+    // única que se le hace: **¿esto es mar?**
+    return _dibujadas[clave] = await _elMarDelAntepasado(z, x, y);
   }
 
   Future<ui.Image?> _delPaquete(int z, int x, int y) async {
@@ -486,6 +996,91 @@ class FondoDelPaquete implements FondoDeCalles {
     return _dibujar(capas, z, aumento.toDouble(), dentroX, dentroY);
   }
 
+  /// SÓLO EL MAR, sacado del antepasado más profundo que exista.
+  ///
+  /// Se llama cuando no hay tesela ni en el paquete ni en la red, y eso es casi
+  /// siempre una cosa: **mar abierto**. El paquete sólo guarda las teselas que
+  /// llevan algo dentro, y a 20 km de la costa no hay ni una carretera ni un
+  /// trozo de costa que guardar, así que esa tesela no existe — y lo que se veía
+  /// era el papel, o sea tierra.
+  ///
+  /// Se dibuja **el mar y nada más**. Ni carreteras ampliadas ni nombres
+  /// gigantes: el antepasado está diez veces más lejos y lo único que sabe decir
+  /// con la misma certeza a cualquier tamaño es de qué lado de la costa cae
+  /// esto. Si no lo sabe —si no tiene costa, o si su costa no cierra— se
+  /// devuelve nada y todo queda como estaba.
+  ///
+  /// ## Por qué se para en [saltosParaElMar]
+  ///
+  /// Subiendo sin freno se acaba llegando al z0, donde la costa de Cuba cabe en
+  /// cien unidades de tesela y donde «lo que no es Cuba es mar» empieza a
+  /// significar que Florida es mar. El tope deja el relleno donde de verdad
+  /// responde —el mar de alrededor de la isla— y lo corta a cientos de
+  /// kilómetros de la costa, que es donde ya no hay mapa que enseñar.
+  Future<ui.Image?> _elMarDelAntepasado(int z, int x, int y) async {
+    final desde = z > paquete.cabecera.zMax ? paquete.cabecera.zMax : z;
+    for (var za = desde - 1; za >= paquete.cabecera.zMin; za--) {
+      if (desde - za > saltosParaElMar) break;
+      final salto = z - za;
+      final ax = x >> salto;
+      final ay = y >> salto;
+
+      Uint8List? crudo;
+      try {
+        crudo = await paquete.tesela(za, ax, ay);
+      } on Object {
+        return null;
+      }
+      if (crudo == null) continue;
+
+      final capas = leerTeselaVectorial(crudo);
+      if (capas.isEmpty) continue;
+
+      final imagen = _dibujarSoloElMar(
+        capas,
+        (1 << salto).toDouble(),
+        x - (ax << salto),
+        y - (ay << salto),
+      );
+      if (imagen != null) return imagen;
+    }
+    return null;
+  }
+
+  ui.Image? _dibujarSoloElMar(
+    List<CapaVectorial> capas,
+    double aumento,
+    int dentroX,
+    int dentroY,
+  ) {
+    const lado = ladoDeTeselaDelPaquete;
+    final anillos = marDeLaCosta(capas, lado: lado * aumento);
+    if (anillos == null) return null;
+
+    final camino = caminoDelMar(anillos)
+        .shift(Offset(-dentroX * lado, -dentroY * lado));
+
+    // ¿CAE ALGO DE MAR EN ESTE TROZO? Si no, se devuelve nada en vez de una
+    // imagen transparente: una tesela entregada hace que el croquis escriba la
+    // atribución de OSM y eche el velo de papel encima, y las dos cosas serían
+    // mentira sobre una tesela que no dibuja absolutamente nada.
+    const dentro = 0.5;
+    final pruebas = <Offset>[
+      const Offset(lado / 2, lado / 2),
+      const Offset(dentro, dentro),
+      const Offset(lado - dentro, dentro),
+      const Offset(dentro, lado - dentro),
+      const Offset(lado - dentro, lado - dentro),
+    ];
+    if (!pruebas.any(camino.contains)) return null;
+
+    final grabadora = ui.PictureRecorder();
+    final lienzo = ui.Canvas(grabadora);
+    lienzo.clipRect(const Rect.fromLTWH(0, 0, lado, lado));
+    lienzo.drawPath(camino, Paint()..color = ColoresDelMapa.agua);
+    return grabadora.endRecording().toImageSync(lado.toInt(), lado.toInt());
+  }
+
   ui.Image _dibujar(
     List<CapaVectorial> capas,
     int z,
@@ -505,6 +1100,15 @@ class FondoDelPaquete implements FondoDeCalles {
     // cuatro lados y sin esto se pinta encima de las teselas vecinas.
     lienzo.clipRect(const Rect.fromLTWH(0, 0, lado, lado));
     lienzo.translate(-dentroX * lado, -dentroY * lado);
+
+    // EL MAR, DEBAJO DE TODO Y ANTES QUE NADA. No viene de ninguna capa: se
+    // saca de cerrar la línea de costa contra el borde del cuadro, y es lo
+    // único que distingue el océano de la tierra — la capa `agua` no lo lleva y
+    // por debajo del z7 ni siquiera existe.
+    final mar = marDeLaCosta(capas, lado: lado * aumento);
+    if (mar != null) {
+      lienzo.drawPath(caminoDelMar(mar), Paint()..color = ColoresDelMapa.agua);
+    }
 
     // EL ORDEN ES EL QUE MANDA UN MAPA, y aquí no es cosmético: al revés, la
     // mancha del barrio tapa las manzanas y las manzanas tapan las calles, que

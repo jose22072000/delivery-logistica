@@ -1,4 +1,19 @@
-// La tabla de Pedidos: 13 columnas que se esconden por anchura.
+// La tabla de Pedidos: 13 columnas que se esconden por anchura — y **por debajo
+// de 768 px deja de ser una tabla**.
+//
+// EN UN TELEFONO NO CABE NINGUNA TABLA, por muchas columnas que se escondan.
+// Medido el 22/09/2026 en el telefono de Jose (1080x2340, o sea 390 px
+// logicos): lo que queda a esa anchura son siete columnas repartiendose 294 px,
+// asi que `Completada` salia partida letra a letra —`C o m p l e t a d a` en
+// vertical— y `sin cotizar` igual, y **una sola fila ocupaba media pantalla**.
+// Un `Expanded` con `flex: 2` sobre 294 px son 39 px de celda, y en 39 px no
+// entra ninguna palabra de la interfaz.
+//
+// Por eso debajo de ese ancho se pinta una TARJETA por pedido: lo importante
+// arriba (cliente, folio y fecha), la direccion debajo con dos lineas y elipsis,
+// y los estados y las cifras en un `Wrap` — que es lo que garantiza que ninguna
+// palabra se parta, porque cada hijo de un `Wrap` recibe el ancho entero y salta
+// de linea ENTERO cuando no cabe.
 //
 // **El escondite es por orden de prescindibilidad, no por hueco disponible**
 // (`pantallas.md` §11): `Sucursal` y `Vehículo` bajo 1536, `Ruta` bajo 1280,
@@ -26,6 +41,16 @@ class ColumnasVisibles {
   /// repetir en cada fila lo que ya dice la barra es gastar el ancho que le hace
   /// falta a la direccion.
   final bool conSucursal;
+
+  /// Debajo de esto no hay tabla que valga: se pinta una tarjeta por pedido.
+  ///
+  /// El numero es el mismo `Anchos.entrega` (768) del pliego §11 — el ultimo
+  /// escalon, donde ya solo quedan siete columnas— pero se escribe aqui y no en
+  /// `diseno/anchos.dart` porque esa constante nueva no es de esta tabla sola y
+  /// ese fichero lo lleva otro. Si se sube a `Anchos`, se quita de aqui.
+  static const enTarjetasBajo = 768.0;
+
+  bool get enTarjetas => ancho < enTarjetasBajo;
 
   bool get sucursal => conSucursal && ancho >= 1536;
   bool get vehiculo => ancho >= 1536;
@@ -71,6 +96,38 @@ class TablaPedidos extends StatelessWidget {
       );
       final ids = [for (final p in pedidos) p.id];
       final todosMarcados = ids.isNotEmpty && ids.every(seleccion.contains);
+
+      if (columnas.enTarjetas) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _CabeceraDeTarjetas(
+              cuantos: ids.length,
+              todosMarcados: todosMarcados,
+              alMarcarPagina: (marcar) => alMarcarPagina(ids, marcar),
+            ),
+            Divider(height: 1, thickness: 1, color: Colores.linea),
+            for (final pedido in pedidos)
+              _Tarjeta(
+                // La llave de la tarjeta entera: es lo que deja MEDIRLA en una
+                // prueba (`tester.getRect`), que es la unica forma de ver que
+                // una fila ya no ocupa media pantalla.
+                key: ValueKey('tarjeta-${pedido.id}'),
+                pedido: pedido,
+                estadoDeSuRuta: pedido.routeId == null
+                    ? null
+                    : rutas[pedido.routeId]?.status,
+                codigoDeRuta: pedido.routeId == null
+                    ? null
+                    : rutas[pedido.routeId]?.routeCode,
+                marcado: seleccion.contains(pedido.id),
+                alMarcar: () => alMarcar(pedido.id),
+                alAbrir: () => alAbrir(pedido),
+                ahora: ahora,
+              ),
+          ],
+        );
+      }
 
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -219,11 +276,7 @@ class _Fila extends StatelessWidget {
               flex: 2,
               hijo: Insignia(
                 enPedido.etiqueta,
-                color: switch (enPedido) {
-                  EstadoEnPedidoVisto.completada => Colores.verde,
-                  EstadoEnPedidoVisto.expirada => Colores.rojo,
-                  EstadoEnPedidoVisto.enProceso => Colores.ambar,
-                },
+                color: _colorEnPedido(enPedido),
                 tooltip: pedido.archivado ? 'Archivado en PEDIDO' : null,
               ),
             ),
@@ -291,18 +344,213 @@ class _Fila extends StatelessWidget {
                 flex: 2,
                 hijo: Insignia(
                   reparto.etiqueta,
-                  color: switch (reparto) {
-                    EstadoReparto.entregado => Colores.verde,
-                    EstadoReparto.enRuta => Colores.enCurso,
-                    EstadoReparto.enDespacho => Colores.primario,
-                    EstadoReparto.devuelto ||
-                    EstadoReparto.cancelado => Colores.ambar,
-                    EstadoReparto.sinEntregar => Colores.tintaSuave,
-                  },
+                  color: _colorDeReparto(reparto),
                 ),
               ),
             SizedBox(
               width: 32,
+              child: Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: Colores.tintaSuave,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Los colores de las dos insignias de estado. Sueltos aqui porque los pintan
+/// **dos** sitios —la fila de la tabla y la tarjeta del telefono— y dos switch
+/// copiados acaban con un verde en uno y un ambar en el otro.
+Color _colorEnPedido(EstadoEnPedidoVisto estado) => switch (estado) {
+  EstadoEnPedidoVisto.completada => Colores.verde,
+  EstadoEnPedidoVisto.expirada => Colores.rojo,
+  EstadoEnPedidoVisto.enProceso => Colores.ambar,
+};
+
+Color _colorDeReparto(EstadoReparto reparto) => switch (reparto) {
+  EstadoReparto.entregado => Colores.verde,
+  EstadoReparto.enRuta => Colores.enCurso,
+  EstadoReparto.enDespacho => Colores.primario,
+  EstadoReparto.devuelto || EstadoReparto.cancelado => Colores.ambar,
+  EstadoReparto.sinEntregar => Colores.tintaSuave,
+};
+
+/// La cabecera cuando hay tarjetas: **solo el `elegir todos`**.
+///
+/// Los rotulos de columna no pintan nada encima de unas tarjetas —no hay
+/// columnas debajo— pero la casilla de marcar la pagina entera si, que es como
+/// se arma un pre-despacho de golpe y es el gesto que se perderia al cambiar de
+/// forma.
+class _CabeceraDeTarjetas extends StatelessWidget {
+  const _CabeceraDeTarjetas({
+    required this.cuantos,
+    required this.todosMarcados,
+    required this.alMarcarPagina,
+  });
+
+  final int cuantos;
+  final bool todosMarcados;
+  final void Function(bool) alMarcarPagina;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: Colores.papel,
+    padding: const EdgeInsets.only(right: Aire.sm),
+    child: Row(
+      children: [
+        Semantics(
+          label: 'Elegir todos los de esta página',
+          child: Checkbox(
+            value: todosMarcados,
+            onChanged: (v) => alMarcarPagina(v ?? false),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            'Elegir los $cuantos de esta página',
+            style: Tipos.texto(
+              tamano: 12,
+              peso: FontWeight.w600,
+              color: Colores.tintaSuave,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// UN PEDIDO EN UN TELEFONO. Lo importante arriba y lo demas debajo.
+///
+/// Las reglas de aqui dentro, que son las que evitan el `C o m p l e t a d a`:
+///
+///  - todo lo que es de UNA linea lleva `maxLines: 1` con elipsis. Sin elipsis,
+///    una direccion larga se corta a mitad de palabra contra el borde y no se
+///    sabe si falta poco o mucho;
+///  - la direccion lleva dos lineas, que es lo que hace falta para leer un
+///    reparto, y elipsis en la segunda;
+///  - las insignias y las cifras van en un `Wrap`, **nunca en `Expanded`**: un
+///    `Expanded` reparte el ancho a partes y le puede tocar una celda de 39 px,
+///    que es exactamente como se rompe una palabra letra a letra.
+class _Tarjeta extends StatelessWidget {
+  const _Tarjeta({
+    required this.pedido,
+    required this.estadoDeSuRuta,
+    required this.codigoDeRuta,
+    required this.marcado,
+    required this.alMarcar,
+    required this.alAbrir,
+    required this.ahora,
+    super.key,
+  });
+
+  final Pedido pedido;
+  final String? estadoDeSuRuta;
+  final String? codigoDeRuta;
+  final bool marcado;
+  final VoidCallback alMarcar;
+  final VoidCallback alAbrir;
+  final DateTime ahora;
+
+  @override
+  Widget build(BuildContext context) {
+    final reparto = estadoDeReparto(pedido, estadoDeSuRuta);
+    final enPedido = estadoEnPedido(pedido, ahora: ahora);
+    final folio = pedido.operationNumber ?? '';
+
+    return InkWell(
+      // La tarjeta entera abre el detalle; la casilla no lo abre.
+      onTap: alAbrir,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: Colores.linea)),
+        ),
+        padding: const EdgeInsets.fromLTRB(0, Aire.sm, Aire.sm, Aire.md),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Checkbox(value: marcado, onChanged: (_) => alMarcar()),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 6),
+                  Text(
+                    pedido.customerName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Tipos.texto(tamano: 14, peso: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 2),
+                  // Folio y fecha en la misma linea mientras quepan, y en dos
+                  // cuando no: es un `Wrap`, asi que saltan enteros.
+                  Wrap(
+                    spacing: Aire.sm,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (folio.isNotEmpty)
+                        Text(
+                          folio,
+                          style: Tipos.mono(
+                            tamano: 11.5,
+                            color: Colores.tintaSuave,
+                          ),
+                        ),
+                      _Fecha(pedido: pedido),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    pedido.endAddress ?? pedido.address,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Tipos.texto(tamano: 13, color: Colores.tinta),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: Aire.sm,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        kg(pedido.weight),
+                        style: Tipos.mono(tamano: 13, color: Colores.tinta),
+                      ),
+                      Text(
+                        usd(pedido.pedidoCosto),
+                        style: Tipos.mono(
+                          tamano: 13,
+                          color: pedido.pedidoCosto == null
+                              ? Colores.tintaSuave
+                              : Colores.tinta,
+                        ),
+                      ),
+                      Insignia(
+                        enPedido.etiqueta,
+                        color: _colorEnPedido(enPedido),
+                        tooltip: pedido.archivado
+                            ? 'Archivado en PEDIDO'
+                            : null,
+                      ),
+                      Insignia(
+                        reparto.etiqueta,
+                        color: _colorDeReparto(reparto),
+                      ),
+                      if (codigoDeRuta != null)
+                        Insignia(codigoDeRuta!, color: Colores.enCurso),
+                      _Factura(pedido: pedido),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
               child: Icon(
                 Icons.chevron_right,
                 size: 18,

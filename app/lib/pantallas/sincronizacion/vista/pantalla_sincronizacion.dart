@@ -13,6 +13,7 @@ import '../../../diseno/tabla_ancha.dart';
 import '../../../diseno/tarjeta.dart';
 import '../../../diseno/tema.dart';
 import '../../../navegacion/estado_navegacion.dart';
+import '../../../nucleo/plataforma.dart';
 import '../datos/panel_sincronizacion.dart';
 import 'fila_de_rechazo.dart';
 import '../estado/proveedores_sincronizacion.dart';
@@ -35,6 +36,12 @@ import '../estado/proveedores_sincronizacion.dart';
 ///
 /// De escritorio y **con conexion**. Sin red dice que no puede saberlo; no
 /// ensena una lectura vieja como si fuera de ahora.
+///
+/// **En la web no existe nada de esto** (regla 1 de `CLAUDE.md`): ni aparatos,
+/// ni cola, ni bandeja, ni la peticion a `/sync/estado`. La ruta si sigue
+/// existiendo —el enlace guardado tiene que llevar a algo que se explique, no a
+/// un «no hay ninguna pantalla aqui»— y lo que se ve es `_NoVaEnLaWeb`. El
+/// porque entero esta en `registro.dart` y en la guarda de `build`.
 ///
 /// SIN `Scaffold` ni `AppBar` propios: los pone el armazon
 /// (`navegacion/pantalla_registrada.dart`).
@@ -64,6 +71,30 @@ class PantallaSincronizacion extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // REGLA 1, Y SE PREGUNTA ANTES DE MIRAR NADA MÁS.
+    //
+    // La salida es lo primero del método a propósito: mientras no se lea
+    // `estadoDelSincronizadorProvider`, ese provider **no se crea**, así que en
+    // la web no sale ni una petición a `/sync/estado`. Eso no es una sutileza
+    // de Riverpod, es la corrección entera: el sincronizador contesta `401` a
+    // un navegador —no es un aparato dado de alta—, el cliente da la sesión por
+    // muerta y el portero rebota a `/acceso`, que vuelve a entrar y vuelve a
+    // pedir. Treinta peticiones en un minuto, medidas en producción el
+    // 22/09/2026. Un rechazo permanente contra un reintentador es un bucle, no
+    // una defensa.
+    //
+    // Y se sale ANTES de la cabecera, no sólo del panel: el subtítulo de esta
+    // pantalla («qué aparato lleva sin subir, qué le queda pendiente…») y el
+    // «Cargando el estado de los aparatos…» son justo lo que la regla 1 no
+    // deja enseñar en un navegador.
+    //
+    // Se pregunta AQUÍ y en ningún otro sitio. La misma pregunta repetida en el
+    // provider sería el §3-bis de `CLAUDE.md` en pequeño: dos guardas que el
+    // día que una cambie dejan a la otra mintiendo. La lección es de
+    // `pantallas/mapa/pantalla_mapa_sin_conexion.dart`, donde la segunda guarda
+    // se quitó al romperla y ver que la prueba seguía verde.
+    if (!ref.watch(trabajaSinConexionProvider)) return const _NoVaEnLaWeb();
+
     final lectura = ref.watch(estadoDelSincronizadorProvider);
 
     return SafeArea(
@@ -91,6 +122,36 @@ class PantallaSincronizacion extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// LO QUE SE VE EN UN NAVEGADOR, y es todo lo que se ve.
+///
+/// Sin cabecera de la pantalla, sin botón de «Actualizar» y **sin una sola
+/// petición**: no hay nada que actualizar porque no hay nada que leer. La barra
+/// lateral del armazón sigue ahí al lado, así que de aquí se sale a cualquier
+/// sitio sin necesidad de un botón propio.
+///
+/// No es un error y no se pinta como tal: en ámbar sería «mira esto», en rojo
+/// «esto es un problema», y no es ninguna de las dos. Es una pantalla que en
+/// este destino no aplica, y lo dice.
+class _NoVaEnLaWeb extends StatelessWidget {
+  const _NoVaEnLaWeb();
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: ListView(
+      padding: const EdgeInsets.all(Aire.xl),
+      children: [
+        Tarjeta(
+          titulo: TextosDeSincronizacion.enLaWebTitulo,
+          child: const EstadoVacio(
+            TextosDeSincronizacion.enLaWeb,
+            icono: Icons.desktop_windows_outlined,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _Cabecera extends StatelessWidget {

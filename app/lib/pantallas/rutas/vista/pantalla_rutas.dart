@@ -8,6 +8,8 @@
 // del servidor llegan tarde, al subir, y salen en la bandeja con su hora y su
 // motivo. Nunca se descartan.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../diseno/caja_de_busqueda.dart';
@@ -26,9 +28,6 @@ import 'asistente_nueva_ruta.dart';
 import 'detalle_ruta.dart';
 import 'lista_rutas.dart';
 
-/// LA CLAVE DE LA BARRA DE VOLVER. Publica porque la prueba la pulsa.
-const claveDeVolverALaLista = ValueKey('ruta-volver-a-la-lista');
-
 class PantallaRutas extends ConsumerWidget {
   const PantallaRutas({super.key});
 
@@ -38,6 +37,34 @@ class PantallaRutas extends ConsumerWidget {
     final contadores = ref.watch(contadoresDePestanaProvider);
     final elegida = ref.watch(rutaElegidaProvider);
     final filtros = ref.watch(filtrosRutasProvider);
+
+    // CAMBIAR DE PESTAÑA A MANO SUELTA LA RUTA ABIERTA.
+    //
+    // Medido el 22/09/2026 en un monitor: con `RT-…-002` abierta en el panel de
+    // la derecha, pulsar `Historial` cambiaba la lista y **dejaba el panel
+    // enseñando esa misma ruta**, que ya no estaba en la lista de al lado, con
+    // su botón `Iniciar ruta` vivo. O sea, media pantalla hablando de una cosa y
+    // la otra media de otra.
+    //
+    // El panel de la derecha es el detalle de algo de ESTA lista: si se cambia
+    // de lista, no hay nada abierto.
+    void irALaPestana(int i) {
+      ref.read(pestanaRutasProvider.notifier).elegir(PestanaRutas.values[i]);
+      ref.read(rutaElegidaProvider.notifier).elegir(null);
+    }
+
+    // Y LO MISMO DESLIZANDO, PERO SÓLO SI DE VERDAD LO MUEVE UNA PERSONA.
+    //
+    // El `PageView` avisa también cuando termina la animación de un cambio que
+    // vino del código, y hay uno que NO puede soltar la ruta: `Iniciar ruta`
+    // mueve la pestaña a `En curso` **y se lleva la ruta consigo** a propósito
+    // (`detalle_ruta.dart`), para que no le desaparezca de delante a quien
+    // acaba de arrancarla. En ese aviso el índice que llega ya es el que hay
+    // puesto; en un deslizamiento de verdad, todavía no.
+    void alDeslizar(int i) {
+      if (PestanaRutas.values[i] == ref.read(pestanaRutasProvider)) return;
+      irALaPestana(i);
+    }
 
     // SIN `Scaffold` ni `AppBar` propios: los pone el armazon
     // (`navegacion/pantalla_registrada.dart`), que ya trae barra lateral, barra
@@ -54,6 +81,11 @@ class PantallaRutas extends ConsumerWidget {
     //
     // `canPop: false` mientras haya una elegida: el primer atras la suelta y se
     // queda en Rutas; el segundo ya sale, como siempre.
+    //
+    // Desde el 22/09/2026 esto es la red de abajo, no la primera parada: en el
+    // teléfono el detalle va en un cajón, que es una ruta del `Navigator` y se
+    // come el «atrás» él mismo (y al cerrarse suelta la ruta). Esto sigue
+    // sirviendo en escritorio, donde no hay cajón sino panel de al lado.
     return PopScope(
       canPop: elegida == null,
       onPopInvokedWithResult: (seFue, _) {
@@ -106,9 +138,7 @@ class PantallaRutas extends ConsumerWidget {
                   for (final cual in PestanaRutas.values)
                     '${cual.etiqueta} (${contadores[cual] ?? 0})',
                 ],
-                alCambiar: (i) => ref
-                    .read(pestanaRutasProvider.notifier)
-                    .elegir(PestanaRutas.values[i]),
+                alCambiar: irALaPestana,
               ),
             ),
             const _FiltrosDeLaLista(),
@@ -135,52 +165,44 @@ class PantallaRutas extends ConsumerWidget {
                   final lista = CuerpoDeslizable(
                     indice: pestana.index,
                     cuantas: PestanaRutas.values.length,
-                    alCambiar: (i) => ref
-                        .read(pestanaRutasProvider.notifier)
-                        .elegir(PestanaRutas.values[i]),
+                    alCambiar: alDeslizar,
                     pagina: (contexto, i) =>
                         ListaDeRutas(deLaPestana: PestanaRutas.values[i]),
                   );
-                  final detalle = elegida == null
-                      ? const EstadoVacio(
-                          'Selecciona una ruta para ver el detalle',
-                        )
-                      : DetalleDeRuta(rutaId: elegida);
+
+                  // EN MÓVIL, EL DETALLE VA EN UN CAJÓN Y NO AQUÍ DENTRO.
+                  //
+                  // Jose, 22/09/2026: «cuando estoy viendo un detalle de una
+                  // ruta me puedo mover por los diferentes tabs eso no lo
+                  // quiero ponlo en un drawer en el movil». El porqué entero
+                  // está en `CajonDelDetalleDeRuta`; lo que hay que saber aquí
+                  // es que **esta columna sigue siendo la lista y nada más**,
+                  // pase lo que pase con la ruta elegida.
+                  //
+                  // Se mide con `medidas.maxWidth`, que es el ancho que de
+                  // verdad le queda a la pantalla dentro del armazón, y no con
+                  // el de la ventana: con la barra lateral fija puesta, los dos
+                  // números no son el mismo y quien decide la forma tiene que
+                  // ser el mismo que decide si hay sitio para dos columnas.
+                  if (!enEscritorio) {
+                    return _LaListaConSuCajon(lista: lista);
+                  }
 
                   // En escritorio: 3 columnas (1 lista + 2 detalle), cada una con
-                  // su propio desplazamiento. En movil: una sola columna y la
-                  // pagina se desplaza como cualquier otra —**sin** desplazamiento
-                  // interno, para no tener dos scroll peleandose (§11).
-                  if (!enEscritorio) {
-                    if (elegida == null) return lista;
-                    // LA SALIDA, FIJA Y ARRIBA DEL TODO.
-                    //
-                    // Jose, 17/09/2026: «toqué una ruta hecha para ver detalles
-                    // y no puedo salir de esa ruta señalada». En el telefono el
-                    // detalle SUSTITUYE a la lista, asi que si no hay un
-                    // «volver» no queda nada a lo que volver — y hasta hoy la
-                    // ruta elegida solo se soltaba al COMPLETARLA, que es algo
-                    // que una ruta ya completada no puede hacer.
-                    //
-                    // Va aqui fuera y no dentro del detalle a proposito: el
-                    // detalle es una lista que se desplaza, y una salida que se
-                    // va hacia arriba al bajar dos dedos es una salida que no
-                    // esta. Esta barra no se mueve.
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const _VolverALaLista(),
-                        Divider(height: 1, thickness: 1, color: Colores.linea),
-                        Expanded(child: detalle),
-                      ],
-                    );
-                  }
+                  // su propio desplazamiento.
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(child: lista),
                       const VerticalDivider(width: 1),
-                      Expanded(flex: 2, child: detalle),
+                      Expanded(
+                        flex: 2,
+                        child: elegida == null
+                            ? const EstadoVacio(
+                                'Selecciona una ruta para ver el detalle',
+                              )
+                            : DetalleDeRuta(rutaId: elegida),
+                      ),
                     ],
                   );
                 },
@@ -193,23 +215,78 @@ class PantallaRutas extends ConsumerWidget {
   }
 }
 
-/// LA BARRA DE VOLVER DEL MOVIL.
+/// LA LISTA DEL MÓVIL, QUE ABRE EL DETALLE EN UN CAJÓN.
 ///
-/// Un solo gesto y con su nombre escrito al lado: una flecha sola se confunde
-/// con la del navegador, y la ✕ sola no dice a donde lleva.
-class _VolverALaLista extends ConsumerWidget {
-  const _VolverALaLista();
+/// Lo único que pinta es la lista; lo que hace es **vigilar la ruta elegida** y
+/// abrir [CajonDelDetalleDeRuta] en cuanto haya una.
+///
+/// Va atado a `rutaElegidaProvider` y no al gesto de tocar una tarjeta porque
+/// tocar una tarjeta no es el único sitio que elige ruta: el asistente elige la
+/// que acaba de armar (`asistente_nueva_ruta.dart`), y ésa también tiene que
+/// abrirse en el teléfono. Una sola puerta, no dos.
+///
+/// **Después del fotograma, nunca dentro.** Dos motivos y los dos hacen daño:
+/// meter una ruta en el `Navigator` en plena construcción del árbol es el
+/// «markNeedsBuild called during build» de siempre, y además el asistente hace
+/// `elegir(rutaId)` y a renglón seguido `maybePop()` para cerrarse él — si el
+/// cajón del detalle se abriera en medio, ese `maybePop` cerraría el detalle
+/// recién abierto en vez del asistente.
+class _LaListaConSuCajon extends ConsumerStatefulWidget {
+  const _LaListaConSuCajon({required this.lista});
+
+  final Widget lista;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Align(
-    alignment: Alignment.centerLeft,
-    child: TextButton.icon(
-      key: claveDeVolverALaLista,
-      onPressed: () => ref.read(rutaElegidaProvider.notifier).elegir(null),
-      icon: const Icon(Icons.arrow_back, size: 18),
-      label: const Text('Volver a la lista'),
-    ),
-  );
+  ConsumerState<_LaListaConSuCajon> createState() => _LaListaConSuCajonState();
+}
+
+class _LaListaConSuCajonState extends ConsumerState<_LaListaConSuCajon> {
+  /// Para no abrir dos cajones encima del mismo detalle. Pasa de verdad: cuando
+  /// una ruta provisional sube, su id cambia con el cajón ya abierto
+  /// (`RutaElegida`), y eso es otro aviso más del provider.
+  bool _abierto = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // `ref.listen` sólo cuenta los cambios de aquí en adelante, así que una ruta
+    // que YA venía elegida —se encogió la ventana, o se llega desde el
+    // asistente— no abriría nada.
+    if (ref.read(rutaElegidaProvider) != null) _abrirElCajon();
+  }
+
+  void _abrirElCajon() {
+    if (_abierto) return;
+    _abierto = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Entre el aviso y el fotograma puede haberse soltado la ruta: un cajón
+      // vacío es peor que ninguno.
+      if (!mounted || ref.read(rutaElegidaProvider) == null) {
+        _abierto = false;
+        return;
+      }
+      unawaited(
+        abrirCajon<void>(context, (_) => const CajonDelDetalleDeRuta()).then((
+          _,
+        ) {
+          _abierto = false;
+          // CERRAR EL CAJÓN ES SOLTAR LA RUTA. Da igual por dónde se haya
+          // cerrado —la ✕, el velo, el botón de atrás del teléfono—: si no se
+          // soltara, la tarjeta se quedaría marcada en la lista y volver a
+          // tocarla no abriría nada, porque el provider no cambiaría de valor.
+          if (mounted) ref.read(rutaElegidaProvider.notifier).elegir(null);
+        }),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<String?>(rutaElegidaProvider, (_, ahora) {
+      if (ahora != null) _abrirElCajon();
+    });
+    return widget.lista;
+  }
 }
 
 class _FiltrosDeLaLista extends ConsumerWidget {
