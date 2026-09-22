@@ -76,6 +76,25 @@ RUN flutter pub get
 # (app/pubspec.yaml: `generate: true` + l10n.yaml), así que no hace falta traerlo hecho.
 COPY app/ .
 
+# LOS DOS FICHEROS DE FUERA DE `app/` QUE LAS PRUEBAS LEEN, y por qué están aquí.
+#
+# «Una imagen no es esta máquina» (CLAUDE.md §4-bis), y esto lo demuestra: las dos
+# pruebas pasaban en el portátil y tiraban la construcción de la web el 22/09/2026,
+# porque leen ficheros que viven fuera de `app/` y aquí sólo se copia `app/`.
+#
+#  * `docs/orden-de-paradas.casos.json` — el orden de visita de las paradas está
+#    escrito DOS veces, en Dart y en Go, y este fichero es lo único que ata las dos
+#    a que den el mismo resultado. `geo_test.dart` lo lee por `../docs/…`.
+#  * `herramientas/mapa-cuba/niveles.go` — de ahí saca `colores_del_suelo_test.dart`
+#    la lista de clases que escribe el generador, para exigir que **cada una tenga
+#    color propio en el pintor**. Es la prueba que habría cazado el mismo día que la
+#    Ciénaga de Zapata se pintara como un prado.
+#
+# Van a las MISMAS rutas relativas que en el repositorio, porque eso es lo que las
+# pruebas abren: `/docs/…` y `/herramientas/…` al lado de `/app`.
+COPY docs/orden-de-paradas.casos.json /docs/orden-de-paradas.casos.json
+COPY herramientas/mapa-cuba/niveles.go /herramientas/mapa-cuba/niveles.go
+
 # LAS PRUEBAS, ANTES DE CONSTRUIR. Como en `Dockerfile.api` y `Dockerfile.sync`.
 #
 # El 16/09/2026 una mutación de prueba llegó a producción porque el Dockerfile del
