@@ -25,7 +25,17 @@ SELECT
     -- porque tres JOIN a la vez multiplican las filas entre sí y los tres números salen
     -- inflados: el clásico de contar rutas y pedidos en la misma consulta.
     (SELECT count(*) FROM routes r         WHERE r.vehicle_id  = v.id) AS rutas,
-    (SELECT count(*) FROM orders o         WHERE o.vehicle_id  = v.id) AS pedidos,
+    -- LOS PEDIDOS QUE LLEVA ESTE CAMIÓN SALEN DE SUS RUTAS, no de `orders.vehicle_id`.
+    --
+    -- Aquí se contaba `orders.vehicle_id`, y esa columna la escribe SÓLO el tablero
+    -- (`tablero.sql`, `tocar_vehiculo`): armar una ruta nunca la toca, porque el camión de
+    -- un pedido es el de la ruta en la que viaja. Resultado, visto el 22/09/2026 en el
+    -- teléfono de Jose: la tarjeta decía «Rutas 7» y debajo «0 órdenes asignadas», con
+    -- 125,3 kg cargados. Dos números de la misma tarjeta contándose cosas distintas, y el
+    -- cero es el que se lee.
+    (SELECT count(*) FROM orders o
+        JOIN routes r ON r.id = o.route_id
+        WHERE r.vehicle_id = v.id) AS pedidos,
     (SELECT count(*) FROM order_vehicles ov WHERE ov.vehicle_id = v.id) AS asignaciones
 FROM vehicles v
 JOIN vehicle_types vt ON vt.id = v.vehicle_type_id
@@ -43,7 +53,10 @@ SELECT
     vt.nombre       AS tipo_nombre,
     vt.costo_km_usd AS tipo_costo_km_usd,
     (SELECT count(*) FROM routes r          WHERE r.vehicle_id  = v.id) AS rutas,
-    (SELECT count(*) FROM orders o          WHERE o.vehicle_id  = v.id) AS pedidos,
+    -- Igual que en `ListarVehiculos`: por sus rutas. Ver el comentario de allí.
+    (SELECT count(*) FROM orders o
+        JOIN routes r ON r.id = o.route_id
+        WHERE r.vehicle_id = v.id) AS pedidos,
     (SELECT count(*) FROM order_vehicles ov WHERE ov.vehicle_id = v.id) AS asignaciones
 FROM vehicles v
 JOIN vehicle_types vt ON vt.id = v.vehicle_type_id

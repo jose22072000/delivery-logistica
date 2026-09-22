@@ -72,9 +72,17 @@ class ConsultasPanel {
       "route_id IS NULL AND end_lat IS NOT NULL "
       "AND factura_estado IN ('igual','cambiado')";
 
-  // Las rutas que cuentan como «en marcha». Cancelada NO es completada, pero
-  // tampoco esta en marcha: ninguna de las dos suma.
-  static const _rutaViva = "status NOT IN ('completed','cancelled')";
+  // «EN MARCHA» ES LA QUE SALIÓ, y una planificada no ha salido — 22/09/2026.
+  //
+  // Aquí ponía `status NOT IN ('completed','cancelled')`, que suma las
+  // planificadas. En el teléfono de Jose el Panel decía «Rutas en marcha: 6» y
+  // Rutas → En curso decía **1**: las otras cinco estaban planificadas, quietas
+  // en la oficina. Dos pantallas contestando distinto a la misma pregunta, y la
+  // que se lee de un vistazo es la que estaba mal.
+  //
+  // Lo que falta de la vista no se pierde: las planificadas están en Rutas, con
+  // su propia pestaña y su propio número.
+  static const _enMarcha = "status = '${EstadoRuta.enCurso}'";
 
   /// Las 00:00 de hoy **con el reloj del APARATO**. No es un detalle: sin red el
   /// aparato es el unico reloj que hay, y lo entregado «hoy» tiene que cuadrar
@@ -104,14 +112,19 @@ SELECT
        AND o.delivered_at IS NOT NULL
        AND o.delivered_at >= ?2) AS entregados_hoy,
   (SELECT COUNT(*) FROM routes r
-     WHERE (?1 IS NULL OR r.branch_id = ?1) AND $_rutaViva) AS rutas_activas,
+     WHERE (?1 IS NULL OR r.branch_id = ?1) AND $_enMarcha) AS rutas_activas,
   (SELECT COUNT(*) FROM vehicles v
      WHERE (?1 IS NULL OR v.branch_id = ?1)) AS total_vehiculos,
-  (SELECT COUNT(DISTINCT o.vehicle_id) FROM orders o
-     JOIN routes r ON r.id = o.route_id
-     WHERE o.vehicle_id IS NOT NULL
-       AND (?1 IS NULL OR o.branch_id = ?1)
-       AND r.$_rutaViva) AS vehiculos_en_ruta
+  -- EL CAMIÓN SALE DE LA RUTA, no del pedido.
+  --
+  -- Aquí se contaba `orders.vehicle_id`, y esa columna la escribe sólo el
+  -- tablero: armar una ruta nunca la toca. Por eso el Panel decía «Vehículos
+  -- 0 / 8 en ruta» con el camión marcado «En uso» en otras tres pantallas. El
+  -- vehículo de un pedido ES el de la ruta en la que viaja, y ahí sí está.
+  (SELECT COUNT(DISTINCT r.vehicle_id) FROM routes r
+     WHERE r.vehicle_id IS NOT NULL
+       AND (?1 IS NULL OR r.branch_id = ?1)
+       AND r.$_enMarcha) AS vehiculos_en_ruta
 ''';
 
     return _base

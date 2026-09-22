@@ -76,16 +76,21 @@ void main() {
         ),
       );
 
-  Future<void> ruta(String id, String estado, {String? sucursal = 'stg'}) =>
-      base
-          .into(base.routes)
-          .insert(
-            RoutesCompanion.insert(
-              id: id,
-              status: Value(estado),
-              branchId: Value(sucursal),
-            ),
-          );
+  Future<void> ruta(
+    String id,
+    String estado, {
+    String? sucursal = 'stg',
+    String? vehiculo,
+  }) => base
+      .into(base.routes)
+      .insert(
+        RoutesCompanion.insert(
+          id: id,
+          status: Value(estado),
+          branchId: Value(sucursal),
+          vehicleId: Value(vehiculo),
+        ),
+      );
 
   Future<void> vehiculo(String id, {String? sucursal = 'stg'}) => base
       .into(base.vehicles)
@@ -152,31 +157,70 @@ void main() {
   });
 
   group('rutas y vehiculos', () {
-    test('rutasActivas: ni completadas ni canceladas', () async {
+    // «EN MARCHA» ES LA QUE SALIÓ — 22/09/2026.
+    //
+    // Esto contaba también las planificadas. En el teléfono de Jose el Panel
+    // decía «Rutas en marcha: 6» y Rutas → En curso decía 1: las otras cinco
+    // estaban quietas en la oficina. El número que se lee de un vistazo era el
+    // que estaba mal.
+    test('rutasActivas: SÓLO las que están en curso', () async {
       await ruta('r1', 'planned');
       await ruta('r2', 'in_progress');
       await ruta('r3', 'completed');
       await ruta('r4', 'cancelled');
+      await ruta('r5', 'planned');
 
       final c = await panel.cifras().first;
-      expect(c.rutasActivas, 2);
+      expect(
+        c.rutasActivas,
+        1,
+        reason: 'una planificada no ha salido del almacén: no está en marcha',
+      );
     });
 
-    test('vehiculosEnRuta: los que llevan pedidos de una ruta viva', () async {
+    // EL CAMIÓN SALE DE LA RUTA, no del pedido.
+    //
+    // `orders.vehicle_id` la escribe sólo el tablero; armar una ruta nunca la
+    // toca. Por eso el Panel decía «Vehículos 0 / 8 en ruta» con el camión
+    // marcado «En uso» en otras tres pantallas.
+    test('vehiculosEnRuta: sale de la RUTA, aunque el pedido no lo traiga', () async {
       await vehiculo('v1');
       await vehiculo('v2');
       await vehiculo('v3');
-      await ruta('r1', 'in_progress');
-      await ruta('r2', 'completed');
-      // v1 con dos pedidos de la misma ruta: cuenta UNA vez.
-      await pedido('a', rutaId: 'r1', vehiculo: 'v1');
-      await pedido('b', rutaId: 'r1', vehiculo: 'v1');
-      // v2 en una ruta ya cerrada: no esta en ruta.
-      await pedido('c', rutaId: 'r2', vehiculo: 'v2');
+      await ruta('r1', 'in_progress', vehiculo: 'v1');
+      await ruta('r2', 'completed', vehiculo: 'v2');
+      // Los pedidos van SIN `vehicle_id`, que es como los deja armar una ruta.
+      await pedido('a', rutaId: 'r1');
+      await pedido('b', rutaId: 'r1');
+      await pedido('c', rutaId: 'r2');
 
       final c = await panel.cifras().first;
       expect(c.totalVehiculos, 3);
-      expect(c.vehiculosEnRuta, 1);
+      expect(
+        c.vehiculosEnRuta,
+        1,
+        reason: 'v1 va en una ruta en curso; v2 en una ya cerrada; v3 en ninguna',
+      );
+    });
+
+    test('un camión con DOS rutas en curso cuenta una vez', () async {
+      await vehiculo('v1');
+      await ruta('r1', 'in_progress', vehiculo: 'v1');
+      await ruta('r2', 'in_progress', vehiculo: 'v1');
+
+      expect((await panel.cifras().first).vehiculosEnRuta, 1);
+    });
+
+    // Y la pareja que ata los dos números: una ruta planificada con camión no
+    // pone al camión en la calle. Si esto se relaja, el Panel vuelve a decir que
+    // hay camiones repartiendo cuando están todos en el patio.
+    test('una ruta planificada no pone su camión en ruta', () async {
+      await vehiculo('v1');
+      await ruta('r1', 'planned', vehiculo: 'v1');
+
+      final c = await panel.cifras().first;
+      expect(c.rutasActivas, 0);
+      expect(c.vehiculosEnRuta, 0);
     });
   });
 

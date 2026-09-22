@@ -78,6 +78,28 @@ type guarda struct {
 
 var guardasDelReparto = []guarda{
 	{
+		fichero:  "vehicles.sql",
+		consulta: "ListarVehiculos",
+		enElCuerpo: []string{
+			"FROM orders o JOIN routes r ON r.id = o.route_id WHERE r.vehicle_id = v.id",
+		},
+		porQue: "LOS PEDIDOS DE UN CAMIÓN SALEN DE SUS RUTAS. Aquí se contaba\n" +
+			"`orders.vehicle_id`, y esa columna la escribe SÓLO el tablero (tablero.sql,\n" +
+			"`tocar_vehiculo`): armar una ruta nunca la toca, porque el camión de un pedido\n" +
+			"es el de la ruta en la que viaja. El 22/09/2026 la tarjeta decía «Rutas 7» y\n" +
+			"debajo «0 órdenes asignadas», con 125,3 kg cargados: dos números de la misma\n" +
+			"tarjeta contando cosas distintas, y el cero es el que se lee.",
+	},
+	{
+		fichero:  "vehicles.sql",
+		consulta: "ObtenerVehiculo",
+		enElCuerpo: []string{
+			"FROM orders o JOIN routes r ON r.id = o.route_id WHERE r.vehicle_id = v.id",
+		},
+		porQue: "El detalle tiene que contar lo mismo que la lista. Ver ListarVehiculos.",
+	},
+
+	{
 		fichero:   "tablero.sql",
 		consulta:  "ColocarPedido",
 		enElWhere: []string{"o.route_id IS NULL", "o.delivered_at IS NULL", "(o.resultado IS NULL OR o.resultado <> 'entregado')"},
