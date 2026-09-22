@@ -27,7 +27,19 @@ class LineaPreDespacho {
 
   final String producto;
   final double empaques;
-  final double unidades;
+
+  /// Las unidades sueltas que hay dentro de esos empaques, **sacadas del
+  /// catálogo**: `empaques × unitsPerPackage`.
+  ///
+  /// `null` cuando el catálogo no lo dice, igual que [pesoKg] y por el mismo
+  /// motivo. **Y esto antes era `SUM(quantity)`**, que no es lo mismo: el
+  /// 22/09/2026 la hoja decía «SERVILLETA PROSITO PACA 24P · 7 empaques · 4
+  /// unidades» — cuatro unidades dentro de siete pacas—, y «SOPA DE POLLO CAJA
+  /// 72 P · 15 empaques · 15 unidades». `quantity` unas veces trae unidades y
+  /// otras repite los bultos; en la hoja con la que se saca del almacén eso es
+  /// un número creíble y equivocado. Lo único que se sabe de verdad es lo que
+  /// diga el catálogo, y si no lo dice se pinta `—`.
+  final double? unidades;
 
   /// `null` cuando ninguna linea de ese producto tiene el peso resuelto. **No es
   /// cero**: cero se lee como «no pesa», y en la hoja de almacen eso es un error
@@ -57,9 +69,41 @@ class TotalesPreDespacho {
 
   int get productos => lineas.length;
   double get empaques => lineas.fold(0, (suma, linea) => suma + linea.empaques);
-  double get unidades => lineas.fold(0, (suma, linea) => suma + linea.unidades);
-  double get pesoKg =>
-      lineas.fold(0, (suma, linea) => suma + (linea.pesoKg ?? 0));
+
+  /// UN TOTAL A MEDIAS ES PEOR QUE NINGUNO, y por eso los dos de abajo son
+  /// nulos en cuanto falte UNA línea — 22/09/2026.
+  ///
+  /// La franja de la pantalla decía «10 producto(s) · 3185 empaques · **0.0
+  /// kg**» mientras la hoja imprimible del mismo filtro decía «264 pedido(s) ·
+  /// **24891.0 kg**». Los dos números eran ciertos cada uno en su definición
+  /// —uno suma el peso resuelto por producto, el otro el de los pedidos— y
+  /// juntos sólo pueden hacer una cosa: que quien carga el camión se crea que
+  /// no pesa nada.
+  ///
+  /// Sumar lo que hay y callar lo que falta es la misma mentira con menos
+  /// escándalo: 8 de 10 productos resueltos dan un peso que parece completo y
+  /// se queda corto. Mejor `null`, que la pantalla pinta `—` y dice cuántos
+  /// faltan.
+  double? get unidades => _sumaCompleta((l) => l.unidades);
+  double? get pesoKg => _sumaCompleta((l) => l.pesoKg);
+
+  /// Cuántas líneas no tienen el peso resuelto. Es lo que convierte el `—` en
+  /// algo que se puede arreglar: dice cuántos productos faltan por emparejar.
+  int get sinPeso => lineas.where((l) => l.pesoKg == null).length;
+
+  /// Cuántas no saben sus unidades por empaque.
+  int get sinUnidades => lineas.where((l) => l.unidades == null).length;
+
+  double? _sumaCompleta(double? Function(LineaPreDespacho) de) {
+    if (lineas.isEmpty) return null;
+    var suma = 0.0;
+    for (final linea in lineas) {
+      final valor = de(linea);
+      if (valor == null) return null;
+      suma += valor;
+    }
+    return suma;
+  }
 }
 
 /// Una opcion de faceta con su conteo: `Camagüey` · `312`.
@@ -387,7 +431,10 @@ class ConsultasPedidos {
   Future<TotalesPreDespacho> _preDespacho(Expression<bool> filtro) async {
     final producto = _base.orderItems.description;
     final empaques = _empaquesDeLaLinea.sum();
-    final unidades = _base.orderItems.quantity.sum();
+    // Las unidades salen del catálogo, igual que el peso: `empaques × unidades
+    // por empaque`. Ver `LineaPreDespacho.unidades` para lo que costó.
+    final unidades =
+        (_empaquesDeLaLinea * _base.products.unitsPerPackage).sum();
     // El peso de la linea sale del catalogo: `kg por empaque × empaques`. Si el
     // producto no esta emparejado, `SUM` se salta la linea y el total queda
     // `null`, que la pantalla pinta `—` y no `0`. Los empaques son los mismos de
@@ -422,7 +469,7 @@ class ConsultasPedidos {
           LineaPreDespacho(
             producto: fila.read(producto) ?? '',
             empaques: fila.read(empaques) ?? 0,
-            unidades: fila.read(unidades) ?? 0,
+            unidades: fila.read(unidades),
             pesoKg: fila.read(peso),
           ),
       ],

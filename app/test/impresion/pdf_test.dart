@@ -217,17 +217,32 @@ void main() {
       // producto da 300 y el del conjunto 412.5: se imprime el segundo, que es
       // el que cuadra con lo que pesa el camión.
       final h = _pre();
-      final suma = h.lineas.fold<num>(0, (t, l) => t + l.pesoKg);
+      final suma = h.lineas.fold<num>(0, (t, l) => t + (l.pesoKg ?? 0));
       expect(suma, 300);
       expect(TotalesPreDespacho.de(h).pesoKg, 412.5);
     });
 
     test('un producto sin peso imprime una raya, no un cero', () {
       expect(pesoDeFila(0), '—');
+      // Y lo que NO se sabe también: `null` no es cero, pero en el papel se
+      // lee igual de mal si se imprime un número.
+      expect(pesoDeFila(null), '—');
       expect(pesoDeFila(12), '12.0');
       // En el total el cero sí se escribe: es una cifra, no un hueco.
       expect(pesoTotal(0), '0.0');
       expect(pesoTotal(412.5), '412.5');
+    });
+
+    // LAS UNIDADES QUE NO SE SABEN TAMBIÉN SON UNA RAYA — 22/09/2026.
+    //
+    // La hoja decía «SERVILLETA PROSITO PACA 24P · 7 empaques · 4 unidades»:
+    // cuatro unidades dentro de siete pacas. Venía de imprimir `SUM(quantity)`,
+    // que unas veces trae unidades y otras repite los bultos. Con esta hoja se
+    // baja al almacén a sacar mercancía.
+    test('las unidades que no se saben imprimen una raya, no un número', () {
+      expect(cantidadDeFila(null), '—');
+      expect(cantidadDeFila(0), '0');
+      expect(cantidadDeFila(1080), '1080');
     });
 
     test('los números se escriben como en la de Next: 5, no 5.0', () {

@@ -1407,7 +1407,15 @@ class _PreDespachoLateral extends ConsumerWidget {
                     cells: [
                       DataCell(Text(linea.producto)),
                       DataCell(Text(cantidad(linea.empaques))),
-                      DataCell(Text(cantidad(linea.unidades))),
+                      // `—` cuando el catálogo no dice cuántas unidades trae
+                      // el empaque. Ver `LineaPreDespacho.unidades`.
+                      DataCell(
+                        Text(
+                          linea.unidades == null
+                              ? '—'
+                              : cantidad(linea.unidades!),
+                        ),
+                      ),
                     ],
                   ),
               ],
@@ -1416,7 +1424,9 @@ class _PreDespachoLateral extends ConsumerWidget {
           Divider(height: Aire.lg, thickness: 1, color: Colores.linea),
           Text('Pedidos: ${elegidos.length}'),
           Text('Empaques: ${cantidad(totales.empaques)}'),
-          Text('Unidades: ${cantidad(totales.unidades)}'),
+          Text(
+            'Unidades: ${totales.unidades == null ? '—' : cantidad(totales.unidades!)}',
+          ),
           Text(
             'Peso: ${pesoKg.toStringAsFixed(1)} / '
             '${capacidad?.toStringAsFixed(0) ?? '—'} kg',

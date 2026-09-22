@@ -131,7 +131,7 @@ pw.Widget _tabla(HojaPreDespacho h, TotalesPreDespacho t) => pw.Table(
         children: <pw.Widget>[
           celda(l.producto),
           celda(numero(l.formatos), derecha: true),
-          celda(numero(l.unidades), derecha: true),
+          celda(cantidadDeFila(l.unidades), derecha: true),
           celda(pesoDeFila(l.pesoKg), derecha: true),
           celdaParaMarcar(),
         ],
@@ -141,7 +141,7 @@ pw.Widget _tabla(HojaPreDespacho h, TotalesPreDespacho t) => pw.Table(
       children: <pw.Widget>[
         celda(TextoPreDespacho.total, negrita: true),
         celda(numero(t.formatos), derecha: true, negrita: true),
-        celda(numero(t.unidades), derecha: true, negrita: true),
+        celda(cantidadDeFila(t.unidades), derecha: true, negrita: true),
         celda(pesoTotal(t.pesoKg), derecha: true, negrita: true),
         celdaParaMarcar(),
       ],

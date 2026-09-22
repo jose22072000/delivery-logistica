@@ -304,9 +304,7 @@ papel.HojaPreDespacho hojaDePreDespacho({
         producto: linea.producto,
         formatos: linea.empaques,
         unidades: linea.unidades,
-        // En el papel el peso es un numero: un producto sin peso resuelto
-        // suma cero kilos, que es lo que pesa lo que no sabemos.
-        pesoKg: linea.pesoKg ?? 0,
+        pesoKg: linea.pesoKg,
       ),
   ],
 );
@@ -429,7 +427,7 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
                     '${seleccion.length} pedido(s) elegidos'
                     '${totales == null ? '' : ' · ${totales.productos} producto(s)'
                               ' · ${cantidad(totales.empaques)} empaques'
-                              ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
+                              ' · ${_pesoDeLaFranja(totales)}'}',
                     style: Tipos.texto(
                       tamano: 14,
                       peso: FontWeight.w600,
@@ -524,7 +522,7 @@ class _PreDespachoDeLoFiltradoState
                 'Pre-despacho de lo filtrado'
                 '${totales == null ? '' : ' · ${totales.productos} producto(s)'
                           ' · ${cantidad(totales.empaques)} empaques'
-                          ' · ${totales.pesoKg.toStringAsFixed(1)} kg'}',
+                          ' · ${_pesoDeLaFranja(totales)}'}',
                 style: Tipos.texto(tamano: 14, peso: FontWeight.w600),
               ),
             ),
@@ -585,7 +583,15 @@ class _TablaPreDespacho extends StatelessWidget {
                 cells: [
                   DataCell(Text(linea.producto)),
                   DataCell(_cifra(cantidad(linea.empaques))),
-                  DataCell(_cifra(cantidad(linea.unidades))),
+                  // Sin unidades por empaque en el catálogo se pinta `—`, no
+                  // un número que contradiga a los empaques de al lado.
+                  DataCell(
+                    _cifra(
+                      linea.unidades == null
+                          ? '—'
+                          : cantidad(linea.unidades!),
+                    ),
+                  ),
                   // Sin peso resuelto se pinta `—`, nunca un cero.
                   DataCell(
                     _cifra(
@@ -606,4 +612,21 @@ class _TablaPreDespacho extends StatelessWidget {
   /// abajo y con la proporcional las unidades bailan de fila a fila.
   static Widget _cifra(String texto) =>
       Text(texto, style: Tipos.mono(tamano: 13, color: Colores.tinta));
+}
+
+/// EL PESO DE LA FRANJA, o por qué no dice «0.0 kg» — 22/09/2026.
+///
+/// La franja decía «10 producto(s) · 3185 empaques · **0.0 kg**» mientras la
+/// hoja imprimible del mismo filtro decía «264 pedido(s) · **24891.0 kg**». Los
+/// dos números eran ciertos cada uno en su definición, y juntos sólo pueden
+/// hacer una cosa: que quien carga el camión se crea que no pesa nada.
+///
+/// Cuando falta algún producto por emparejar se dice **cuántos**, que es lo que
+/// convierte un `—` en algo que alguien puede ir a arreglar.
+String _pesoDeLaFranja(TotalesPreDespacho t) {
+  final peso = t.pesoKg;
+  if (peso != null) return '${peso.toStringAsFixed(1)} kg';
+  return t.sinPeso == t.productos
+      ? 'sin peso en el catálogo'
+      : '${t.sinPeso} de ${t.productos} productos sin peso';
 }

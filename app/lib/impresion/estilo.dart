@@ -137,7 +137,16 @@ String numero(num n) {
 ///
 /// La de Next hace `l.pesoKg ? l.pesoKg.toFixed(1) : '—'`, y en JavaScript el
 /// cero es falso. Un producto sin peso no imprime `0.0`, imprime la raya.
-String pesoDeFila(num kg) => kg == 0 ? '—' : kg.toStringAsFixed(1);
+String pesoDeFila(num? kg) => (kg == null || kg == 0)
+    ? '—'
+    : kg.toStringAsFixed(1);
+
+/// UN NÚMERO QUE NO SE SABE SE PINTA `—`, NUNCA CERO — 22/09/2026.
+///
+/// Es la misma regla de [pesoDeFila] para las unidades. En la hoja del almacén
+/// un cero no se distingue de «no lleva»: se saca de menos, se carga el camión,
+/// y no se descubre hasta que se fue.
+String cantidadDeFila(num? n) => n == null ? '—' : numero(n);
 
 /// El peso de un total: siempre con su decimal, aunque sea cero.
 String pesoTotal(num kg) => kg.toStringAsFixed(1);

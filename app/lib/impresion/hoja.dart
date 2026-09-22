@@ -21,8 +21,21 @@ class LineaPreDespacho {
   /// de Next con el nombre `formatos`: se conserva para que al cruzar las dos
   /// hojas no haya que ir traduciendo nombres de campo.
   final num formatos;
-  final num unidades;
-  final num pesoKg;
+
+  /// `null` cuando no se sabe: el catálogo no dice cuántas unidades trae ese
+  /// empaque, o el producto no está emparejado. En el papel sale `—`.
+  ///
+  /// **No es cero, y no es `quantity`.** Esta hoja es con la que alguien baja
+  /// al almacén a sacar mercancía: un número equivocado se carga en el camión.
+  /// El 22/09/2026 decía «SERVILLETA PROSITO PACA 24P · 7 empaques · 4
+  /// unidades» —cuatro unidades dentro de siete pacas—, porque se imprimía
+  /// `SUM(quantity)`, que unas veces trae unidades y otras repite los bultos.
+  final num? unidades;
+
+  /// `null` cuando el producto no tiene peso resuelto. Antes se mandaba cero
+  /// «que es lo que pesa lo que no sabemos», y eso es exactamente el cero
+  /// creíble: en el papel no se distingue de un producto que de verdad no pesa.
+  final num? pesoKg;
 }
 
 /// La hoja con la que alguien baja al almacen a sacar mercancia.
@@ -157,12 +170,19 @@ class TotalesPreDespacho {
   /// pesos por producto. Se copia ese criterio para que las dos hojas cuadren.
   factory TotalesPreDespacho.de(HojaPreDespacho h) => TotalesPreDespacho(
     formatos: h.lineas.fold<num>(0, (t, l) => t + l.formatos),
-    unidades: h.lineas.fold<num>(0, (t, l) => t + l.unidades),
+    unidades: _sumaCompleta(h.lineas.map((l) => l.unidades)),
     pesoKg: h.pesoKg,
   );
 
   final num formatos;
-  final num unidades;
+
+  /// `null` en cuanto UNA línea no sepa sus unidades: un total a medias se lee
+  /// como completo y se queda corto. Es la misma regla que en la pantalla
+  /// (`TotalesPreDespacho._sumaCompleta`).
+  final num? unidades;
+
+  /// El peso del CONJUNTO de pedidos, que no se suma de las líneas: es lo que
+  /// imprime la hoja de Next y por eso nunca es nulo.
   final num pesoKg;
 }
 
@@ -187,4 +207,18 @@ class TotalesPostDespacho {
   final num salio;
   final num entregado;
   final num queda;
+}
+
+/// Suma sólo si están TODAS. Un total a medias no se distingue de uno completo
+/// y por eso es peor que no tener total: en la hoja del almacén se carga de
+/// menos y no se descubre hasta que el camión ya se fue.
+num? _sumaCompleta(Iterable<num?> valores) {
+  num suma = 0;
+  var hubo = false;
+  for (final v in valores) {
+    if (v == null) return null;
+    suma += v;
+    hubo = true;
+  }
+  return hubo ? suma : null;
 }

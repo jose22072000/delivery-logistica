@@ -172,7 +172,11 @@ void main() {
       expect(hoja.pedidos, 2);
       expect(hoja.pesoKg, 300);
       expect(hoja.lineas.first.formatos, 5);
-      expect(hoja.lineas.last.pesoKg, 0);
+      // Sin peso resuelto va `null` al papel, NO cero: antes se mandaba cero
+      // «que es lo que pesa lo que no sabemos», y en la hoja del almacén un
+      // cero no se distingue de un producto que de verdad no pesa. Lo pinta
+      // `pesoDeFila` como `—`.
+      expect(hoja.lineas.last.pesoKg, isNull);
     });
 
     test('el dia sólo se escribe cuando el rango ES un dia', () {

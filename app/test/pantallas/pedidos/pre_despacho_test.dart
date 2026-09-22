@@ -43,15 +43,23 @@ void main() {
       final frijol = totales.lineas.last;
       expect(frijol.producto, 'Frijol');
       expect(frijol.empaques, 1);
-      expect(frijol.unidades, 10);
+      // Sin producto emparejado tampoco se sabe cuántas unidades trae el
+      // empaque: **null, no un número**. Antes aquí salía `quantity`, y de ahí
+      // venía «7 pacas · 4 unidades» en la hoja del 22/09/2026.
+      expect(frijol.unidades, isNull);
       // Sin producto emparejado no hay peso resuelto: **null, no cero**. Un cero se
       // leeria como «no pesa» y la hoja del almacen cuadraria mal.
       expect(frijol.pesoKg, isNull);
 
       expect(totales.productos, 2);
       expect(totales.empaques, 6);
-      expect(totales.unidades, 60);
-      expect(totales.pesoKg, 125);
+      // LOS DOS TOTALES SON NULOS PORQUE FALTA EL FRIJOL. Sumar sólo el arroz
+      // daría 50 unidades y 125 kg, que se leen como el total de la hoja y se
+      // quedan cortos: es el mismo cero creíble con otra cara.
+      expect(totales.unidades, isNull);
+      expect(totales.pesoKg, isNull);
+      expect(totales.sinPeso, 1);
+      expect(totales.sinUnidades, 1);
     },
   );
 
@@ -77,7 +85,8 @@ void main() {
     () async {
       final totales = await consultas.preDespachoDe(['o3']);
       expect(totales.lineas.single.producto, 'Aceite');
-      expect(totales.lineas.single.unidades, 5);
+      // El aceite no está emparejado: no se sabe cuántas unidades trae.
+      expect(totales.lineas.single.unidades, isNull);
       expect(totales.lineas.single.empaques, 5, reason: hojaCorta);
     },
   );
@@ -173,4 +182,56 @@ void main() {
     expect(totales.lineas, isEmpty);
     expect(totales.empaques, 0);
   });
+  // ---------------------------------------------------------------------------
+  // LA FRANJA Y LA HOJA NO PUEDEN DECIR COSAS DISTINTAS — 22/09/2026
+  // ---------------------------------------------------------------------------
+  //
+  // Con el mismo filtro, la franja de la pantalla decía «10 producto(s) · 3185
+  // empaques · **0.0 kg**» y la hoja imprimible decía «264 pedido(s) ·
+  // **24891.0 kg**». Los dos números eran ciertos cada uno en su definición
+  // —uno suma el peso resuelto por producto, el otro el de los pedidos— y
+  // juntos sólo pueden hacer una cosa: que quien carga el camión se crea que no
+  // pesa nada.
+  //
+  // La regla que queda: el total por producto es `null` mientras falte uno, y
+  // el de la cabecera —el de los pedidos— sigue siendo un número siempre,
+  // porque ése sí se sabe entero.
+  group('la franja y la hoja', () {
+    test('ningún producto emparejado: el total NO dice 0.0 kg', () async {
+      // o3 lleva Aceite, que no está en el catálogo.
+      final totales = await consultas.preDespachoDe(['o3']);
+
+      expect(totales.pesoKg, isNull, reason: 'cero se lee como «no pesa»');
+      expect(totales.unidades, isNull);
+      expect(totales.sinPeso, totales.productos);
+    });
+
+    test('la cabecera de la hoja SÍ sabe lo que pesa: sale de los pedidos', () async {
+      // Y por eso no es nula aunque no haya ni un producto emparejado: es el
+      // peso del conjunto, no la suma por producto.
+      final totales = await consultas.preDespachoDe(['o1', 'o2', 'o3']);
+
+      expect(totales.pedidos, 3);
+      expect(
+        totales.pesoDeLosPedidos,
+        greaterThan(0),
+        reason: 'es lo que la hoja imprime arriba a la derecha',
+      );
+      expect(totales.pesoKg, isNull, reason: 'y por producto no se sabe entero');
+    });
+
+    test('con TODO emparejado los dos totales son números', () async {
+      // o1 y o2 sin el frijol: sólo arroz, que está en el catálogo con sus 25
+      // kg y sus 10 unidades por empaque.
+      final totales = await consultas.preDespachoDe(['o2']);
+
+      expect(totales.lineas.single.producto, 'Arroz');
+      expect(totales.empaques, 3);
+      expect(totales.unidades, 30, reason: '3 empaques × 10 unidades');
+      expect(totales.pesoKg, 75, reason: '3 empaques × 25 kg');
+      expect(totales.sinPeso, 0);
+      expect(totales.sinUnidades, 0);
+    });
+  });
+
 }

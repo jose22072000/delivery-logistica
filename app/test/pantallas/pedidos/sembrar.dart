@@ -43,6 +43,10 @@ Future<void> sembrarCatalogo(BaseLocal base) async {
           // 25 kg por empaque: con esto el peso del pre-despacho es comprobable
           // a mano.
           weight: const Value(25),
+          // Y 10 unidades por empaque, que es de donde salen las unidades de la
+          // hoja del almacén. Ver `LineaPreDespacho.unidades`: antes salían de
+          // `quantity`, que unas veces trae unidades y otras repite los bultos.
+          unitsPerPackage: const Value(10),
         ),
       );
   await base
