@@ -20,6 +20,10 @@ type anuncio struct {
 		Notas       *string           `json:"notas"`
 		PublicadaAt *string           `json:"publicadaAt"`
 		Descargas   map[string]string `json:"descargas"`
+		Ficheros    map[string]struct {
+			Bytes  int64  `json:"bytes"`
+			SHA256 string `json:"sha256"`
+		} `json:"ficheros"`
 	} `json:"ultima"`
 }
 
@@ -56,6 +60,8 @@ func TestSeAnunciaLaUltimaConSuDescarga(t *testing.T) {
 	t.Setenv("APP_ULTIMA_NOTAS", "El cierre de ruta ya no pierde las fotos.")
 	t.Setenv("APP_ULTIMA_PUBLICADA", "2026-09-15")
 	t.Setenv("APP_DESCARGA_ANDROID", "https://descargas.procovar.cloud/reparto-1.5.0.apk")
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77646816")
+	t.Setenv("APP_DESCARGA_ANDROID_SHA256", huellaDeLaApk)
 
 	a := leerAnuncio(t, servidor(t))
 	if a.Ultima == nil {
@@ -80,6 +86,8 @@ func TestSeAnunciaLaUltimaConSuDescarga(t *testing.T) {
 func TestLaPlataformaSinFicheroNoSale(t *testing.T) {
 	t.Setenv("APP_ULTIMA_VERSION", "1.5.0")
 	t.Setenv("APP_DESCARGA_ANDROID", "https://descargas.procovar.cloud/reparto-1.5.0.apk")
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77646816")
+	t.Setenv("APP_DESCARGA_ANDROID_SHA256", huellaDeLaApk)
 
 	a := leerAnuncio(t, servidor(t))
 	if _, hay := a.Ultima.Descargas["windows"]; hay {
@@ -90,5 +98,59 @@ func TestLaPlataformaSinFicheroNoSale(t *testing.T) {
 	}
 	if len(a.Ultima.Descargas) != 1 {
 		t.Fatalf("sólo hay una colgada: %+v", a.Ultima.Descargas)
+	}
+}
+
+// La huella de mentira de estas pruebas. 64 hexadecimales.
+const huellaDeLaApk = "565647928d03200b2eda25ef28bde55e0f0d3e034f99d561f38b33a6aa47c49e"
+
+// EL ANUNCIO DICE CUÁNTO PESA Y QUÉ HUELLA TIENE — 22/09/2026.
+//
+// Jose se puso a bajar la APK por datos móviles y vio «30 MB/?»: no sabía cuántos datos
+// le iba a costar. El tamaño salía del `Content-Length`, y Cloudflare lo quita de la
+// respuesta completa. Un número que depende de lo que no se controla no es un número.
+func TestElAnuncioLlevaElTamanoYLaHuella(t *testing.T) {
+	t.Setenv("APP_ULTIMA_VERSION", "1.5.0")
+	t.Setenv("APP_DESCARGA_ANDROID", "https://archivos.procovar.cloud/reparto/apk/reparto-1.5.0.apk")
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77646816")
+	t.Setenv("APP_DESCARGA_ANDROID_SHA256", huellaDeLaApk)
+
+	a := leerAnuncio(t, servidor(t))
+	f, hay := a.Ultima.Ficheros["android"]
+	if !hay {
+		t.Fatalf("sin esto la pantalla enseña «? MB» y nadie sabe qué va a gastar: %+v", a.Ultima)
+	}
+	if f.Bytes != 77646816 {
+		t.Fatalf("bytes %d", f.Bytes)
+	}
+	if f.SHA256 != huellaDeLaApk {
+		t.Fatalf("huella %q", f.SHA256)
+	}
+}
+
+// `descargas` SE QUEDA COMO ESTABA, y esta prueba es la que lo sujeta.
+//
+// Las APK instaladas leen `descargas` esperando una cadena por clave, y su lector se
+// salta en silencio lo que no lo sea. Convertirlo en objetos no daría un error: daría
+// teléfonos que dejan de ofrecer la actualización sin decir nada, y sin poder
+// actualizarse para arreglarlo.
+func TestDescargasSigueSiendoLaURLPelada(t *testing.T) {
+	t.Setenv("APP_ULTIMA_VERSION", "1.5.0")
+	t.Setenv("APP_DESCARGA_ANDROID", "https://archivos.procovar.cloud/reparto/apk/reparto-1.5.0.apk")
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77646816")
+	t.Setenv("APP_DESCARGA_ANDROID_SHA256", huellaDeLaApk)
+
+	w := pedir(t, servidor(t), http.MethodGet, "/api/version", "", nil)
+	var crudo struct {
+		Ultima struct {
+			Descargas map[string]any `json:"descargas"`
+		} `json:"ultima"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &crudo); err != nil {
+		t.Fatalf("no es JSON: %v", err)
+	}
+	if _, esCadena := crudo.Ultima.Descargas["android"].(string); !esCadena {
+		t.Fatalf("descargas.android tiene que seguir siendo una cadena para las APK que ya "+
+			"están instaladas, y vino %T", crudo.Ultima.Descargas["android"])
 	}
 }

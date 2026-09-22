@@ -108,6 +108,7 @@ import '../diseno/cajon.dart';
 import '../diseno/colores.dart';
 import '../diseno/tema.dart';
 import '../nucleo/actualizacion/comprobador.dart';
+import '../mapa/anuncio_de_mapa.dart' show enMegas;
 import '../nucleo/actualizacion/version_publicada.dart';
 import '../nucleo/plataforma.dart';
 import '../nucleo/proveedores.dart';
@@ -487,9 +488,20 @@ class _EstadoDelAviso extends ConsumerState<AvisoDeVersionNueva> {
             ),
             const SizedBox(height: Aire.xs),
             Text(
-              'Se abre el navegador y se descarga el fichero. La descarga no '
-              'toca esta aplicación: lo que tengas dentro sigue aquí mientras '
-              'no instales.',
+              switch (publicada.ficheroPara(Plataforma.deEsteAparato())) {
+                // CUÁNTO PESA, ANTES DE PULSAR. Quien está en la calle con datos
+                // contados tiene que poder decidir. El 22/09/2026 la descarga
+                // enseñaba «30 MB/?» porque el tamaño salía del `Content-Length`
+                // y Cloudflare lo quita: ahora sale del anuncio de la api.
+                final f? => 'Son ${enMegas(f.bytes)}. Se abre el navegador y se '
+                    'descarga el fichero. La descarga no toca esta aplicación: '
+                    'lo que tengas dentro sigue aquí mientras no instales.',
+                // Una api anterior no lo manda. No se inventa un número ni se
+                // escribe «? MB»: se dice lo demás y ya.
+                null => 'Se abre el navegador y se descarga el fichero. La '
+                    'descarga no toca esta aplicación: lo que tengas dentro '
+                    'sigue aquí mientras no instales.',
+              },
               style: Tipos.texto(tamano: 13, color: Colores.tintaSuave),
             ),
             const SizedBox(height: Aire.md),

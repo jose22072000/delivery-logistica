@@ -10,6 +10,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -165,6 +166,24 @@ type Publicada struct {
 	Android string
 	Windows string
 	Linux   string
+
+	// Ficheros lleva el tamaño y la huella de cada descarga, con la misma clave que
+	// usa el contrato (`android`, `windows`, `linux`).
+	//
+	// ESTO NO ES ADORNO, Y COSTÓ UNA MAÑANA — 22/09/2026. Sin `bytes`, quien va a
+	// bajarse 74 MB por datos móviles ve «30 MB/?» y no sabe cuánto le va a costar:
+	// pasó de verdad, porque Cloudflare quita el `Content-Length` de la respuesta
+	// completa (MinIO sí lo manda; se comprobó desde dentro del servidor). El tamaño
+	// no puede salir de una cabecera que alguien por el camino se lleva: sale de
+	// aquí. Y sin `sha256` no hay forma de saber si lo que se bajó está entero — que
+	// es exactamente la guarda que salva al mapa y a la APK le faltaba.
+	Ficheros map[string]FicheroPublicado
+}
+
+// FicheroPublicado es lo que hay detrás de una descarga: cuánto pesa y qué huella tiene.
+type FicheroPublicado struct {
+	Bytes  int64
+	SHA256 string
 }
 
 // HayAlguna dice si se anunció algo. Un `Publicada` sin versión no se construye nunca,
@@ -447,10 +466,10 @@ func leerPublicada() (*Publicada, []error) {
 		Windows:     strings.TrimSpace(os.Getenv("APP_DESCARGA_WINDOWS")),
 		Linux:       strings.TrimSpace(os.Getenv("APP_DESCARGA_LINUX")),
 	}
-	descargas := []struct{ nombre, valor string }{
-		{"APP_DESCARGA_ANDROID", p.Android},
-		{"APP_DESCARGA_WINDOWS", p.Windows},
-		{"APP_DESCARGA_LINUX", p.Linux},
+	descargas := []struct{ nombre, clave, valor string }{
+		{"APP_DESCARGA_ANDROID", "android", p.Android},
+		{"APP_DESCARGA_WINDOWS", "windows", p.Windows},
+		{"APP_DESCARGA_LINUX", "linux", p.Linux},
 	}
 	compilacion := strings.TrimSpace(os.Getenv("APP_ULTIMA_COMPILACION"))
 
@@ -478,8 +497,18 @@ func leerPublicada() (*Publicada, []error) {
 
 	// Al menos un sitio de donde bajarla. La web no cuenta: se actualiza sola.
 	hayDonde := false
+	p.Ficheros = map[string]FicheroPublicado{}
 	for _, d := range descargas {
 		if d.valor == "" {
+			// Una descarga que no existe no puede traer tamaño ni huella sueltos: eso es
+			// un fichero colgado del que nadie va a enterarse.
+			for _, sufijo := range []string{"_BYTES", "_SHA256"} {
+				if strings.TrimSpace(os.Getenv(d.nombre+sufijo)) != "" {
+					errs = append(errs, fmt.Errorf(
+						"%s%s está puesta pero %s no: sobra o falta la URL",
+						d.nombre, sufijo, d.nombre))
+				}
+			}
 			continue
 		}
 		hayDonde = true
@@ -487,6 +516,12 @@ func leerPublicada() (*Publicada, []error) {
 			errs = append(errs, fmt.Errorf(
 				"%s vale %q: tiene que empezar por http:// o https://", d.nombre, d.valor))
 		}
+		fichero, propios := unFicheroPublicado(d.nombre)
+		if len(propios) > 0 {
+			errs = append(errs, propios...)
+			continue
+		}
+		p.Ficheros[d.clave] = *fichero
 	}
 	if !hayDonde {
 		errs = append(errs, errors.New(
@@ -524,6 +559,64 @@ func leerPublicada() (*Publicada, []error) {
 		return nil, errs
 	}
 	return p, nil
+}
+
+// unFicheroPublicado lee el tamaño y la huella de UNA descarga.
+//
+// Las dos o ninguna, y las dos son OBLIGATORIAS en cuanto hay URL — la misma regla que
+// los niveles del mapa (`mapa.go`), y por los mismos dos motivos: sin `BYTES` se baja a
+// ciegas por datos móviles, y sin `SHA256` un fichero a medias pasa por bueno.
+//
+// Quien despliega una versión nueva tiene los tres números delante:
+//
+//	ls -l reparto-1.0.1-260922.apk     → los bytes
+//	sha256sum reparto-1.0.1-260922.apk → la huella
+func unFicheroPublicado(nombre string) (*FicheroPublicado, []error) {
+	crudoBytes := strings.TrimSpace(os.Getenv(nombre + "_BYTES"))
+	crudoHuella := strings.TrimSpace(os.Getenv(nombre + "_SHA256"))
+
+	var faltan []string
+	if crudoBytes == "" {
+		faltan = append(faltan, nombre+"_BYTES")
+	}
+	if crudoHuella == "" {
+		faltan = append(faltan, nombre+"_SHA256")
+	}
+	if len(faltan) > 0 {
+		return nil, []error{fmt.Errorf(
+			"%s está puesta pero falta %s: sin BYTES quien lo baja no sabe cuántos datos le "+
+				"va a costar —y el Content-Length no vale, que Cloudflare lo quita— y sin "+
+				"SHA256 no hay forma de saber si llegó entero",
+			nombre, strings.Join(faltan, " y "))}
+	}
+
+	var errs []error
+	tam, err := strconv.ParseInt(crudoBytes, 10, 64)
+	switch {
+	case err != nil:
+		errs = append(errs, fmt.Errorf(
+			"%s_BYTES vale %q y no es un número: es lo que dice `ls -l` del fichero",
+			nombre, crudoBytes))
+	case tam <= 0:
+		errs = append(errs, fmt.Errorf("%s_BYTES vale %d: tiene que ser mayor que cero", nombre, tam))
+	}
+
+	// Un hash con un carácter de menos rechaza TODAS las descargas, para siempre, y desde
+	// fuera se ve como «la actualización no baja nunca»: nada que se parezca a un error de
+	// configuración. Por eso se mira aquí, al arrancar, que es cuando lo ve quien despliega.
+	huella := strings.ToLower(crudoHuella)
+	if len(huella) != 64 {
+		errs = append(errs, fmt.Errorf(
+			"%s_SHA256 tiene %d caracteres y un sha256 son 64: lo imprime `sha256sum`",
+			nombre, len(huella)))
+	} else if _, err := hex.DecodeString(huella); err != nil {
+		errs = append(errs, fmt.Errorf("%s_SHA256 vale %q y no es hexadecimal", nombre, crudoHuella))
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	return &FicheroPublicado{Bytes: tam, SHA256: huella}, nil
 }
 
 func fecha(crudo string) (string, error) {

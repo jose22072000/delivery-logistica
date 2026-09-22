@@ -45,6 +45,23 @@ type ultimaSalida struct {
 	// NO hay clave `web` y no la va a haber: la web se actualiza sola al recargar y no
 	// descarga nada. Ver `docs/actualizaciones.md`.
 	Descargas map[string]string `json:"descargas"`
+
+	// Ficheros dice, por plataforma, cuánto pesa y qué huella tiene lo que hay en esa
+	// URL.
+	//
+	// VA APARTE DE `descargas` A PROPÓSITO, Y ESO NO ES INDECISIÓN. Las APK que ya
+	// están instaladas leen `descargas` esperando una cadena por clave, y su lector es
+	// defensivo: si el valor deja de ser cadena, **se la salta sin decir nada**
+	// (`app/lib/nucleo/actualizacion/version_publicada.dart`). O sea que convertir
+	// `descargas` en objetos no daría un error, daría teléfonos que dejan de ofrecer la
+	// actualización en silencio — y sin poder actualizarse para arreglarlo. Se añade al
+	// lado; lo viejo sigue leyéndose igual.
+	Ficheros map[string]ficheroSalida `json:"ficheros"`
+}
+
+type ficheroSalida struct {
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256"`
 }
 
 // GET /version  (y /api/version, que es la ruta del contrato)
@@ -69,7 +86,11 @@ func ultimaDe(p *config.Publicada) *ultimaSalida {
 	if !p.HayAlguna() {
 		return nil
 	}
-	u := &ultimaSalida{Version: p.Version, Descargas: map[string]string{}}
+	u := &ultimaSalida{
+		Version:   p.Version,
+		Descargas: map[string]string{},
+		Ficheros:  map[string]ficheroSalida{},
+	}
 	if p.Compilacion > 0 {
 		c := p.Compilacion
 		u.Compilacion = &c
@@ -87,8 +108,16 @@ func ultimaDe(p *config.Publicada) *ultimaSalida {
 		"windows": p.Windows,
 		"linux":   p.Linux,
 	} {
-		if url != "" {
-			u.Descargas[clave] = url
+		if url == "" {
+			continue
+		}
+		u.Descargas[clave] = url
+		// La configuración no deja pasar una URL sin sus dos números (`config.go`), así
+		// que aquí no hay caso de «hay enlace pero no hay tamaño». Se comprueba igual:
+		// anunciar un fichero con cero bytes sería enseñar «0 B» en la pantalla de
+		// alguien, que es un número creíble y equivocado.
+		if f, hay := p.Ficheros[clave]; hay && f.Bytes > 0 && f.SHA256 != "" {
+			u.Ficheros[clave] = ficheroSalida{Bytes: f.Bytes, SHA256: f.SHA256}
 		}
 	}
 	return u

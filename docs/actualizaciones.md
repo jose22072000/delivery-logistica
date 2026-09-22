@@ -126,10 +126,34 @@ Publicar son **dos actos separados**, y en este orden:
 | `APP_ULTIMA_VERSION` | la que manda | El número de `pubspec.yaml` sin el `+`: `1.5.0`. Vacía = no se anuncia nada. |
 | `APP_ULTIMA_COMPILACION` | muy recomendable | El número de después del `+`, el mismo `versionCode` del APK. |
 | `APP_DESCARGA_ANDROID` | al menos una | URL del `.apk`. |
+| `APP_DESCARGA_ANDROID_BYTES` | con su URL | Lo que dice `ls -l` del fichero. |
+| `APP_DESCARGA_ANDROID_SHA256` | con su URL | Lo que dice `sha256sum`. |
 | `APP_DESCARGA_WINDOWS` | al menos una | URL del `.zip` del escritorio de Windows. |
+| `APP_DESCARGA_WINDOWS_BYTES` · `_SHA256` | con su URL | Igual que Android. |
 | `APP_DESCARGA_LINUX` | al menos una | URL del paquete del escritorio de Linux. |
+| `APP_DESCARGA_LINUX_BYTES` · `_SHA256` | con su URL | Igual que Android. |
 | `APP_ULTIMA_NOTAS` | no | Una línea de qué trae. Si está vacía, el aviso no la enseña. |
 | `APP_ULTIMA_PUBLICADA` | no | `2026-09-15` o `2026-09-15T10:00:00Z`. Se guarda normalizada. |
+
+**Los tres números van juntos: URL, BYTES y SHA256.** Poner la URL sola para el arranque,
+igual que en los niveles del mapa, y por los mismos dos motivos.
+
+Y el primero de ellos se descubrió con Jose delante — **22/09/2026**. Se puso a bajar la
+APK por datos móviles y la pantalla decía **«30 MB/?»**: no sabía cuánto le iba a costar.
+El tamaño salía del `Content-Length`, y **Cloudflare lo quita de la respuesta completa**
+(MinIO sí lo manda; se comprobó desde dentro del servidor, hablándole directo). Un número
+que depende de lo que haya por el camino no es un número. Ahora lo dice la api, y el
+aparato lo enseña antes de que nadie pulse: «Son 74,0 MB».
+
+El segundo es el de siempre: sin `sha256` una descarga cortada pasa por buena. Es la
+guarda que salva al mapa desde el principio y a la APK le faltaba.
+
+**El contrato creció por un lado nuevo, no cambiando el que había.** `descargas` sigue
+siendo una URL pelada por plataforma, y al lado va `ficheros` con `{bytes, sha256}`. No es
+indecisión: las APK instaladas leen `descargas` esperando una cadena y **se saltan en
+silencio lo que no lo sea**. Convertirla en objetos no habría dado un error, habría dado
+teléfonos que dejan de ofrecer la actualización sin decir nada — y sin poder actualizarse
+para arreglarlo. Lo sujeta `TestDescargasSigueSiendoLaURLPelada`.
 
 **Media configuración no arranca el servicio**, y es a propósito
 (`api/internal/config/config.go`, `leerPublicada`):
@@ -224,6 +248,15 @@ contesta es una página web y no un APK** — que es exactamente el fallo del 21
 APP_DESCARGA_ANDROID=https://archivos.procovar.cloud/reparto/apk/reparto-1.0.0-260921.apk
 bytes  76.810.980
 sha256 02b12cf29dea62896f70d22c9fd8faa5e9e8d81a3d0bdc4ee34dc243db4c5bb5
+```
+
+Y la 1.0.1, que es la que está instalada en el teléfono de Jose y todavía **no se anuncia**
+(medidas dentro del servidor el 22/09/2026):
+
+```
+https://archivos.procovar.cloud/reparto/apk/reparto-1.0.1-260922.apk
+bytes  77.646.816
+sha256 565647928d03200b2eda25ef28bde55e0f0d3e034f99d561f38b33a6aa47c49e
 ```
 
 Bajado entero por el dominio desde dentro del servidor: misma huella que el fichero del host,

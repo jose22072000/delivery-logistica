@@ -228,5 +228,67 @@ void main() {
       expect(p!.descargaPara(Plataforma.android), isNull);
       expect(p.descargaPara(Plataforma.linux), 'https://x/y.tar.gz');
     });
+
+    // CUÁNTO PESA — 22/09/2026. La descarga de la APK enseñaba «30 MB/?»: el
+    // tamaño salía del `Content-Length` y Cloudflare lo quita de la respuesta
+    // completa. Ahora lo dice la api, junto con la huella.
+    test('el tamaño y la huella se leen del anuncio', () {
+      final p = VersionPublicada.deJson(const {
+        'version': '1.5.0',
+        'descargas': {'android': 'https://x/y.apk'},
+        'ficheros': {
+          'android': {'bytes': 77646816, 'sha256': huellaDePruebas},
+        },
+      });
+      final f = p!.ficheroPara(Plataforma.android)!;
+      expect(f.bytes, 77646816);
+      expect(f.sha256, huellaDePruebas);
+    });
+
+    // Una api anterior a ese día no manda `ficheros`. La actualización tiene que
+    // seguir ofreciéndose igual: lo que se pierde es poder decir cuánto pesa, no
+    // poder actualizarse.
+    test('sin `ficheros` la descarga se sigue ofreciendo', () {
+      final p = VersionPublicada.deJson(const {
+        'version': '1.5.0',
+        'descargas': {'android': 'https://x/y.apk'},
+      });
+      expect(p!.descargaPara(Plataforma.android), 'https://x/y.apk');
+      expect(p.ficheroPara(Plataforma.android), isNull);
+    });
+
+    // Un cero se enseñaría como «Son 0 kB», que es un número creíble y
+    // equivocado; y media huella rechazaría el fichero bueno para siempre. En
+    // los dos casos se prefiere no decir el tamaño a decir uno falso.
+    test('un tamaño en cero o una huella a medias no se leen', () {
+      for (final malo in <Map<String, Object?>>[
+        {'bytes': 0, 'sha256': huellaDePruebas},
+        // Y el cero que llega como texto, que es otro camino: `int.tryParse`
+        // devuelve 0 tan contento y ahí ya no hay patrón que lo filtre.
+        {'bytes': '0', 'sha256': huellaDePruebas},
+        {'bytes': '-5', 'sha256': huellaDePruebas},
+        {'bytes': 77646816, 'sha256': 'abc'},
+        {'bytes': 77646816},
+        {'sha256': huellaDePruebas},
+        {'bytes': 'setenta y siete megas', 'sha256': huellaDePruebas},
+      ]) {
+        final p = VersionPublicada.deJson({
+          'version': '1.5.0',
+          'descargas': const {'android': 'https://x/y.apk'},
+          'ficheros': {'android': malo},
+        });
+        expect(
+          p!.ficheroPara(Plataforma.android),
+          isNull,
+          reason: 'con $malo no se puede decir un tamaño, así que no se dice',
+        );
+        // Y aun así se puede actualizar: el enlace sigue ahí.
+        expect(p.descargaPara(Plataforma.android), 'https://x/y.apk');
+      }
+    });
   });
 }
+
+/// 64 hexadecimales, que es lo único que se comprueba al leer.
+const huellaDePruebas =
+    '565647928d03200b2eda25ef28bde55e0f0d3e034f99d561f38b33a6aa47c49e';

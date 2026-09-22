@@ -245,6 +245,8 @@ func TestLaFechaSeNormaliza(t *testing.T) {
 	t.Setenv("APP_ULTIMA_VERSION", "1.5.0")
 	t.Setenv("APP_ULTIMA_PUBLICADA", "2026-09-15")
 	t.Setenv("APP_DESCARGA_LINUX", "https://descargas.procovar.cloud/reparto-linux.tar.gz")
+	t.Setenv("APP_DESCARGA_LINUX_BYTES", "77646816")
+	t.Setenv("APP_DESCARGA_LINUX_SHA256", huellaDeEjemplo)
 
 	c, err := config.Cargar("dev")
 	if err != nil {
@@ -331,5 +333,123 @@ func TestVentraBasesSeLeeYSeValida(t *testing.T) {
 	t.Setenv("VENTRA_BASES", "STG santiago")
 	if _, err := config.Cargar("dev"); err == nil || !strings.Contains(err.Error(), "VENTRA_BASES") {
 		t.Fatalf("un par mal escrito tiene que verse al desplegar: %v", err)
+	}
+}
+
+// El sha256 de mentira que usan las pruebas de aquí abajo. 64 hexadecimales, que es lo
+// único que se comprueba al arrancar.
+const huellaDeEjemplo = "565647928d03200b2eda25ef28bde55e0f0d3e034f99d561f38b33a6aa47c49e"
+
+func conLoMinimo(t *testing.T) {
+	t.Helper()
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("APP_ULTIMA_VERSION", "1.5.0")
+	t.Setenv("APP_DESCARGA_ANDROID", "https://archivos.procovar.cloud/reparto/apk/reparto-1.5.0.apk")
+}
+
+// LA PRUEBA DEL DÍA — 22/09/2026. Jose se puso a bajar la APK por datos móviles y la
+// pantalla decía «30 MB/?»: no sabía cuánto le iba a costar. El tamaño venía del
+// `Content-Length`, y Cloudflare lo quita de la respuesta completa (MinIO sí lo manda;
+// se comprobó desde dentro del servidor). Así que ahora el tamaño y la huella se
+// anuncian, y anunciar la URL sin ellos para el arranque.
+func TestLaDescargaSinBytesNiHuellaNoArranca(t *testing.T) {
+	conLoMinimo(t)
+
+	_, err := config.Cargar("dev")
+	if err == nil {
+		t.Fatal("una descarga sin tamaño ni huella tenía que parar el arranque: sin tamaño " +
+			"se baja a ciegas por datos móviles y sin huella un fichero a medias pasa por bueno")
+	}
+	for _, quiero := range []string{"APP_DESCARGA_ANDROID_BYTES", "APP_DESCARGA_ANDROID_SHA256"} {
+		if !strings.Contains(err.Error(), quiero) {
+			t.Fatalf("el mensaje tiene que nombrar %s para poder arreglarlo sin adivinar: %v", quiero, err)
+		}
+	}
+}
+
+// Una sola de las dos tampoco vale: con tamaño y sin huella se baja sabiendo lo que
+// cuesta y sin poder comprobar que llegó entero, que es el peor de los dos mundos.
+func TestSoloElTamanoNoBasta(t *testing.T) {
+	conLoMinimo(t)
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77646816")
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "APP_DESCARGA_ANDROID_SHA256") {
+		t.Fatalf("faltando la huella tenía que quejarse de ella: %v", err)
+	}
+}
+
+// Un hash con un carácter de menos rechaza TODAS las descargas, para siempre, y desde
+// fuera se ve como «la actualización no baja nunca».
+func TestUnSha256CortoNoArranca(t *testing.T) {
+	conLoMinimo(t)
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77646816")
+	t.Setenv("APP_DESCARGA_ANDROID_SHA256", huellaDeEjemplo[:63])
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "64") {
+		t.Fatalf("tenía que decir cuántos caracteres son un sha256: %v", err)
+	}
+}
+
+func TestUnSha256QueNoEsHexadecimalNoArranca(t *testing.T) {
+	conLoMinimo(t)
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77646816")
+	t.Setenv("APP_DESCARGA_ANDROID_SHA256", strings.Repeat("z", 64))
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "hexadecimal") {
+		t.Fatalf("64 caracteres no bastan si no son hexadecimales: %v", err)
+	}
+}
+
+func TestBytesQueNoEsNumeroNoArranca(t *testing.T) {
+	conLoMinimo(t)
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77 MB")
+	t.Setenv("APP_DESCARGA_ANDROID_SHA256", huellaDeEjemplo)
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "APP_DESCARGA_ANDROID_BYTES") {
+		t.Fatalf("tenía que quejarse del número: %v", err)
+	}
+}
+
+// Y al revés: el tamaño de una plataforma que no tiene URL es un fichero colgado del que
+// nadie se va a enterar. Se dice, en vez de ignorarlo en silencio.
+func TestTamanoSueltoSinURLSeDice(t *testing.T) {
+	conLoMinimo(t)
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77646816")
+	t.Setenv("APP_DESCARGA_ANDROID_SHA256", huellaDeEjemplo)
+	t.Setenv("APP_DESCARGA_WINDOWS_BYTES", "12345")
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "APP_DESCARGA_WINDOWS") {
+		t.Fatalf("un tamaño sin su URL tenía que decirse: %v", err)
+	}
+}
+
+// El camino bueno, que es el que de verdad se despliega.
+func TestLaDescargaCompletaLlegaAlaConfiguracion(t *testing.T) {
+	conLoMinimo(t)
+	t.Setenv("APP_DESCARGA_ANDROID_BYTES", "77646816")
+	t.Setenv("APP_DESCARGA_ANDROID_SHA256", strings.ToUpper(huellaDeEjemplo))
+
+	c, err := config.Cargar("dev")
+	if err != nil {
+		t.Fatalf("tenía que arrancar: %v", err)
+	}
+	f, hay := c.Publicada.Ficheros["android"]
+	if !hay {
+		t.Fatal("la descarga de android tenía que traer su fichero")
+	}
+	if f.Bytes != 77646816 {
+		t.Fatalf("bytes %d", f.Bytes)
+	}
+	// En minúsculas SIEMPRE: `sha256sum` las escribe así y el aparato compara texto. Una
+	// huella en mayúsculas no cuadraría nunca con la que calcula, y el fichero bueno se
+	// rechazaría una y otra vez sin que nadie entienda por qué.
+	if f.SHA256 != huellaDeEjemplo {
+		t.Fatalf("la huella tiene que guardarse en minúsculas: %q", f.SHA256)
 	}
 }

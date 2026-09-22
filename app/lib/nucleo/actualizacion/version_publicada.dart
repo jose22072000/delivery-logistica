@@ -66,6 +66,7 @@ class VersionPublicada {
     this.notas,
     this.publicadaAt,
     this.descargas = const <String, String>{},
+    this.ficheros = const <String, FicheroPublicado>{},
   });
 
   final String version;
@@ -74,11 +75,20 @@ class VersionPublicada {
   final DateTime? publicadaAt;
   final Map<String, String> descargas;
 
+  /// Cuánto pesa y qué huella tiene cada descarga. Puede venir vacío: una api
+  /// anterior al 22/09/2026 no lo manda, y de eso no se puede depender para
+  /// ofrecer la actualización — sólo para contarla mejor.
+  final Map<String, FicheroPublicado> ficheros;
+
   /// De dónde se baja para esta plataforma, o `null` si no hay nada colgado.
   String? descargaPara(Plataforma plataforma) {
     final url = descargas[plataforma.clave];
     return (url == null || url.isEmpty) ? null : url;
   }
+
+  /// Lo que pesa lo de esta plataforma, o `null` si el servidor no lo dijo.
+  FicheroPublicado? ficheroPara(Plataforma plataforma) =>
+      ficheros[plataforma.clave];
 
   /// Lee el bloque `ultima` de `GET /api/version`.
   ///
@@ -102,6 +112,16 @@ class VersionPublicada {
       }
     }
 
+    final ficheros = <String, FicheroPublicado>{};
+    final pesos = crudo['ficheros'];
+    if (pesos is Map) {
+      for (final entrada in pesos.entries) {
+        final clave = entrada.key;
+        final fichero = FicheroPublicado.deJson(entrada.value);
+        if (clave is String && fichero != null) ficheros[clave] = fichero;
+      }
+    }
+
     final notas = crudo['notas'];
     final fecha = crudo['publicadaAt'];
 
@@ -115,12 +135,45 @@ class VersionPublicada {
       notas: (notas is String && notas.isNotEmpty) ? notas : null,
       publicadaAt: fecha is String ? DateTime.tryParse(fecha) : null,
       descargas: descargas,
+      ficheros: ficheros,
     );
   }
 
   @override
   String toString() =>
       'VersionPublicada($version, ${descargas.keys.join(",")})';
+}
+
+/// Lo que hay detrás de una descarga: cuánto pesa y con qué tiene que cuadrar.
+///
+/// EL TAMAÑO NO SE SACA DE LA RESPUESTA, Y ESA ES LA RAZÓN DE QUE ESTO EXISTA.
+/// El 22/09/2026 la descarga de la APK enseñaba «30 MB/?»: el `Content-Length`
+/// no llegaba. No era el servidor —MinIO lo manda— sino Cloudflare, que lo quita
+/// de la respuesta completa. Un número que depende de lo que haya por el camino
+/// no es un número: quien está en la calle con datos contados necesita saber
+/// **antes de pulsar** cuánto le va a costar.
+@immutable
+class FicheroPublicado {
+  const FicheroPublicado({required this.bytes, required this.sha256});
+
+  final int bytes;
+  final String sha256;
+
+  /// `null` cuando no viene, viene a medias o viene con algo que no sirve. Un
+  /// tamaño de cero se enseñaría como «0 B», que es un número creíble y
+  /// equivocado; mejor no enseñar nada.
+  static FicheroPublicado? deJson(Object? crudo) {
+    if (crudo is! Map) return null;
+    final bytes = switch (crudo['bytes']) {
+      final int n when n > 0 => n,
+      final String s => int.tryParse(s),
+      _ => null,
+    };
+    final huella = crudo['sha256'];
+    if (bytes == null || bytes <= 0) return null;
+    if (huella is! String || huella.length != 64) return null;
+    return FicheroPublicado(bytes: bytes, sha256: huella.toLowerCase());
+  }
 }
 
 /// ¿Lo publicado es MÁS NUEVO que lo instalado?
