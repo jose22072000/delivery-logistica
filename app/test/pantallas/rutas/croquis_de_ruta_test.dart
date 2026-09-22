@@ -479,6 +479,184 @@ void main() {
       expect(find.byTooltip('Ver la ruta entera'), findsNothing);
     });
 
+    // EL PELLIZCO DE DOS DEDOS, QUE NO LLEGABA NUNCA — 22/09/2026.
+    //
+    // Jose, después de darlo por arreglado dos veces: «sigo sin poder hacer zoom
+    // con los dedos».
+    //
+    // La causa era la subasta de gestos. Había DOS reconocedores en el mismo
+    // `RawGestureDetector`: el arrastre aceptaba a los 3 px —en el primer
+    // fotograma del primer dedo— y al aceptar **expulsaba al pellizco**, que
+    // todavía estaba esperando al segundo dedo. Mover funcionaba; el zoom no
+    // llegaba jamás. Ni un error, ni nada que mirar.
+    //
+    // Y por eso esta prueba pone DOS dedos de verdad: por cable no se puede
+    // —`adb shell input` no hace multitáctil— y por eso el fallo sobrevivió a
+    // dos rondas de pruebas en el teléfono. Aquí sí se puede, y es el único
+    // sitio donde se puede.
+    testWidgets('DOS DEDOS separándose acercan el mapa', (tester) async {
+      await pintar(tester, tresParadas);
+
+      CustomPainter pintorDeAhora() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((c) => c.painter)
+          .whereType<CustomPainter>()
+          .first;
+
+      // El centro DEL MAPA, no el del widget: `CroquisDeRuta` lleva además la
+      // leyenda debajo, y su centro cae fuera del dibujo.
+      final elMapa = find.byWidgetPredicate(
+        (w) =>
+            w is CustomPaint &&
+            w.painter != null &&
+            w.painter.runtimeType.toString().contains('PintorDelCroquis'),
+      );
+      final centro = tester.getCenter(elMapa.first);
+      final antes = pintorDeAhora();
+
+      // Dos dedos a la vez, separándose. El orden importa: los dos abajo antes
+      // de mover ninguno, que es lo que hace un pellizco de verdad.
+      final uno = await tester.startGesture(centro - const Offset(20, 0));
+      final dos = await tester.startGesture(centro + const Offset(20, 0));
+      await tester.pump();
+      for (var paso = 0; paso < 6; paso++) {
+        await uno.moveBy(const Offset(-12, 0));
+        await dos.moveBy(const Offset(12, 0));
+        await tester.pump();
+      }
+      await uno.up();
+      await dos.up();
+      await tester.pump();
+
+      expect(
+        pintorDeAhora().shouldRepaint(antes),
+        isTrue,
+        reason:
+            'EL PELLIZCO NO LLEGA AL MAPA. Con dos dedos separándose el '
+            'acercamiento tiene que cambiar; si no, es que otro reconocedor se '
+            'llevó el gesto antes de que aterrizara el segundo dedo.',
+      );
+    });
+
+    testWidgets('UN dedo sigue moviendo el mapa, no la pantalla', (
+      tester,
+    ) async {
+      // La pareja, y es la decisión de Jose del 21/09: «que un dedo mueva el
+      // mapa ahí mismo». Al pasar a un solo reconocedor esto se podía haber
+      // perdido —`ScaleGestureRecognizer` acepta al doble de distancia que la
+      // lista— y por eso se le baja el umbral con `gestureSettings`.
+      await pintar(tester, tresParadas);
+
+      CustomPainter pintorDeAhora() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((c) => c.painter)
+          .whereType<CustomPainter>()
+          .first;
+
+      // El centro DEL MAPA, no el del widget: `CroquisDeRuta` lleva además la
+      // leyenda debajo, y su centro cae fuera del dibujo.
+      final elMapa = find.byWidgetPredicate(
+        (w) =>
+            w is CustomPaint &&
+            w.painter != null &&
+            w.painter.runtimeType.toString().contains('PintorDelCroquis'),
+      );
+      final centro = tester.getCenter(elMapa.first);
+      final antes = pintorDeAhora();
+
+      final dedo = await tester.startGesture(centro);
+      for (var paso = 0; paso < 6; paso++) {
+        await dedo.moveBy(const Offset(0, -10));
+        await tester.pump();
+      }
+      await dedo.up();
+      await tester.pump();
+
+      expect(
+        pintorDeAhora().shouldRepaint(antes),
+        isTrue,
+        reason:
+            'UN DEDO YA NO MUEVE EL MAPA. Es la decisión del 21/09: el dedo '
+            'encima del mapa mueve el mapa, y la pantalla se baja tocando '
+            'fuera de él.',
+      );
+    });
+
+    // Y LA LISTA DE DEBAJO NO SE LO LLEVA — la mitad que cuesta.
+    //
+    // El mapa vive dentro de algo que se desplaza (el detalle de la ruta). Sin
+    // bajarle el umbral, `ScaleGestureRecognizer` acepta a los 36 px y la lista
+    // a los 18: acepta antes ella, cierra la subasta, y el mapa se queda
+    // sellado. Es el fallo del 17/09 al revés, y por eso el `gestureSettings`
+    // no es adorno.
+    testWidgets('dentro de una lista, el dedo sobre el mapa mueve EL MAPA', (
+      tester,
+    ) async {
+      final controlador = ScrollController();
+      addTearDown(controlador.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              controller: controlador,
+              children: [
+                const SizedBox(height: 40),
+                SizedBox(
+                  width: caja.width,
+                  child: CroquisDeRuta(
+                    recorrido: tresParadas,
+                    fondo: const SinCalles(),
+                    porCalles: const SinCallesQueSeguir(),
+                  ),
+                ),
+                const SizedBox(height: 2000),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      CustomPainter pintorDeAhora() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((c) => c.painter)
+          .whereType<CustomPainter>()
+          .firstWhere(
+            (p) => p.runtimeType.toString().contains('PintorDelCroquis'),
+          );
+
+      final elMapa = find.byWidgetPredicate(
+        (w) =>
+            w is CustomPaint &&
+            w.painter != null &&
+            w.painter.runtimeType.toString().contains('PintorDelCroquis'),
+      );
+      final antes = pintorDeAhora();
+
+      final dedo = await tester.startGesture(tester.getCenter(elMapa.first));
+      for (var paso = 0; paso < 5; paso++) {
+        await dedo.moveBy(const Offset(0, -8));
+        await tester.pump();
+      }
+      await dedo.up();
+      await tester.pump();
+
+      expect(
+        controlador.offset,
+        0,
+        reason:
+            'LA LISTA SE LLEVÓ EL GESTO. Con el dedo encima del mapa la '
+            'pantalla no se baja: se mueve el mapa (decisión de Jose, '
+            '21/09/2026). Si esto falla, el mapa está sellado otra vez.',
+      );
+      expect(
+        pintorDeAhora().shouldRepaint(antes),
+        isTrue,
+        reason: 'y el mapa sí se movió',
+      );
+    });
+
     testWidgets('tocar una parada ensena su nombre y su importe', (
       tester,
     ) async {

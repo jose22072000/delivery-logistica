@@ -443,74 +443,32 @@ void olvidarLoTraidoDelMapa() {
 /// es lo que manda un **trackpad**. Un telefono manda dos dedos, y a esos no los
 /// miraba nadie. En el movil el mapa estaba sellado: ni acercar, ni mover.
 ///
-/// Un `ScaleGestureRecognizer` de los normales no sirve, y esa es la parte que
-/// hay que entender antes de tocar esto: **tambien reclama el gesto de un solo
-/// dedo** —lo trata como desplazamiento—, asi que le gana el tiron a la lista
-/// del detalle y el chofer se queda sin poder bajar la pantalla. Es exactamente
-/// el fallo del 17/09/2026: «los scrolls no funcionan en ninguna pantalla».
+/// **UN SOLO RECONOCEDOR PARA LAS DOS COSAS**, y por qué — 22/09/2026.
 ///
-/// Por eso esto **solo entra en la subasta de gestos con dos dedos puestos**.
-/// Con uno no reclama nada y la lista sigue mandando, igual que hasta ahora.
+/// Aquí había dos: un `ScaleGestureRecognizer` recortado a dos dedos y un
+/// `PanGestureRecognizer` que aceptaba a los 3 px. Los dos en el mismo
+/// `RawGestureDetector`, o sea **en la misma subasta de gestos**. Y una subasta
+/// tiene un solo ganador: el arrastre aceptaba en el primer fotograma del
+/// primer dedo —para eso estaban los 3 px— y al aceptar **expulsaba al
+/// pellizco**, que todavía estaba esperando a que llegara el segundo dedo.
 ///
-/// HONESTIDAD SOBRE ESTA GUARDA, medida el 21/09/2026 con una mutacion: si se
-/// quita, la prueba «y un solo dedo sigue siendo de la lista» **sigue verde**.
-/// No es que la prueba sea floja: es que hoy la lista gana igual, porque su
-/// umbral de arrastre (`kTouchSlop`) es menor que el de desplazamiento del
-/// pellizco (`kPanSlop`), asi que acepta antes y cierra la subasta. O sea que
-/// esto es un cinturon: sujeta el dia que alguien baje ese umbral, meta el mapa
-/// en algo que no se desplace en vertical, o Flutter cambie los suyos. **Se
-/// queda, y se queda dicho que ninguna prueba lo distingue.**
-class _PellizcoDeDosDedos extends ScaleGestureRecognizer {
-  @override
-  void resolve(GestureDisposition disposicion) {
-    if (disposicion == GestureDisposition.accepted && pointerCount < 2) return;
-    super.resolve(disposicion);
-  }
-}
+/// Resultado, y es exactamente lo que Jose siguió viendo después de darlo por
+/// arreglado: **mover con un dedo funcionaba y el zoom no llegaba nunca.** Ni un
+/// error, ni nada que mirar: el segundo dedo aterrizaba sobre un gesto que ya
+/// tenía dueño.
+///
+/// `ScaleGestureRecognizer` hace las dos cosas él solo —`scale` para el
+/// acercamiento y `focalPointDelta` para el arrastre—, que es como lo resuelve
+/// el `InteractiveViewer` de Flutter. Con uno solo no hay subasta que perder.
+///
+/// Lo único que hay que devolverle es **la rapidez en aceptar**, que era lo que
+/// daban aquellos 3 px: sin ella el umbral de panorámica (`kPanSlop`, 36 px) es
+/// el doble que el de la lista, la lista acepta antes y vuelve el fallo del
+/// 17/09 al revés — el mapa sellado. Se le baja con `gestureSettings`, que es la
+/// puerta que Flutter deja abierta para esto: `panSlop` sale de `touchSlop * 2`,
+/// así que 1,5 px de `touchSlop` son los mismos 3 px de antes.
+const _loQueEsUnArrastre = 1.5;
 
-/// EL ARRASTRE DEL MAPA CON UN DEDO, y lo que cuesta.
-///
-/// Esto entra en la subasta de gestos y **le gana el tiron a la lista** que hay
-/// debajo en el detalle de la ruta. O sea: con el dedo encima del mapa, la
-/// pantalla ya no baja; para bajarla hay que arrastrar fuera del mapa.
-///
-/// Lo sabemos porque ya pasó al reves: el 17/09/2026 el mapa se quedaba con el
-/// gesto y Jose se quedó sin poder llegar a los botones del final —«los scrolls
-/// no funcionan en ninguna pantalla»—, y por eso el arrastre estuvo hasta hoy
-/// limitado al raton. **Es una decision suya, tomada el 21/09/2026 con el precio
-/// delante**: se le ofreció dejarlo con dos dedos y el boton de pantalla
-/// completa, y contestó «que un dedo mueva el mapa ahi mismo».
-///
-/// Asi que el mapa se queda el arrastre y la lista se desplaza por fuera de el.
-/// Si alguien vuelve a cambiar esto, que sea con Jose delante y no por leer el
-/// comentario del 17.
-class _ArrastreDelMapa extends PanGestureRecognizer {
-  /// Y RECLAMA EL GESTO ANTES QUE NADIE: a los 3 pixeles.
-  ///
-  /// Esto se escribio dos veces el mismo dia y la segunda es la que vale.
-  ///
-  /// Primero se dejo el umbral normal de panoramica: el doble que el de la
-  /// lista, asi que en un tiron lento la lista aceptaba antes y ganaba ella.
-  /// Despues se igualo al de la lista (18 px), y entonces pasaba lo peor de
-  /// todo: **los primeros 18 pixeles se los llevaba la lista y a partir de ahi
-  /// el mapa**. O sea que un tiron movia un poco la pantalla Y un poco el mapa.
-  /// Jose, probandolo: «sigo haciendo scroll cuando toco el mapa, cuando toco el
-  /// mapa no puedo hacer scroll». Las dos frases son la misma queja: no se sabe
-  /// que va a pasar.
-  ///
-  /// Con 3 pixeles la regla es de una linea y no tiene excepciones: **el dedo
-  /// encima del mapa mueve el mapa; la pantalla se baja tocando fuera del mapa**.
-  /// No es cero para que un TOQUE siga siendo un toque —abrir el globo de una
-  /// parada—: un dedo quieto no llega a 3 px, uno que arrastra los pasa en el
-  /// primer fotograma.
-  static const _loQueEsUnArrastre = 3.0;
-
-  @override
-  bool hasSufficientGlobalDistanceToAccept(
-    PointerDeviceKind pointerDeviceKind,
-    double? deviceTouchSlop,
-  ) => globalDistanceMoved.abs() > _loQueEsUnArrastre;
-}
 
 class _CroquisDeRutaState extends State<CroquisDeRuta> {
   String? _abierta;
@@ -809,11 +767,17 @@ class _CroquisDeRutaState extends State<CroquisDeRuta> {
                         },
                         child: RawGestureDetector(
                           gestures: <Type, GestureRecognizerFactory>{
-                            _PellizcoDeDosDedos:
+                            ScaleGestureRecognizer:
                                 GestureRecognizerFactoryWithHandlers<
-                                  _PellizcoDeDosDedos
-                                >(_PellizcoDeDosDedos.new, (reconocedor) {
+                                  ScaleGestureRecognizer
+                                >(ScaleGestureRecognizer.new, (reconocedor) {
                                   reconocedor
+                                    // La rapidez en aceptar, que es lo que antes
+                                    // daba el reconocedor de arrastre. Ver
+                                    // `_loQueEsUnArrastre`.
+                                    ..gestureSettings = const DeviceGestureSettings(
+                                      touchSlop: _loQueEsUnArrastre,
+                                    )
                                     ..onStart = (gesto) {
                                       _acercamientoAlEmpezar = _acercamiento;
                                       _arrastreAlEmpezar = _arrastre;
@@ -821,13 +785,6 @@ class _CroquisDeRutaState extends State<CroquisDeRuta> {
                                     }
                                     ..onUpdate = (gesto) =>
                                         _pellizcar(gesto, tamano);
-                                }),
-                            _ArrastreDelMapa:
-                                GestureRecognizerFactoryWithHandlers<
-                                  _ArrastreDelMapa
-                                >(_ArrastreDelMapa.new, (reconocedor) {
-                                  reconocedor.onUpdate = (gesto) =>
-                                      setState(() => _arrastre += gesto.delta);
                                 }),
                           },
                           child: GestureDetector(
@@ -906,9 +863,17 @@ class _CroquisDeRutaState extends State<CroquisDeRuta> {
   /// manzana concreta: hay que acercar y correr el mapa a la vez. De ahi sale
   /// esta cuenta, que ademas se lleva gratis el **mover con dos dedos**, porque
   /// usa donde estan los dedos AHORA contra donde se posaron.
+  /// EL GESTO DEL MAPA, que son dos cosas con un solo reconocedor.
+  ///
+  /// Con UN dedo `scale` vale 1 y lo único que cambia es el foco: sale
+  /// arrastre puro. Con DOS, `scale` crece o mengua y el foco se mueve: sale
+  /// acercamiento **alrededor del punto que se está pellizcando**, que es lo que
+  /// hace que el mapa no se escape de debajo de los dedos.
+  ///
+  /// La misma cuenta sirve para los dos casos y por eso no hay un `if` que los
+  /// separe: separarlos fue lo que dejó el zoom sin llegar nunca (ver
+  /// `_loQueEsUnArrastre`).
   void _pellizcar(ScaleUpdateDetails gesto, Size caja) {
-    // Un solo dedo no es un pellizco: es la lista desplazandose.
-    if (gesto.pointerCount < 2) return;
     final nuevo = (_acercamientoAlEmpezar * gesto.scale).clamp(
       acercamientoMinimo,
       acercamientoMaximo,
