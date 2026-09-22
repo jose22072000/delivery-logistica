@@ -538,19 +538,38 @@ Medido el 22/09/2026, con los tres niveles anunciados:
 Los tres son **byte a byte** los mismos que hay en `/var/lib/procovar/mapa`, y el `detallado`
 —97 MB— bajó entero por el dominio en 2,8 segundos desde el propio servidor.
 
-#### Lo viejo se queda de red, por ahora
+#### Lo viejo ya se barrió — 22/09/2026
 
-`/var/lib/procovar/mapa` **sigue ahí**, y el nginx de `reparto-web` sigue teniendo su copia
-dentro del contenedor sirviendo `https://reparto.procovar.cloud/mapa/…`. **Nadie la anuncia
-ya**, pero no se borra hasta que Jose haya bajado el mapa en su teléfono desde la URL nueva.
-Cuando lo confirme:
+No queda nada: ni `/var/lib/procovar/mapa`, ni `/var/lib/procovar/apk`, ni los dos montajes
+que `reparto-web` **seguía teniendo hacia esas carpetas ya inexistentes** (Dokploy ya no los
+tenía guardados; vivían sólo en el servicio en marcha, así que un `docker service update
+--mount-rm` los quita para siempre). También se borró `/tmp/mapa`, con los mapas generados el
+17/09 y el `.osm.pbf` de 62 MB, y las imágenes colgadas que todavía llevaban los `.pmtiles`
+dentro.
 
-```bash
-ssh vps 'rm -f /var/lib/procovar/mapa/cuba-*.pmtiles'
+#### El dominio de los ficheros TIENE que ir por Cloudflare
+
+Esto se descubrió el 22/09/2026 con el teléfono de Jose delante, y es lo contrario de lo que
+decía esta misma página. `archivos.procovar.cloud` estaba **sin proxy** para que Cloudflare no
+tocara el `Content-Length` ni los rangos. Con eso, **desde los datos móviles de aquí la
+descarga no empieza siquiera**:
+
+```
+ping archivos.procovar.cloud   → contesta en 208 ms      ← engaña
+nc -z 179.198.107.1 443        → agota el plazo
+nc -z <IP de Cloudflare> 443   → entra al momento
 ```
 
-Y con eso el montaje `mountId SQaRd2j1rtvP9Y4vnCNAO` de `reparto-web`, y el camino `/mapa/`
-de su nginx, **sobran**: la web ya no sirve ficheros, sólo la aplicación.
+La IP del VPS no acepta el 443 desde esa red — el mismo corte aguas arriba que tiene el UDP.
+Así que el proxy se queda puesto, y lo que se hace por objeto es cerrarle el caché:
+
+```bash
+mc-procovar cp --attr "Cache-Control=private, no-store" /host/x.pmtiles procovar/reparto/mapa/
+```
+
+Comprobado después: `206`, `content-range: bytes 0-99/101663628` y `cf-cache-status: DYNAMIC`.
+Y la razón de que el mapa nunca enseñara «30 MB/?» aunque la APK sí: **el total sale del
+anuncio de la api (`MAPA_*_BYTES`), no del `Content-Length`**.
 
 > **La trampa del camino ya no aplica igual, pero conviene saber por qué estaba.** Traefik
 > reparte por prefijo de **cadena**, no de segmento, así que cuando los ficheros salían por
