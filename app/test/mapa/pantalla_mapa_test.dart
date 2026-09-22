@@ -254,6 +254,69 @@ void main() {
     );
     expect(find.byKey(claveDeBajar('completo')), findsNothing);
   });
+
+  // LA SALIDA CUANDO EL MAPA ESTÁ AL DÍA — 22/09/2026.
+  //
+  // Con el detallado bajado y nada nuevo colgado, la pantalla se quedaba **sin
+  // un solo botón**: sólo «Está al día». Bien mientras todo vaya bien, y sin
+  // salida el día que no —un fichero corrupto, un disco que se llenó a mitad,
+  // un mapa que se dibuja a trozos—. La única forma de rehacerlo era
+  // desinstalar, y desinstalar se lleva la base local: el trabajo del día que
+  // no haya subido.
+  testWidgets('con el mapa al día se puede volver a bajar el que se tiene', (
+    tester,
+  ) async {
+    final carpeta = CarpetaEnMemoria()
+      ..sembrar('cuba-detallado.pmtiles', List<int>.filled(30, 7))
+      ..sembrar(
+        'cuba-detallado.json',
+        utf8.encode(
+          jsonEncode({
+            'nivel': 'detallado',
+            'version': '260916',
+            'bytes': 30,
+            'sha256': 'a' * 64,
+            'guardadoAt': '2026-09-21T10:00:00.000Z',
+          }),
+        ),
+      );
+
+    await tester.pumpWidget(
+      _montaje(
+        _Servidor(anuncio: _anuncioMenudo()),
+        enElAparato: true,
+        carpeta: carpeta,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Está al día.'), findsOneWidget);
+    expect(
+      find.byKey(claveDeVolverABajar),
+      findsOneWidget,
+      reason:
+          'SIN SALIDA. Con el mapa al día no queda un solo botón: un fichero '
+          'corrupto sólo se arregla desinstalando, y desinstalar se lleva el '
+          'trabajo del día que no haya subido.',
+    );
+    // Y se dice que no hace falta si lo que hay está bien: es una salida, no
+    // una mejora que ofrecer, y gasta los mismos megas.
+    expect(
+      find.textContaining('Si lo que hay está bien, no hace falta'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('sin mapa guardado NO se ofrece volver a bajar', (tester) async {
+    // La pareja: la salida sólo aparece donde hacía falta. Con la pantalla
+    // llena de botones de descargar, uno más es ruido.
+    await tester.pumpWidget(
+      _montaje(_Servidor(anuncio: _anuncioDeDos()), enElAparato: true),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(claveDeVolverABajar), findsNothing);
+  });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

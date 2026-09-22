@@ -72,11 +72,32 @@ abstract final class TextosDelMapaGuardado {
 
   /// El botón, **con el tamaño dentro**.
   static String bajar(NivelDeMapa n) => '${n.titulo} — ${enMegas(n.bytes)}';
+
+  /// VOLVER A BAJAR EL QUE YA SE TIENE — 22/09/2026.
+  ///
+  /// Con el mapa al día no quedaba **ni un botón** en la pantalla: sólo el
+  /// texto «Está al día». Eso está bien mientras todo vaya bien, y deja sin
+  /// salida el día que no: un fichero que se corrompe, un disco que se llenó a
+  /// mitad, un mapa que se dibuja a trozos. No había forma de rehacerlo sin
+  /// desinstalar la aplicación — y desinstalar se lleva la base local, o sea el
+  /// trabajo del día que no haya subido.
+  ///
+  /// Va abajo, en pequeño y con su explicación: no es una mejora que ofrecer,
+  /// es una salida para cuando algo salió mal.
+  static const String siAlgoVaMal = 'Si el mapa se ve mal';
+
+  static String volverABajar(NivelDeMapa n) =>
+      'Volver a bajar «${n.titulo}» — ${enMegas(n.bytes)}';
+
+  static const String volverABajarPorQue =
+      'Se baja otra vez entero y se comprueba la huella antes de pisar el que '
+      'tienes. Si lo que hay está bien, no hace falta: gasta los mismos datos.';
 }
 
 const claveDeAtribucionDelMapa = ValueKey('mapa-guardado-atribucion');
 const claveDeAvisoDeDescarga = ValueKey('mapa-guardado-aviso');
 ValueKey<String> claveDeBajar(String nivel) => ValueKey<String>('mapa-guardado-bajar-$nivel');
+const claveDeVolverABajar = ValueKey('mapa-guardado-volver-a-bajar');
 
 class PantallaMapaSinConexion extends ConsumerStatefulWidget {
   const PantallaMapaSinConexion({super.key});
@@ -176,6 +197,7 @@ class _PantallaMapaSinConexionState
       ),
       const SizedBox(height: 12),
       ..._ofertas(_queMerecenLaPena(tengo, ofertas)),
+      ..._laSalida(tengo, ofertas),
     ],
     HayMapaNuevo(:final tengo, :final nuevo, :final motivo, :final ofertas) => [
       Text(TextosDelMapaGuardado.tengo(tengo)),
@@ -210,6 +232,36 @@ class _PantallaMapaSinConexionState
     for (final o in ofertas)
       if (o.nivel != tengo.nivel && o.bytes > tengo.bytes) o,
   ];
+
+  /// LA SALIDA PARA CUANDO ALGO SALIÓ MAL: volver a bajar el que ya se tiene.
+  ///
+  /// Sólo aparece con el mapa al día, que es justo cuando la pantalla se
+  /// quedaba sin un solo botón. Y sólo si el servidor sigue anunciando ese
+  /// nivel: ofrecer rehacer algo que ya no está colgado es ofrecer un fallo.
+  List<Widget> _laSalida(PaqueteGuardado tengo, List<NivelDeMapa> ofertas) {
+    final elMio = ofertas.where((o) => o.nivel == tengo.nivel).firstOrNull;
+    if (elMio == null) return const [];
+    return [
+      const SizedBox(height: 20),
+      const Divider(height: 1),
+      const SizedBox(height: 12),
+      const Text(
+        TextosDelMapaGuardado.siAlgoVaMal,
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+      ),
+      const SizedBox(height: 6),
+      OutlinedButton(
+        key: claveDeVolverABajar,
+        onPressed: _comoVa != null ? null : () => _bajar(elMio),
+        child: Text(TextosDelMapaGuardado.volverABajar(elMio)),
+      ),
+      const SizedBox(height: 4),
+      const Text(
+        TextosDelMapaGuardado.volverABajarPorQue,
+        style: TextStyle(fontSize: 11),
+      ),
+    ];
+  }
 
   List<Widget> _ofertas(List<NivelDeMapa> niveles) => [
     for (final n in niveles) ...[
