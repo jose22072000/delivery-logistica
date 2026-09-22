@@ -136,7 +136,10 @@ abstract final class TextosDelDia {
 /// condiciones — que es justo donde estuvo el fallo.
 ///
 /// [vaMal] no es «el aparato cree que no hay wifi»: es que las peticiones no
-/// estan llegando, medido (`nucleo/red/salud.dart`).
+/// estan llegando, medido (`nucleo/red/salud.dart`). Con una excepcion que se
+/// añadio el 22/09/2026: cuando el sistema dice que **no hay ni interfaz**
+/// —modo avion— eso se cree al momento, porque su «no» no admite discusion; lo
+/// que nunca vale es su «si».
 /// CUANTO PUEDE TARDAR UN INTENTO ANTES DE QUE «ENVIANDO» DEJE DE SER VERDAD.
 ///
 /// `vaMal` tarda TRES ciclos en encenderse, y con razon: es el aviso persistente

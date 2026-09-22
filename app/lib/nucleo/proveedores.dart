@@ -380,7 +380,22 @@ final hayRedProvider = StreamProvider<bool>((ref) async* {
 /// y **no** `connectivity_plus` (ver `red/salud.dart`).
 class LaSalud extends Notifier<SaludDeLaRed> {
   @override
-  SaludDeLaRed build() => SaludDeLaRed.bienDeSalida;
+  SaludDeLaRed build() {
+    // EL «NO» DEL SISTEMA SE CREE AL MOMENTO — 22/09/2026.
+    //
+    // La pista de `connectivity_plus` no vale para decir que hay red —en Cuba
+    // el teléfono enseña el wifi conectado y no sale un paquete—, pero su «no
+    // hay ni interfaz» es del sistema operativo y no admite discusión. Sin
+    // esto, con el modo avión puesto había que esperar a que tres peticiones se
+    // cayeran: dos minutos con el Panel diciendo «Los datos son de ahora
+    // mismo». Ver `SaludDeLaRed.sinInterfaz`.
+    ref.listen<AsyncValue<bool>>(hayRedProvider, (_, ahora) {
+      final hay = ahora.value;
+      if (hay == null) return;
+      state = hay ? state.conInterfaz() : state.sinRed();
+    }, fireImmediately: true);
+    return SaludDeLaRed.bienDeSalida;
+  }
 
   /// Lo llama el ciclo al acabar, TODOS los ciclos — tambien los que dispara el
   /// vigia sin que nadie mire, que son los que de verdad dicen si la conexion

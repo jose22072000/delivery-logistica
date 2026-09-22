@@ -252,7 +252,23 @@ void main() {
       },
     );
 
-    testWidgets('sin senal lo dice y no se queda girando', (tester) async {
+    // SIN INTERFAZ, EL PANEL LO DICE Y NO OFRECE EL BOTÓN — 22/09/2026.
+    //
+    // Antes aquí se comprobaba lo contrario: que el botón seguía ahí, porque «la
+    // pista de connectivity_plus ya no pinta el estado». Eso es lo que hacía que
+    // con el modo avión puesto la franja tardara dos minutos en enterarse, y el
+    // Panel dijera mientras tanto «Los datos son de ahora mismo».
+    //
+    // El «no hay ni interfaz» del sistema sí se cree: no es una opinión sobre la
+    // calidad de la conexión, es que no hay por dónde salir. Y entonces manda la
+    // regla de `QueToca.sinConexion`: **no se ofrece un botón que no puede
+    // funcionar**, se dice el estado.
+    //
+    // Que el gesto, si llega a dispararse, tampoco sale a la red y contesta «No
+    // hay señal», lo sujeta `traer_el_dia_test.dart` sobre el propio gesto.
+    testWidgets('sin interfaz el Panel lo dice y NO ofrece el botón', (
+      tester,
+    ) async {
       final rutas = <String>[];
       await montar(
         tester,
@@ -263,20 +279,18 @@ void main() {
         hayPista: false,
       );
 
-      // La pista de `connectivity_plus` **ya no pinta el estado** —eso lo decide
-      // si las peticiones llegan (`red/salud.dart`)—, asi que el boton sigue
-      // ahi: la pista sirve para no salir en balde cuando se le da.
-      await tester.tap(find.widgetWithText(FilledButton, 'Traer el día'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-      await dejarCorrer(tester);
-
-      expect(rutas, isEmpty);
-      expect(find.text('No hay señal'), findsWidgets);
       expect(
-        find.textContaining('el aparato dice que no hay red'),
-        findsOneWidget,
+        find.text('Trabajando sin conexión'),
+        findsWidgets,
+        reason: 'el estado se dice al momento, no dos minutos después',
       );
+      expect(
+        find.widgetWithText(FilledButton, 'Traer el día'),
+        findsNothing,
+        reason: 'un botón que no puede funcionar enseña a desconfiar de los botones',
+      );
+      // Y no se sale a la red por detrás a probar suerte.
+      expect(rutas, isEmpty);
 
       await desmontar(tester);
     });

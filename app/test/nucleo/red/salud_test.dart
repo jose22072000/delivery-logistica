@@ -75,4 +75,46 @@ void main() {
       );
     });
   });
+  // EL «NO» DEL SISTEMA SE CREE AL MOMENTO — 22/09/2026.
+  //
+  // Con el modo avión puesto a las 12:21:31, la franja siguió diciendo «Datos de
+  // las 12:20» en gris hasta las 12:23. Dos minutos en los que el Panel afirmaba
+  // «Los datos son de ahora mismo»: una pantalla mintiendo.
+  //
+  // La pista de `connectivity_plus` no vale para decir que HAY red —en Cuba el
+  // teléfono enseña el wifi conectado y no sale un paquete— pero su «no hay ni
+  // interfaz» es del sistema operativo. Miente en un solo sentido, y las pruebas
+  // van en pareja por eso: se cree su «no» y NO se cree su «sí».
+  group('sin interfaz', () {
+    test('sin red se dice al momento, sin esperar tres fallos', () {
+      expect(SaludDeLaRed.bienDeSalida.sinRed().vaMal, isTrue);
+    });
+
+    test('vuelve la interfaz: se quita la certeza, pero NO se dice que va bien', () {
+      // Dos fallos y además sin interfaz. Al volver la interfaz siguen los dos
+      // fallos: que haya wifi no significa que salga un paquete, y eso sólo lo
+      // dice una petición que llegue.
+      final rota = conFallos(2).sinRed();
+      expect(rota.vaMal, isTrue);
+
+      final conWifi = rota.conInterfaz();
+      expect(conWifi.sinInterfaz, isFalse);
+      expect(conWifi.fallosSeguidos, 2, reason: 'los fallos no se perdonan solos');
+      expect(conWifi.vaMal, isFalse, reason: 'dos no llegan al umbral de tres');
+    });
+
+    test('con TRES fallos, volver la interfaz no quita el aviso', () {
+      final mala = conFallos(3).sinRed();
+      expect(mala.conInterfaz().vaMal, isTrue);
+    });
+
+    test('una petición que llega lo borra todo, también el sin interfaz', () {
+      // Rápido en quitarse: basta UNA buena. Es la otra mitad de la regla.
+      final buena = conFallos(3).sinRed().conUnaBuena(DateTime(2026, 9, 22));
+      expect(buena.vaMal, isFalse);
+      expect(buena.sinInterfaz, isFalse);
+      expect(buena.fallosSeguidos, 0);
+    });
+  });
+
 }
