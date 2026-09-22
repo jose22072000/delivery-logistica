@@ -156,6 +156,25 @@ void main() {
           ),
         ),
       );
+      // LAS TIPOGRAFÍAS, ANTES DEL PRIMER FOTOGRAMA PINTADO.
+      //
+      // La misma línea que ya está en `informes/exportar_test.dart` y en
+      // `informes/flechas_en_las_pestanas_test.dart`, y por el mismo motivo:
+      // `google_fonts` saca los .ttf embebidos por `rootBundle`, que es
+      // asíncrono DE VERDAD, y dentro del reloj falso de un `testWidgets` esa
+      // carga no avanza nunca. Sin esto el primer fotograma se MIDE con la
+      // tipografía de respaldo y se PINTA con la buena, y Flutter lo caza con
+      // `'debugSize == size': is not true`.
+      //
+      // Aquí saltó el 21/09/2026 al meter `Exportar a Excel` en los filtros:
+      // una etiqueta más en el primer fotograma y ya bastó. **No es lo que esta
+      // prueba vigila** —lo medido con las tipografías puestas es que el pie
+      // «Totales:» sí se alcanza— y encima tapaba el rojo de verdad, porque el
+      // volcado del árbol revienta al describir el párrafo a medio medir. Las
+      // comprobaciones geométricas de abajo no se han tocado.
+      //
+      // Va aquí y no en el `setUpAll` porque allí no hay `tester`.
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
       await tester.pumpAndSettle();
     }
 

@@ -19,7 +19,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reparto/mapa/anuncio_de_mapa.dart';
 import 'package:reparto/mapa/proveedores_de_mapa.dart';
 import 'package:reparto/nucleo/plataforma.dart';
-import 'package:reparto/pantallas/rutas/datos/abrir_y_compartir.dart';
 import 'package:reparto/pantallas/rutas/datos/mapa_en_vivo.dart';
 import 'package:reparto/pantallas/rutas/vista/mapa_de_la_ruta.dart';
 
