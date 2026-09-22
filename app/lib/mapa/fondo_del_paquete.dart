@@ -67,10 +67,25 @@ const ladoDeTeselaDelPaquete = 256.0;
 /// empieza a mandar una clase nueva —un uso del suelo que hoy no existe— lo que
 /// tiene que pasar es que se vea algo raro y se arregle, no que quede un hueco
 /// blanco que nadie sabe si es un descampado o un fallo.
-Color _colorDelSuelo(String? clase) => switch (clase) {
+///
+/// Y eso es exactamente lo que pasó con `humedal`, la clase que estrenó el
+/// generador la tarde del 21/09/2026 al coser los multipolígonos: durante un día
+/// entero la Ciénaga de Zapata se pintó **del color de un prado**, sin un solo
+/// error por ningún lado. El `_ =>` hizo su trabajo —se vio— y esto es la otra
+/// mitad: que la clase nueva tenga su línea. **Cada clase que añada el generador
+/// (la tabla del §3 de `docs/mapa-sin-conexion.md`) tiene que entrar aquí**, o
+/// vuelve a salir del color de otra cosa.
+///
+/// Se expone para las pruebas porque lo que hay que poder comprobar es **la
+/// decisión** —de qué color sale cada clase, y que ninguna se cae al de por
+/// defecto—, no los píxeles de una imagen, que es una prueba que no explica nada
+/// cuando falla.
+@visibleForTesting
+Color colorDelSuelo(String? clase) => switch (clase) {
   'bosque' => ColoresDelMapa.bosque,
   'parque' => ColoresDelMapa.parque,
   'hierba' => ColoresDelMapa.hierba,
+  'humedal' => ColoresDelMapa.humedal,
   'urbano' => ColoresDelMapa.urbano,
   'industrial' => ColoresDelMapa.industrial,
   'portuario' => ColoresDelMapa.portuario,
@@ -554,7 +569,7 @@ class FondoDelPaquete implements FondoDeCalles {
         // manzana a z10 no se ve.
         for (final r in capa.rasgos) {
           if (r.forma != FormaVectorial.area) continue;
-          final color = _colorDelSuelo(r.clase);
+          final color = colorDelSuelo(r.clase);
           lienzo.drawPath(
             _camino(r, escala, cerrado: true),
             Paint()..color = color,
@@ -627,6 +642,37 @@ class FondoDelPaquete implements FondoDeCalles {
     }
   }
 
+  /// EL CAMINO DE UN RASGO. **Todos sus trozos en UN SOLO `Path`**, y eso no es
+  /// comodidad: es lo que hace que los agujeros se vean como agujeros.
+  ///
+  /// Desde el 21/09/2026 los rellenos traen huecos de verdad —la laguna dentro
+  /// del bosque, y las de la Ciénaga de Zapata—. En el formato un hueco no se
+  /// marca con ninguna etiqueta: **se marca dando la vuelta al anillo**, el
+  /// contorno para un lado y el agujero para el otro, y eso lo garantiza el
+  /// generador al escribir cada tesela (`enderezarAnillos` en `teselar.go`; el
+  /// porqué, en el §3-bis de `docs/mapa-sin-conexion.md`).
+  ///
+  /// Un `Path` de Flutter rellena con [PathFillType.nonZero] de por defecto, y
+  /// `nonZero` es justo la regla que lee esa vuelta: dos anillos girando al
+  /// revés dentro del mismo `Path` dejan el hueco sin pintar.
+  ///
+  /// **De ahí salen dos cambios que parecen inocentes y rompen las lagunas sin
+  /// que salte absolutamente nada** —ni el analizador, ni una prueba, ni un
+  /// error en pantalla: la laguna se pinta de verde y hay que mirarla para
+  /// verlo—:
+  ///
+  ///  1. Ponerle `..fillType = PathFillType.evenOdd`. Con los anillos ya
+  ///     enderezados, `evenOdd` acierta con un agujero y **falla con dos
+  ///     anidados**, y sobre todo deja de depender del sentido de giro, que es
+  ///     lo único que el generador promete.
+  ///  2. Dibujar cada trozo en su propio `Path` (un `drawPath` por parte). Ahí
+  ///     el agujero deja de ser un agujero y pasa a ser **otra mancha del mismo
+  ///     color encima**, que es exactamente lo que se veía antes de coser los
+  ///     multipolígonos.
+  ///
+  /// Si algún día hay que tocar esto, lo que lo caza es mirar una tesela de la
+  /// Ciénaga de Zapata con los ojos (`test/mapa/sonda_dibujo_test.dart`), no la
+  /// suite.
   Path _camino(RasgoVectorial r, double escala, {bool cerrado = false}) {
     final camino = Path();
     for (final parte in r.partes) {

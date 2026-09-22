@@ -230,6 +230,13 @@ estimaciones: se generaron y se pesaron, uno a uno.
 | `completo` | + calles de ciudad con su nombre y **las manzanas** | z0–z14 | 34.498 | **49.198.548** | «Completo, con calles — 49,2 MB» |
 | `detallado` | + caminos de tierra y un acercamiento más | z0–z15 | 129.436 | **101.652.569** | «Detallado, con caminos — 101,7 MB» |
 
+> Esta tabla y las tres que vienen debajo son **el estudio del 21/09/2026**, y se quedan como
+> están porque sólo valen entre sí: cada número sale del mismo `.pbf`, y restar el peso de una
+> capa contra un extracto de otro día no mide una capa, mide un día de OpenStreetMap. **Lo que
+> está colgado hoy no es ese fichero**: se regeneró el 22/09/2026 desde el extracto de ese día
+> y pesa unos kilobytes más. Los bytes y los `sha256` de verdad, los que anuncia la api, están
+> en el §5.5 — y son ésos los que hay que mirar, no éstos.
+
 **El que hay que ofrecer por defecto sigue siendo `completo`.** Es el que llega a un
 domicilio. Pasó de 25,8 a 44,1 MB al meterle el suelo, las manzanas y el tren, y de ahí a
 49,2 al coser los multipolígonos; eso es lo que cuesta que el mapa se parezca al que Jose ve
@@ -435,69 +442,123 @@ mar con nada más que costa. **Un nivel entero sin teselas ya lo cazó esta herr
 vez** (el `clonar` de `teselar.go`); un nivel entero sin una capa es el mismo fallo con otra
 ropa, y ahora también se ve.
 
-### 5.4 Colgarlo en el VPS
+### 5.4 Colgarlo en el VPS — **está en MinIO desde el 22/09/2026**
 
 **El servidor es el nuestro, no el de OSM.** Bajar teselas en bloque de
 `tile.openstreetmap.org` va contra su política de uso y el castigo es un bloqueo por IP — ya
 nos pasó con Hostinger el 04/08/2026.
 
-**DECIDIDO Y MONTADO el 21/09/2026, y no fue una preferencia: fue un incidente.**
+**Y no es una preferencia de sitio: es un incidente cerrado.** Los ficheros vivían **dentro
+de la imagen de la web**, y ahí duran hasta el siguiente despliegue. El 21/09/2026 se
+desplegó `reparto-web` a las 18:41 y **se los llevó por delante**. Lo peor no fue perderlos:
+fue **cómo se veía desde fuera**. La api seguía anunciando los tres niveles con sus bytes y
+su `sha256`, y `GET /mapa/cuba-detallado.pmtiles` contestaba **200 con 1.608 bytes**, que era
+el `index.html` de la aplicación — el `try_files` de la SPA sirviendo la página en vez del
+fichero que no estaba. Un 200 con la página de la web dentro de un `.pmtiles`. Lo único que
+lo delataba era el `sha256` del aparato al terminar de bajar.
 
-Los ficheros vivían **dentro de la imagen de la web**, y ahí duran hasta el siguiente
-despliegue. Ese día se desplegó `reparto-web` a las 18:41 y **se los llevó por delante**. Lo
-peor no fue perderlos: fue **cómo se veía desde fuera**. La api seguía anunciando los tres
-niveles con sus bytes y su `sha256`, y `GET /mapa/cuba-detallado.pmtiles` contestaba **200 con
-1.608 bytes**, que era el `index.html` de la aplicación — el `try_files` de la SPA sirviendo
-la página en vez del fichero que no estaba. Un 200 con la página de la web dentro de un
-`.pmtiles`. Lo único que lo delataba era el `sha256` del aparato al terminar de bajar.
+El primer parche fue montar `/var/lib/procovar/mapa` dentro del contenedor de la web. **No
+llegó a entrar**: medido el 22/09/2026, `docker service inspect reparto-web-dihwbq --format
+'{{json .Spec.TaskTemplate.ContainerSpec.Mounts}}'` contestaba `null` — dado de alta en el
+panel sí, en el servicio que corría no. O sea que los `.pmtiles` seguían dentro del
+contenedor, que es exactamente la situación del día 21.
 
-Así que la carpeta vive **fuera del contenedor**, en el host, y se monta:
+**Así quedó, y ya no depende de ningún despliegue:**
 
 ```
-/var/lib/procovar/mapa   →   /usr/share/nginx/html/mapa   (bind, en la Application reparto-web)
+https://archivos.procovar.cloud/reparto/mapa/cuba-<nivel>-<fecha>.pmtiles
 ```
 
-El montaje está dado de alta en Dokploy (`mounts.create`, `mountId SQaRd2j1rtvP9Y4vnCNAO`) y
-**entra al desplegar**. Un `.pmtiles` nuevo se sube a la carpeta del host y ya está servido:
-no hace falta reconstruir la web, y ningún despliegue vuelve a borrarlo.
+Es **MinIO**, un almacén S3 de verdad (mismo protocolo, mismos SDK) en su propia Application
+de Dokploy, en el proyecto **Infraestructura**. Los bytes viven en
+`/var/lib/procovar/minio` del host, **fuera de cualquier imagen**: desplegar la web, la api o
+el propio MinIO no los toca. El detalle entero del servicio —imagen fijada, montaje,
+credenciales, consola— está en `../../docs/VPS-179.198.107.1.md`.
+
+El día que haya que irse a otro sitio (S3 de Amazon, R2, lo que sea) **no cambia el código**:
+cambian las cuatro URL de §5.5.
+
+#### Subirlos
+
+Se sube **desde dentro del servidor**, con `mc-procovar` —un envoltorio que corre el cliente
+de MinIO en un contenedor de usar y tirar; en el host no hay nada instalado—. La carpeta
+`/var/lib/procovar` del host se ve dentro como `/host`:
 
 ```bash
-# desde tu equipo, con la conexión SSH que ya está montada
+# desde tu equipo, el fichero al host primero
 scp /tmp/mapa/cuba-*.pmtiles vps:/var/lib/procovar/mapa/
 
-# y DENTRO del servidor, comprobar que llegó entero:
-ssh vps 'cd /var/lib/procovar/mapa && sha256sum cuba-*.pmtiles && ls -l'
+# y DENTRO del servidor, a MinIO:
+ssh vps 'for n in basico completo detallado; do
+  mc-procovar cp --attr "Content-Type=application/octet-stream;Cache-Control=private, no-store" \
+    "/host/mapa/cuba-$n-260922.pmtiles" "procovar/reparto/mapa/cuba-$n-260922.pmtiles" < /dev/null
+done'
 ```
 
-**Y se comprueba que lo que se sirve es el fichero y no la página**, que es justo lo que
-falló:
+**Ese `Cache-Control: private, no-store` no es un detalle, es lo que salva las descargas por
+rango.** El dominio pasa por Cloudflare; Cloudflare cachea las extensiones que reconoce y de
+su copia **no sirve `206`**, contesta `200` con el fichero entero. Con `no-store` contesta
+`BYPASS` y la petición llega a MinIO intacta. Se ve en la sección de MinIO del inventario del
+VPS, con el `.apk` como caso que lo destapó.
+
+**Y el `< /dev/null` tampoco sobra**: el contenedor se lanza con `-i`, así que dentro de un
+guion remoto `mc` se come el resto del guion y no imprime nada, como si no hubiera pasado.
+
+#### Comprobarlo, las cuatro cosas
 
 ```bash
-ssh vps 'curl -s -r 0-6 https://reparto.procovar.cloud/mapa/cuba-detallado.pmtiles | xxd | head -1'
-# tiene que empezar por: 504d 5469 6c65 73   → "PMTiles"
+ssh vps 'B=https://archivos.procovar.cloud/reparto/mapa
+for n in basico completo detallado; do
+  curl -s -o /tmp/z "$B/cuba-$n-260922.pmtiles"
+  echo "$n  $(sha256sum /tmp/z | cut -d\  -f1)  $(stat -c%s /tmp/z)  \
+rango=$(curl -s -o /dev/null -w "%{http_code}" -r 0-99 "$B/cuba-$n-260922.pmtiles")  \
+magia=$(head -c7 /tmp/z)"
+done; rm -f /tmp/z'
 ```
 
-Los `sha256` que salgan ahí tienen que ser **los mismos** que imprimió el generador. Si no lo
-son, el fichero se estropeó por el camino y no se anuncia.
+Las cuatro tienen que salir:
 
-> **Ojo con el camino, que es la trampa del §3-quater de `CLAUDE.md`.** Traefik reparte por
-> prefijo de **cadena**, no de segmento: `Host(reparto.procovar.cloud)` sin más va a la
-> aplicación. Los ficheros bajo `/mapa/` los sirve ese mismo nginx desde el disco y funcionan
-> —el fichero existe, así que el `try_files` de la SPA no se lo come—, pero **el camino
-> `/mapa/` no puede ser también una ruta del enrutador de Flutter**, o recargar ahí serviría
-> el `.pmtiles` en vez de la pantalla. Por eso la pantalla se registró en
-> `/mapa-sin-conexion` y no en `/mapa`. Si se cambia el sitio de los ficheros, hay que volver
-> a mirar esto.
+1. **El `sha256` igual** al que imprimió el generador y al que anuncia la api. Si no, el
+   fichero se estropeó por el camino y **no se anuncia**.
+2. **Los bytes iguales** a los de `ls -l`.
+3. **`rango=206`**. Sin peticiones por rango la descarga sigue funcionando pero **deja de
+   poder reanudarse**, y en la conexión de allá eso es la diferencia entre terminar y no
+   terminar.
+4. **`magia=PMTiles`** (`504d 5469 6c65 73`). Es lo que desmiente el fallo del 21/09: si lo
+   que contesta es la página de la web, aquí sale `<!doctype`.
 
-El servidor de estáticos tiene que **admitir peticiones por rango** (`Accept-Ranges: bytes`).
-nginx lo hace de serie con ficheros estáticos. Sin eso la descarga sigue funcionando, pero
-**deja de poder reanudarse**, que en la conexión de allá es la diferencia entre terminar y no
-terminar. Se comprueba dentro del servidor:
+Medido el 22/09/2026, con los tres niveles anunciados:
+
+| Nivel | bytes | `sha256` | rango |
+|---|---|---|---|
+| `basico` | 5.996.612 | `34ccf34f83db9a8f1334bb19866f6428d74199cf03d083a9131630fa437b02c5` | 206 |
+| `completo` | 49.204.814 | `b78bf65ee38c69db42222dfec0acb955428b768ffc64f837e3dfa4949388eff4` | 206 |
+| `detallado` | 101.663.628 | `0c1c988f5a2ae758b6d71d4c98416ea412fdad8c63117f06660ee0aa608ba5ba` | 206 |
+
+Los tres son **byte a byte** los mismos que hay en `/var/lib/procovar/mapa`, y el `detallado`
+—97 MB— bajó entero por el dominio en 2,8 segundos desde el propio servidor.
+
+#### Lo viejo se queda de red, por ahora
+
+`/var/lib/procovar/mapa` **sigue ahí**, y el nginx de `reparto-web` sigue teniendo su copia
+dentro del contenedor sirviendo `https://reparto.procovar.cloud/mapa/…`. **Nadie la anuncia
+ya**, pero no se borra hasta que Jose haya bajado el mapa en su teléfono desde la URL nueva.
+Cuando lo confirme:
 
 ```bash
-ssh vps 'curl -sI -r 0-99 http://127.0.0.1/mapa/cuba-completo.pmtiles | head -5'
-# tiene que decir: HTTP/1.1 206 Partial Content
+ssh vps 'rm -f /var/lib/procovar/mapa/cuba-*.pmtiles'
 ```
+
+Y con eso el montaje `mountId SQaRd2j1rtvP9Y4vnCNAO` de `reparto-web`, y el camino `/mapa/`
+de su nginx, **sobran**: la web ya no sirve ficheros, sólo la aplicación.
+
+> **La trampa del camino ya no aplica igual, pero conviene saber por qué estaba.** Traefik
+> reparte por prefijo de **cadena**, no de segmento, así que cuando los ficheros salían por
+> `reparto.procovar.cloud/mapa/` el camino `/mapa/` no podía ser además una ruta del
+> enrutador de Flutter —recargar ahí habría servido el `.pmtiles` en vez de la pantalla—, y
+> por eso la pantalla se registró en `/mapa-sin-conexion`. Ahora los ficheros salen por otro
+> dominio y el choque desaparece; **la pantalla se queda donde está igualmente**, porque
+> moverla obligaría a recompilar los aparatos.
 
 ### 5.5 Anunciarlo
 
@@ -519,23 +580,57 @@ El precio de eso, y está asumido: una errata (`MAPA_COMPLTO_URL`) crea un nivel
 «complto» que **sale en la pantalla del logístico**. Es feo y **se ve**, que es mejor que un
 nivel que falta y no se ve.
 
-Ejemplo con los números medidos hoy (los del `.pbf` del 21/09/2026, ya con los
-multipolígonos; **estos ficheros no están colgados todavía**, son los que salen del generador
-tal como está):
+**Lo que está puesto hoy, 22/09/2026** — y esto ya no es un ejemplo: es lo que contesta
+`/api/mapa`, copiado de las variables de la api. Son los tres paquetes **con los
+multipolígonos**, generados desde el extracto del 22/09/2026 (62.077.074 bytes, `sha256`
+`e1e03f6eb0cbbfb6ee172d97ec5f502d9cbb3eab99e25a42183be94e6cdfbdb7`):
 
 ```
-MAPA_VERSION=260921
-MAPA_FECHA=2026-09-21
-MAPA_BASICO_URL=https://reparto.procovar.cloud/mapa/cuba-basico.pmtiles
-MAPA_BASICO_BYTES=5996112
-MAPA_BASICO_SHA256=9507f75162d8b9b06a7328dde067adc493ad6af3d509d0ca391e9e08e08f2423
-MAPA_COMPLETO_URL=https://reparto.procovar.cloud/mapa/cuba-completo.pmtiles
-MAPA_COMPLETO_BYTES=49198548
-MAPA_COMPLETO_SHA256=2efed831465287c12e60c8fb50d8ee96685904bffac28aeec9c2365890137f2a
-MAPA_DETALLADO_URL=https://reparto.procovar.cloud/mapa/cuba-detallado.pmtiles
-MAPA_DETALLADO_BYTES=101652569
-MAPA_DETALLADO_SHA256=b298053460696ed5d1011bccd1ad0ebcb9f16accfbdf29bf95936b96f9179b7f
+MAPA_VERSION=260922
+MAPA_FECHA=2026-09-22
+MAPA_BASICO_URL=https://archivos.procovar.cloud/reparto/mapa/cuba-basico-260922.pmtiles
+MAPA_BASICO_BYTES=5996612
+MAPA_BASICO_SHA256=34ccf34f83db9a8f1334bb19866f6428d74199cf03d083a9131630fa437b02c5
+MAPA_COMPLETO_URL=https://archivos.procovar.cloud/reparto/mapa/cuba-completo-260922.pmtiles
+MAPA_COMPLETO_BYTES=49204814
+MAPA_COMPLETO_SHA256=b78bf65ee38c69db42222dfec0acb955428b768ffc64f837e3dfa4949388eff4
+MAPA_DETALLADO_URL=https://archivos.procovar.cloud/reparto/mapa/cuba-detallado-260922.pmtiles
+MAPA_DETALLADO_BYTES=101663628
+MAPA_DETALLADO_SHA256=0c1c988f5a2ae758b6d71d4c98416ea412fdad8c63117f06660ee0aa608ba5ba
 ```
+
+> **La mudanza a MinIO, tal como se hizo el 22/09/2026.** No fue «cambiar una URL y ya»: el
+> orden importa y es éste, porque cada paso deja el anterior comprobado.
+>
+> 1. Subir los ficheros al bucket (§5.4) y **comprobar las cuatro cosas** —`sha256`, bytes,
+>    `206` y la magia `PMTiles`— en la URL nueva, **antes de tocar nada de la api**. Mientras
+>    la api siga anunciando las URL viejas, los aparatos siguen descargando de donde siempre
+>    y una prueba fallida no le cuesta el mapa a nadie.
+> 2. Cambiar **sólo las tres `MAPA_<NIVEL>_URL`** en el entorno de `reparto-api`
+>    (`applicationId 0iQ8gLv5ZIHD1n_DRlzOa`). **`BYTES` y `SHA256` no se tocan**: es el mismo
+>    fichero, así que **si cambiaran sería que algo se estropeó al subir, y entonces no se
+>    anuncia**. Por la API de Dokploy, `application.saveEnvironment` quiere además
+>    `buildArgs`, `buildSecrets` y `createEnvFile` o contesta 400; se releen de
+>    `application.one` y se devuelven tal cual.
+> 3. Desplegar la api y **esperar a `done`**.
+> 4. Y la comprobación que vale: tomar las URL **de lo que contesta `/api/mapa`** —no de lo
+>    que uno cree haber puesto— bajarlas enteras desde dentro del servidor y comparar el
+>    `sha256` con el que anuncia el propio JSON. Hecho: los tres niveles coincidieron.
+>
+> Lo de antes se queda de red hasta que Jose baje el mapa en su teléfono, y se barre con el
+> `rm` del §5.4.
+
+> **El nombre lleva la fecha, y por eso.** Los de antes se llamaban `cuba-<nivel>.pmtiles` a
+> secas y siguen en la carpeta del host. Colgar el nuevo encima del viejo son dos fallos en
+> uno: mientras se sube, la api está anunciando un `sha256` que el fichero de debajo ya no
+> tiene —y cualquiera que descargue en esa ventana se lleva un paquete que rechaza su propia
+> comprobación—, y si algo sale mal no queda a qué volver. Con la fecha en el nombre el viejo
+> se queda quieto sirviendo hasta que las variables apuntan al nuevo, y el cambio es atómico:
+> lo hace el despliegue de la api, no el `scp`.
+
+> **Y una advertencia sobre la carpeta**, que ya se llenó una vez: cada juego son ~157 MB en
+> el disco del host. Los de días anteriores se borran **cuando nadie los anuncia y ha pasado
+> una descarga entera**, no el mismo día.
 
 > **Ojo con la versión.** Estos tres paquetes traen capas que los de antes no tenían, así que
 > `MAPA_VERSION` **tiene que cambiar** aunque el `.pbf` fuera el mismo día: si no, los aparatos
@@ -569,7 +664,7 @@ Sin sesión, como `/api/version`: el aparato lo consulta al arrancar.
       "fecha": "2026-09-16T00:00:00Z",
       "bytes": 2375346,
       "sha256": "21e725…",
-      "url": "https://reparto.procovar.cloud/mapa/cuba-basico.pmtiles"
+      "url": "https://archivos.procovar.cloud/reparto/mapa/cuba-basico.pmtiles"
     }
   ]
 }
@@ -666,10 +761,18 @@ Las clases exactas y desde qué zoom aparece cada una están en la tabla del §3
 el pintor no conozca no se deja sin pintar en silencio**: se pinta con el color de por defecto
 de su capa, que se ve raro y se arregla, en vez de dejar un hueco que nadie nota.
 
-**Y eso es justo lo que pasa hoy con `humedal`**, la clase de la tarde del 21/09/2026: el
-pintor no la conoce, así que cae en el `_ =>` de su tabla y la Ciénaga de Zapata sale pintada
-del color de `hierba`. Se ve y se arregla con una línea en esa tabla más su entrada en
-`ColoresDelMapa`; no bloquea nada y no deja ningún hueco.
+**Y eso es justo lo que pasó con `humedal`**, la clase de la tarde del 21/09/2026: durante un
+día el pintor no la conocía, así que caía en el `_ =>` de su tabla y la Ciénaga de Zapata se
+pintaba del color de `hierba`. Se arregló el 22/09/2026 con su línea en la tabla y su entrada
+en `ColoresDelMapa` —`humedal` es `#CCE3DB`—, y el `_ =>` se queda donde está para la
+siguiente.
+
+Lo que la regla no traía, y ahora sí: **una prueba que compare las dos listas**. Un `_ =>` con
+color evita el hueco, pero no avisa de nada —por eso estuvo un día mintiendo—. La que avisa es
+`app/test/mapa/colores_del_suelo_test.dart`, que lee `clasesDeSuelo` **del propio
+`niveles.go`** y exige que cada clase que escribe el generador tenga su color en el pintor. Es
+la regla del §3-bis de `CLAUDE.md` aplicada aquí: dos sitios que tienen que decir lo mismo se
+atan con una prueba, no con un comentario.
 
 **Los agujeros ya funcionan y no hay nada que tocar**, pero conviene saber por qué: `_camino`
 mete todos los trozos del rasgo en un solo `Path`, y un `Path` de Flutter rellena con
@@ -699,9 +802,14 @@ convierten una telaraña de líneas en un sitio reconocible.
       en el `ProviderScope` de `app/lib/main.dart:21`. **Sin esto el paquete se descarga y no
       se dibuja.** Es una línea y no se hizo aquí porque `main.dart` es de otra tarea; está en
       el informe con el texto exacto.
-- [ ] **Decidir dónde se cuelgan los ficheros** y poner las `MAPA_*`. Mientras no estén,
-      `/api/mapa` devuelve `"niveles": null` y ningún aparato ofrece descargar nada, que es el
-      estado seguro.
+- [x] **Decidir dónde se cuelgan los ficheros** y poner las `MAPA_*`. Hecho el 22/09/2026, y
+      **cerrado de verdad**: están en **MinIO** (`https://archivos.procovar.cloud/reparto/mapa/`),
+      con los bytes en `/var/lib/procovar/minio` del host y el montaje comprobado en el
+      servicio que corre —no en el panel—, así que ningún despliegue se los puede llevar.
+      `/api/mapa` los anuncia con sus bytes y su `sha256` (§5.5) y los **tres** se bajaron
+      enteros por el dominio desde dentro del servidor, con la huella anunciada, la magia
+      `PMTiles` y `206` a la petición por rango. Lo único pendiente es **barrer las copias
+      viejas** cuando Jose confirme la descarga en su teléfono (§5.4).
 
 Y tres de más adelante:
 
@@ -710,9 +818,14 @@ Y tres de más adelante:
       —que además estrena clase propia, `humedal`—. Las `type=boundary` se miraron una a una y
       se quedan fuera: ninguna aporta a las capas de hoy. Lo que costó está medido en el §4 y
       el sentido de giro de los anillos, en el §3-bis.
-- [ ] **Darle color a `humedal` en el pintor** (la tabla de colores de `suelo` en
-      `fondo_del_paquete.dart`, §9). Hoy cae en el `_ =>` y sale del color de `hierba`: se ve,
-      pero no distingue una ciénaga de un prado, y por uno se mete un camión y por la otra no.
+- [x] **Darle color a `humedal` en el pintor.** Hecho el 22/09/2026: `ColoresDelMapa.humedal`
+      es `#CCE3DB`, un verde azulado flojo que queda a 70 grados de tono de la `hierba` y a 44
+      del `agua`, y su línea está en la tabla de `suelo` de `fondo_del_paquete.dart`. Lo sujetan
+      dos pruebas de distinta altura: `app/test/mapa/colores_del_suelo_test.dart` ata la
+      decisión —y ata además **la lista de clases del generador con la tabla del pintor**, que
+      es lo que habría cazado esto el mismo día—, y la sonda de
+      `app/test/mapa/sonda_dibujo_test.dart` dibuja la tesela de la Ciénaga de Zapata con el
+      paquete de verdad al lado: 33.233 de sus 65.536 píxeles salen del color del humedal.
 - [ ] **Rotular las calles** (§9).
 - [ ] **Recortar por provincia.** Hoy se baja Cuba entera porque es lo que pidió Jose y porque
       25,8 MB lo aguanta cualquiera. El formato ya permite servir sólo la zona que se mira, sin

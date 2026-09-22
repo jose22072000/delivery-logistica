@@ -197,6 +197,40 @@ WHERE o.id = ANY(sqlc.arg('pedido_ids')::uuid[])
   AND (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid)
 ORDER BY o.created_at ASC;
 
+-- POR QUÉ NO SE PUEDE ARMAR CON ÉSTE. Es la explicación del 409, no un filtro.
+--
+-- `PedidosParaArmarRuta` devuelve MENOS de los que se le piden por cinco motivos distintos
+-- —ya va en otra ruta, se quedó sin coordenadas, PEDIDO lo archivó, no vino de PEDIDO, o
+-- no es de tu sucursal— y durante meses la diferencia entera se le atribuyó a «ya están en
+-- otra ruta». Era el mismo fallo que ya se arregló en el tablero (`tablero.go`,
+-- `porQueNoEsCandidato`) y aquí seguía: el motivo equivocado, sin decir CUÁL de los
+-- quince, y con un «Vuelve a elegirlos» que para un pedido archivado no arregla nada —
+-- volver a pulsar da exactamente lo mismo, que es un rechazo permanente disfrazado de
+-- reintento.
+--
+-- Trae los datos en crudo y el motivo lo decide Go (`porQueNoSeArma`), que es donde están
+-- escritas las prioridades: un entregado conserva su `route_id`, así que mirar la ruta
+-- primero le contaría al logístico que «otro lo subió a un camión» cuando lo que pasó es
+-- que ese pedido ya está en casa del cliente.
+--
+-- El `LEFT JOIN` es lo que deja NOMBRAR la ruta: «ya va en la ruta RT-20260922-003» le
+-- dice a alguien dónde mirar; «ya va en otra ruta» le deja quince rutas que abrir.
+--
+-- EL ALCANCE VA AQUÍ TAMBIÉN, y por eso un pedido de otra sucursal no devuelve fila: desde
+-- fuera «no existe» y «no es tuyo» tienen que ser lo mismo, igual que en `ObtenerRuta`.
+-- Quien no devuelve fila se nombra igual, con ese motivo y sin contar nada de él.
+-- name: PorQueNoSePuedeArmar :many
+SELECT
+    o.id, o.operation_number, o.customer_name,
+    o.route_id, o.delivered_at, o.resultado,
+    o.end_lat, o.end_lng, o.archivado, o.source,
+    r.route_code AS ruta_codigo,
+    r.name       AS ruta_nombre
+FROM orders o
+LEFT JOIN routes r ON r.id = o.route_id
+WHERE o.id = ANY(sqlc.arg('pedido_ids')::uuid[])
+  AND (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid);
+
 -- Cuántas rutas se llevan hoy, para el `NNN` de `RT-YYYYMMDD-NNN`.
 --
 -- OJO: no es atómico. Dos armados a la vez leen el mismo número y salen con el mismo

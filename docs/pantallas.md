@@ -367,8 +367,8 @@ falta salida, vehículo o pedidos, o si hay sobrepeso.
 **Errores del servidor, literales (salen como aviso emergente, no dentro del cajón):**
 - `Las coordenadas del punto de partida son requeridas` (400)
 - `Se requiere un vehículo para crear la ruta` (400)
-- `Los pedidos seleccionados ya no están disponibles` (400)
-- `<n> de los <total> pedidos ya están en otra ruta. Vuelve a elegirlos.` (409)
+- `Los pedidos seleccionados ya no están disponibles: <detalle>` (400)
+- `<n> de los <total> pedidos elegidos no pueden ir en esta ruta: <folio> (ya va en la ruta RT-…|ya se entregó y no puede volver a un camión|PEDIDO lo archivó|sin coordenadas de entrega|no vino de PEDIDO|no existe o no es de tu sucursal|no es un identificador de pedido), … y <k> más.` (409)
 - `En una ruta sólo entra lo facturado y que cuadre. <n> no cumplen: <folio> (cambió en la factura|sin facturar|sin cotejar), … y <n> más.` (409)
 - `Peso total (<w> kg) supera la capacidad del vehículo (<c> kg)` (400)
 - `Una ruta se arma eligiendo pedidos ya existentes. Manda \`orderIds\`.`

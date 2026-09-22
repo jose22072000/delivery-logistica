@@ -382,6 +382,24 @@ abstract final class ColoresDelMapa {
   static const bosque = Color(0xFFDCE6D2);
   static const parque = Color(0xFFD6E7C8);
   static const hierba = Color(0xFFE3EBDA);
+
+  /// EL HUMEDAL. La Ciénaga de Zapata y los otros 362 que entraron el
+  /// 21/09/2026 al coserse los multipolígonos.
+  ///
+  /// **No es un verde más.** Hasta el 22/09/2026 esta clase no existía aquí y
+  /// caía en el `_ =>` de la tabla del pintor, o sea que la ciénaga más grande
+  /// del Caribe salía pintada **del color de un prado**: por un prado se mete un
+  /// camión y por una ciénaga no, y el mapa lo decía al revés.
+  ///
+  /// El tono es el punto medio de lo que es una ciénaga —tierra encharcada—, y
+  /// eso es también lo que lo separa de sus dos vecinos: la `hierba` es verde
+  /// amarillento (tono 88) y el `agua` es azul (tono 202); éste es un verde
+  /// azulado a 159, o sea a 70 grados de una y a 44 del otro. Y va **un pelo más
+  /// oscuro** que la hierba a propósito: el mapa es el fondo sobre el que se lee
+  /// la ruta, así que no puede gritar, pero una mancha que dice «por aquí no se
+  /// pasa» tampoco puede ser la más flojita de la capa.
+  static const humedal = Color(0xFFCCE3DB);
+
   static const urbano = Color(0xFFEDE7DE);
   static const industrial = Color(0xFFE6E0E6);
   static const portuario = Color(0xFFE2DCE8);

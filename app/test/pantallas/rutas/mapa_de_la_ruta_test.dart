@@ -896,14 +896,25 @@ void main() {
       // demuestra nada —un widget fuera de pantalla tambien existe—: hay que
       // **llegar** y que quepa dentro de la ventana.
       final ultima = find.text('Carga total');
-      await tester.scrollUntilVisible(
-        ultima,
-        200,
-        scrollable: find.ancestor(
-          of: find.byKey(CroquisDeRuta.clave),
-          matching: find.byType(Scrollable),
-        ),
-      );
+      // SE ARRASTRA POR EL BORDE, no por el centro, desde el 21/09/2026.
+      //
+      // `scrollUntilVisible` tira del CENTRO del `Scrollable`, y en un teléfono
+      // ese centro cae encima del mapa — que desde esa fecha se queda el
+      // arrastre de un dedo por decisión de Jose («que un dedo mueva el mapa
+      // ahí mismo»). El resultado era `Bad state: No element`: la lista no se
+      // movía nunca y la última tarjeta no llegaba.
+      //
+      // Una persona hace exactamente esto: si el mapa no baja la pantalla, pone
+      // el dedo al lado. Lo que esta prueba vigila sigue siendo lo mismo —**que
+      // al final del detalle se llega**—, y de paso ahora vigila que se llega
+      // SIN tocar el mapa, que es la única forma que le queda al chofer.
+      for (var i = 0; i < 20 && ultima.evaluate().isEmpty; i++) {
+        await tester.dragFrom(
+          Offset(telefono.width - 8, telefono.height - 120),
+          const Offset(0, -200),
+        );
+        await tester.pump();
+      }
       await tester.pump();
 
       final caja = tester.getRect(ultima);

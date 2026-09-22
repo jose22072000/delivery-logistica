@@ -221,7 +221,14 @@ func TestUnProvisionalQueNoExisteSeRechazaConMotivo(t *testing.T) {
 func TestLoRechazadoSeGuardaConSuMotivoYNoSeVuelveAEvaluar(t *testing.T) {
 	b := montar(t)
 
-	const motivo = "3 de los 8 pedidos ya están en otra ruta. Vuelve a elegirlos."
+	// EL MOTIVO TAL Y COMO LO ESCRIBE EL REPARTO: con el pedido nombrado y con la ruta en
+	// la que está. Es el caso que pidió Jose el 21/09/2026 —una ruta armada sin señal con
+	// pedidos que ya iban en otra— y el que tiene que llegar hasta aquí entero. Antes este
+	// literal era «3 de los 8 pedidos ya están en otra ruta. Vuelve a elegirlos.», que ni
+	// decía cuál ni era cierto la mitad de las veces (`api/internal/api/rutas.go`,
+	// `porQueNoSeArma`).
+	const motivo = "1 de los 3 pedidos elegidos no pueden ir en esta ruta: " +
+		"X-2992 (ya va en la ruta RT-20260921-002)."
 	b.aplicador.responde = func(p Peticion) (*uuid.UUID, error) {
 		return nil, &Rechazo{Motivo: motivo}
 	}
@@ -275,6 +282,42 @@ func TestLoRechazadoSeGuardaConSuMotivoYNoSeVuelveAEvaluar(t *testing.T) {
 	}
 	if len(panel.Aparatos) != 1 || panel.Aparatos[0].Rechazados != 1 {
 		t.Fatalf("el aparato tenía que salir con 1 rechazo: %+v", panel.Aparatos)
+	}
+}
+
+// LA PAREJA DE LA DE ARRIBA: el apunte que SÍ entra no deja nada en la bandeja.
+//
+// Un aviso que sale en cada movimiento deja de leerse, y entonces tampoco se lee el día que
+// importa (`CLAUDE.md` del repo, §3-quinquies). Sin esta prueba, un `rechazar` llamado
+// siempre pasaría la de arriba con nota.
+func TestElApunteQueEntraNoDejaNadaEnLaBandeja(t *testing.T) {
+	b := montar(t)
+	creada := uuid.New()
+	b.aplicador.responde = func(p Peticion) (*uuid.UUID, error) { return &creada, nil }
+
+	apunte := apunteEntrada{
+		Clave: "01J8F010", Hecho: enPunto(t, "2026-09-14T10:00:00Z"),
+		Metodo: http.MethodPost, Ruta: "/api/routes",
+		Cuerpo: json.RawMessage(`{"orderIds":["p1","p2"]}`),
+	}
+	_, res := b.subir([]apunteEntrada{apunte}, b.quien)
+	if res[0].Estado != EstadoAplicado || res[0].Motivo != "" {
+		t.Fatalf("tenía que aplicarse y sin motivo: %+v", res[0])
+	}
+	if len(b.base.rechazos) != 0 {
+		t.Fatalf("no tenía que quedar nada en la bandeja: %+v", b.base.rechazos)
+	}
+	if n := b.base.subidas[0].RechazadosDelLote; n != 0 {
+		t.Fatalf("el contador del panel tenía que quedarse en 0, quedó en %d", n)
+	}
+
+	w := b.pedir(http.MethodGet, "/sync/estado", nil, b.quien)
+	var panel estadoSalida
+	if err := json.Unmarshal(w.Body.Bytes(), &panel); err != nil {
+		t.Fatalf("el estado no se entiende: %v", err)
+	}
+	if len(panel.Bandeja) != 0 {
+		t.Fatalf("la bandeja tenía que salir vacía: %+v", panel.Bandeja)
 	}
 }
 

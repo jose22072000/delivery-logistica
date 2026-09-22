@@ -235,6 +235,13 @@ DELIVERY_URL=http://reparto-api-XXXXXX:8080
 ENTORNO=produccion                     sólo para que el registro salga en JSON
 ```
 
+Y **son cinco, no cuatro**. El 22/09/2026 la Application llevaba desplegada cuatro días con
+las cuatro primeras y sin `ENTORNO`, así que el registro salía en texto plano: no rompe
+nada, pero es el único sitio donde se mira si el espejo va, y en texto plano no se filtra
+por `level`. Lo que hay que llevarse de ahí no es la variable, es que **una Application que
+lleva días «done» puede estar incompleta**: al tomar una que ya existe se cotejan sus
+variables con esta lista antes de dar nada por bueno.
+
 Las dos URL van por el **appName completo de Dokploy**, con su sufijo. Y `DELIVERY_URL`
 hay que ponerla sí o sí: «vacía = a mí mismo» es una regla de la api, y **este proceso no
 es la api**.
@@ -606,7 +613,7 @@ lleva dos horas girando contra un 401 está corriendo y no ha traído nada.
 **1. Que el ciclo pasa.** Cada vuelta deja rastro; el registro es lo primero:
 
 ```bash
-docker service logs <appName-del-espejo> --tail 50 --follow
+docker service logs reparto-espejo-isgzxg --tail 50 --follow
 ```
 
 **2. Que los datos entran, que es lo único que importa.** En la base del reparto:

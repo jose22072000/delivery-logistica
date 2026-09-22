@@ -3,13 +3,25 @@
 Todo lo que se puede preparar desde fuera ya está hecho. Esto es lo que queda, y es
 pegar en la interfaz de Dokploy.
 
-**Estado al 15/09/2026:**
+**Estado al 22/09/2026:**
 
 - [x] Repositorio: `github.com/jose22072000/delivery-logistica`, rama `main`
 - [x] Bases creadas en el Postgres del VPS: `procovar_reparto` y `procovar_reparto_sync`
 - [x] Migraciones aplicadas: 16 tablas y 5 tablas
 - [x] Las cinco imágenes construyen
-- [ ] **Los servicios en Dokploy** ← esto
+- [x] **Los cuatro servicios en Dokploy**, con sus `applicationId` y sus nombres completos:
+
+  | Servicio | `applicationId` | `appName` |
+  |---|---|---|
+  | `reparto-api` | `0iQ8gLv5ZIHD1n_DRlzOa` | `reparto-api-xzlmhw` |
+  | `reparto-sync` | `cL2fUM3oqIbQ0wEsMk4rz` | `reparto-sync-4kobtl` |
+  | `reparto-espejo` | `X0mtoCkFtThgp15BOYqpn` | `reparto-espejo-isgzxg` |
+  | `reparto-web` | `LNwUtx-ck325iAEB-rKyZ` | `reparto-web-dihwbq` |
+
+  Los cuatro del proyecto **Procovar-dev** (`Fpt1-2Miy6SpzwoGDBEVB`), entorno
+  `production` (`hgKnOJXZWZU8el7I7T4tR`). Antes de crear una Application nueva, **mírese
+  si ya está**: `application.one?applicationId=…` lo dice en una llamada, y crear la
+  segunda deja dos espejos barriendo a PEDIDO a la vez.
 - [ ] Redesplegar `auth` con los endpoints de token
 
 ## El dominio
@@ -98,6 +110,14 @@ Los trae y no los guarda, sin que nadie lo vea.
 
 Todo lo demás tiene valores por defecto medidos (`docs/despliegue.md` §3.2) y no se toca
 sin un motivo escrito.
+
+**Comprobado el 22/09/2026 en el servidor**: la Application está creada y corriendo con
+`Dockerfile Path = deploy/Dockerfile.espejo`, `Docker Context Path = .`, rama `main`,
+`command` vacío, 1 réplica, **sin puertos y sin dominios**. Le faltaba `ENTORNO=produccion`
+—de las cinco, cuatro— y por eso el registro salía en texto plano en vez de en JSON; se
+añadió y se redesplegó. Que trae datos se comprobó como manda `docs/despliegue.md` §5, con
+dos lecturas de la marca de agua: 13:52:40 a las 13:54Z y 13:59:38 a las 14:01Z, con los
+pedidos subiendo de 4.069 a 4.071. El contenedor corriendo no habría demostrado nada.
 
 **Esta Application no lleva Container Port, ni dominio, ni sondeo de salud, y su Command
 se deja vacío.** En particular **nada de `--once`**: con esa bandera el espejo hace una

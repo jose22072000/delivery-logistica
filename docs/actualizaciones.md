@@ -117,9 +117,8 @@ Detalles que importan:
 
 Publicar son **dos actos separados**, y en este orden:
 
-1. **Colgar los ficheros.** Se compilan a mano (`docs/compilar.md`) y alguien tiene que
-   ponerlos en un sitio con URL estable y accesible desde la calle. *Ese sitio todavía no
-   está decidido* — ver §6.
+1. **Colgar los ficheros.** Se compilan a mano (`docs/compilar.md`) y se suben a **MinIO**,
+   que es donde viven desde el 22/09/2026 — ver §3-bis.
 2. **Anunciarlos**, poniéndole a la api estas variables y volviéndola a desplegar:
 
 | Variable | ¿Obligatoria? | Qué es |
@@ -157,6 +156,97 @@ Publicar es un acto del despliegue, no un dato del reparto: no tiene alcance por
 no lo edita nadie desde una pantalla y no hace falta una migración para cambiarlo. Además
 así el manejador no toca Postgres, que es lo que permite que lo llamen los diez aparatos a
 la vez.
+
+## 3-bis. Dónde se cuelgan los ficheros: **MinIO**, desde el 22/09/2026
+
+Estuvo sin decidir a propósito —y por eso `APP_ULTIMA_VERSION` se quedaba vacía, que es el
+estado seguro—. Ya está decidido, y **está hecho**:
+
+```
+https://archivos.procovar.cloud/reparto/apk/reparto-<version>-<fecha>.apk
+```
+
+Es un almacén **S3 de verdad** (MinIO) en su propia Application de Dokploy, en el proyecto
+Infraestructura del VPS. Los bytes viven en `/var/lib/procovar/minio` del **host**, no dentro
+de ninguna imagen. El detalle entero —imagen fijada, montaje comprobado, credenciales,
+consola— está en `../../docs/VPS-179.198.107.1.md`.
+
+**Por qué no la carpeta del nginx de la web, que era el candidato natural**: porque ya se
+probó y se cayó. El 21/09/2026 un despliegue de `reparto-web` se llevó por delante los
+ficheros del mapa que estaban dentro de esa imagen, y la URL empezó a contestar **200 con el
+`index.html` de la aplicación dentro de un `.pmtiles`**. Con el APK sería peor: un `.apk` de
+1.608 bytes se baja «bien» y no instala. Lo cuenta entero `mapa-sin-conexion.md` §5.4.
+
+**Y por qué no una Release de GitHub**: el repositorio es privado, así que la descarga pediría
+credenciales en el teléfono de un logístico.
+
+### Así se sube uno nuevo
+
+Desde dentro del servidor, con `mc-procovar` —corre el cliente de MinIO en un contenedor de
+usar y tirar; en el host no se instala nada—. `/var/lib/procovar` del host se ve como `/host`:
+
+```bash
+scp app/build/app/outputs/flutter-apk/app-release.apk \
+    vps:/var/lib/procovar/apk/reparto-1.1.0-261005.apk
+
+ssh vps 'mc-procovar cp \
+  --attr "Content-Type=application/vnd.android.package-archive;Cache-Control=private, no-store" \
+  /host/apk/reparto-1.1.0-261005.apk procovar/reparto/apk/reparto-1.1.0-261005.apk < /dev/null'
+```
+
+**El `Cache-Control: private, no-store` es obligatorio y no es cosmética.** El dominio pasa por
+Cloudflare, Cloudflare **cachea los `.apk`** y de esa copia suya **no sirve peticiones por
+rango**: contestaba `200` con los 77 MB enteros y un `ETag` débil en vez de `206`. Sin rango
+**la descarga no se puede reanudar**, y 77 MB sin reanudar, en la conexión de allá, es una
+descarga que no termina nunca. Con `no-store` Cloudflare contesta `BYPASS` y el rango llega
+intacto a MinIO. Comprobado los dos casos el 22/09/2026.
+
+**El `< /dev/null` tampoco sobra**: el contenedor se lanza con `-i` y dentro de un guion
+remoto `mc` se come el resto del guion sin decir nada.
+
+### Y así se comprueba, antes de anunciarlo
+
+```bash
+ssh vps 'U=https://archivos.procovar.cloud/reparto/apk/reparto-1.1.0-261005.apk
+curl -s -o /tmp/z "$U"
+echo "sha=$(sha256sum /tmp/z | cut -d\  -f1) bytes=$(stat -c%s /tmp/z)"
+echo "rango=$(curl -s -o /dev/null -w "%{http_code}" -r 0-99 "$U")   # tiene que ser 206"
+echo "magia=$(head -c2 /tmp/z)                                        # tiene que ser PK"
+rm -f /tmp/z'
+```
+
+`PK` es la firma de un zip, que es lo que hay debajo de un APK. **Si ahí sale `<!`, lo que
+contesta es una página web y no un APK** — que es exactamente el fallo del 21/09.
+
+### El APK que está colgado hoy, 22/09/2026
+
+```
+APP_DESCARGA_ANDROID=https://archivos.procovar.cloud/reparto/apk/reparto-1.0.0-260921.apk
+bytes  76.810.980
+sha256 02b12cf29dea62896f70d22c9fd8faa5e9e8d81a3d0bdc4ee34dc243db4c5bb5
+```
+
+Bajado entero por el dominio desde dentro del servidor: misma huella que el fichero del host,
+`206` a la petición por rango y `PK` de magia.
+
+> **La mudanza, tal como se hizo, y el orden importa.** Primero se subió el APK a MinIO y se
+> comprobaron las cuatro cosas de arriba **con la api todavía anunciando la URL vieja** —así
+> una prueba fallida no le cuesta la descarga a nadie—. Sólo entonces se cambió
+> `APP_DESCARGA_ANDROID` en el entorno de `reparto-api` (`applicationId
+> 0iQ8gLv5ZIHD1n_DRlzOa`) y se volvió a desplegar. Por la API de Dokploy,
+> `application.saveEnvironment` quiere además `buildArgs`, `buildSecrets` y `createEnvFile` o
+> contesta 400: se releen de `application.one` y se devuelven tal cual. Y la comprobación que
+> vale es tomar la URL **de lo que contesta `/api/version`**, no de lo que uno cree haber
+> puesto, y bajarla.
+>
+> **El `.apk` viejo dentro del contenedor de la web se queda de red** hasta que Jose confirme
+> que se descarga y se instala desde la URL nueva. Cuando lo diga:
+> `ssh vps 'rm -f /var/lib/procovar/apk/reparto-1.0.0-260921.apk'`.
+
+> **El nombre lleva versión y fecha, y por eso.** Colgar uno nuevo encima del viejo son dos
+> fallos en uno: mientras se sube, la api anuncia un fichero que ya no está debajo, y si algo
+> sale mal no queda a qué volver. Con el nombre distinto el viejo sigue sirviendo hasta que
+> las variables apuntan al nuevo, y el cambio lo hace el despliegue de la api.
 
 ## 4. La firma del APK — HOY ESTÁ MAL
 
@@ -312,13 +402,14 @@ menos llega mañana.
 
 ## 6. Lo que falta
 
-- [ ] **Dónde se cuelgan los ficheros.** Se compilan a mano (`docs/compilar.md`) y hay que
-      ponerlos en una URL estable. No está decidido y **no se ha inventado**: mientras no lo
-      esté, `APP_ULTIMA_VERSION` se queda vacía y no se anuncia nada, que es el estado
-      seguro. El candidato natural es una carpeta servida por el nginx de la web en el VPS
-      —ya hay un servidor de estáticos ahí y sale por el dominio de siempre—; una Release de
-      GitHub daría URL estable pero el repositorio es privado y habría que ver cómo se baja
-      eso desde el teléfono de un logístico.
+- [x] **Dónde se cuelgan los ficheros.** Decidido y montado el 22/09/2026: **MinIO**, en
+      `https://archivos.procovar.cloud/reparto/apk/`, con los bytes fuera de toda imagen.
+      Ver §3-bis, que trae cómo se sube, cómo se comprueba y qué pasó con el rango y
+      Cloudflare. Lo único que queda de esto es **barrer la copia vieja** cuando Jose
+      confirme que se descarga e instala desde la URL nueva.
+- [ ] **Windows y Linux siguen sin colgar.** `APP_DESCARGA_WINDOWS` y `APP_DESCARGA_LINUX`
+      están vacías: el sitio ya existe (mismo bucket, prefijo `apk/` o uno nuevo), lo que
+      falta es compilar y subir. No se inventa una URL que no tiene fichero detrás.
 - [ ] **La clave de firma**, §4. Hasta que exista, cualquier APK que salga de aquí es de
       usar y tirar. **Esto va primero que lo demás**: el día que haya una clave de verdad,
       el APK que ya esté instalado en los aparatos habrá que desinstalarlo igual, así que

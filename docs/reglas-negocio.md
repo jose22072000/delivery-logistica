@@ -825,11 +825,21 @@ cuadraba con ninguno y el formulario lo contaba como si hubieran desaparecido, c
 recién elegidos. **Es el mismo fallo ya corregido para LEER (`scopeWhere`) que al escribir se quedó puesto.**
 
 ### 15.3 Rechazos, en orden
-1. **`orders.length === 0` → 400** `{error: 'Los pedidos seleccionados ya no están disponibles'}`.
-2. **`orders.length < orderIds.length` → 409**
-   `` `${faltan} de los ${orderIds.length} pedidos ya están en otra ruta. Vuelve a elegirlos.` ``
-   con `faltan = cuántos ids no volvieron`. *Se dice CUÁL y no se calla: con el mensaje genérico,
-   alguien crea la ruta creyendo que lleva diez paradas y lleva nueve.*
+1. **`orders.length === 0` → 400** `{error: 'Los pedidos seleccionados ya no están disponibles: <detalle>'}`.
+2. **Alguno de los elegidos no volvió → 409**
+   `` `${faltan} de los ${orderIds.length} pedidos elegidos no pueden ir en esta ruta: ` + detalle ``
+
+   **Aquí nos separamos del patrón (22/09/2026).** Delivery decía «ya están en otra ruta» para
+   los cinco motivos por los que la consulta descarta un pedido —otra ruta, archivado en PEDIDO,
+   sin coordenadas de entrega, no vino de PEDIDO, de otra sucursal—, y para tres de ellos
+   «Vuelve a elegirlos» es un rechazo permanente disfrazado de reintento: se pulsa otra vez y
+   contesta lo mismo. Ahora **cada uno se nombra con su motivo de verdad, y el que va en una ruta
+   dice EN CUÁL**. El pliego entero, con la tabla de motivos y su orden de prioridad, en
+   `docs/contratos-api.md` §15.1. Es lo que pidió Jose el 21/09/2026: «esto ocurriría cuando la
+   ruta se haya creado con pedidos que ya estuvieran en otra ruta, pero hay que notificarlo».
+
+   Y los **repetidos ya no cuentan como faltantes**: mandar dos veces el mismo id daba `1 < 2` y
+   contestaba 409 sobre un pedido que estaba libre.
 3. **Facturación — `noFacturados = orders.filter(o => o.facturaEstado !== 'igual')`. Si hay alguno →
    409.** Mensaje:
    `` `En una ruta sólo entra lo facturado y que cuadre. ${n} no cumplen: ` + detalle + (n > 5 ? ` y ${n-5} más.` : '.') ``

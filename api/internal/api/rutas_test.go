@@ -69,6 +69,10 @@ type pedidoDeRutas struct {
 	sucursal   uuid.UUID
 	externalID *string
 	fuente     *sqlc.Procedencia
+	// `archivado` es el borrado blando de PEDIDO y SÍ filtra en `PedidosParaArmarRuta`.
+	// Faltaba en el doble, así que la condición existía en el SQL y no se podía ejercitar
+	// desde aquí — que es como el 409 llegó a decir «ya está en otra ruta» de un archivado.
+	archivado bool
 
 	rutaID     *uuid.UUID // route_id: va cargado AHORA
 	ultimaRuta *uuid.UUID // ultima_ruta_id: en qué camión VIAJÓ
@@ -269,7 +273,7 @@ func (d *dobleDeRutas) PedidosParaArmarRuta(_ context.Context, arg sqlc.PedidosP
 	for _, id := range arg.PedidoIds { // el orden de la base; aquí, el de los ids
 		p, hay := d.pedidos[id]
 		switch {
-		case !hay, p.rutaID != nil, p.endLat == nil, p.endLng == nil:
+		case !hay, p.rutaID != nil, p.endLat == nil, p.endLng == nil, p.archivado:
 			continue
 		case p.fuente == nil || *p.fuente != sqlc.ProcedenciaPedido:
 			continue
@@ -287,6 +291,35 @@ func (d *dobleDeRutas) PedidosParaArmarRuta(_ context.Context, arg sqlc.PedidosP
 			// puede ejercitar desde aquí.
 			DeliveredAt: horaOpcionalDeRutas(p.entregadoEn), Resultado: p.resultado,
 		})
+	}
+	return salida, nil
+}
+
+// PorQueNoSePuedeArmar es la explicación del 409 y lleva EL MISMO alcance que la consulta
+// de arriba: un pedido de otra sucursal no devuelve fila, y por eso se nombra «no existe o
+// no es de tu sucursal» en vez de contar su número de operación.
+func (d *dobleDeRutas) PorQueNoSePuedeArmar(_ context.Context, arg sqlc.PorQueNoSePuedeArmarParams) ([]sqlc.PorQueNoSePuedeArmarRow, error) {
+	var salida []sqlc.PorQueNoSePuedeArmarRow
+	for _, id := range arg.PedidoIds {
+		p, hay := d.pedidos[id]
+		if !hay || !alcanza(arg.Sucursal, &p.sucursal) {
+			continue
+		}
+		fila := sqlc.PorQueNoSePuedeArmarRow{
+			ID: p.id, OperationNumber: p.operacion, CustomerName: p.cliente,
+			RouteID: pgOpcionalDeRutas(p.rutaID), DeliveredAt: horaOpcionalDeRutas(p.entregadoEn),
+			Resultado: p.resultado, EndLat: p.endLat, EndLng: p.endLng,
+			Archivado: p.archivado, Source: p.fuente,
+		}
+		// El `LEFT JOIN routes`: de ahí sale el código que se nombra en el mensaje.
+		if p.rutaID != nil {
+			if ruta, hay := d.rutas[*p.rutaID]; hay {
+				codigo := ruta.codigo
+				fila.RutaCodigo = &codigo
+				fila.RutaNombre = ruta.nombre
+			}
+		}
+		salida = append(salida, fila)
 	}
 	return salida, nil
 }
@@ -940,22 +973,27 @@ func TestArmarRutaValidaEnElOrdenDelPliego(t *testing.T) {
 	}
 }
 
-// EL MENSAJE LITERAL, que es lo que ve el logístico cuando otro se le adelantó.
-func TestArmarRutaDiceCuantosPedidosYaEstanEnOtraRuta(t *testing.T) {
+// EL MENSAJE QUE VE EL LOGÍSTICO CUANDO OTRO SE LE ADELANTÓ: con el pedido nombrado y con
+// la ruta en la que está.
+//
+// Antes decía «1 de los 3 pedidos ya están en otra ruta. Vuelve a elegirlos.» y con quince
+// elegidos eso obliga a adivinar cuál es y a abrir las rutas del día una por una.
+func TestArmarRutaNombraElPedidoYLaRutaEnQueYaVa(t *testing.T) {
 	d, stg, _ := datosDeReparto()
 	h := montarRutas(t, d)
 	jwt := deSantiagoEnRutas(t)
 
-	armarRutaDePrueba(t, h, jwt, stg[1]) // «Cerca» se va en la primera ruta
+	primera := armarRutaDePrueba(t, h, jwt, stg[1]) // «Cerca» se va en la primera ruta
+	codigo := d.rutas[primera].codigo
 
 	w := llamarRutas(t, h, http.MethodPost, "/api/routes", jwt,
 		cuerpoDeArmado(camionStg.String(), stg[0], stg[1], stg[2]))
 	if w.Code != http.StatusConflict {
 		t.Fatalf("código %d: %s", w.Code, w.Body.String())
 	}
-	const literal = "1 de los 3 pedidos ya están en otra ruta. Vuelve a elegirlos."
-	if got := errorDeRutas(t, w); got != literal {
-		t.Fatalf("el literal del pliego es %q y salió %q", literal, got)
+	esperado := "1 de los 3 pedidos elegidos no pueden ir en esta ruta: X-Cerca (ya va en la ruta " + codigo + ")."
+	if got := errorDeRutas(t, w); got != esperado {
+		t.Fatalf("mensaje:\n  %q\nse esperaba:\n  %q", got, esperado)
 	}
 	// Y no se creó nada a medias: sigue habiendo UNA ruta.
 	if len(d.rutas) != 1 {
@@ -963,15 +1001,185 @@ func TestArmarRutaDiceCuantosPedidosYaEstanEnOtraRuta(t *testing.T) {
 	}
 }
 
-func TestArmarRutaConTodosOcupadosDiceQueNoEstanDisponibles(t *testing.T) {
+// LA PAREJA: cuando NINGUNO está ocupado, no sale ningún aviso y la ruta se arma.
+//
+// Va pegada a la de arriba a propósito. Un aviso que salta siempre deja de leerse, y
+// entonces tampoco se lee el día que importa (`CLAUDE.md` §3-quinquies).
+func TestArmarRutaConTodosLibresNoAvisaDeNada(t *testing.T) {
+	d, stg, _ := datosDeReparto()
+	h := montarRutas(t, d)
+
+	w := llamarRutas(t, h, http.MethodPost, "/api/routes", deSantiagoEnRutas(t),
+		cuerpoDeArmado(camionStg.String(), stg[0], stg[1], stg[2]))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "no pueden ir en esta ruta") {
+		t.Fatalf("avisó sin tener de qué: %s", w.Body.String())
+	}
+	for _, id := range stg {
+		if d.pedidos[id].rutaID == nil {
+			t.Fatalf("el pedido %s no quedó enganchado", id)
+		}
+	}
+}
+
+// MANDAR DOS VECES EL MISMO ID NO ES UN CONFLICTO.
+//
+// Era `len(pedidos) < len(idsPedidos)` sobre la lista CON repetidos: dos veces el mismo id
+// daban `1 < 2` y contestaban «1 de los 2 pedidos ya están en otra ruta» sobre un pedido
+// que estaba perfectamente libre, mandando a la persona a buscar una ruta que no existe.
+func TestArmarRutaConUnIdRepetidoNoEsUnConflicto(t *testing.T) {
+	d, stg, _ := datosDeReparto()
+	h := montarRutas(t, d)
+
+	w := llamarRutas(t, h, http.MethodPost, "/api/routes", deSantiagoEnRutas(t),
+		cuerpoDeArmado(camionStg.String(), stg[0], stg[0], stg[1]))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	// Y la parada repetida entra UNA vez, no dos.
+	var ruta RutaSalida
+	if err := json.Unmarshal(w.Body.Bytes(), &ruta); err != nil {
+		t.Fatalf("respuesta ilegible: %v", err)
+	}
+	if n := len(ruta.Orders); n != 2 {
+		t.Fatalf("la ruta salió con %d paradas y tenía que llevar 2", n)
+	}
+}
+
+// LOS MOTIVOS SON DISTINTOS Y SE ARREGLAN DE TRES MANERAS DISTINTAS, así que no se juntan
+// en un número ni se disfrazan todos de «ya está en otra ruta».
+//
+// Ésta es la prueba que no existía y por eso el fallo duró: el archivado, el que se quedó
+// sin coordenadas y el de otra sucursal contestaban los tres lo mismo, y para dos de los
+// tres «Vuelve a elegirlos» no arregla nada — se pulsa otra vez y contesta igual.
+func TestArmarRutaDiceElMotivoDeVerdadDeCadaUno(t *testing.T) {
+	d, stg, ajeno := datosDeReparto()
+	d.pedidos[stg[0]].archivado = true // PEDIDO lo dio de baja
+	d.pedidos[stg[1]].endLat = nil     // una bajada del espejo lo dejó sin punto de entrega
+	h := montarRutas(t, d)
+
+	w := llamarRutas(t, h, http.MethodPost, "/api/routes", deSantiagoEnRutas(t),
+		cuerpoDeArmado(camionStg.String(), stg[0], stg[1], stg[2], ajeno))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	esperado := "3 de los 4 pedidos elegidos no pueden ir en esta ruta: " +
+		"X-Lejos (PEDIDO lo archivó), X-Cerca (sin coordenadas de entrega), " +
+		ajeno.String() + " (no existe o no es de tu sucursal)."
+	if got := errorDeRutas(t, w); got != esperado {
+		t.Fatalf("mensaje:\n  %q\nse esperaba:\n  %q", got, esperado)
+	}
+	// Y NO se le cuenta a Santiago nada del pedido de Holguín: ni su número de operación
+	// ni su cliente. Eso sería la fuga de la regla 1 por la puerta del mensaje de error.
+	if strings.Contains(w.Body.String(), "X-Ajeno") || strings.Contains(w.Body.String(), "Ajeno") {
+		t.Fatalf("el mensaje contó algo del pedido de Holguín: %s", w.Body.String())
+	}
+	if len(d.rutas) != 0 {
+		t.Fatal("se armó la ruta a pesar del rechazo")
+	}
+}
+
+// El entregado va ANTES que la ruta: conserva su `route_id`, así que mirando la ruta
+// primero se le diría al logístico que «otro lo subió a un camión» cuando ese pedido ya
+// está en casa del cliente, y lo que hay que hacer es distinto.
+func TestArmarRutaConUnEntregadoLoDiceAsiYNoComoOtraRuta(t *testing.T) {
+	d, stg, _ := datosDeReparto()
+	entregado := sqlc.StopResultEntregado
+	ayer := time.Now().Add(-24 * time.Hour)
+	otra := uuid.New()
+	d.rutas[otra] = &rutaDeRutas{id: otra, codigo: "RT-20260901-001", sucursal: &stgDeRutas}
+	d.pedidos[stg[0]].rutaID = &otra
+	d.pedidos[stg[0]].resultado = &entregado
+	d.pedidos[stg[0]].entregadoEn = &ayer
+	h := montarRutas(t, d)
+
+	w := llamarRutas(t, h, http.MethodPost, "/api/routes", deSantiagoEnRutas(t),
+		cuerpoDeArmado(camionStg.String(), stg[0], stg[1]))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	esperado := "1 de los 2 pedidos elegidos no pueden ir en esta ruta: " +
+		"X-Lejos (ya se entregó y no puede volver a un camión)."
+	if got := errorDeRutas(t, w); got != esperado {
+		t.Fatalf("mensaje:\n  %q\nse esperaba:\n  %q", got, esperado)
+	}
+	if strings.Contains(w.Body.String(), "RT-20260901-001") {
+		t.Fatal("le contó la ruta de ayer en vez de que ya se entregó")
+	}
+}
+
+// Ninguno sirve: sigue siendo 400 con el literal del contrato, PERO con el porqué de cada
+// uno detrás. Un 400 a secas era el descarte en silencio entero — la pantalla decía «ya no
+// están disponibles» y nadie sabía de cuál ni por qué.
+func TestArmarRutaConTodosOcupadosDiceQueNoEstanDisponiblesYPorQue(t *testing.T) {
 	d, stg, _ := datosDeReparto()
 	h := montarRutas(t, d)
 	jwt := deSantiagoEnRutas(t)
-	armarRutaDePrueba(t, h, jwt, stg[1])
+	primera := armarRutaDePrueba(t, h, jwt, stg[1])
+	codigo := d.rutas[primera].codigo
 
 	w := llamarRutas(t, h, http.MethodPost, "/api/routes", jwt, cuerpoDeArmado(camionStg.String(), stg[1]))
-	if w.Code != http.StatusBadRequest || errorDeRutas(t, w) != msgPedidosNoDisponibles {
-		t.Fatalf("código %d, mensaje %q", w.Code, errorDeRutas(t, w))
+	esperado := msgPedidosNoDisponibles + ": X-Cerca (ya va en la ruta " + codigo + ")."
+	if w.Code != http.StatusBadRequest || errorDeRutas(t, w) != esperado {
+		t.Fatalf("código %d, mensaje %q, se esperaba %q", w.Code, errorDeRutas(t, w), esperado)
+	}
+}
+
+// UN ID QUE NI SIQUIERA ES UN IDENTIFICADOR TAMBIÉN SE NOMBRA.
+//
+// `soloUuids` no lo busca —no puede estar en la base— pero sigue contando para la M, y sin
+// esta rama se caía del mensaje: la cabecera decía «2 de los 3» y sólo nombraba a uno, que
+// es la cuenta que no cuadra y que nadie puede explicar. La cazó una mutación.
+func TestArmarRutaNombraTambienLoQueNoEsUnIdentificador(t *testing.T) {
+	d, stg, _ := datosDeReparto()
+	h := montarRutas(t, d)
+
+	cuerpo := fmt.Sprintf(`{"vehicleId":%q,"originLat":0,"originLng":0,"orderIds":[%q,"local-7"]}`,
+		camionStg, stg[0])
+	w := llamarRutas(t, h, http.MethodPost, "/api/routes", deSantiagoEnRutas(t), cuerpo)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	const esperado = "1 de los 2 pedidos elegidos no pueden ir en esta ruta: " +
+		"local-7 (no es un identificador de pedido)."
+	if got := errorDeRutas(t, w); got != esperado {
+		t.Fatalf("mensaje:\n  %q\nse esperaba:\n  %q", got, esperado)
+	}
+	if len(d.rutas) != 0 {
+		t.Fatal("se armó la ruta a pesar del rechazo")
+	}
+}
+
+// Con más de cinco se nombran CINCO y se cuenta el resto, como los demás avisos del
+// armado: quince líneas en un aviso no las lee nadie.
+func TestArmarRutaConMasDeCincoQueNoEntranCuentaElResto(t *testing.T) {
+	d, _, _ := datosDeReparto()
+	fuente := sqlc.ProcedenciaPedido
+	igual := sqlc.FacturaEstadoIgual
+	var ids []uuid.UUID
+	for i := 0; i < 7; i++ {
+		id := uuid.New()
+		d.pedidos[id] = &pedidoDeRutas{
+			id: id, operacion: textoDeRutas(fmt.Sprintf("X-%d", i)), cliente: "Cliente",
+			endLat: decimalDeRutas(0), endLng: decimalDeRutas(float64(i) / 100),
+			factura: &igual, sucursal: stgDeRutas, fuente: &fuente, archivado: true,
+		}
+		ids = append(ids, id)
+	}
+	h := montarRutas(t, d)
+	w := llamarRutas(t, h, http.MethodPost, "/api/routes", deSantiagoEnRutas(t),
+		cuerpoDeArmado(camionStg.String(), ids...))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	mensaje := errorDeRutas(t, w)
+	if n := strings.Count(mensaje, "(PEDIDO lo archivó)"); n != 5 {
+		t.Fatalf("tenía que nombrar a CINCO y nombró a %d: %q", n, mensaje)
+	}
+	if !strings.HasSuffix(mensaje, " y 2 más.") {
+		t.Fatalf("no cuenta los que no nombra: %q", mensaje)
 	}
 }
 
@@ -1087,8 +1295,14 @@ func TestArmarRutaNoCogePedidosDeOtraSucursal(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("el pedido de Holguín tenía que faltar: %d %s", w.Code, w.Body.String())
 	}
-	if got := errorDeRutas(t, w); got != "1 de los 2 pedidos ya están en otra ruta. Vuelve a elegirlos." {
-		t.Fatalf("mensaje %q", got)
+	// Y el motivo es el de verdad. Aquí ponía «ya están en otra ruta», que era FALSO: ese
+	// pedido no está en ninguna ruta, es que no es de Santiago. Con el motivo equivocado la
+	// persona se va a buscar una ruta que no existe y vuelve a pulsar, y vuelve a salir lo
+	// mismo.
+	esperado := "1 de los 2 pedidos elegidos no pueden ir en esta ruta: " +
+		ajeno.String() + " (no existe o no es de tu sucursal)."
+	if got := errorDeRutas(t, w); got != esperado {
+		t.Fatalf("mensaje:\n  %q\nse esperaba:\n  %q", got, esperado)
 	}
 	if d.pedidos[ajeno].rutaID != nil {
 		t.Fatal("el pedido de Holguín acabó en un camión de Santiago")
@@ -1119,7 +1333,8 @@ func TestLaSucursalDelCuerpoSoloValeParaElSuperAdmin(t *testing.T) {
 	cuerpo = fmt.Sprintf(`{"vehicleId":%q,"originLat":0,"originLng":0,"branchId":%q,"orderIds":[%q]}`,
 		camionStg, holDeRutas, ajeno2)
 	w = llamarRutas(t, h2, http.MethodPost, "/api/routes", deSantiagoEnRutas(t), cuerpo)
-	if w.Code != http.StatusBadRequest || errorDeRutas(t, w) != msgPedidosNoDisponibles {
+	esperado := msgPedidosNoDisponibles + ": " + ajeno2.String() + " (no existe o no es de tu sucursal)."
+	if w.Code != http.StatusBadRequest || errorDeRutas(t, w) != esperado {
 		t.Fatalf("Santiago se llevó un pedido de Holguín pasando branchId: %d %s", w.Code, w.Body.String())
 	}
 }

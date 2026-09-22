@@ -93,6 +93,19 @@ func (a *Acotado) PedidosParaArmarRuta(ctx context.Context, pedidos []uuid.UUID)
 	})
 }
 
+// PorQueNoSePuedeArmar explica el 409 del armado, uno por uno.
+//
+// Lleva el MISMO alcance que `PedidosParaArmarRuta` y no puede llevar otro: si se leyera
+// sin acotar para «poder decir más», un id sondeado a mano contestaría el número de
+// operación y el nombre del cliente de otra sucursal, que es la fuga de la regla 1 por la
+// puerta del mensaje de error. Lo que no devuelve fila se nombra igual, con «no existe o
+// no es de tu sucursal», que es lo mismo que contesta `ObtenerRuta`.
+func (a *Acotado) PorQueNoSePuedeArmar(ctx context.Context, pedidos []uuid.UUID) ([]sqlc.PorQueNoSePuedeArmarRow, error) {
+	return a.q.PorQueNoSePuedeArmar(ctx, sqlc.PorQueNoSePuedeArmarParams{
+		PedidoIds: pedidos, Sucursal: a.sucursalPg(),
+	})
+}
+
 // ContarRutasDelDia NO lleva alcance a propósito: el `NNN` de `RT-YYYYMMDD-NNN` es de toda
 // la casa. Numerar por sucursal daría dos rutas distintas con el MISMO código el mismo
 // día, y ese código es lo que la gente se dice por teléfono.

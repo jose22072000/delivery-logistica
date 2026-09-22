@@ -723,14 +723,43 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
-	if len(pedidos) == 0 {
-		httpx.Error(w, r, http.StatusBadRequest, msgPedidosNoDisponibles)
-		return
-	}
-	if len(pedidos) < len(idsPedidos) {
-		// Se dice CUÁNTOS faltan y no un «no se pudo»: con el mensaje genérico alguien
-		// crea la ruta creyendo que lleva diez paradas y lleva nueve.
-		httpx.Error(w, r, http.StatusConflict, mensajeYaEnOtraRuta(len(idsPedidos)-len(pedidos), len(idsPedidos)))
+	// LOS QUE NO VOLVIERON, NOMBRADOS UNO A UNO Y CON SU MOTIVO DE VERDAD.
+	//
+	// Aquí había una RESTA —`len(idsPedidos) - len(pedidos)`— y la diferencia entera se le
+	// atribuía a «ya están en otra ruta». Es el mismo fallo que ya se arregló en el tablero
+	// (`tablero.go`, `porQueNoEsCandidato`) y en este camino seguía vivo, con tres
+	// agravantes:
+	//
+	//   · EL MOTIVO PODÍA SER FALSO. `PedidosParaArmarRuta` descarta además los archivados
+	//     en PEDIDO, los que se quedaron sin coordenadas de entrega —pasa: el upsert del
+	//     espejo escribe `end_lat = excluded.end_lat` sin `coalesce`—, los que no vinieron
+	//     de PEDIDO y los de otra sucursal. `TestArmarRutaNoCogePedidosDeOtraSucursal`
+	//     llegó a dejar escrito que un pedido de Holguín contestaba «ya está en otra ruta».
+	//   · NO DECÍA CUÁL. Con quince elegidos, «1 de los 15» obliga a adivinar.
+	//   · «Vuelve a elegirlos» ERA UN REINTENTO IMPOSIBLE para casi todos ellos: un pedido
+	//     archivado o sin coordenadas contesta lo mismo las veces que se pulse. Un rechazo
+	//     permanente disfrazado de reintento es justo lo que prohíbe el `CLAUDE.md`.
+	//
+	// Y de paso se arregla el repetido: mandar dos veces el mismo id hacía `1 < 2` y
+	// contestaba 409 sobre un pedido que estaba perfectamente libre. Lo que falta se
+	// calcula sobre los ids DISTINTOS; la M del mensaje sigue siendo lo que la persona
+	// eligió en la pantalla.
+	faltan, noSonID := faltanDelArmado(idsPedidos, pedidos)
+	if len(faltan) > 0 || len(noSonID) > 0 {
+		detalle, err := s.motivosDelArmado(r.Context(), ar, faltan, noSonID)
+		if err != nil {
+			httpx.ErrorInterno(w, r, err)
+			return
+		}
+		cuantos := len(faltan) + len(noSonID)
+		if len(pedidos) == 0 {
+			// Ninguno sirve. Se mantiene el literal del contrato como primera frase —es lo
+			// que la pantalla lleva reconociendo desde delivery— y detrás va el porqué de
+			// cada uno: sin eso, un 400 a secas es el descarte en silencio entero.
+			httpx.Error(w, r, http.StatusBadRequest, msgPedidosNoDisponibles+": "+detalle)
+			return
+		}
+		httpx.Error(w, r, http.StatusConflict, encabezadoDelArmado(cuantos, len(idsPedidos))+detalle)
 		return
 	}
 
@@ -896,7 +925,10 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 	// de los pedidos enganchados a una ruta que nadie va a mirar. La regla de la casa es
 	// que a medias no vale.
 	var creada sqlc.CrearRutaRow
-	var escapados int
+	// QUIÉNES se escaparon, no cuántos: el 409 de la carrera nombra a los suyos igual que
+	// el de arriba. Con un contador sólo se podía decir un número, y un número no le dice
+	// a nadie qué tarjeta quitar de la selección.
+	var escapados []uuid.UUID
 	err = ar.EnTx(r.Context(), func(tx *alcance.Acotado) error {
 		var err error
 		creada, err = tx.CrearRuta(r.Context(), sqlc.CrearRutaParams{
@@ -932,10 +964,10 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			if filas == 0 {
-				escapados++
+				escapados = append(escapados, id)
 			}
 		}
-		if escapados > 0 {
+		if len(escapados) > 0 {
 			return errPedidosEscapados
 		}
 		_, err = tx.FijarTotalesDeRuta(r.Context(), sqlc.FijarTotalesDeRutaParams{
@@ -951,7 +983,16 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if errors.Is(err, errPedidosEscapados) {
-		httpx.Error(w, r, http.StatusConflict, mensajeYaEnOtraRuta(escapados, len(idsPedidos)))
+		// La transacción ya deshizo la ruta entera: a medias no vale. Lo que se contesta es
+		// QUIÉNES se llevaron y a dónde, leído DESPUÉS del rollback —o sea el estado de
+		// ahora mismo, que es el que la persona va a ver al volver a la pantalla.
+		detalle, errM := s.motivosDelArmado(r.Context(), ar, escapados, nil)
+		if errM != nil {
+			httpx.ErrorInterno(w, r, errM)
+			return
+		}
+		httpx.Error(w, r, http.StatusConflict,
+			encabezadoDelArmado(len(escapados), len(idsPedidos))+detalle)
 		return
 	}
 	if err != nil {
@@ -1566,19 +1607,168 @@ func leerIdsDePedidos(crudo json.RawMessage) []string {
 
 // soloUuids es lo que se le pasa a la consulta. Un id que no es uuid no puede estar en la
 // base, así que no se busca; sigue contando para la M del mensaje.
+//
+// Y SIN REPETIDOS, que es lo que hace la base: `WHERE id = ANY('{a,a,b}')` devuelve la
+// fila de `a` UNA vez. Sin quitarlos aquí, los repetidos se colaban por otra puerta — el
+// peso de la ruta se sumaba dos veces y un camión al límite contestaba «supera la
+// capacidad» por un pedido que iba una sola vez. El orden en que los mandó la persona se
+// respeta, que es el que se usa con `optimizar:false`.
 func soloUuids(ids []string) []uuid.UUID {
 	salida := make([]uuid.UUID, 0, len(ids))
+	visto := make(map[uuid.UUID]bool, len(ids))
 	for _, texto := range ids {
-		if id, err := uuid.Parse(texto); err == nil {
-			salida = append(salida, id)
+		id, err := uuid.Parse(texto)
+		if err != nil || visto[id] {
+			continue
 		}
+		visto[id] = true
+		salida = append(salida, id)
 	}
 	return salida
 }
 
-// mensajeYaEnOtraRuta es EL literal del contrato, con sus dos números.
-func mensajeYaEnOtraRuta(faltan, pedidos int) string {
-	return fmt.Sprintf("%d de los %d pedidos ya están en otra ruta. Vuelve a elegirlos.", faltan, pedidos)
+// encabezadoDelArmado es la cabecera del 409, con sus dos números.
+//
+// Aquí decía «ya están en otra ruta. Vuelve a elegirlos.» y ése era el literal heredado de
+// delivery. Se cambia a propósito (CLAUDE.md §2, «el patrón se sigue SALVO donde se
+// equivoca») porque afirmaba una causa que muchas veces no era la de verdad: el mismo
+// mensaje salía para un pedido archivado, para uno sin coordenadas y para uno de otra
+// sucursal. La cabecera ahora dice lo único que es cierto siempre —cuántos de los que
+// elegiste no pueden ir— y el motivo de cada uno va detrás, nombrándolo.
+//
+// La M sigue siendo `len(orderIds)`, lo que la persona marcó en la pantalla, y no el número
+// de ids distintos: es lo que tiene delante mientras lee el aviso.
+func encabezadoDelArmado(faltan, pedidos int) string {
+	return fmt.Sprintf("%d de los %d pedidos elegidos no pueden ir en esta ruta: ", faltan, pedidos)
+}
+
+// faltanDelArmado separa lo que se pidió de lo que volvió.
+//
+// Devuelve los ids DISTINTOS que la consulta no trajo, en el orden en que los mandó la
+// persona —un mapa en Go se recorre al azar y un mensaje que cambia de orden entre dos
+// llamadas iguales no se puede comparar en una prueba ni leer en un registro—, y aparte los
+// textos que ni siquiera son un identificador.
+//
+// Los repetidos NO cuentan como faltantes: mandar dos veces el mismo id es una lista mal
+// hecha, no un conflicto, y contestarlo con un 409 mandaba a la persona a buscar una ruta
+// que no existe.
+func faltanDelArmado(ids []string, volvieron []sqlc.PedidosParaArmarRutaRow) ([]uuid.UUID, []string) {
+	llego := make(map[uuid.UUID]bool, len(volvieron))
+	for _, p := range volvieron {
+		llego[p.ID] = true
+	}
+	var faltan []uuid.UUID
+	var noSonID []string
+	visto := make(map[string]bool, len(ids))
+	for _, texto := range ids {
+		if visto[texto] {
+			continue
+		}
+		visto[texto] = true
+		id, err := uuid.Parse(texto)
+		if err != nil {
+			noSonID = append(noSonID, texto)
+			continue
+		}
+		if !llego[id] {
+			faltan = append(faltan, id)
+		}
+	}
+	return faltan, noSonID
+}
+
+// motivosDelArmado escribe POR QUÉ no entra cada uno, con su nombre y su ruta.
+//
+// Se nombran los cinco primeros y se cuenta el resto, igual que los otros mensajes del
+// armado: quince líneas en un aviso no las lee nadie, y un número sin nombres no sirve
+// para nada.
+func (s *Servidor) motivosDelArmado(ctx context.Context, ar *alcance.Acotado, faltan []uuid.UUID, noSonID []string) (string, error) {
+	porID := map[uuid.UUID]sqlc.PorQueNoSePuedeArmarRow{}
+	if len(faltan) > 0 {
+		filas, err := ar.PorQueNoSePuedeArmar(ctx, faltan)
+		if err != nil {
+			return "", err
+		}
+		for _, f := range filas {
+			porID[f.ID] = f
+		}
+	}
+
+	total := len(faltan) + len(noSonID)
+	detalle := make([]string, 0, 5)
+	apuntar := func(texto string) {
+		if len(detalle) < 5 {
+			detalle = append(detalle, texto)
+		}
+	}
+	for _, id := range faltan {
+		fila, hay := porID[id]
+		if !hay {
+			// NO EXISTE Y NO ES TUYO SON LO MISMO desde fuera, igual que en `ObtenerRuta`.
+			// Decir «existe pero es de Holguín» ya es contar algo de Holguín.
+			apuntar(fmt.Sprintf("%s (no existe o no es de tu sucursal)", id))
+			continue
+		}
+		apuntar(fmt.Sprintf("%s (%s)", quienEs(fila.OperationNumber, fila.CustomerName), porQueNoSeArma(fila)))
+	}
+	for _, texto := range noSonID {
+		apuntar(fmt.Sprintf("%s (no es un identificador de pedido)", texto))
+	}
+
+	mensaje := strings.Join(detalle, ", ")
+	if total > len(detalle) {
+		return mensaje + fmt.Sprintf(" y %d más.", total-len(detalle)), nil
+	}
+	return mensaje + ".", nil
+}
+
+// porQueNoSeArma traduce cada condición del `WHERE` de `PedidosParaArmarRuta` a algo que
+// una persona pueda leer y hacer. Es la gemela de `porQueNoEsCandidato` del tablero, y se
+// mantienen las dos porque las consultas son dos; lo que NO puede pasar es que una de las
+// dos vuelva a meter cinco motivos en un número.
+//
+// EL ORDEN IMPORTA Y ES EL MISMO QUE ALLÍ:
+//
+//   - el entregado va PRIMERO porque conserva su `route_id`: mirando la ruta antes se le
+//     contaría al logístico que «otro lo subió a un camión» cuando ese pedido ya está en
+//     casa del cliente, y lo que hay que hacer es distinto.
+//   - la ruta va antes que lo demás porque un pedido que ya salió puede además haberse
+//     quedado sin coordenadas, y lo que importa es que el camión ya se lo llevó.
+//
+// Y SE NOMBRA LA RUTA. «Ya va en la ruta RT-20260922-003» dice dónde mirar; «ya va en otra
+// ruta» deja quince rutas que abrir. Sin código —no debería pasar, `route_code` es NOT
+// NULL— se cae a la frase de siempre en vez de enseñar un hueco.
+func porQueNoSeArma(f sqlc.PorQueNoSePuedeArmarRow) string {
+	switch {
+	case f.DeliveredAt.Valid || (f.Resultado != nil && *f.Resultado == sqlc.StopResultEntregado):
+		return "ya se entregó y no puede volver a un camión"
+	case f.RouteID.Valid:
+		if f.RutaCodigo != nil && *f.RutaCodigo != "" {
+			return "ya va en la ruta " + *f.RutaCodigo
+		}
+		return "ya va en otra ruta"
+	case f.Archivado:
+		// El borrado blando de PEDIDO, y son la inmensa mayoría del histórico. Volver a
+		// elegirlo no lo arregla: hay que desarchivarlo allí.
+		return "PEDIDO lo archivó"
+	case f.EndLat == nil || f.EndLng == nil:
+		return "sin coordenadas de entrega"
+	case f.Source == nil || *f.Source != sqlc.ProcedenciaPedido:
+		return "no vino de PEDIDO"
+	}
+	// No debería llegar aquí: las de arriba son todas las condiciones de la consulta. Si
+	// llega, se dice que no se sabe en vez de inventar un motivo — un motivo equivocado es
+	// peor que ninguno, que es exactamente lo que pasó con «ya están en otra ruta».
+	return "cambió mientras se armaba"
+}
+
+// quienEs es cómo se nombra un pedido en un aviso: su número de operación, que es lo que la
+// persona tiene delante en la pantalla, y el cliente sólo si aquél falta.
+func quienEs(operacion *string, cliente string) string {
+	if operacion != nil && *operacion != "" {
+		return *operacion
+	}
+	return cliente
 }
 
 // mensajeYaEntregados arma el 409 de los que ya se repartieron, o "" si ninguno.

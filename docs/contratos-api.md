@@ -174,9 +174,36 @@ Se buscan los pedidos con:
 endLng IS NOT NULL` y, si hay sucursal de ruta, `AND branchId = <sucursal>`.
 
 4. `orders.length === 0` →
-   `400 {"error":"Los pedidos seleccionados ya no están disponibles"}`
-5. `orders.length < orderIds.length` → con `faltan = orderIds.length - orders.length`:
-   `409 {"error":"<faltan> de los <orderIds.length> pedidos ya están en otra ruta. Vuelve a elegirlos."}`
+   `400 {"error":"Los pedidos seleccionados ya no están disponibles: <detalle>"}`
+5. Alguno de los ids elegidos no volvió →
+   `409 {"error":"<faltan> de los <orderIds.length> pedidos elegidos no pueden ir en esta ruta: <detalle>"}`
+
+   **Nos separamos del patrón aquí (22/09/2026).** Delivery contestaba `"<faltan> de los <M>
+   pedidos ya están en otra ruta. Vuelve a elegirlos."` y eso afirmaba una causa que muchas
+   veces no era la de verdad: la consulta descarta además los **archivados en PEDIDO**, los
+   que se quedaron **sin coordenadas de entrega**, los que **no vinieron de PEDIDO** y los de
+   **otra sucursal**, y los cinco salían con el mismo texto. Para tres de ellos «Vuelve a
+   elegirlos» ni siquiera es una salida: se pulsa otra vez y contesta lo mismo. Es el mismo
+   fallo que ya se corrigió en el tablero (§16, `descartados`), por el otro camino.
+
+   `faltan` son los ids **distintos** que no volvieron, más los que ni son identificadores;
+   mandar dos veces el mismo id ya **no** es un conflicto. `<orderIds.length>` sigue siendo
+   lo que la persona marcó en la pantalla.
+
+   `detalle` son los **5 primeros** unidos por `, `, y detrás `" y <N-5> más."` si sobran, o
+   `"."`. Cada uno es `` `${operationNumber || customerName} (${motivo})` ``, salvo los que no
+   devuelven fila, que salen con su id crudo. Los motivos, **en este orden de prioridad**:
+
+   | Motivo | Cuándo |
+   |---|---|
+   | `ya se entregó y no puede volver a un camión` | `deliveredAt` o `resultado = 'entregado'`. Va el **primero**: un entregado conserva su `routeId`, y decirle «otro lo subió a un camión» manda a hacer lo contrario de lo que toca. |
+   | `ya va en la ruta <routeCode>` | `routeId` puesto. **Se nombra la ruta**: «ya va en otra ruta» deja quince rutas que abrir. Sin código, `ya va en otra ruta`. |
+   | `PEDIDO lo archivó` | `archivado`. No se arregla volviendo a elegirlo. |
+   | `sin coordenadas de entrega` | `endLat`/`endLng` nulos. Pasa: el upsert del espejo escribe `end_lat = excluded.end_lat` sin `coalesce`. |
+   | `no vino de PEDIDO` | `source <> 'pedido'`. |
+   | `no existe o no es de tu sucursal` | la consulta no devuelve fila. **No se dice cuál de las dos**, igual que en `GET /api/routes/{id}`: decir «existe pero es de Holguín» ya es contar algo de Holguín. |
+   | `no es un identificador de pedido` | el texto ni siquiera es un uuid. |
+   | `cambió mientras se armaba` | ninguna de las anteriores. Un motivo equivocado es peor que ninguno. |
 6. **Sólo se reparte lo facturado y que cuadra**: `noFacturados = orders.filter(o => o.facturaEstado !== 'igual')`.
    Si hay alguno → `409` con mensaje compuesto:
    - `motivo(e)`: `'cambiado'` → `cambió en la factura`; `'sin_factura'` → `sin facturar`;
@@ -1235,8 +1262,8 @@ data: {}
 | `/api/routes` POST | 400 | `Las coordenadas del punto de partida son requeridas` |
 | `/api/routes` POST | 400 | `Se requiere un vehículo para crear la ruta` |
 | `/api/routes` POST | 400 | ``Una ruta se arma eligiendo pedidos ya existentes. Manda `orderIds`.`` |
-| `/api/routes` POST | 400 | `Los pedidos seleccionados ya no están disponibles` |
-| `/api/routes` POST | 409 | `<N> de los <M> pedidos ya están en otra ruta. Vuelve a elegirlos.` |
+| `/api/routes` POST | 400 | `Los pedidos seleccionados ya no están disponibles: <detalle>` |
+| `/api/routes` POST | 409 | `<N> de los <M> pedidos elegidos no pueden ir en esta ruta: <detalle>[ y <K> más.\|.]` |
 | `/api/routes` POST | 409 | `En una ruta sólo entra lo facturado y que cuadre. <N> no cumplen: <detalle>[ y <K> más.|.]` |
 | `/api/routes` POST | 400 | `Peso total (<X.X> kg) supera la capacidad del vehículo (<C> kg)` |
 | `/api/routes/[id]` GET/PATCH/DELETE | 404 | `No encontrado` |

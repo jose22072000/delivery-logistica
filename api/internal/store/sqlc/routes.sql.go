@@ -1273,6 +1273,94 @@ func (q *Queries) PedidosParaArmarRuta(ctx context.Context, arg PedidosParaArmar
 	return items, nil
 }
 
+const porQueNoSePuedeArmar = `-- name: PorQueNoSePuedeArmar :many
+SELECT
+    o.id, o.operation_number, o.customer_name,
+    o.route_id, o.delivered_at, o.resultado,
+    o.end_lat, o.end_lng, o.archivado, o.source,
+    r.route_code AS ruta_codigo,
+    r.name       AS ruta_nombre
+FROM orders o
+LEFT JOIN routes r ON r.id = o.route_id
+WHERE o.id = ANY($1::uuid[])
+  AND ($2::uuid IS NULL OR o.branch_id = $2::uuid)
+`
+
+type PorQueNoSePuedeArmarParams struct {
+	PedidoIds []uuid.UUID `json:"pedido_ids"`
+	Sucursal  pgtype.UUID `json:"sucursal"`
+}
+
+type PorQueNoSePuedeArmarRow struct {
+	ID              uuid.UUID          `json:"id"`
+	OperationNumber *string            `json:"operation_number"`
+	CustomerName    string             `json:"customer_name"`
+	RouteID         pgtype.UUID        `json:"route_id"`
+	DeliveredAt     pgtype.Timestamptz `json:"delivered_at"`
+	Resultado       *StopResult        `json:"resultado"`
+	EndLat          *float64           `json:"end_lat"`
+	EndLng          *float64           `json:"end_lng"`
+	Archivado       bool               `json:"archivado"`
+	Source          *Procedencia       `json:"source"`
+	RutaCodigo      *string            `json:"ruta_codigo"`
+	RutaNombre      *string            `json:"ruta_nombre"`
+}
+
+// POR QUÉ NO SE PUEDE ARMAR CON ÉSTE. Es la explicación del 409, no un filtro.
+//
+// `PedidosParaArmarRuta` devuelve MENOS de los que se le piden por cinco motivos distintos
+// —ya va en otra ruta, se quedó sin coordenadas, PEDIDO lo archivó, no vino de PEDIDO, o
+// no es de tu sucursal— y durante meses la diferencia entera se le atribuyó a «ya están en
+// otra ruta». Era el mismo fallo que ya se arregló en el tablero (`tablero.go`,
+// `porQueNoEsCandidato`) y aquí seguía: el motivo equivocado, sin decir CUÁL de los
+// quince, y con un «Vuelve a elegirlos» que para un pedido archivado no arregla nada —
+// volver a pulsar da exactamente lo mismo, que es un rechazo permanente disfrazado de
+// reintento.
+//
+// Trae los datos en crudo y el motivo lo decide Go (`porQueNoSeArma`), que es donde están
+// escritas las prioridades: un entregado conserva su `route_id`, así que mirar la ruta
+// primero le contaría al logístico que «otro lo subió a un camión» cuando lo que pasó es
+// que ese pedido ya está en casa del cliente.
+//
+// El `LEFT JOIN` es lo que deja NOMBRAR la ruta: «ya va en la ruta RT-20260922-003» le
+// dice a alguien dónde mirar; «ya va en otra ruta» le deja quince rutas que abrir.
+//
+// EL ALCANCE VA AQUÍ TAMBIÉN, y por eso un pedido de otra sucursal no devuelve fila: desde
+// fuera «no existe» y «no es tuyo» tienen que ser lo mismo, igual que en `ObtenerRuta`.
+// Quien no devuelve fila se nombra igual, con ese motivo y sin contar nada de él.
+func (q *Queries) PorQueNoSePuedeArmar(ctx context.Context, arg PorQueNoSePuedeArmarParams) ([]PorQueNoSePuedeArmarRow, error) {
+	rows, err := q.db.Query(ctx, porQueNoSePuedeArmar, arg.PedidoIds, arg.Sucursal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PorQueNoSePuedeArmarRow
+	for rows.Next() {
+		var i PorQueNoSePuedeArmarRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OperationNumber,
+			&i.CustomerName,
+			&i.RouteID,
+			&i.DeliveredAt,
+			&i.Resultado,
+			&i.EndLat,
+			&i.EndLng,
+			&i.Archivado,
+			&i.Source,
+			&i.RutaCodigo,
+			&i.RutaNombre,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const rutaActivaDeVehiculo = `-- name: RutaActivaDeVehiculo :one
 SELECT r.id, r.name, r.route_code, r.status, r.created_at
 FROM routes r

@@ -479,3 +479,71 @@ func TestElIDDeLoCreadoSeLeeDeLasDosFormas(t *testing.T) {
 		})
 	}
 }
+
+// EL 409 DEL ARMADO LLEGA ENTERO, CON EL PEDIDO Y LA RUTA QUE LO NOMBRAN.
+//
+// Es lo que pidió Jose el 21/09/2026: «esto ocurriría cuando la ruta se haya creado con
+// pedidos que ya estuvieran en otra ruta, pero hay que notificarlo para eso». Una ruta que
+// se arma sin señal sube por aquí, el reparto la rechaza, y el motivo tiene que llegar
+// hasta la bandeja de «Rechazados, esperando a una persona» SIN recortarse y SIN volverse
+// un «no se pudo guardar»: el pedido nombrado y la ruta en la que está es lo único que le
+// dice al logístico qué tarjeta quitar.
+//
+// La frase se conserva LITERAL: aquí no se resume, no se traduce y no se acorta.
+func TestEl409DelArmadoLlegaConElPedidoYLaRuta(t *testing.T) {
+	const motivo = "1 de los 3 pedidos elegidos no pueden ir en esta ruta: " +
+		"X-2992 (ya va en la ruta RT-20260921-002)."
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": motivo})
+		}))
+	defer servidor.Close()
+
+	_, err := Nuevo(servidor.URL, "k", 5*time.Second).Aplicar(
+		context.Background(), sincro.Peticion{
+			Metodo: http.MethodPost, Ruta: "/routes",
+			Cuerpo: json.RawMessage(`{"orderIds":["p1","p2","p3"]}`),
+			Hecho:  time.Now(), Sucursal: uuid.New(), Persona: "x", Clave: "01J9A001",
+		})
+	var rechazo *sincro.Rechazo
+	if !errors.As(err, &rechazo) {
+		t.Fatalf("un 409 del reparto es un rechazo de negocio y lo mira una persona: %v", err)
+	}
+	if rechazo.Motivo != motivo {
+		t.Fatalf("el motivo se recortó o se cambió:\n  %q\nse esperaba:\n  %q", rechazo.Motivo, motivo)
+	}
+	if !strings.Contains(rechazo.Motivo, "X-2992") || !strings.Contains(rechazo.Motivo, "RT-20260921-002") {
+		t.Fatalf("el motivo tiene que nombrar el pedido Y su ruta: %q", rechazo.Motivo)
+	}
+}
+
+// LA PAREJA: la ruta que SÍ se arma no deja ningún rechazo.
+//
+// Un aviso que sale siempre deja de leerse, y entonces tampoco se lee el día que importa
+// (`CLAUDE.md` del repo, §3-quinquies). Sin esta prueba, «devolver Rechazo siempre» pasaría
+// la de arriba.
+func TestLaRutaQueSeArmaNoDejaRechazo(t *testing.T) {
+	creada := uuid.New()
+	servidor := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": creada})
+		}))
+	defer servidor.Close()
+
+	id, err := Nuevo(servidor.URL, "k", 5*time.Second).Aplicar(
+		context.Background(), sincro.Peticion{
+			Metodo: http.MethodPost, Ruta: "/routes",
+			Cuerpo: json.RawMessage(`{"orderIds":["p1"]}`),
+			Hecho:  time.Now(), Sucursal: uuid.New(), Persona: "x", Clave: "01J9A002",
+		})
+	if err != nil {
+		t.Fatalf("no tenía que fallar: %v", err)
+	}
+	if id == nil || *id != creada {
+		t.Fatalf("el id de la ruta creada tiene que volver al aparato: %v", id)
+	}
+}
