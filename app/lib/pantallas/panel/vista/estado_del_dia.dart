@@ -7,6 +7,7 @@ import '../../../nucleo/proveedores.dart';
 import '../../../navegacion/estado_navegacion.dart';
 import '../../../nucleo/frescura/reloj_de_datos.dart';
 import '../../../nucleo/sincro/ciclo.dart';
+import '../../../nucleo/sincro/huerfanos.dart';
 import '../../../nucleo/sincro/recuento.dart';
 import '../../entregar_el_dia/datos/textos.dart';
 import '../../entregar_el_dia/estado/entregar_el_dia.dart';
@@ -42,6 +43,20 @@ class EstadoDelDia extends ConsumerWidget {
     final entrego = ref.watch(entregarElDiaProvider);
     final hay = ref.watch(loQueHayProvider).value;
     final pendientes = ref.watch(sinSubirProvider).value ?? 0;
+    // LO QUE ESTA AQUI, NO ESTA ARRIBA Y NO LO VA A SUBIR NADIE.
+    //
+    // No sale en `pendientes` —no le queda apunte— ni en la bandeja —no lo
+    // rechazo nadie—, asi que sin esto esta pieza pintaba «Todo al día · no
+    // queda nada sin enviar» en VERDE encima de una ruta que solo existe en
+    // este telefono. Ver `QueToca.trabajoColgado`.
+    //
+    // Es un `Stream` sobre las tablas (`trabajoHuerfanoProvider`) y no una
+    // pregunta de una vez: lo que hay que cazar aparece con la pantalla ya
+    // delante — es la regla del §3-ter y del §4-bis, escrita alli y rota el
+    // mismo dia.
+    final colgado = loQueNadieVaASubir(
+      ref.watch(trabajoHuerfanoProvider).value ?? const <TrabajoHuerfano>[],
+    );
 
     // EL ESTADO SALE DE SI LAS PETICIONES LLEGAN, no de si el aparato cree que
     // hay wifi. En Cuba el telefono ensena el wifi conectado y no sale un
@@ -63,10 +78,22 @@ class EstadoDelDia extends ConsumerWidget {
           : ref.watch(relojProvider)().difference(empezadoA),
       // La MISMA pregunta que apaga el boton de la franja, para que las dos
       // piezas digan lo mismo: si los datos son de ahora, no hay que traerlos.
-      hayQueTraer: EstadoFrescura.de(
-        ref.watch(frescuraGlobalProvider).value,
-        ahora: ref.watch(relojProvider)(),
-      ).enAmbar,
+      //
+      // MAS LA GUARDA DEL RELOJ. Con el reloj del telefono por DETRAS de la
+      // marca de la bajada, `EstadoFrescura` contesta «recientes» —la resta sale
+      // negativa— y esta pieza se plantaba en `todoAlDia`: verde y **sin boton
+      // de traer el dia**, con los pedidos de anteayer dentro. Ver
+      // `elRelojNoCuadra`.
+      hayQueTraer:
+          EstadoFrescura.de(
+            ref.watch(frescuraGlobalProvider).value,
+            ahora: ref.watch(relojProvider)(),
+          ).enAmbar ||
+          elRelojNoCuadra(
+            ref.watch(frescuraGlobalProvider).value,
+            ahora: ref.watch(relojProvider)(),
+          ),
+      hayTrabajoColgado: colgado.hayAlguno,
     );
 
     return BannerDeGesto(
@@ -79,6 +106,7 @@ class EstadoDelDia extends ConsumerWidget {
         entrego: entrego,
         hay: hay,
         pendientes: pendientes,
+        colgado: colgado,
       ),
       lineaSuave: _lineaSuave(
         toca: toca,
@@ -92,6 +120,7 @@ class EstadoDelDia extends ConsumerWidget {
         QueToca.trayendo || QueToca.enviando => Icons.hourglass_top,
         QueToca.sinConexion => Icons.cloud_off_outlined,
         QueToca.hayQueEnviar => Icons.cloud_upload_outlined,
+        QueToca.trabajoColgado => Icons.report_problem_outlined,
         QueToca.alDia => Icons.cloud_download_outlined,
         QueToca.todoAlDia => Icons.check_circle_outline,
       },
@@ -105,6 +134,9 @@ class EstadoDelDia extends ConsumerWidget {
           context,
           empezarYa: true,
         ),
+        // Sin boton: no hay nada que pulsar que lo arregle. Ver
+        // `QueToca.trabajoColgado`.
+        QueToca.trabajoColgado => null,
         QueToca.alDia => () => abrirCajonDeTraerElDia(context, empezarYa: true),
         // Nada que hacer: no hay boton. Ver `QueToca.todoAlDia`.
         QueToca.todoAlDia => null,
@@ -126,6 +158,7 @@ class EstadoDelDia extends ConsumerWidget {
     required LoQueSeEntrego? entrego,
     required RecuentoDeLoQueHay? hay,
     required int pendientes,
+    required List<TrabajoHuerfano> colgado,
   }) {
     switch (toca) {
       case QueToca.trayendo:
@@ -139,6 +172,10 @@ class EstadoDelDia extends ConsumerWidget {
         return entrego != null
             ? TextosDeEntregarElDia.comoQuedo(entrego)
             : TextosDelDia.sinSubir(pendientes);
+      case QueToca.trabajoColgado:
+        // SE NOMBRA CADA TIPO: «1 ruta», «1 ruta y 2 almacenes». «Hay trabajo
+        // colgado» no le dice a nadie a que pantalla ir a mirar.
+        return colgado.texto;
       case QueToca.alDia:
       case QueToca.todoAlDia:
         if (entrego != null && entrego.completo) {
@@ -166,6 +203,8 @@ class EstadoDelDia extends ConsumerWidget {
         return entrego != null
             ? TextosDeEntregarElDia.subieron(entrego.subidos)
             : TextosDelDia.datosDeLas(hay?.laMasVieja);
+      case QueToca.trabajoColgado:
+        return TextosDelDia.datosDeLas(hay?.laMasVieja);
       case QueToca.alDia:
       case QueToca.todoAlDia:
         if (entrego != null && entrego.completo) {
@@ -195,6 +234,10 @@ class EstadoDelDia extends ConsumerWidget {
         // intentado. El ambar dice «mira esto»; el rojo, «esto ya es un
         // problema».
         return entrego != null ? Colores.rojo : Colores.ambar;
+      // ROJO SIN CONDICIONES. Esto no se arregla esperando ni pulsando: es
+      // trabajo que ya esta perdido salvo que alguien haga algo.
+      case QueToca.trabajoColgado:
+        return Colores.rojo;
       // Todo al dia es el unico estado que se puede pintar VERDE sin mas: no
       // queda nada por hacer y los datos son de ahora.
       case QueToca.todoAlDia:

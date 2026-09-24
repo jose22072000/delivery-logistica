@@ -4,6 +4,7 @@ import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/frescura/copia_bajada.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
+import 'package:reparto/nucleo/registro/registro.dart';
 import 'package:reparto/nucleo/refresco_en_vivo.dart';
 
 import '../datos/repositorio_vehiculos.dart';
@@ -184,6 +185,27 @@ class ControlVehiculos extends Notifier<AvisoVehiculos?> {
       return false;
     } on SesionMuerta catch (e) {
       state = AvisoVehiculos(e.mensaje, esFallo: true);
+      return false;
+    } on Object catch (e, pila) {
+      // Y LO QUE NO ES NINGUNO DE LOS TRES.
+      //
+      // Los tres `on` de arriba son los fallos que se saben nombrar. Cualquier
+      // otra cosa —una respuesta con la forma cambiada, un `FormatException`,
+      // un `TypeError` de un campo que llego `null`— se escapaba entera, y
+      // `state` se habia puesto a `null` al empezar: o sea que la pantalla
+      // volvia al estado de calma y **no salia ni un cartel**. Se pulsa
+      // Guardar, no pasa nada, y no hay forma de saber si se guardo.
+      //
+      // Es el §4 de la casa: si algo falla, la pantalla no se queda verde. Aqui
+      // no se pierde trabajo —Vehiculos no tiene cola y no finge que guarda—,
+      // pero un gesto mudo acaba en el camion dado de alta dos veces.
+      Registro.fallo('vehículos: la acción falló sin motivo conocido', e, pila);
+      state = AvisoVehiculos(
+        'No se pudo guardar y no se sabe por qué: el servidor contestó algo '
+        'que esta pantalla no entiende. NO se guardó nada. Vuelve a '
+        'intentarlo y, si sigue igual, avisa a la oficina.',
+        esFallo: true,
+      );
       return false;
     }
     // Sólo se refresca cuando de verdad se aplico.

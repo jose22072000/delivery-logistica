@@ -245,7 +245,17 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
     // Arrastrar a la izquierda algo que ya estaba a la izquierda no es una
     // orden: es un dedo que se escapo.
     if (datos.desdeColumnaId == null) return;
-    unawaited(ref.read(tableroProvider.notifier).quitar(datos.pedidoId));
+    // POR `AccionesTablero.hacer` Y NO A PELO. Un `unawaited` suelto sobre algo
+    // que escribe en la base es un error asincrono sin dueno: con el disco
+    // lleno, el gesto no se guarda y **no se entera nadie**. Ver
+    // `AccionesTablero.noSePudoGuardar`.
+    unawaited(
+      AccionesTablero.hacer(
+        context,
+        ref,
+        () => ref.read(tableroProvider.notifier).quitar(datos.pedidoId),
+      ),
+    );
   }
 }
 
@@ -316,21 +326,32 @@ class _Zona extends ConsumerWidget {
         // Soltar una tarjeta donde ya estaba no es una orden: es un dedo que se
         // escapo. Sin esto, cada roce deja un apunte en la cola.
         if (datos.desdeColumnaId == columna.id && posicion == null) return;
+        // Igual que en `_devolver`: si el aparato no puede guardar, se dice.
         unawaited(
-          ref
-              .read(tableroProvider.notifier)
-              .colocar(
-                pedidoId: datos.pedidoId,
-                columnaId: columna.id,
-                posicion: posicion,
-              ),
+          AccionesTablero.hacer(
+            context,
+            ref,
+            () => ref
+                .read(tableroProvider.notifier)
+                .colocar(
+                  pedidoId: datos.pedidoId,
+                  columnaId: columna.id,
+                  posicion: posicion,
+                ),
+          ),
         );
       },
       alSoltarColumna: (arrastrada) {
         final ids = tablero.columnas.map((c) => c.id).toList()
           ..remove(arrastrada.columnaId);
         ids.insert(cual.clamp(0, ids.length), arrastrada.columnaId);
-        unawaited(ref.read(tableroProvider.notifier).reordenar(ids));
+        unawaited(
+          AccionesTablero.hacer(
+            context,
+            ref,
+            () => ref.read(tableroProvider.notifier).reordenar(ids),
+          ),
+        );
       },
       alPulsarTarjeta: (tarjeta) => unawaited(
         AccionesTablero.moverTarjeta(
@@ -484,21 +505,12 @@ class _BarraDeArriba extends ConsumerWidget {
                 // mitad que faltaba. Callarselo dejaba a quien pulsaba sin saber
                 // si es que no habia cambios o que se estaba protegiendo su
                 // trabajo.
-                // EL GESTO QUE NO LLEGÓ AL SERVIDOR. Sólo en la web, donde
-                // no hay cola que lo guarde para luego: si no subió, no está.
-                // Va el PRIMERO de la franja porque es lo único de aquí que
-                // exige hacer algo ahora mismo.
-                // `watch` y no `read`: el rechazo llega DESPUES, con la
-                // pantalla ya abierta, y con `read` no se repintaba nunca.
-                if (ref.watch(loQueElServidorRechazoProvider).value
-                    case final fallo?)
-                  Text(
-                    fallo,
-                    style: tema.textTheme.labelMedium?.copyWith(
-                      color: ColoresTablero.ambar,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                // AQUI SALIA «el servidor rechazó tu cambio», y se quitó el
+                // 24/09/2026 porque no podía salir nunca: en un navegador la
+                // tabla `apuntes` no se llena, así que no había nada que leer.
+                // El «no» del servidor sale en el acto, con su motivo literal,
+                // en el propio gesto. El porqué entero está en
+                // `estado/proveedores.dart`, donde vivía el provider.
                 if (ref.read(tableroProvider.notifier).porQueNoSeRefresca
                     case final pendiente?)
                   Text(

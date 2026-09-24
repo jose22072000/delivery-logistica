@@ -58,6 +58,27 @@ abstract final class TextosNuevosDeInformes {
       'No hay nada descargado todavía, así que no hay nada que cuadrar. '
       'Con conexión baja sola.';
 
+  /// CUANDO LA ULTIMA BAJADA VOLVIO A MEDIAS.
+  ///
+  /// Es la tercera pregunta, y faltaba. Las otras dos —«no se bajo nunca» y
+  /// «esto tiene mas de un dia»— no la cubren: aqui la marca de frescura SI se
+  /// movio y las tablas SI tienen filas, asi que las dos contestan que todo esta
+  /// bien mientras el padron trae 2.000 clientes de 8.103.
+  ///
+  /// Y esta es la pantalla donde eso se convierte en dinero: un total cuadrado
+  /// con medio padron sale creible, en verde, con su boton de exportar a Excel
+  /// al lado. `CLAUDE.md` §4: «un importe asi se lee bien y esta mal, que es lo
+  /// peor que puede pasarle a un numero que alguien va a cobrar».
+  ///
+  /// El motivo va TAL CUAL lo escribe `nucleo/sincro/bajada.dart` —«se llego al
+  /// tope de 50 tandas y el servidor seguia diciendo que queda mas»— porque es
+  /// lo unico que dice que paso. «No se pudo traer todo» no le sirve a nadie.
+  static String noEstaEntero(String motivo) =>
+      'La última bajada no está entera, así que este informe está cuadrado con '
+      'sólo una parte de los datos y los totales salen por debajo: no sirve '
+      'para cerrar. Lo que pasó: $motivo. Conéctate y deja que termine de '
+      'bajar.';
+
   /// Lo que se dice en la web mientras la primera bajada va en camino.
   static const cargandoElReporte = 'Cargando reporte...';
 
@@ -122,6 +143,10 @@ class PantallaInformes extends ConsumerWidget {
             viejo: viejo,
             cuando: cuando,
             porQue: porQue,
+            // LA BAJADA QUE VOLVIO A MEDIAS. Lo leia un solo sitio —la franja
+            // de estado, una linea de doce puntos arriba del todo— y esta es la
+            // pantalla donde un truncamiento se convierte en un importe.
+            aMedias: ref.watch(bajadaAMediasProvider),
           ),
           const SizedBox(height: Aire.lg),
         ],
@@ -214,12 +239,17 @@ class _Advertencia extends StatelessWidget {
     required this.viejo,
     required this.cuando,
     required this.porQue,
+    required this.aMedias,
   });
 
   final bool sinDescargar;
   final bool viejo;
   final DateTime? cuando;
   final PorQueEstaVacio porQue;
+
+  /// Por que la ultima bajada volvio a medias, con las palabras de
+  /// `bajada.dart`. `null` = vino entera.
+  final String? aMedias;
 
   @override
   Widget build(BuildContext context) {
@@ -247,6 +277,16 @@ class _Advertencia extends StatelessWidget {
     final texto = enWeb
         ? TextosNuevosDeInformes.cuadradoConLoQueBajo(hora)
         : TextosNuevosDeInformes.cuadradoConElAparato(fecha);
+
+    // VA ANTES QUE «tiene mas de un dia» a proposito: las dos son verdad a la
+    // vez muchas veces, y de las dos la que manda es esta. Unos datos de ayer
+    // al menos estan enteros; estos ni eso.
+    final medias = aMedias;
+    if (medias != null) {
+      return AvisoAmbar(
+        '$texto\n${TextosNuevosDeInformes.noEstaEntero(medias)}',
+      );
+    }
 
     if (viejo) {
       return AvisoAmbar(

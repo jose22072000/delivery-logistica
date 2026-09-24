@@ -1,5 +1,6 @@
 import '../../../diseno/numeros.dart';
 import '../../../nucleo/sincro/ciclo.dart';
+import '../../../nucleo/sincro/huerfanos.dart';
 
 /// EN QUE ESTADO ESTA EL APARATO, y por tanto que toca ahora.
 ///
@@ -26,6 +27,28 @@ enum QueToca {
   /// Hay trabajo dentro del telefono. **Manda sobre todo lo demas.**
   hayQueEnviar,
 
+  /// TRABAJO QUE ESTA AQUI, NO ESTA ARRIBA Y **NO LO VA A SUBIR NADIE**.
+  ///
+  /// No es lo mismo que [hayQueEnviar] y por eso no se dice con sus palabras:
+  /// eso son apuntes en la cola, que suben solos en cuanto haya señal. Esto es
+  /// una fila que se quedo **sin ningun apunte que la nombre** —el suyo se
+  /// descarto, o se perdio—, asi que la cola esta a cero y el aparato se ve al
+  /// dia teniendo dentro el trabajo de una mañana.
+  ///
+  /// El 24/09/2026 la franja de estado aprendio a nombrarlo, y bien. Pero la
+  /// franja es una linea de doce puntos arriba del todo y **justo debajo, en
+  /// esta misma pantalla**, la pieza grande seguia diciendo «Todo al dia · no
+  /// queda nada sin enviar» en verde y a tamaño titular. La misma pantalla
+  /// diciendo dos cosas contrarias, y la que se lee es la grande: es, palabra
+  /// por palabra, una de las tres que Jose enumero el 16/09/2026 mirando su
+  /// telefono con la zona «Vista» dentro.
+  ///
+  /// **Sin boton**: no hay nada que pulsar que lo arregle, y ofrecer uno que no
+  /// hace nada enseña a desconfiar de los botones. Lo que hace falta es que se
+  /// sepa antes de que alguien cierre sesion, olvide la copia o formatee el
+  /// telefono.
+  trabajoColgado,
+
   /// Todo entregado, con senal, y los datos VIEJOS: lo que toca es traerlos.
   alDia,
 
@@ -48,6 +71,7 @@ abstract final class TextosDelDia {
     QueToca.enviando => 'Enviando datos...',
     QueToca.sinConexion => 'Trabajando sin conexión',
     QueToca.hayQueEnviar => 'Tienes trabajo sin enviar',
+    QueToca.trabajoColgado => 'Hay trabajo que no va a subir solo',
     QueToca.alDia => 'Traer el día',
     QueToca.todoAlDia => 'Todo al día',
   };
@@ -59,6 +83,9 @@ abstract final class TextosDelDia {
     QueToca.enviando => 'Enviando datos...',
     QueToca.sinConexion => null,
     QueToca.hayQueEnviar => 'Enviar datos (${Numeros.entero(sinSubir)})',
+    // Sin boton: no hay nada que pulsar que lo arregle. Ver
+    // [QueToca.trabajoColgado].
+    QueToca.trabajoColgado => null,
     QueToca.alDia => 'Traer el día',
     // Sin boton: no hay nada que hacer.
     QueToca.todoAlDia => null,
@@ -76,6 +103,12 @@ abstract final class TextosDelDia {
     QueToca.hayQueEnviar =>
       'Hasta que no suba, sólo está en este aparato. Es lo único que se puede '
           'perder.',
+    // SE DICE QUE HACER, y lo unico que se puede hacer es que no se borre y que
+    // alguien lo rehaga arriba. «Hubo un problema» no le sirve a nadie.
+    QueToca.trabajoColgado =>
+      'Está sólo en este aparato y no le queda ningún apunte que lo suba. No '
+          'cierres sesión ni borres esta copia: avisa a la oficina para que lo '
+          'rehagan.',
     QueToca.alDia =>
       'Cárgalo donde haya señal y llévatelo: el día entero se trabaja sin '
           'conexión.',
@@ -159,6 +192,64 @@ abstract final class TextosDelDia {
 /// conexion lleva minutos sin servir.
 const Duration pacienciaDelIntento = Duration(seconds: 30);
 
+/// LOS SITIOS QUE EL CICLO SABE RESCATAR SOLO, y por eso NO se avisan.
+///
+/// `Huerfanos.volverAEncolar` corre al principio de cada vuelta del ciclo y
+/// rehace **el tablero**: la zona con su marca `nacio_aqui` y las tarjetas
+/// sueltas. Eso no necesita red —sólo escribe en la cola de este aparato—, así
+/// que una zona huérfana vuelve a estar a la vista como «N sin subir» al tic
+/// siguiente, tenga señal o no.
+///
+/// Avisar de eso sería el aviso que sale casi siempre y que por eso deja de
+/// leerse (`CLAUDE.md` §3-quinquies), y encima parpadearía: aparece y a los
+/// segundos se va solo.
+///
+/// Lo que **no** rescata nadie son las rutas, los vehículos y los almacenes: el
+/// propio `huerfanos.dart` lo dice —«los demás se cuentan y se dicen»— y contar
+/// se contaba, decir no se decía. Ésos se quedan ahí para siempre, y ésos son
+/// los que esta pantalla nombra.
+const sitiosQueElCicloRescata = <String>{'board_columns', 'board_placements'};
+
+/// De todo lo que cuelga, **lo que no va a subir solo nunca**.
+List<TrabajoHuerfano> loQueNadieVaASubir(List<TrabajoHuerfano> colgado) => [
+  for (final h in colgado)
+    if (!sitiosQueElCicloRescata.contains(h.tabla)) h,
+];
+
+/// CUANTO PUEDE IR EL RELOJ DEL TELÉFONO POR DETRÁS DE LA MARCA sin que eso
+/// signifique nada.
+///
+/// La marca de la bajada la pone **el servidor** y la hora la pone **el
+/// teléfono**: que no cuadren al segundo es lo normal, no una avería. Cinco
+/// minutos deja sitio de sobra para el desfase de dos relojes que nadie
+/// sincroniza, y sigue siendo mucho menos que cualquier salto de verdad —los
+/// que pasan son de horas o de años, no de minutos.
+const margenDelReloj = Duration(minutes: 5);
+
+/// EL RELOJ DE ESTE APARATO ESTÁ DETRÁS DE SUS PROPIOS DATOS.
+///
+/// Al repartidor se le apaga el teléfono en la calle y vuelve con el reloj de
+/// fábrica; o alguien le cambia la hora; o se queda una mañana sin hora de red.
+/// A partir de ahí `ahora` es ANTERIOR a la marca de la última bajada.
+///
+/// `EstadoFrescura.de` hace `ahora.difference(bajadaAt)`, y con el reloj detrás
+/// eso sale negativo: un negativo es menor que una hora, así que contesta
+/// `DatosRecientes` —«Datos de las 16:40», una hora que aún no ha pasado— y sin
+/// ámbar. El Panel arma `hayQueTraer` con ese mismo `enAmbar`, así que se
+/// plantaba en [QueToca.todoAlDia]: verde, «los datos son de ahora mismo», **y
+/// sin botón de Traer el día**, porque ese estado no ofrece ninguno. Con los
+/// pedidos de anteayer dentro y el gesto para arreglarlo quitado.
+///
+/// Aquí se tapa lo del Panel, que es lo que le quita el gesto a alguien. **El
+/// arreglo de fondo va en `nucleo/frescura/reloj_de_datos.dart`**, que es quien
+/// escribe la hora del futuro en la franja de las siete pantallas: una
+/// diferencia negativa no es «reciente», es un estado propio que hay que
+/// nombrar.
+bool elRelojNoCuadra(DateTime? bajadaAt, {required DateTime ahora}) {
+  if (bajadaAt == null) return false;
+  return bajadaAt.difference(ahora) > margenDelReloj;
+}
+
 QueToca queTocaAhora({
   required bool enVuelo,
   required PasoDelCiclo? paso,
@@ -166,6 +257,7 @@ QueToca queTocaAhora({
   required int pendientes,
   Duration? llevaEnVuelo,
   bool hayQueTraer = true,
+  bool hayTrabajoColgado = false,
 }) {
   // Un intento que lleva mas de medio minuto no se anuncia como si estuviera
   // saliendo bien. Ver `pacienciaDelIntento`.
@@ -201,6 +293,16 @@ QueToca queTocaAhora({
     return paso == PasoDelCiclo.subir ? QueToca.enviando : QueToca.trayendo;
   }
   if (pendientes > 0) return QueToca.hayQueEnviar;
+  // VA DETRAS DE `hayQueEnviar` Y DELANTE DE LOS DOS VERDES, y las dos cosas a
+  // proposito.
+  //
+  //  * Detras, porque `hayQueEnviar` ya es un aviso y ademas trae un boton que
+  //    hace algo. Taparlo con uno que no tiene boton seria quitarle a alguien la
+  //    unica accion que le queda.
+  //  * Delante, porque lo que no puede pasar de ninguna manera es que con
+  //    trabajo colgado dentro esta pieza se pinte VERDE diciendo «no queda nada
+  //    sin enviar». Ese es el caso entero.
+  if (hayTrabajoColgado) return QueToca.trabajoColgado;
   // Con los datos de ahora mismo no se ofrece traerlos otra vez. Ver
   // `QueToca.todoAlDia`.
   return hayQueTraer ? QueToca.alDia : QueToca.todoAlDia;

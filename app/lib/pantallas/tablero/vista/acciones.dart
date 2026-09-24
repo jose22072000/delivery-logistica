@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../nucleo/registro/registro.dart';
 import '../datos/modelos.dart';
 import '../estado/proveedores.dart';
 import 'kit.dart';
@@ -53,7 +54,7 @@ abstract final class AccionesTablero {
               enabled: (posicionActual ?? 1) > 1,
               onTap: () {
                 Navigator.of(contexto).pop();
-                _hacer(
+                hacer(
                   context,
                   ref,
                   () => ref
@@ -72,7 +73,7 @@ abstract final class AccionesTablero {
               title: const Text('Bajar una posición'),
               onTap: () {
                 Navigator.of(contexto).pop();
-                _hacer(
+                hacer(
                   context,
                   ref,
                   () => ref
@@ -91,7 +92,7 @@ abstract final class AccionesTablero {
               title: const Text('Devolver a sin colocar'),
               onTap: () {
                 Navigator.of(contexto).pop();
-                _hacer(
+                hacer(
                   context,
                   ref,
                   () => ref
@@ -114,7 +115,7 @@ abstract final class AccionesTablero {
                 ),
                 onTap: () {
                   Navigator.of(contexto).pop();
-                  _hacer(
+                  hacer(
                     context,
                     ref,
                     () => ref
@@ -162,7 +163,7 @@ abstract final class AccionesTablero {
               Navigator.of(contexto).pop();
               final nombre = await _pedirNombre(context, columna.nombre);
               if (nombre == null || !context.mounted) return;
-              await _hacer(
+              await hacer(
                 context,
                 ref,
                 () => ref
@@ -188,7 +189,7 @@ abstract final class AccionesTablero {
             subtitle: const Text('Las tarjetas vuelven a «sin colocar»'),
             onTap: () {
               Navigator.of(contexto).pop();
-              _hacer(
+              hacer(
                 context,
                 ref,
                 () => ref.read(tableroProvider.notifier).vaciar(columna.id),
@@ -225,7 +226,7 @@ abstract final class AccionesTablero {
             label: const Text('Armar la ruta de esta zona'),
             onPressed: () {
               Navigator.of(contexto).pop();
-              _hacer(
+              hacer(
                 context,
                 ref,
                 () => ref.read(tableroProvider.notifier).armarRuta(columna.id),
@@ -244,7 +245,7 @@ abstract final class AccionesTablero {
   static Future<void> crearColumna(BuildContext context, WidgetRef ref) async {
     final nombre = await _pedirNombre(context, '');
     if (nombre == null || !context.mounted) return;
-    await _hacer(
+    await hacer(
       context,
       ref,
       () => ref.read(tableroProvider.notifier).crearColumna(nombre),
@@ -271,7 +272,7 @@ abstract final class AccionesTablero {
             title: const Text('Sin camión'),
             onTap: () {
               Navigator.of(contexto).pop();
-              _hacer(
+              hacer(
                 context,
                 ref,
                 () => ref
@@ -291,7 +292,7 @@ abstract final class AccionesTablero {
               ),
               onTap: () {
                 Navigator.of(contexto).pop();
-                _hacer(
+                hacer(
                   context,
                   ref,
                   () => ref
@@ -332,7 +333,7 @@ abstract final class AccionesTablero {
               subtitle: Text('${destino.pedidos} pedidos'),
               onTap: () {
                 Navigator.of(contexto).pop();
-                _hacer(context, ref, () async {
+                hacer(context, ref, () async {
                   final mando = ref.read(tableroProvider.notifier);
                   if (borrarDespues) {
                     await mando.borrarColumna(
@@ -362,7 +363,7 @@ abstract final class AccionesTablero {
     required Tablero tablero,
   }) async {
     if (columna.pedidos == 0) {
-      await _hacer(
+      await hacer(
         context,
         ref,
         () => ref.read(tableroProvider.notifier).borrarColumna(columna.id),
@@ -384,7 +385,7 @@ abstract final class AccionesTablero {
             title: const Text('Devolverlos a «sin colocar» y borrar'),
             onTap: () {
               Navigator.of(contexto).pop();
-              _hacer(
+              hacer(
                 context,
                 ref,
                 () => ref
@@ -448,11 +449,39 @@ abstract final class AccionesTablero {
     return (nombre == null || nombre.trim().isEmpty) ? null : nombre.trim();
   }
 
+  /// LO QUE SE DICE CUANDO EL APARATO NO PUEDE GUARDAR.
+  ///
+  /// No es un rechazo: no hay nadie al otro lado diciendo que no. Es SQLite
+  /// contestando `SQLITE_FULL` —«database or disk is full»— o un
+  /// `attempt to write a readonly database`. Un teléfono de repartidor lleva el
+  /// día dentro y un paquete de mapa de 100 MB al lado; quedarse sin sitio a
+  /// media mañana no es el caso raro.
+  ///
+  /// Se nombra el aparato y se dice QUÉ HACER. «Ha ocurrido un error» no le
+  /// sirve a nadie en el patio de un almacén.
+  static const noSePudoGuardar =
+      'No se pudo guardar en este aparato, así que este movimiento NO se ha '
+      'hecho. Suele ser que no queda espacio: libera sitio en el teléfono y '
+      'vuelve a intentarlo.';
+
   /// Hace algo y **ensena el motivo literal si sale que no**.
   ///
   /// Sin envolver en «Ha ocurrido un error»: ««Centro» tiene 8 pedidos puestos»
   /// le dice a alguien que hacer; «Ha ocurrido un error», no.
-  static Future<void> _hacer(
+  ///
+  /// ## Y ATRAPA TAMBIEN LO QUE NO ES UN RECHAZO — 24/09/2026
+  ///
+  /// Antes esto era `on RechazoDelTablero` y nada mas, o sea que solo sabia
+  /// contar los «no» del servidor. Un `SqliteException` —el disco lleno, la
+  /// copia sin permisos de escritura— se escapaba entero: se tocaba «Colocar en
+  /// «Centro»», la tarjeta se quedaba donde estaba y **no se decia una
+  /// palabra**. En un test sale como excepcion no capturada; en la APK no sale
+  /// en ningun sitio.
+  ///
+  /// Es el §4 de la casa: si algo falla, la pantalla no se queda verde. Un
+  /// gesto que se cree hecho y no esta en ninguna parte es trabajo perdido, y el
+  /// repartidor sigue la jornada creyendo que la zona quedo armada.
+  static Future<void> hacer(
     BuildContext context,
     WidgetRef ref,
     Future<void> Function() que, {
@@ -464,6 +493,12 @@ abstract final class AccionesTablero {
     } on RechazoDelTablero catch (e) {
       if (!context.mounted) return;
       _decir(context, [e.mensaje, ...e.detalles].join('\n'), problema: true);
+    } on Object catch (e, pila) {
+      // Queda en el registro con el error de verdad, que es lo unico con lo que
+      // se puede diagnosticar despues; en pantalla va el texto de persona.
+      Registro.fallo('tablero: el gesto no se pudo guardar en el aparato', e, pila);
+      if (!context.mounted) return;
+      _decir(context, noSePudoGuardar, problema: true);
     }
   }
 
