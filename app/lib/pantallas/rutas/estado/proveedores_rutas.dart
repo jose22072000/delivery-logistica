@@ -6,6 +6,7 @@
 // unico que la pantalla mira despues es `sinSubirProvider`, que ya vive en el
 // nucleo.
 
+import 'package:drift/drift.dart' show TableUpdateQuery;
 import 'package:flutter/foundation.dart' show immutable;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -198,15 +199,51 @@ final paradasDeRutaProvider = StreamProvider.family<List<Pedido>, String>(
 
 /// Los renglones de las paradas: de aqui sale la `Carga total` y el bloque
 /// `Queda en el camión` del cierre.
+///
+/// ## STREAM, no Future — 24/09/2026, y es el §3-ter otra vez
+///
+/// Esto era un `FutureProvider` colgado de la lista de paradas, o sea que sólo
+/// se recalculaba **cuando cambiaba la tabla de pedidos**. En la bajada `orders`
+/// va antes que `order_items` (`Colecciones.todas`): cuando los renglones
+/// entran, esa tabla ya no se toca y la respuesta no se volvia a pedir nunca.
+///
+/// Lo que quedaba delante: la `Carga total` y el `Queda en el camión` del cierre
+/// **en cero**, encima de un camion cargado. Un peso creible y equivocado que
+/// ninguna pantalla desmiente, que es el fallo que mas caro sale aqui (§4). Y en
+/// la web pasa SIEMPRE, porque la base nace vacia en cada carga de la pagina.
+///
+/// Se vigilan las DOS tablas de las que sale: `order_items` y `products` —el
+/// peso por empaque se resuelve contra el catalogo, y `products` baja aun mas
+/// tarde que los renglones—.
 final renglonesDeParadasProvider =
-    FutureProvider.family<Map<String, List<RenglonConPeso>>, String>((
+    StreamProvider.family<Map<String, List<RenglonConPeso>>, String>((
       ref,
       rutaId,
-    ) async {
-      final paradas = await ref.watch(paradasDeRutaProvider(rutaId).future);
-      return ref.watch(consultasRutasProvider).renglonesDe([
-        for (final p in paradas) p.id,
-      ]);
+    ) {
+      final base = ref.watch(baseProvider);
+      final consultas = ref.watch(consultasRutasProvider);
+      final paradas = ref.watch(paradasDeRutaProvider(rutaId)).value;
+      if (paradas == null) {
+        // Las paradas todavia no han contestado. Un stream vacio deja esto
+        // «cargando», que es la verdad; cuando contesten, este provider se rehace
+        // solo porque las mira con `watch`.
+        return const Stream<Map<String, List<RenglonConPeso>>>.empty();
+      }
+      final ids = [for (final p in paradas) p.id];
+
+      Future<Map<String, List<RenglonConPeso>>> mirar() =>
+          consultas.renglonesDe(ids);
+
+      return () async* {
+        // El primero enseguida: `tableUpdates` no emite al suscribirse, y sin
+        // esto la carga arrancaria en cero aunque los renglones ya estuvieran.
+        yield await mirar();
+        yield* base
+            .tableUpdates(
+              TableUpdateQuery.onAllTables([base.orderItems, base.products]),
+            )
+            .asyncMap((_) => mirar());
+      }();
     });
 
 /// ¿Se bajaron las rutas alguna vez?
@@ -320,26 +357,45 @@ class FiltrosDisponibles {
 
 /// Los pedidos elegibles para una ruta. **El cuadre con la factura no es
 /// configurable**: siempre `cuadra`, que es lo unico que el armado acepta.
+///
+/// ## STREAM, no Future — 24/09/2026, §3-ter
+///
+/// Era un `FutureProvider`: una sola respuesta, la del instante en que se pinta
+/// el paso 4. En la web la base nace vacia en cada carga, asi que esa respuesta
+/// era siempre la lista vacia y el paso 4 se quedaba en **«No hay pedidos
+/// disponibles para rutear»** sobre una sucursal con 299. Y no se arreglaba
+/// cerrando y reabriendo el cajon: el cache es del provider, no del widget.
 final disponiblesProvider =
-    FutureProvider.family<List<Pedido>, FiltrosDisponibles>(
-      (ref, filtros) => ref
-          .watch(consultasRutasProvider)
-          .disponibles(
-            sucursalId: filtros.sucursalId,
-            q: filtros.q,
-            municipio: filtros.municipio,
-            vendedor: filtros.vendedor,
-            estado: filtros.estado.param,
-            domicilio: filtros.domicilio.param,
-            cotizado: filtros.cotizado.param,
-            dia: filtros.dia,
-            kmMax: filtros.kmMax,
-            costoMin: filtros.costoMin,
-            // El MISMO reloj que el resto de la aplicacion: `expirada` se decide
-            // contra la hora, y dos relojes distintos son dos listas distintas.
-            ahora: ref.watch(relojProvider)(),
-          ),
-    );
+    StreamProvider.family<List<Pedido>, FiltrosDisponibles>((ref, filtros) {
+      final base = ref.watch(baseProvider);
+      final consultas = ref.watch(consultasRutasProvider);
+      // El MISMO reloj que el resto de la aplicacion: `expirada` se decide
+      // contra la hora, y dos relojes distintos son dos listas distintas.
+      final ahora = ref.watch(relojProvider)();
+
+      Future<List<Pedido>> mirar() => consultas.disponibles(
+        sucursalId: filtros.sucursalId,
+        q: filtros.q,
+        municipio: filtros.municipio,
+        vendedor: filtros.vendedor,
+        estado: filtros.estado.param,
+        domicilio: filtros.domicilio.param,
+        cotizado: filtros.cotizado.param,
+        dia: filtros.dia,
+        kmMax: filtros.kmMax,
+        costoMin: filtros.costoMin,
+        ahora: ahora,
+      );
+
+      return () async* {
+        // El primero enseguida: `tableUpdates` no emite al suscribirse, y sin
+        // esto la lista arrancaria vacia aunque los pedidos ya estuvieran.
+        yield await mirar();
+        yield* base
+            .tableUpdates(TableUpdateQuery.onTable(base.orders))
+            .asyncMap((_) => mirar());
+      }();
+    });
 
 /// Los municipios y los vendedores que hay **entre los disponibles**, para los
 /// dos selectores del paso 4.
@@ -348,39 +404,73 @@ final disponiblesProvider =
 /// que hace `/api/orders/available` para las opciones de filtro): si se sacaran
 /// de la lista ya filtrada, elegir un vendedor borraria del desplegable a todos
 /// los demas y no habria forma de cambiar de opinion sin limpiar.
+/// **STREAM, no Future** — 24/09/2026. Es el MISMO fallo que ya se arreglo en
+/// los desplegables de Pedidos el 17/09 (`facetasPedidosProvider`) y que no se
+/// llevo aqui: con una sola respuesta, en la web los dos desplegables se
+/// quedaban vacios para siempre —solo «Todos los municipios»— y no habia forma
+/// de filtrar sin recargar la pagina. Ahora cuelga de [disponiblesProvider], que
+/// ya es un `Stream`, asi que se rehace cada vez que aquel emite.
 final opcionesDeDisponiblesProvider =
-    FutureProvider.family<OpcionesDeDisponibles, FiltrosDisponibles>((
+    StreamProvider.family<OpcionesDeDisponibles, FiltrosDisponibles>((
       ref,
       filtros,
-    ) async {
-      final pedidos = await ref.watch(
-        disponiblesProvider(
-          filtros.copiarCon(q: '', vendedor: '', municipio: ''),
-        ).future,
-      );
-      return OpcionesDeDisponibles(
-        municipios: {
-          for (final p in pedidos)
-            if ((p.municipio ?? '').isNotEmpty) p.municipio!,
-        }.toList()..sort(),
-        vendedores: {
-          for (final p in pedidos)
-            if ((p.vendedor ?? '').isNotEmpty) p.vendedor!,
-        }.toList()..sort(),
+    ) {
+      final pedidos = ref
+          .watch(
+            disponiblesProvider(
+              filtros.copiarCon(q: '', vendedor: '', municipio: ''),
+            ),
+          )
+          .value;
+      // Todavia no ha contestado: un stream vacio deja esto «cargando», y cuando
+      // conteste este provider se rehace solo.
+      if (pedidos == null) return const Stream<OpcionesDeDisponibles>.empty();
+      return Stream<OpcionesDeDisponibles>.value(
+        OpcionesDeDisponibles(
+          municipios: {
+            for (final p in pedidos)
+              if ((p.municipio ?? '').isNotEmpty) p.municipio!,
+          }.toList()..sort(),
+          vendedores: {
+            for (final p in pedidos)
+              if ((p.vendedor ?? '').isNotEmpty) p.vendedor!,
+          }.toList()..sort(),
+        ),
       );
     });
 
 /// Los renglones de los pedidos elegibles: de aqui salen los articulos de cada
 /// fila del paso 4.
+///
+/// **STREAM, no Future**, y por lo mismo que [renglonesDeParadasProvider]: los
+/// renglones bajan DESPUES que los pedidos, y con una sola respuesta la columna
+/// de articulos se quedaba vacia para siempre. Vacia no se lee como «todavia no
+/// ha llegado»: se lee como «este pedido no lleva nada», y con eso se carga un
+/// camion.
 final renglonesDeDisponiblesProvider =
-    FutureProvider.family<
+    StreamProvider.family<
       Map<String, List<RenglonConPeso>>,
       FiltrosDisponibles
-    >((ref, filtros) async {
-      final pedidos = await ref.watch(disponiblesProvider(filtros).future);
-      return ref.watch(consultasRutasProvider).renglonesDe([
-        for (final p in pedidos) p.id,
-      ]);
+    >((ref, filtros) {
+      final base = ref.watch(baseProvider);
+      final consultas = ref.watch(consultasRutasProvider);
+      final pedidos = ref.watch(disponiblesProvider(filtros)).value;
+      if (pedidos == null) {
+        return const Stream<Map<String, List<RenglonConPeso>>>.empty();
+      }
+      final ids = [for (final p in pedidos) p.id];
+
+      Future<Map<String, List<RenglonConPeso>>> mirar() =>
+          consultas.renglonesDe(ids);
+
+      return () async* {
+        yield await mirar();
+        yield* base
+            .tableUpdates(
+              TableUpdateQuery.onAllTables([base.orderItems, base.products]),
+            )
+            .asyncMap((_) => mirar());
+      }();
     });
 
 /// Lo que llena los dos desplegables del paso 4.
@@ -402,7 +492,33 @@ class OpcionesDeDisponibles {
 
 /// Los almacenes de una sucursal, por su CODIGO (`branches.externalId`), que es
 /// como los guarda Accesos. El principal viene primero.
-final almacenesProvider = FutureProvider.family<List<Almacen>, String>(
-  (ref, sucursalCodigo) =>
-      ref.watch(consultasRutasProvider).almacenesDe(sucursalCodigo),
-);
+///
+/// ## STREAM, no Future — 24/09/2026, y era el mas grave de los cinco
+///
+/// `warehouses` es la **penultima** coleccion de `Colecciones.todas`, o sea de
+/// las ultimas en bajar; `branches`, que es lo que hace que aqui llegue un
+/// codigo, va antes. Asi que en la web esta respuesta se pedia casi siempre con
+/// la tabla todavia vacia, y con un `Future` se quedaba cacheada asi: el paso 2
+/// del asistente —«Salida»— **sin ninguna opcion para siempre**, con su
+/// `_salida ??= conUbicacion.firstOrNull` sin resolver nunca.
+///
+/// Y **no se arreglaba cerrando y reabriendo el cajon**, que es lo primero que
+/// intenta quien esta delante: el cache es del provider, no del widget. Solo
+/// recargando la pagina.
+final almacenesProvider = StreamProvider.family<List<Almacen>, String>((
+  ref,
+  sucursalCodigo,
+) {
+  final base = ref.watch(baseProvider);
+  final consultas = ref.watch(consultasRutasProvider);
+
+  Future<List<Almacen>> mirar() => consultas.almacenesDe(sucursalCodigo);
+
+  return () async* {
+    // El primero enseguida: `tableUpdates` no emite al suscribirse.
+    yield await mirar();
+    yield* base
+        .tableUpdates(TableUpdateQuery.onTable(base.warehouses))
+        .asyncMap((_) => mirar());
+  }();
+});

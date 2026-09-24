@@ -90,15 +90,15 @@ void main() {
     // Leerlo como un booleano suelto convertiría «todos» en «sin cobro» al abrir
     // un enlace viejo, y quien lo abriera vería la lista vacía sin saber por qué.
     expect(
-      FiltrosEnLaUrl.leer(const <String, String>{}).conCobroDeDomicilio,
+      FiltrosEnLaUrl.leer(const <String, String>{}).filtros.conCobroDeDomicilio,
       isNull,
     );
     expect(
-      FiltrosEnLaUrl.leer(const {'cobro': 'si'}).conCobroDeDomicilio,
+      FiltrosEnLaUrl.leer(const {'cobro': 'si'}).filtros.conCobroDeDomicilio,
       isTrue,
     );
     expect(
-      FiltrosEnLaUrl.leer(const {'cobro': 'no'}).conCobroDeDomicilio,
+      FiltrosEnLaUrl.leer(const {'cobro': 'no'}).filtros.conCobroDeDomicilio,
       isFalse,
     );
   });

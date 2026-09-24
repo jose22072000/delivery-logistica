@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../diseno/pestanas.dart';
+import '../../../diseno/tema.dart';
 import '../../../nucleo/plataforma.dart';
 
 import '../datos/modelos.dart';
@@ -31,11 +32,15 @@ import 'tarjeta.dart';
 /// (`navegacion/pantalla_registrada.dart`). Devolver otro deja dos barras
 /// superiores y rompe el selector de sucursal.
 class PantallaTablero extends ConsumerStatefulWidget {
-  const PantallaTablero({this.filtrosDeLaUrl, super.key});
+  const PantallaTablero({this.lectura, super.key});
 
-  /// Los filtros que venian en la direccion. En web, mandar un enlace al
-  /// tablero ya filtrado tiene que llevar al mismo sitio.
-  final FiltrosSinColocar? filtrosDeLaUrl;
+  /// Lo que venia en la direccion: los filtros que se pudieron aplicar y **la
+  /// lista de los que no**. En web, mandar un enlace al tablero ya filtrado
+  /// tiene que llevar al mismo sitio, y cuando no puede tiene que DECIRLO.
+  ///
+  /// `null` es «esta pantalla se pinto suelta», que es lo que hace una prueba de
+  /// widget: entonces no se toca el filtro que ya hubiera puesto.
+  final LecturaDeLaUrl? lectura;
 
   @override
   ConsumerState<PantallaTablero> createState() => _PantallaTableroState();
@@ -75,7 +80,7 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
   /// mientras se construye es lo que Riverpod prohibe, con razon: dejaria el
   /// arbol a medio pintar con dos estados distintos.
   void _adoptarLaUrl() {
-    final deLaUrl = widget.filtrosDeLaUrl;
+    final deLaUrl = widget.lectura?.filtros;
     if (deLaUrl == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -89,10 +94,27 @@ class _PantallaTableroState extends ConsumerState<PantallaTablero> {
   @override
   Widget build(BuildContext context) {
     final asincrono = ref.watch(tableroProvider);
-    return asincrono.when(
+    final cuerpo = asincrono.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => _Problema(texto: _texto(e)),
       data: _conDatos,
+    );
+
+    // LO QUE EL ENLACE TRAIA Y NO SE PUDO APLICAR, ENCIMA DE TODO LO DEMAS.
+    //
+    // Va por delante del conteo —«Sin colocar (308)»— a proposito: quien abrio
+    // un enlace tiene que enterarse de que el tablero NO esta acotado como el
+    // enlace decia **antes** de leer un numero y creerselo. Y va fuera del
+    // `when`, para que salga tambien cuando lo que hay debajo es un problema:
+    // un enlace roto no deja de estar roto porque ademas falte elegir sucursal.
+    final noSePudieron = widget.lectura?.noSePudieron ?? const <String>[];
+    if (noSePudieron.isEmpty) return cuerpo;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _FranjaNoSePudo(noSePudieron),
+        Expanded(child: cuerpo),
+      ],
     );
   }
 
@@ -569,6 +591,53 @@ class _BarraDeArriba extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// LO QUE EL ENLACE PEDIA Y NO SE PUDO HACER, con su clave y su valor.
+///
+/// «No se pudo aplicar un filtro» no le dice nada a nadie; `dia=31-12-2026` si,
+/// porque quien mando el enlace puede corregirlo. Es la misma regla del
+/// §3-quinquies: el motivo literal o nada. La gemela de Pedidos vive en
+/// `pantallas/pedidos/vista/pantalla_pedidos.dart` y dice exactamente lo mismo:
+/// las dos pantallas se abren con el mismo enlace pegado y tienen que hablar
+/// igual.
+class _FranjaNoSePudo extends StatelessWidget {
+  const _FranjaNoSePudo(this.cuales);
+
+  final List<String> cuales;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(Aire.md),
+    decoration: BoxDecoration(
+      color: ColoresTablero.ambarFondo,
+      border: Border(
+        bottom: BorderSide(
+          color: ColoresTablero.ambar.withValues(alpha: 0.45),
+        ),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${FiltrosEnLaUrl.noSePudieronAplicar}: ${cuales.join(', ')}.',
+          style: Tipos.texto(
+            tamano: 13,
+            peso: FontWeight.w600,
+            color: Colores.tinta,
+            alto: 1.5,
+          ),
+        ),
+        const SizedBox(height: Aire.xs),
+        Text(
+          FiltrosEnLaUrl.yPorEsoLaListaNoEstaAcotada,
+          style: Tipos.texto(tamano: 13, color: Colores.tinta, alto: 1.5),
+        ),
+      ],
+    ),
+  );
 }
 
 /// Los que se llevo la cascada: se avisa UNA vez, con lo que se sabia de ellos

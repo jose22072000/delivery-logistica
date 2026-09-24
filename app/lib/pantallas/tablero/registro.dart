@@ -25,6 +25,6 @@ PantallaRegistrada registrarTablero() => PantallaRegistrada(
   icono: Icons.view_column_outlined,
   enElMenu: true,
   construir: (contexto, estado) => PantallaTablero(
-    filtrosDeLaUrl: FiltrosEnLaUrl.leer(estado.uri.queryParameters),
+    lectura: FiltrosEnLaUrl.leer(estado.uri.queryParameters),
   ),
 );
