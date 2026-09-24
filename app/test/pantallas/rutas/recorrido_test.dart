@@ -165,17 +165,52 @@ void main() {
       expect(recorrido.paradas[2].entregada, isFalse);
     });
 
+    /// EL IMPORTE DEL GLOBO SON DOS COLUMNAS, NO UNA — 23/09/2026.
+    ///
+    /// Esto miraba `price` a secas y daba por bueno un `price = 0` sin
+    /// `pedidoCosto`. No lo es: `orders.price` es una COPIA de `pedidoCosto`
+    /// que se hace al enganchar el pedido a la ruta, y el servidor la guarda con
+    /// `price = coalesce(sqlc.narg('price'), 0)`
+    /// (`api/db/queries/routes.sql:283`). O sea que en cuanto una parada SIN
+    /// COTIZAR entra en una ruta, su `price` vale 0 y ya nunca es nulo: el globo
+    /// decia **`$0.00`** mientras la hoja de paradas del detalle —que lee
+    /// `pedidoCosto`— decia «sin cotizar» sobre la MISMA parada.
+    ///
+    /// La regla es la de `ConsultasInformes.ingresoDe`, y se usa DE ALLI y no
+    /// copiada (`CLAUDE.md` §3-bis). Las parejas estan tambien en
+    /// `el_cero_que_se_escribe_test.dart`.
     test('el importe nulo se queda nulo y no se convierte en cero', () {
       final recorrido = recorridoDe(
         rutaAMano(
           paradas: [
             paradaAMano(id: 'a', cliente: 'Ana', lat: 21.1, lng: -77.1),
+            // Un domicilio GRATIS de verdad: `pedidoCosto = 0` es una cifra.
             paradaAMano(
               id: 'b',
               cliente: 'Beto',
               lat: 21.2,
               lng: -77.2,
               precio: 0,
+              costo: 0,
+            ),
+            // SIN COTIZAR y ya enganchada a una ruta: el `price = 0` de aqui es
+            // el `coalesce` del servidor, no un precio.
+            paradaAMano(
+              id: 'c',
+              cliente: 'Carla',
+              lat: 21.3,
+              lng: -77.3,
+              precio: 0,
+            ),
+            // Cotizada desde la APK de Entrega despues de engancharla: un
+            // `price` distinto de cero no puede venir del `coalesce`, asi que
+            // es un cobro de verdad y tirarlo seria perderlo.
+            paradaAMano(
+              id: 'd',
+              cliente: 'Dani',
+              lat: 21.4,
+              lng: -77.4,
+              precio: 7.5,
             ),
           ],
         ),
@@ -184,6 +219,15 @@ void main() {
       expect(recorrido.paradas[0].importe, isNull);
       // Un cero de verdad sigue siendo un cero: lo que no vale es fabricarlo.
       expect(recorrido.paradas[1].importe, 0);
+      expect(
+        recorrido.paradas[2].importe,
+        isNull,
+        reason:
+            'un `price` de cero sin `pedidoCosto` es el coalesce del servidor '
+            'sobre una parada sin cotizar: pintarlo como \$0.00 dice que el '
+            'reparto salio gratis',
+      );
+      expect(recorrido.paradas[3].importe, 7.5);
     });
   });
 }

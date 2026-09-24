@@ -28,6 +28,7 @@ import '../../pedidos/datos/formato.dart';
 import '../../pedidos/datos/repositorio_pedidos.dart';
 import '../../pedidos/vista/kit.dart';
 import '../datos/acciones_rutas.dart';
+import '../datos/importe_de_la_ruta.dart';
 import '../datos/repositorio_rutas.dart';
 import '../estado/proveedores_rutas.dart';
 import 'cierre_de_ruta.dart';
@@ -112,7 +113,7 @@ class DetalleDeRuta extends ConsumerWidget {
       ],
       _Acciones(ruta: conTodo),
       const SizedBox(height: 12),
-      _LineaDeDatos(ruta: conTodo),
+      LineaDeDatosDeLaRuta(ruta: conTodo),
       const SizedBox(height: 12),
       // EL MAPA, con sus cuatro gestos —abrir en Google Maps, WhatsApp,
       // compartir y copiar. Antes aqui habia medio gesto: un boton que
@@ -483,8 +484,15 @@ class _Acciones extends ConsumerWidget {
   }
 }
 
-class _LineaDeDatos extends StatelessWidget {
-  const _LineaDeDatos({required this.ruta});
+/// LA CABECERA DEL DETALLE: el renglon de datos de la ruta, y lo que le falta.
+///
+/// **Es publica a proposito, y no por gusto.** Lo unico que necesita es un
+/// [RutaConTodo] armado a mano, asi que se prueba suelta, sin `ProviderScope` y
+/// sin base: dentro de un `testWidgets` una consulta de Drift **cuelga la prueba
+/// en vez de fallarla** (`CLAUDE.md` §5), y un cuelgue no prueba nada. Mismo
+/// motivo por el que [AvisoDeRechazo] vive en su propio fichero publico.
+class LineaDeDatosDeLaRuta extends StatelessWidget {
+  const LineaDeDatosDeLaRuta({required this.ruta, super.key});
 
   final RutaConTodo ruta;
 
@@ -497,15 +505,58 @@ class _LineaDeDatos extends StatelessWidget {
       EstadoRuta.completada => 'Completada',
       _ => r.status,
     };
-    return Text(
-      '$estado · ${r.totalDistance.toStringAsFixed(1)} km (incl. regreso) · '
-      '${kg(r.totalWeight)} · ${usd(r.totalPrice)} · '
-      '${ruta.vehiculo?.name ?? '—'}'
-      '${ruta.vehiculo?.plate == null ? '' : ' · ${ruta.vehiculo!.plate}'} · '
-      '${fechaCorta(r.deliveryDate)} · '
-      'Carga total: ${ruta.paradas.length} · '
-      '${duracion(r.startedAt, r.finishedAt)}',
-      style: Theme.of(context).textTheme.bodySmall,
+    // EL IMPORTE SE SUMA DE LAS PARADAS, NO SE LEE DE `totalPrice`.
+    //
+    // `routes.total_price` es `NOT NULL DEFAULT 0` en el servidor y llega aqui
+    // con dos `?? 0` mas por el camino: no sabe decir «no se sabe», asi que
+    // decia `$0.00` sobre dos paradas marcadas «sin cotizar» en la misma
+    // pantalla (`RT-20260921-007`, 22/09/2026). Las paradas si saben decir
+    // `null`. Ver `datos/importe_de_la_ruta.dart`.
+    final importe = ImporteDeRuta.deLasParadas(
+      ruta.paradas.map((p) => p.pedidoCosto),
+    );
+    final queFalta = importe.queFalta;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '$estado · ${r.totalDistance.toStringAsFixed(1)} km (incl. regreso) · '
+          '${kg(r.totalWeight)} · ${importe.rotulo} · '
+          '${ruta.vehiculo?.name ?? '—'}'
+          '${ruta.vehiculo?.plate == null ? '' : ' · ${ruta.vehiculo!.plate}'} · '
+          '${fechaCorta(r.deliveryDate)} · '
+          'Carga total: ${ruta.paradas.length} · '
+          '${duracion(r.startedAt, r.finishedAt)}',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        // Y DEBAJO, QUE HACER. El `— (2 de 5 sin cotizar)` de arriba dice que no
+        // se sabe; esto dice a donde ir a arreglarlo, que es lo unico que sirve
+        // a quien lo lee. Sale **solo cuando falta alguna**: un aviso que sale
+        // siempre deja de leerse (`CLAUDE.md` §3-quinquies).
+        if (queFalta != null) ...[
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.report_problem_outlined,
+                size: 14,
+                color: Colores.ambar,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  queFalta,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colores.ambar),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }

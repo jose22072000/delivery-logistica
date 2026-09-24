@@ -33,6 +33,23 @@ abstract final class Numeros {
   /// esta se queda para quien la necesite dentro de esa conversion.
   static String importe(num v) => _dos.format(v);
 
+  /// LO QUE SE ESCRIBE DONDE UN IMPORTE NO SE SABE.
+  ///
+  /// Son las mismas dos palabras que pinta `Pedidos` (`usd()` en
+  /// `pantallas/pedidos/datos/formato.dart`) y las mismas que la hoja de
+  /// paradas de una ruta, para que la misma cifra no se llame de dos maneras
+  /// segun la pantalla. **Nunca un `0,00`**: un cero es un precio y se lee como
+  /// «este domicilio es gratis» (`CLAUDE.md` §2).
+  static const sinCotizar = 'sin cotizar';
+
+  /// UN TOTAL AL QUE LE FALTA ALGUN SUMANDO. Ni el total a medias ni un `—`
+  /// mudo: el `—` dice que no se sabe y el parentesis dice **cuantas** faltan,
+  /// que es lo unico con lo que alguien puede ir a arreglarlo.
+  ///
+  /// Es lo mismo que hace el pre-despacho con su `sinPeso` / `sinUnidades`.
+  static String totalIncompleto(int cuantas) =>
+      '— ($cuantas sin cotizar)';
+
   /// Pesos: **1 decimal**, como el pliego (`<n.n> kg`).
   static String kg(num v) => '${_uno.format(v)} kg';
 

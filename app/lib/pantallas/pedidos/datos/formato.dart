@@ -42,11 +42,18 @@ String cantidad(double valor) => valor == valor.roundToDouble()
     : valor.toStringAsFixed(2);
 
 /// La duracion de una ruta: `3 h 20 min`.
+///
+/// **Una hora exacta se escribe `1 h`, no `1 h 0 min`.** Ese `0 min` colgando se
+/// leyo en pantalla el 22/09/2026 y no es una errata de estilo: el unico sitio
+/// donde esto se pinta es el renglon de datos del detalle, pegado por puntos a
+/// los kilometros, el peso y el importe, y un cero suelto ahi dentro se lee como
+/// un dato que falta. Los minutos se escriben cuando los hay.
 String duracion(DateTime? desde, DateTime? hasta) {
   if (desde == null || hasta == null) return '—';
   final cuanto = hasta.difference(desde);
   if (cuanto.isNegative) return '—';
   final horas = cuanto.inHours;
   final minutos = cuanto.inMinutes % 60;
-  return horas == 0 ? '$minutos min' : '$horas h $minutos min';
+  if (horas == 0) return '$minutos min';
+  return minutos == 0 ? '$horas h' : '$horas h $minutos min';
 }

@@ -400,6 +400,13 @@ class Bajada {
                 originLng: Value(_numero(j['originLng'])),
                 totalDistance: Value(_numero(j['totalDistance']) ?? 0),
                 totalWeight: Value(_numero(j['totalWeight']) ?? 0),
+                // EL `?? 0` DE AQUI NO ES EL IMPORTE DE LA RUTA, y no se
+                // quita: `total_price` es `NOT NULL DEFAULT 0` en el servidor
+                // (`api/db/migrations/00001_init.sql:426`), asi que el campo
+                // siempre viene con numero y esto solo salta si faltara. Lo que
+                // se hizo el 22/09/2026 fue quitarle el trabajo de ser el
+                // importe: ese se suma de las paradas, que si saben decir
+                // `null`. Ver `ImporteDeRuta.espejoDelTotalDelServidor`.
                 totalPrice: Value(_numero(j['totalPrice']) ?? 0),
                 deliveryDate: Value(_fecha(j['deliveryDate'])),
                 vehicleId: Value(_texto(j['vehicleId'])),
@@ -441,6 +448,19 @@ class Bajada {
               ProductsCompanion.insert(
                 id: _texto(j['id'])!,
                 name: _texto(j['name']) ?? '',
+                // EL PESO DE UN PRODUCTO QUE NADIE SABE LLEGA COMO CERO, y el
+                // `?? 0` de aqui NO es quien lo inventa: `products.weight` es
+                // `double precision NOT NULL DEFAULT 0` en el servidor
+                // (`api/db/migrations/00001_init.sql:204`) y su DTO es
+                // `float64`, no puntero (`api/internal/api/productos.go:59`).
+                // O sea que el nulo ya viene perdido de casa: Ventra si lo
+                // distingue —`TestPesoNuloNoEsCero` en
+                // `api/internal/ventra/ventra_test.go`, «cero kilos es una
+                // mentira»— y el esquema del servidor se lo come al guardarlo.
+                //
+                // Taparlo aqui seria mentir al reves. El arreglo es del
+                // servidor: columna nulable y DTO con puntero. Dicho en el
+                // informe del 23/09/2026 con lo que cuesta.
                 weight: Value(_numero(j['weight']) ?? 0),
                 category: Value(_texto(j['category'])),
                 sku: Value(_texto(j['sku'])),
@@ -538,6 +558,31 @@ class Bajada {
             endLng: Value(_numero(j['endLng'])),
             lat: Value(_numero(j['lat'])),
             lng: Value(_numero(j['lng'])),
+            // UN PEDIDO SIN PESO LLEGA COMO **1 kg**, que es una cifra
+            // perfectamente creible para un paquete y se suma en «Peso Total»,
+            // en el pie de las tablas, en el Excel y —lo peor— en la barra de
+            // capacidad del camion, que decide que cabe.
+            //
+            // **El 1 NO se lo inventa el aparato**, comprobado el 23/09/2026:
+            // `orders.weight` es `double precision NOT NULL DEFAULT 1` en el
+            // servidor (`api/db/migrations/00001_init.sql:276`) y su DTO es
+            // `float64`, no puntero (`api/internal/api/pedidos.go:189`), asi
+            // que el campo NUNCA llega nulo. Este `?? 1` solo salta si la
+            // respuesta viniera sin el campo, y entonces repite el mismo
+            // defecto que el servidor. Quitarlo de aqui no cambiaria un solo
+            // pedido.
+            //
+            // **Donde esta el arreglo, y lo que cuesta**: hacer nulable
+            // `orders.weight` en el servidor y en esta tabla, poner puntero en
+            // el DTO, y propagar `double?` por todo lo que hoy suma pesos —los
+            // informes, el pre y el post-despacho, la barra de capacidad—, que
+            // son pantallas de otros. No se empieza a medias. Lo que SI existe
+            // ya y no se esta usando es la confesion por renglon:
+            // `order_items.weight_source` y `caso`
+            // (`api/db/migrations/00004_peso_por_renglon.sql`) dicen de donde
+            // salio cada peso y si el renglon caso con el catalogo; ese es el
+            // hilo por el que se puede saber que un peso es inventado sin tocar
+            // el tipo de la columna.
             weight: Value(_numero(j['weight']) ?? 1),
             status: Value(_texto(j['status']) ?? EstadoPedido.pendiente),
             tripLeg: Value(_texto(j['tripLeg']) ?? Tramo.ida),

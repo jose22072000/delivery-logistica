@@ -88,6 +88,10 @@ class PantallaInformes extends ConsumerWidget {
     // de arriba; aqui sólo se pinta.
     final tasa = ref.watch(tasaDeLaMiradaProvider);
     final moneda = ref.watch(monedaEfectivaProvider);
+    // `TasaDeLaMirada.importe` ya contesta `—` a un `null`, que es justo lo que
+    // hace falta: **un importe que no se sabe no se pinta nunca como `0.00`**
+    // (`CLAUDE.md` §2). Lo que se traia el `null` de abajo era la consulta, que
+    // escribia un cero; ahora llega hasta aqui y se dice.
     String importe(double? usd) => tasa.importe(usd, moneda);
 
     final cuando = bajada.value;
@@ -192,6 +196,12 @@ class PantallaInformes extends ConsumerWidget {
     );
   }
 }
+
+/// El subtexto de la tarjeta de `Ingresos Totales` cuando no hay total: dice
+/// **que hacer**, no solo que falta. Un `—` a secas no lo dice.
+String _faltanPorCotizar(int cuantas) => cuantas == 1
+    ? 'Falta cotizar 1 orden: sin ella no hay total.'
+    : 'Faltan cotizar $cuantas órdenes: sin ellas no hay total.';
 
 /// Lo que dice la pantalla sobre de donde salen sus numeros.
 ///
@@ -532,10 +542,24 @@ class _Resumen extends StatelessWidget {
         etiqueta: 'Total Órdenes',
         valor: Numeros.entero(r.totalOrdenes),
       ),
-      TarjetaDeCifra(etiqueta: 'Ingresos Totales', valor: importe(r.ingresos)),
+      // LAS DOS QUE PUEDEN NO SABERSE. Con alguna orden sin cotizar no hay
+      // total: se pinta `— (N sin cotizar)` y el subtexto dice que hacer. Un
+      // `0,00 USD` aqui es lo que se veia el 22/09/2026 en produccion sobre 10,4
+      // km de reparto con el camion cotizado a 1,50 USD/km.
+      TarjetaDeCifra(
+        etiqueta: 'Ingresos Totales',
+        valor: r.ingresos == null
+            ? Numeros.totalIncompleto(r.sinCotizar)
+            : importe(r.ingresos),
+        subtexto: r.ingresos == null ? _faltanPorCotizar(r.sinCotizar) : null,
+        color: r.ingresos == null ? Colores.ambar : null,
+      ),
       TarjetaDeCifra(
         etiqueta: 'Precio Promedio',
-        valor: importe(r.precioPromedio),
+        valor: r.precioPromedio == null
+            ? Numeros.totalIncompleto(r.sinCotizar)
+            : importe(r.precioPromedio),
+        color: r.precioPromedio == null ? Colores.ambar : null,
       ),
       TarjetaDeCifra(etiqueta: 'Peso Total', valor: Numeros.kg(r.peso)),
     ];
@@ -588,7 +612,7 @@ class _Resumen extends StatelessWidget {
                           ),
                         const SizedBox(height: 4),
                         Text(
-                          '${importe(v.ingresos)} · '
+                          '${v.ingresos == null ? Numeros.totalIncompleto(v.sinCotizar) : importe(v.ingresos)} · '
                           '${Numeros.entero(v.ordenes)} órdenes',
                         ),
                       ],
@@ -617,13 +641,18 @@ class _PorVehiculo extends StatelessWidget {
       );
     }
     var ordenes = 0;
-    var ingresos = 0.0;
     var peso = 0.0;
+    var sinCotizar = 0;
     for (final v in informe.porVehiculo) {
       ordenes += v.ordenes;
-      ingresos += v.ingresos;
       peso += v.peso;
+      sinCotizar += v.sinCotizar;
     }
+    // El pie NO puede parecer completo si le falta un sumando: misma regla que
+    // `TotalesPreDespacho._sumaCompleta`.
+    final ingresos = ConsultasInformes.sumaCompleta(
+      informe.porVehiculo.map((v) => v.ingresos),
+    );
 
     return Padding(
       padding: const EdgeInsets.only(top: 16),
@@ -644,16 +673,20 @@ class _PorVehiculo extends StatelessWidget {
                 v.nombre,
                 v.placa ?? '—',
                 Numeros.entero(v.ordenes),
-                importe(v.ingresos),
+                v.ingresos == null
+                    ? Numeros.totalIncompleto(v.sinCotizar)
+                    : importe(v.ingresos),
                 Numeros.kg(v.peso),
-                importe(v.promedioPorOrden),
+                v.promedioPorOrden == null ? '—' : importe(v.promedioPorOrden),
               ],
           ],
           pie: [
-            'Totales',
+            sinCotizar == 0 ? 'Totales' : 'Totales ($sinCotizar sin cotizar)',
             '',
             Numeros.entero(ordenes),
-            importe(ingresos),
+            ingresos == null
+                ? Numeros.totalIncompleto(sinCotizar)
+                : importe(ingresos),
             Numeros.kg(peso),
             '',
           ],
@@ -677,11 +710,14 @@ class _Detalle extends StatelessWidget {
       );
     }
     var peso = 0.0;
-    var total = 0.0;
+    var sinCotizar = 0;
     for (final f in informe.filas) {
       peso += f.pesoKg;
-      total += f.importe;
+      if (f.importe == null) sinCotizar++;
     }
+    final total = ConsultasInformes.sumaCompleta(
+      informe.filas.map((f) => f.importe),
+    );
 
     return Padding(
       padding: const EdgeInsets.only(top: 16),
@@ -708,10 +744,23 @@ class _Detalle extends StatelessWidget {
                 f.destino,
                 f.vehiculo ?? '—',
                 Numeros.kg(f.pesoKg),
-                importe(f.importe),
+                // LA COLUMNA QUE VA AL EXCEL Y A CONTABILIDAD. Sin cotizacion
+                // se dice con las MISMAS palabras que `Pedidos` y que la hoja
+                // de paradas de la ruta: «sin cotizar», nunca `0,00`.
+                f.importe == null ? Numeros.sinCotizar : importe(f.importe),
               ],
           ],
-          pie: ['Totales:', '', '', '', '', Numeros.kg(peso), importe(total)],
+          pie: [
+            sinCotizar == 0 ? 'Totales:' : 'Totales: ($sinCotizar sin cotizar)',
+            '',
+            '',
+            '',
+            '',
+            Numeros.kg(peso),
+            total == null
+                ? Numeros.totalIncompleto(sinCotizar)
+                : importe(total),
+          ],
         ),
       ),
     );

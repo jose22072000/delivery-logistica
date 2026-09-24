@@ -9,19 +9,48 @@
 //   2. se escribe en la base local y se pinta como hecho;
 //   3. se encola el apunte con la **hora del aparato** y se sube por detras.
 //
-// No hay un «modo sin conexion»: esto es lo que pasa siempre, tenga red o no.
-// Quien tenga senal todo el dia simplemente vera subir la cola a medida que
-// trabaja. El caso que manda es el otro: el patio del almacen, donde no hay
-// senal, es donde se cierra la ruta.
+// EN LA APK Y EN EL ESCRITORIO no hay un «modo sin conexion»: eso es lo que
+// pasa siempre, tenga red o no. Quien tenga senal todo el dia simplemente vera
+// subir la cola a medida que trabaja. El caso que manda es el otro: el patio del
+// almacen, donde no hay senal, es donde se cierra la ruta.
+//
+// # LA WEB NO. LA WEB ESCRIBE EN EL SERVIDOR Y ESPERA — 22/09/2026
+//
+// Aqui ponia «esto es lo que pasa siempre», y en la web eso era falso de la
+// peor manera posible. Medido en produccion: se armaba una ruta con tres
+// pedidos, el asistente se cerraba, **no salia ni un mensaje**, y tras un F5 no
+// habia ruta. La unica peticion que salia al pulsar «Generar Ruta» era
+// `POST /sync/aparato`, y contestaba 401 — en un navegador no hay par de tokens
+// que dar de alta, la sesion es la cookie de Accesos. O sea: el apunte se
+// quedaba en una cola que no sube, sobre una base **en memoria** que muere al
+// recargar, y ninguna pantalla lo desmentia.
+//
+// `CLAUDE.md` §1, palabras de Jose: «la web siempre esta en vivo porque saca de
+// la base de datos de la nube, no de una extra». Asi que cuando hay
+// [EscrituraEnVivo] —y solo la hay en la web— las cinco acciones cambian de
+// orden y de forma:
+//
+//   1. se comprueba lo que se pueda con lo que hay delante, igual que siempre;
+//   2. **se manda al servidor y se espera su respuesta**;
+//   3. si dice que no, no se escribe una sola fila y sale su motivo LITERAL
+//      (`CLAUDE.md` §3-quinquies);
+//   4. si dice que si, se refleja lo que el servidor guardo —con SU id, no con
+//      un `local-...`— para que la pantalla ensene lo que hay arriba.
+//
+// No se encola nada. No hay id provisional. Y como la cola se queda vacia, el
+// `POST /sync/aparato` de cada ciclo tampoco vuelve a salir: `Subida.ciclo`
+// se planta en `if (lote.isEmpty) return 0` antes de tocar la red.
 
 import 'package:drift/drift.dart';
 
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/cola/cola_salida.dart';
 import '../../../nucleo/cola/provisionales.dart';
+import '../../../nucleo/red/escritura_en_vivo.dart';
 import '../../../nucleo/registro/registro.dart';
 import '../../../nucleo/reloj.dart';
 import 'geo.dart';
+import 'importe_de_la_ruta.dart';
 
 /// Un «no» dicho por el aparato, con el MISMO texto que diria el servidor.
 ///
@@ -67,12 +96,44 @@ class AccionesDeRuta {
     this._cola, {
     Reloj reloj = relojDelAparato,
     String sufijoAparato = 'LOC',
+    EscrituraEnVivo? enVivo,
   }) : _reloj = reloj,
-       _sufijo = sufijoAparato;
+       _sufijo = sufijoAparato,
+       _enVivo = enVivo;
 
   final BaseLocal _base;
   final ColaDeSalida _cola;
   final Reloj _reloj;
+
+  /// QUIEN MANDA EL GESTO AL SERVIDOR Y ESPERA. `null` en la APK y en el
+  /// escritorio, que es donde la cola es la respuesta correcta.
+  ///
+  /// Se decide **fuera**, en `proveedores_rutas.dart`, y no preguntando aqui por
+  /// `Destino.trabajaSinConexion`: asi una prueba puede ejercitar los dos mundos
+  /// sin compilar para web, que es justo lo que no habia — la web estuvo sin
+  /// poder escribir un solo apunte desde que existe y no habia ni una prueba que
+  /// lo dijera.
+  final EscrituraEnVivo? _enVivo;
+
+  /// Manda el gesto y traduce el «no» al idioma que la pantalla ya entiende.
+  ///
+  /// Las cuatro pantallas de Rutas cazan `RechazoLocal` y pintan su `mensaje`
+  /// tal cual (`vista/asistente_nueva_ruta.dart`, `vista/detalle_ruta.dart`,
+  /// `vista/lista_rutas.dart`, `vista/cierre_de_ruta.dart`). Cualquier otra
+  /// excepcion que saliera de aqui no la caza nadie: el cajon se quedaria
+  /// abierto y mudo, que es la mitad del fallo que esto viene a arreglar.
+  Future<Object?> _mandar(
+    EscrituraEnVivo enVivo, {
+    required String metodo,
+    required String ruta,
+    Map<String, Object?> cuerpo = const <String, Object?>{},
+  }) async {
+    try {
+      return await enVivo.mandar(metodo: metodo, ruta: ruta, cuerpo: cuerpo);
+    } on RechazoDelServidor catch (no) {
+      throw RechazoLocal(no.motivo);
+    }
+  }
 
   /// El sufijo que distingue los codigos de ruta generados sin conexion. Sin el,
   /// dos sucursales sin red el mismo dia generan `RT-20260914-001` las dos.
@@ -125,7 +186,16 @@ class AccionesDeRuta {
 
     final pedidos = await _pedidosArmables(pedidoIds, sucursalId);
 
-    if (pedidos.length < pedidoIds.length) {
+    // EL REPETIDO NO ES UN CONFLICTO. Mandar dos veces el mismo id devolvia UNA
+    // fila para DOS ids, `1 < 2` se cumplia, y el aviso salia vacio de verdad:
+    // «0 de los 3 pedidos elegidos no pueden ir en esta ruta: .» — un «no» sin
+    // nadie dentro, sobre pedidos que estaban perfectamente libres. Ademas el
+    // servidor los acepta, asi que el aparato negaba lo que la nube permite.
+    //
+    // Lo que falta se cuenta sobre los ids DISTINTOS, igual que `faltanDelArmado`
+    // en `api/internal/api/rutas.go`. La M del mensaje sigue siendo lo que la
+    // persona marco en la pantalla, que es lo que tiene delante al leerlo.
+    if (pedidos.length < pedidoIds.toSet().length) {
       throw RechazoLocal(
         await _porQueNoSePuedenArmar(pedidoIds, pedidos, sucursalId),
       );
@@ -184,10 +254,50 @@ class AccionesDeRuta {
         Parada(id, porId[id]!.endLat!, porId[id]!.endLng!),
     ];
 
-    final rutaId = Provisionales.nuevoId();
-    final codigo = await _codigoDeRuta();
     final ahora = _reloj();
     final sucursalDeLaRuta = sucursalId ?? pedidos.first.branchId;
+
+    // EL CUERPO ES UNO SOLO PARA LOS DOS CAMINOS.
+    //
+    // Se armaba dentro del `encolar`, o sea que el dia que la web escribiera en
+    // directo habria dos copias del mismo cuerpo y una se quedaria atras. Es
+    // exactamente lo que le paso al mensaje de `_porQueNoSePuedenArmar`: el
+    // servidor lo cambio el 21/09 y el aparato se quedo con el literal viejo.
+    final cuerpo = <String, Object?>{
+      'name': ?nombre,
+      'branchId': sucursalDeLaRuta,
+      'vehicleId': vehiculoId,
+      if (fechaDeEntrega != null)
+        'deliveryDate': fechaDeEntrega.toIso8601String(),
+      'originAddress': origenDireccion,
+      'originLat': origenLat,
+      'originLng': origenLng,
+      // `orderIds` en el ORDEN CALCULADO aqui. Con `optimizar: true` el servidor
+      // recalcula el suyo —hacen la misma cuenta y lo demuestran contra
+      // `docs/orden-de-paradas.casos.json`—; con `false` este orden ES el dato,
+      // porque lo puso una persona que conoce las calles.
+      'orderIds': orden,
+      // Se manda SIEMPRE, tambien cuando vale `true`. El servidor da por `true`
+      // el cuerpo que no lo trae —las APK viejas no lo mandan y su orden SI lo
+      // calculo el aparato—, asi que callarlo cuando es `false` devolveria la
+      // ruta a estar firmada como calculada.
+      'optimizar': optimizar,
+    };
+
+    // --- LA WEB: al servidor, y sin pintar nada hasta que conteste ---------
+    final enVivo = _enVivo;
+    if (enVivo != null) {
+      final respuesta = await _mandar(
+        enVivo,
+        metodo: 'POST',
+        ruta: '/routes',
+        cuerpo: cuerpo,
+      );
+      return _guardarLaRutaQueVolvio(respuesta);
+    }
+
+    final rutaId = Provisionales.nuevoId();
+    final codigo = await _codigoDeRuta();
 
     await _base.transaction(() async {
       await _base
@@ -203,10 +313,16 @@ class AccionesDeRuta {
               originLng: Value(origenLng),
               totalDistance: Value(kmDelCircuito(origen, ordenadas)),
               totalWeight: Value(pesoTotal),
+              // ESTO NO ES EL IMPORTE DE LA RUTA, y por eso ya no se escribe a
+              // pelo: es el ESPEJO de lo que el servidor va a calcular cuando
+              // esto suba (`api/internal/api/rutas.go:810-814` suma igual, sólo
+              // los `pedidoCosto` no nulos). La columna es `NOT NULL DEFAULT 0`
+              // aquí y allí, así que no sabe decir «no se sabe»: el importe de
+              // verdad sale de las paradas, con `ImporteDeRuta`, que sí sabe.
+              // El porqué entero está en `espejoDelTotalDelServidor`.
               totalPrice: Value(
-                pedidos.fold<double>(
-                  0,
-                  (suma, p) => suma + (p.pedidoCosto ?? 0),
+                ImporteDeRuta.espejoDelTotalDelServidor(
+                  pedidos.map((p) => p.pedidoCosto),
                 ),
               ),
               deliveryDate: Value(fechaDeEntrega),
@@ -234,7 +350,21 @@ class AccionesDeRuta {
             segmentKm: Value(
               haversineKm(origen, Punto(pedido.endLat!, pedido.endLng!)),
             ),
-            price: Value(pedido.pedidoCosto ?? 0),
+            // EL NULO SE ESCRIBE. `orders.price` es `real().nullable()` aquí,
+            // así que sí puede decir «sin cotizar», y este `?? 0` era quien se
+            // lo quitaba: una parada sin cotizar quedaba GRABADA a cero y el
+            // globo del croquis decía `$0.00` sobre un domicilio que nadie ha
+            // cotizado todavía (`CLAUDE.md` §2).
+            //
+            // El servidor NO puede hacer lo mismo: `EngancharPedidoARuta` hace
+            // `price = coalesce(sqlc.narg('price'), 0)`
+            // (`api/db/queries/routes.sql:283`), así que en cuanto esta ruta
+            // suba y vuelva a bajar, el nulo se convierte otra vez en cero. Por
+            // eso quien LEE `price` tiene que aplicar además la regla de
+            // `ConsultasInformes.ingresoDe` —un `price` de cero sin
+            // `pedidoCosto` no es un precio, es ese `coalesce`—, y es lo que
+            // hace `recorrido.dart`.
+            price: Value(pedido.pedidoCosto),
             vehicleId: Value(vehiculoId),
             updatedAt: Value(ahora),
           ),
@@ -245,25 +375,7 @@ class AccionesDeRuta {
     await _cola.encolar(
       metodo: 'POST',
       ruta: '/routes',
-      // El cuerpo lleva `orderIds` en el ORDEN CALCULADO aqui. El servidor
-      // recalcula el suyo, pero mandarlo ordenado deja constancia de lo que el
-      // aparato decidio cuando no habia con quien consultarlo.
-      cuerpo: <String, Object?>{
-        'name': ?nombre,
-        'branchId': sucursalDeLaRuta,
-        'vehicleId': vehiculoId,
-        if (fechaDeEntrega != null)
-          'deliveryDate': fechaDeEntrega.toIso8601String(),
-        'originAddress': origenDireccion,
-        'originLat': origenLat,
-        'originLng': origenLng,
-        'orderIds': orden,
-        // Se manda SIEMPRE, tambien cuando vale `true`. El servidor da por
-        // `true` el cuerpo que no lo trae —las APK viejas no lo mandan y su
-        // orden SI lo calculo el aparato—, asi que callarlo cuando es `false`
-        // devolveria la ruta a estar firmada como calculada en cuanto suba.
-        'optimizar': optimizar,
-      },
+      cuerpo: cuerpo,
       // La bisagra: cuando esto suba, el id de verdad sustituye a `local-…` en
       // la cola y en las filas locales. Sin esto, el cierre de la tarde se iria
       // a `/routes/local-9f3a/results` y se perderia justo despues de subir.
@@ -272,6 +384,121 @@ class AccionesDeRuta {
 
     return rutaId;
   }
+
+  /// LO QUE EL SERVIDOR GUARDO, reflejado tal cual en la base de la pestana.
+  ///
+  /// La base de la web es en memoria y de ella leen las siete pantallas. Esto NO
+  /// la convierte en una copia que pueda mentir: aqui solo entra lo que el
+  /// servidor **ya escribio** y acaba de devolver, con SU id, SU codigo de ruta
+  /// y SU orden de paradas. Lo que se pinta es lo que hay arriba.
+  ///
+  /// Y el id es el de verdad desde el primer instante: nada de `local-…`, nada
+  /// de `Provisionales`. La pantalla selecciona la ruta recien armada con ese
+  /// id, y el cierre de la tarde se va a `/routes/<id>/results` sin depender de
+  /// que una sustitucion llegue a tiempo.
+  Future<String> _guardarLaRutaQueVolvio(Object? respuesta) async {
+    final ruta = _laRutaDe(respuesta);
+    final id = ruta?['id'];
+    if (ruta == null || id is! String || id.isEmpty) {
+      // EL SERVIDOR DIJO QUE SI Y NO DIJO CUAL. No se inventa un id ni se da la
+      // ruta por armada en silencio: eso es exactamente el fallo de hoy, con la
+      // pantalla pintando como hecho algo que no puede volver a encontrar.
+      Registro.fallo('la ruta se creo y la respuesta llego sin id: $respuesta');
+      throw const RechazoLocal(
+        'La ruta se creó en el servidor, pero la respuesta llegó sin su '
+        'identificador. Recarga la pantalla para verla.',
+      );
+    }
+    await _espejarLaRuta(id, ruta);
+    return id;
+  }
+
+  /// La ruta dentro de la respuesta.
+  ///
+  /// Son DOS formas y las dos las manda el mismo endpoint: el objeto de la ruta
+  /// a secas, o `{"ruta": …, "avisos": …}` cuando hay domicilios sin costear
+  /// (`api/internal/api/rutas.go`, `responderConLaRutaYAvisos`). Leer solo la
+  /// primera dejaria sin id justo las rutas que llevan aviso, que son casi
+  /// todas: 657 de 686 domicilios no tienen el costo puesto.
+  static Map<Object?, Object?>? _laRutaDe(Object? respuesta) {
+    if (respuesta is! Map<Object?, Object?>) return null;
+    final dentro = respuesta['ruta'];
+    if (dentro is Map<Object?, Object?>) return dentro;
+    return respuesta.containsKey('id') ? respuesta : null;
+  }
+
+  Future<void> _espejarLaRuta(String id, Map<Object?, Object?> ruta) async {
+    final paradas = ruta['orders'];
+    final ahora = _reloj();
+    await _base.transaction(() async {
+      await _base
+          .into(_base.routes)
+          .insertOnConflictUpdate(
+            RoutesCompanion.insert(
+              id: id,
+              name: Value(_texto(ruta['name'])),
+              routeCode: Value(_texto(ruta['routeCode'])),
+              status: Value(_texto(ruta['status']) ?? EstadoRuta.planificada),
+              originAddress: Value(_texto(ruta['originAddress'])),
+              originLat: Value(_numero(ruta['originLat'])),
+              originLng: Value(_numero(ruta['originLng'])),
+              totalDistance: Value(_numero(ruta['totalDistance']) ?? 0),
+              totalWeight: Value(_numero(ruta['totalWeight']) ?? 0),
+              // El `?? 0` de aquí NO inventa nada: es el valor por defecto de
+              // una columna que el servidor tiene como `NOT NULL DEFAULT 0`, y
+              // sólo salta si la respuesta viniera sin el campo. Lo que no se
+              // puede hacer es LEER esta columna como el importe de la ruta:
+              // ver `ImporteDeRuta.espejoDelTotalDelServidor`.
+              totalPrice: Value(_numero(ruta['totalPrice']) ?? 0),
+              deliveryDate: Value(_fecha(ruta['deliveryDate'])),
+              vehicleId: Value(_texto(ruta['vehicleId'])),
+              creadoPor: Value(_texto(ruta['creadoPor'])),
+              branchId: Value(_texto(ruta['branchId'])),
+              // LA FIRMA DE QUIEN ORDENO, que es un dato y no un adorno: quien
+              // lea `optimized: true` no vuelve a optimizar una ruta que «ya lo
+              // esta». Se lee del servidor y no se supone.
+              optimized: Value(ruta['optimized'] == true),
+              startedAt: Value(_fecha(ruta['startedAt'])),
+              finishedAt: Value(_fecha(ruta['finishedAt'])),
+              createdAt: Value(_fecha(ruta['createdAt']) ?? ahora),
+              updatedAt: Value(_fecha(ruta['updatedAt']) ?? ahora),
+            ),
+          );
+
+      if (paradas is! List) return;
+      for (final cruda in paradas) {
+        if (cruda is! Map<Object?, Object?>) continue;
+        final pedidoId = _texto(cruda['id']);
+        if (pedidoId == null || pedidoId.isEmpty) continue;
+        await (_base.update(
+          _base.orders,
+        )..where((o) => o.id.equals(pedidoId))).write(
+          OrdersCompanion(
+            routeId: Value(id),
+            ultimaRutaId: Value(id),
+            stopOrder: Value(_entero(cruda['stopOrder'])),
+            tripLeg: Value(_texto(cruda['tripLeg']) ?? Tramo.ida),
+            segmentKm: Value(_numero(cruda['segmentKm'])),
+            price: Value(_numero(cruda['price'])),
+            updatedAt: Value(ahora),
+          ),
+        );
+      }
+    });
+  }
+
+  // Lectores del JSON del servidor. Los mismos tres de `nucleo/sincro/bajada.dart`
+  // y por el mismo motivo: un numero puede llegar como `int` o como `double`
+  // segun lo redondo que sea, y leerlo con un `as double` revienta con `1` donde
+  // no revienta con `1.5`.
+  static String? _texto(Object? v) => v is String && v.isNotEmpty ? v : null;
+
+  static double? _numero(Object? v) => v is num ? v.toDouble() : null;
+
+  static int? _entero(Object? v) => v is num ? v.toInt() : null;
+
+  static DateTime? _fecha(Object? v) =>
+      v is String && v.isNotEmpty ? DateTime.tryParse(v)?.toUtc() : null;
 
   /// El orden que trae [pedidoIds], tal cual, sin tocar una coma.
   ///
@@ -491,6 +718,18 @@ class AccionesDeRuta {
     final ruta = await _ruta(rutaId);
     if (ruta == null) throw const RechazoLocal('No encontrada');
 
+    // LA WEB PRIMERO AL SERVIDOR. Si dice que no, no se toca una fila y sale su
+    // motivo: el camion no sale porque un boton se ponga gris.
+    final enVivo = _enVivo;
+    if (enVivo != null) {
+      await _mandar(
+        enVivo,
+        metodo: 'PATCH',
+        ruta: '/routes/$rutaId',
+        cuerpo: const <String, Object?>{'status': EstadoRuta.enCurso},
+      );
+    }
+
     await _base.transaction(() async {
       await (_base.update(
         _base.routes,
@@ -500,6 +739,7 @@ class AccionesDeRuta {
       await _ocuparVehiculo(ruta.vehicleId, EstadoVehiculo.enUso);
     });
 
+    if (enVivo != null) return; // ya esta arriba: no hay nada que subir
     await _cola.encolar(
       metodo: 'PATCH',
       ruta: '/routes/$rutaId',
@@ -524,6 +764,16 @@ class AccionesDeRuta {
     final ruta = await _ruta(rutaId);
     if (ruta == null) throw const RechazoLocal('No encontrada');
 
+    final enVivo = _enVivo;
+    if (enVivo != null) {
+      await _mandar(
+        enVivo,
+        metodo: 'PATCH',
+        ruta: '/routes/$rutaId',
+        cuerpo: const <String, Object?>{'status': EstadoRuta.completada},
+      );
+    }
+
     await _base.transaction(() async {
       await (_base.update(
         _base.routes,
@@ -537,6 +787,7 @@ class AccionesDeRuta {
       await _ocuparVehiculo(ruta.vehicleId, EstadoVehiculo.disponible);
     });
 
+    if (enVivo != null) return;
     await _cola.encolar(
       metodo: 'PATCH',
       ruta: '/routes/$rutaId',
@@ -556,6 +807,15 @@ class AccionesDeRuta {
       throw const RechazoLocal('No encontrada');
     }
 
+    // EN LA WEB EL PORTAZO DEL SERVIDOR ES EL QUE MANDA, y trae el numero de
+    // paradas cerradas dentro: «Esa ruta ya tiene 9 parada(s) cerradas y no se
+    // puede borrar…» dice de que ruta le hablan. Aqui no se puede saber ese
+    // numero sin bajarse la hoja entera.
+    final enVivo = _enVivo;
+    if (enVivo != null) {
+      await _mandar(enVivo, metodo: 'DELETE', ruta: '/routes/$rutaId');
+    }
+
     await _base.transaction(() async {
       await (_base.update(
         _base.orders,
@@ -573,6 +833,7 @@ class AccionesDeRuta {
       )..where((r) => r.id.equals(rutaId))).go();
     });
 
+    if (enVivo != null) return;
     await _cola.encolar(
       metodo: 'DELETE',
       ruta: '/routes/$rutaId',
@@ -641,17 +902,37 @@ class AccionesDeRuta {
     // las cuatro aunque suba a las siete (regla 7).
     final ahora = _reloj();
 
-    final limpias = <MarcaDeParada>[];
+    final limpias = <MarcaDeParada>[
+      for (final marca in validas)
+        MarcaDeParada(
+          pedidoId: marca.pedidoId,
+          resultado: marca.resultado,
+          nota: _notaLimpia(marca.nota),
+        ),
+    ];
+
+    // EN LA WEB EL CIERRE VA AL SERVIDOR Y SE ESPERA.
+    //
+    // Es el caso de uso principal y el mas caro de equivocar: lo que baja del
+    // camion es lo que se cuadra. Pintarlo como guardado sin que saliera del
+    // navegador es el «dato que esta y no se escribe» en su peor version — un
+    // cierre perdido no lo desmiente ninguna pantalla hasta que no cuadra el
+    // inventario.
+    final enVivo = _enVivo;
+    if (enVivo != null) {
+      await _mandar(
+        enVivo,
+        metodo: 'POST',
+        ruta: '/routes/$rutaId/results',
+        cuerpo: <String, Object?>{
+          'resultados': [for (final m in limpias) m.aJson()],
+        },
+      );
+    }
+
     await _base.transaction(() async {
-      for (final marca in validas) {
-        final nota = _notaLimpia(marca.nota);
-        limpias.add(
-          MarcaDeParada(
-            pedidoId: marca.pedidoId,
-            resultado: marca.resultado,
-            nota: nota,
-          ),
-        );
+      for (final marca in limpias) {
+        final nota = marca.nota;
         await (_base.update(
           _base.orders,
         )..where((o) => o.id.equals(marca.pedidoId))).write(
@@ -672,6 +953,10 @@ class AccionesDeRuta {
         );
       }
     });
+
+    // En la web no hay apunte al que seguirle la pista porque no hay cola: el
+    // cierre ya esta arriba. Quien llama no lo mira (`vista/cierre_de_ruta.dart`).
+    if (enVivo != null) return '';
 
     return _cola.encolar(
       metodo: 'POST',

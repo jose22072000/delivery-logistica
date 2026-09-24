@@ -349,4 +349,146 @@ void main() {
       }
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // UN IMPORTE QUE NO SE SABE DEJA LA CELDA VACÍA
+  //
+  // Es la hoja que alguien abre para cobrar, así que es donde más caro sale un
+  // cero inventado: una celda vacía se ve al sumar, al ordenar y al promediar;
+  // un cero se suma sin que nadie se entere y baja el total tanto como valga lo
+  // que faltaba. La pareja: con todo cotizado hay número, y con una sin cotizar
+  // hay hueco.
+  // ---------------------------------------------------------------------------
+  group('una orden SIN COTIZAR deja el hueco, nunca un cero', () {
+    // Las mismas tres de arriba, con la SEGUNDA sin cotizar.
+    final conHueco = [
+      filas[0],
+      const FilaDeInforme(
+        id: 'o2',
+        cliente: 'Bodega Centro',
+        destino: 'Neptuno 12',
+        pesoKg: 5,
+        importe: null, // sin cotizar
+        ruta: 'R-001',
+        vehiculoId: 'v1',
+        vehiculo: 'Ford 600',
+        placa: 'P123',
+      ),
+      filas[2],
+    ];
+    final informeConHueco = Informe(
+      filas: conHueco,
+      resumen: ConsultasInformes.resumir(conHueco),
+      porVehiculo: ConsultasInformes.agruparPorVehiculo(conHueco),
+    );
+
+    LibroLeido exportarConHueco() => leerXlsx(
+      ExcelDelInforme.armar(
+        informe: informeConHueco,
+        filtro: filtro,
+        conversion: ConversionDelInforme.usd,
+        generado: generado,
+      ),
+    );
+
+    /// Las celdas vacías del final de una fila no se escriben en el OOXML, así
+    /// que pedir la columna 7 de una fila de 7 no es un fallo: es el hueco.
+    Object? celda(List<Object?> fila, int i) =>
+        i < fila.length ? fila[i] : null;
+
+    test('la celda del importe se queda VACÍA, y el total también', () {
+      final hoja = exportarConHueco()['Detalle de Órdenes']!;
+
+      final suya = hoja[2];
+      expect(
+        celda(suya, 7),
+        isNull,
+        reason:
+            'La orden sin cotizar salió con ${celda(suya, 7)} en la columna '
+            'de precio. Un cero ahí dice que ese domicilio fue gratis, y se '
+            'suma en la hoja que alguien copia para cobrar.',
+      );
+      // Y la fila no se corre: el peso sigue en la suya.
+      expect(suya[6], 5.0);
+
+      final pie = hoja.last;
+      expect(
+        celda(pie, 7),
+        isNull,
+        reason:
+            'El pie del detalle salió con ${celda(pie, 7)}: es la suma de las '
+            'OTRAS dos puesta donde va el total, y se lee como el total del '
+            'informe entero.',
+      );
+      // El rótulo dice CUÁNTAS faltan, que es lo único con lo que se arregla.
+      expect(pie.first, 'Totales: (1 sin cotizar)');
+      // Lo que sí se sabe se sigue diciendo: el peso no se cae con el importe.
+      expect(pie[6], 19.3);
+    });
+
+    test('el Resumen deja las dos cifras vacías y dice cuántas faltan', () {
+      final hoja = exportarConHueco()['Resumen']!;
+
+      expect(hoja[5], ['Total Órdenes', 3]);
+      expect(
+        celda(hoja[6], 1),
+        isNull,
+        reason:
+            'Ingresos Totales salió con ${celda(hoja[6], 1)} faltando el '
+            'importe de una orden.',
+      );
+      expect(
+        celda(hoja[7], 1),
+        isNull,
+        reason:
+            'Precio Promedio salió con ${celda(hoja[7], 1)} sobre una suma '
+            'incompleta.',
+      );
+      // El peso sí se sabe.
+      expect(hoja[8], ['Peso Total (kg)', 19.3]);
+      // Y la fila que explica que las dos de arriba están vacías a propósito:
+      // una celda vacía sin explicación se lee como un fichero roto.
+      expect(hoja[9][0], 'Órdenes sin cotizar');
+      expect(hoja[9][1], 1);
+    });
+
+    test('Por Vehículo: el camión de esa orden se queda sin total', () {
+      final hoja = exportarConHueco()['Por Vehículo']!;
+
+      // `v1` lleva la orden sin cotizar; `v2` no existe aquí, así que sólo hay
+      // una fila de datos más el pie.
+      final suya = hoja[1];
+      expect(suya[0], 'Ford 600');
+      expect(
+        celda(suya, 3),
+        isNull,
+        reason:
+            'El camión salió con ${celda(suya, 3)} teniendo una orden sin '
+            'cotizar: ese es el total de las otras.',
+      );
+      expect(hoja.last.first, 'Totales (1 sin cotizar)');
+    });
+
+    // LA CONTRARIA, que es la que evita pasarse de frenada: con todo cotizado
+    // no hay hueco, no hay rótulo y no sobra ninguna fila.
+    test('con TODO cotizado no hay hueco ni fila de «sin cotizar»', () {
+      final resumen = exportar()['Resumen']!;
+      expect(resumen[6], ['Ingresos Totales (USD)', 160.49]);
+      expect(resumen[7], ['Precio Promedio (USD)', 53.5]);
+      expect(
+        // Hay filas en blanco de separación: `first` sobre una vacía revienta.
+        resumen.map((f) => f.isEmpty ? null : f.first).toList(),
+        isNot(contains('Órdenes sin cotizar')),
+        reason:
+            'Sale la fila de «sin cotizar» sin faltar ninguna: un aviso que '
+            'sale siempre deja de leerse, y entonces tampoco se lee el día '
+            'que importa.',
+      );
+
+      final detalle = exportar()['Detalle de Órdenes']!;
+      expect(detalle[2][7], 50.5);
+      expect(detalle.last.first, 'Totales:');
+      expect(detalle.last[7], 160.49);
+    });
+  });
 }

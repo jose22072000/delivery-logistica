@@ -24,6 +24,12 @@ Pedido paradaAMano({
   double? lat,
   double? lng,
   double? precio,
+  /// `pedidoCosto`, que NO es `price`. `price` es la COPIA que se hace al
+  /// enganchar el pedido a la ruta y que pierde el nulo en el servidor
+  /// (`price = coalesce(narg, 0)`), asi que quien lee el importe de una parada
+  /// necesita los dos: un `price` de cero sin `pedidoCosto` es ese `coalesce`,
+  /// no un precio. La regla esta en `ConsultasInformes.ingresoDe`.
+  double? costo,
   String tramo = Tramo.ida,
   String? resultado,
 }) => Pedido(
@@ -33,6 +39,7 @@ Pedido paradaAMano({
   endLat: lat,
   endLng: lng,
   price: precio,
+  pedidoCosto: costo,
   weight: 10,
   status: EstadoPedido.pendiente,
   tripLeg: tramo,

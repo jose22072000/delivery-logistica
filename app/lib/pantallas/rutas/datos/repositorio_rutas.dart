@@ -380,7 +380,8 @@ class ConsultasRutas {
         if (!(kmMax != null &&
                 pedido.deliveryDistanceKm != null &&
                 pedido.deliveryDistanceKm! > kmMax) &&
-            !(costoMin != null && (pedido.pedidoCosto ?? 0) < costoMin))
+            !(costoMin != null &&
+                _conCeroParaCostoMin(pedido.pedidoCosto) < costoMin))
           pedido,
     ];
   }
@@ -391,6 +392,35 @@ class ConsultasRutas {
   Future<Map<String, List<RenglonConPeso>>> renglonesDe(List<String> ids) =>
       _pedidos.renglonesDe(ids);
 }
+
+/// EL `?? 0` DE `costoMin`, QUE ES UN CONTRATO Y NO UN DESCUIDO.
+///
+/// Un pedido sin cotizar cuenta como CERO para «costo mínimo», así que con
+/// `costoMin = 10` se cae. Eso **descarta trabajo sin decirlo**, que es justo lo
+/// que prohíbe el `CLAUDE.md` §4, y por eso se miró en serio el 23/09/2026. No
+/// se cambia, y el motivo es que **no es una decisión de este fichero**:
+///
+///  * el servidor hace exactamente esto, y lo tiene razonado:
+///    `if hayCostoMin && conCero(x.PedidoCosto) < costoMin` en
+///    `api/internal/api/pedidos.go:544` — «`costoMin` es "enséñame lo que valga
+///    la pena mover", y un pedido sin cotizar no lo vale todavía»;
+///  * está escrito en el contrato: `docs/contratos-api.md:423`, «Descarta si
+///    `(pedidoCosto ?? 0) < costoMin`»;
+///  * y está atado por una prueba del otro lado,
+///    `TestDisponiblesCostoMinCuentaElSinCotizarComoCero`.
+///
+/// Cambiarlo **sólo aquí** parte en dos la misma pregunta: la web pide la lista
+/// al servidor y la APK la calcula con esto, así que el mismo filtro daría dos
+/// listas distintas en los dos aparatos de la misma persona y nadie vería saltar
+/// nada (`CLAUDE.md` §3-bis). Si hay que cambiarlo se cambia a la vez el
+/// servidor, el contrato, su prueba en Go y ésta.
+///
+/// **Lo que sigue faltando**, y es la mitad que sí es deuda: el paso 4 del
+/// asistente no dice cuántos se cayeron por no estar cotizados. El servidor ya
+/// manda el `total` de antes de estos dos filtros (`docs/contratos-api.md:431`),
+/// así que el número para decirlo ya existe; falta pintarlo, y eso es de
+/// `vista/asistente_nueva_ruta.dart`, que no es de esta ola.
+double _conCeroParaCostoMin(double? costo) => costo ?? 0;
 
 /// Los filtros de la lista, aplicados en el cliente.
 List<Ruta> filtrarRutas(

@@ -336,6 +336,34 @@ void main() {
           'F-002 (ya va en la ruta RT-20260922-003).',
         );
       });
+
+      // LA PAREJA DE LA DE ARRIBA, Y ES LA QUE FALTABA — 22/09/2026.
+      //
+      // La de arriba manda un repetido Y un conflicto de verdad, así que sale
+      // un rechazo de todas formas y sólo comprueba el NÚMERO. Con un repetido
+      // y nada más, el corte era `pedidos.length < pedidoIds.length`: tres ids
+      // devolvían dos filas, `2 < 3` se cumplía, y salía un aviso literalmente
+      // vacío —«0 de los 3 pedidos elegidos no pueden ir en esta ruta: .»—
+      // sobre dos pedidos libres. Y el servidor los arma, así que el aparato
+      // decía que no a lo que la nube dice que sí.
+      test('un repetido y NADA MÁS: la ruta se arma', () async {
+        final rutaId = await acciones.armar(
+          vehiculoId: 'V1',
+          pedidoIds: const ['q1', 'q2', 'q2'],
+          origenLat: 0,
+          origenLng: 0,
+          sucursalId: 'B1',
+        );
+
+        expect(rutaId, startsWith('local-'));
+        // Y cada pedido entra UNA vez: si el repetido se colara como parada, la
+        // hoja de ruta mandaría al camión dos veces a la misma puerta.
+        final paradas =
+            await (base.select(base.orders)
+                  ..where((o) => o.routeId.equals(rutaId)))
+                .get();
+        expect(paradas.map((p) => p.id).toList()..sort(), ['q1', 'q2']);
+      });
     });
 
     test('en una ruta sólo entra lo facturado y que cuadre', () async {

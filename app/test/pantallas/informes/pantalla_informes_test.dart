@@ -67,7 +67,9 @@ void main() {
     await tester.pump(Duration.zero);
   }
 
-  Future<void> pedido(String id, {double precio = 10}) => base
+  /// `precio: null` es una orden **sin cotizar**, que es de lo que van las dos
+  /// ultimas pruebas de este fichero.
+  Future<void> pedido(String id, {double? precio = 10}) => base
       .into(base.orders)
       .insert(
         OrdersCompanion.insert(
@@ -161,6 +163,110 @@ void main() {
       // La marcada es la que se acaba de pulsar.
       expect(find.widgetWithText(FilledButton, siguiente), findsOneWidget);
     }
+
+    await desmontar(tester);
+  });
+
+  // ---------------------------------------------------------------------
+  // HASTA EL PIXEL: que la consulta devuelva `null` no sirve de nada si la
+  // vista lo convierte en un `0` con un `?? 0`. Eso dejaria el fallo igual de
+  // vivo, solo que una capa mas abajo. Estas dos miran lo que se PINTA.
+  // ---------------------------------------------------------------------
+  testWidgets('con todo cotizado, Ingresos Totales es una CIFRA', (
+    tester,
+  ) async {
+    await bajadaEntera(DateTime(2026, 9, 14, 7, 42));
+    await pedido('a', precio: 30);
+    await montar(tester);
+
+    expect(
+      find.text('30,00 USD'),
+      findsWidgets,
+      reason:
+          'Con la unica orden cotizada el total se sabe, y un total que se '
+          'sabe se pinta como cifra, no como rotulo.',
+    );
+    expect(find.textContaining('sin cotizar'), findsNothing);
+
+    await desmontar(tester);
+  });
+
+  testWidgets('con UNA orden sin cotizar sale un ROTULO, nunca un importe', (
+    tester,
+  ) async {
+    await bajadaEntera(DateTime(2026, 9, 14, 7, 42));
+    await pedido('a', precio: 30);
+    await pedido('b', precio: null); // sin cotizar
+    await montar(tester);
+
+    // El rotulo dice CUANTAS faltan: un guion mudo no se puede arreglar.
+    expect(
+      find.text('— (1 sin cotizar)'),
+      // DOS: `Ingresos Totales` y `Precio Promedio`. Con `findsWidgets` a
+      // secas, quitarle la guarda a UNA de las dos seguia saliendo verde.
+      findsNWidgets(2),
+      reason:
+          'Ingresos Totales y Precio Promedio tenian que pintar el rotulo de '
+          'total incompleto y no lo hacen: la pantalla se esta inventando una '
+          'cifra sobre una suma a la que le falta una orden.',
+    );
+    // Y el subtexto dice QUE HACER.
+    expect(
+      find.text('Falta cotizar 1 orden: sin ella no hay total.'),
+      findsOneWidget,
+    );
+
+    // LO QUE NO PUEDE SALIR NUNCA, y son las dos formas del mismo fallo:
+    //  * `30.00 USD` = el total a medias, el de la orden que SI se sabe
+    //    puesto donde va el total del dia;
+    //  * `0.00 USD` = el `?? 0` de la vista, que es el mismo cero que se vio
+    //    en produccion el 22/09/2026 sobre 10,4 km de reparto.
+    expect(
+      find.text('30,00 USD'),
+      findsNothing,
+      reason:
+          'Salio `30,00 USD` con una orden sin cotizar: es el total de la OTRA '
+          'ocupando el sitio del total del dia. Se lee redondo y creible, y '
+          'ninguna pantalla lo desmiente.',
+    );
+    expect(
+      find.text('0,00 USD'),
+      findsNothing,
+      reason:
+          'Salio `0,00 USD`: un `?? 0` convirtio el hueco en un cero. Eso no '
+          'dice «no hay tarifa», dice que el reparto fue gratis.',
+    );
+
+    await desmontar(tester);
+  });
+
+  testWidgets('en Detalle de Órdenes la fila sin cotizar lo DICE', (
+    tester,
+  ) async {
+    await bajadaEntera(DateTime(2026, 9, 14, 7, 42));
+    await pedido('a', precio: 30);
+    await pedido('b', precio: null);
+    await montar(tester);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Detalle de Órdenes'));
+    await tester.pumpAndSettle();
+
+    // Las MISMAS palabras que `Pedidos` y que la hoja de paradas de la ruta,
+    // para que la misma cifra no se llame de dos maneras segun la pantalla.
+    expect(
+      find.text('sin cotizar'),
+      findsOneWidget,
+      reason:
+          'La columna que alguien copia al Excel y suma fuera no dice que esa '
+          'orden no tiene importe.',
+    );
+    // Y el pie tampoco puede parecer completo.
+    expect(find.text('Totales: (1 sin cotizar)'), findsOneWidget);
+    expect(
+      find.text('0,00 USD'),
+      findsNothing,
+      reason: 'La fila sin cotizar salio como `0,00 USD` en el detalle.',
+    );
 
     await desmontar(tester);
   });

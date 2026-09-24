@@ -100,10 +100,227 @@ void main() {
       expect(i.filas.single.importe, 9);
     });
 
-    test('sin ninguno de los dos es 0, no nulo', () async {
+    // LA GUARDA, y hasta el 22/09/2026 esta prueba decia lo CONTRARIO
+    // («es 0, no nulo»), que es el fallo que se midio en produccion: `Pedidos`
+    // decia «sin cotizar» en todas sus filas y `Reportes -> Detalle de
+    // Órdenes` decia `0,00 USD` en las mismas, con el camion cotizado a 1,50
+    // USD/km. Un cero ahi no dice «no hay tarifa»: dice que el reparto fue
+    // gratis, y se suma en el total que va a contabilidad.
+    test('sin ninguno de los dos es `null` = SIN COTIZAR, nunca 0', () async {
       await pedido('a');
       final i = await informes.mirar(const FiltroDeInforme()).first;
-      expect(i.filas.single.importe, 0);
+      final salio = i.filas.single.importe;
+      expect(
+        salio,
+        isNull,
+        reason:
+            'Un pedido SIN COTIZAR salio con importe $salio en vez de `null`: '
+            'ese numero se suma entero en Ingresos Totales y en la hoja que se '
+            'manda a contabilidad, y nadie se entera de que falta.',
+      );
+    });
+
+    // El nulo se pierde al enganchar el pedido a una ruta:
+    // `price = coalesce(sqlc.narg('price'), 0)` en `EngancharPedidoARuta`. O
+    // sea que un `price` de CERO sin `pedidoCosto` no es un precio, es ese
+    // `coalesce`. Sin esta guarda, `precio ?? costo` se queda con el cero y ni
+    // llega a mirar `pedidoCosto`.
+    test('un `price` de CERO sin `pedidoCosto` NO es un precio', () async {
+      await pedido('a', precio: 0);
+      final i = await informes.mirar(const FiltroDeInforme()).first;
+      final salio = i.filas.single.importe;
+      expect(
+        salio,
+        isNull,
+        reason:
+            'El `0` que deja el `coalesce` del servidor al enganchar la orden '
+            'a una ruta se colo como precio ($salio): la orden esta SIN '
+            'COTIZAR y el informe la cuenta como un reparto gratis.',
+      );
+    });
+
+    // Y su contraria, que es la que evita pasarse de frenada: un cero puesto a
+    // mano SI es una cifra.
+    test('un domicilio GRATIS de verdad sigue valiendo 0', () async {
+      await pedido('a', costo: 0);
+      final i = await informes.mirar(const FiltroDeInforme()).first;
+      expect(
+        i.filas.single.importe,
+        0,
+        reason:
+            'Un `pedidoCosto` de 0 es un domicilio gratis cotizado: es una '
+            'cifra, y borrarla seria inventarse un hueco donde no lo hay.',
+      );
+    });
+
+    test('sin `pedidoCosto` un `price` distinto de cero se respeta', () async {
+      // Ese numero no puede venir del `coalesce`: lo pone la APK de Entrega,
+      // que es quien cotiza. Tirarlo seria perder un cobro de verdad.
+      await pedido('a', precio: 7.5);
+      final i = await informes.mirar(const FiltroDeInforme()).first;
+      expect(i.filas.single.importe, 7.5);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // UN TOTAL A MEDIAS ES PEOR QUE NINGUNO
+  //
+  // La pareja que le faltaba a `ConsultasInformes.sumaCompleta`, que es el
+  // tercer hermano de `TotalesPreDespacho._sumaCompleta` (`impresion/hoja.dart`
+  // y `pedidos/datos/repositorio_pedidos.dart`) y el unico que estaba sin
+  // guarda. Siempre en pareja: el total completo cuando estan todas, y el
+  // rotulo —no una cifra— cuando falta una.
+  // ---------------------------------------------------------------------
+  group('UN TOTAL A MEDIAS ES PEOR QUE NINGUNO', () {
+    group('sumaCompleta', () {
+      test('con TODAS las piezas suma entero', () {
+        expect(ConsultasInformes.sumaCompleta(const [10.0, 5.5, 0.0]), 15.5);
+      });
+
+      test('con UNA que falta el total es `null`, no la suma de las otras', () {
+        final salio = ConsultasInformes.sumaCompleta(const [10.0, null, 5.5]);
+        expect(
+          salio,
+          isNull,
+          reason:
+              'Falta UNA pieza y aun asi salio un total de $salio. Ese numero '
+              'se imprime redondo y creible, y nadie lo desmiente: en la hoja '
+              'del almacen es cargar de menos y enterarse cuando el camion ya '
+              'se fue.',
+        );
+      });
+
+      // Y que no valga mirar solo la primera ni solo la ultima: el hueco
+      // cuenta este donde este.
+      test('da igual donde este el hueco: al principio o al final', () {
+        final primera = ConsultasInformes.sumaCompleta(const [null, 10.0, 5.5]);
+        final ultima = ConsultasInformes.sumaCompleta(const [10.0, 5.5, null]);
+        expect(
+          primera,
+          isNull,
+          reason: 'Con el hueco en la PRIMERA posicion salio $primera.',
+        );
+        expect(
+          ultima,
+          isNull,
+          reason: 'Con el hueco en la ULTIMA posicion salio $ultima.',
+        );
+      });
+
+      // La unica diferencia a proposito con `TotalesPreDespacho`: aqui una
+      // lista vacia es «no hay ninguna orden en el filtro», y eso SI se sabe y
+      // vale cero.
+      test('sobre una lista vacia da 0, que si es una cifra', () {
+        expect(ConsultasInformes.sumaCompleta(const <double?>[]), 0);
+      });
+    });
+
+    group('el resumen de la pantalla', () {
+      test('con todo cotizado, ingresos y promedio son cifras', () async {
+        await pedido('a', rutaId: 'r1', precio: 30, peso: 100);
+        await pedido('b', rutaId: 'r1', costo: 10, peso: 50);
+
+        final r = (await informes.mirar(const FiltroDeInforme()).first).resumen;
+        expect(r.ingresos, 40);
+        expect(r.precioPromedio, 20);
+        expect(r.sinCotizar, 0);
+      });
+
+      test('UNA sola orden sin cotizar deja los dos en `null`, y dice cuantas '
+          'faltan', () async {
+        await pedido('a', rutaId: 'r1', precio: 30, peso: 100);
+        await pedido('b', rutaId: 'r1', peso: 50); // sin cotizar
+
+        final r = (await informes.mirar(const FiltroDeInforme()).first).resumen;
+        expect(
+          r.ingresos,
+          isNull,
+          reason:
+              'Con una de las dos ordenes sin cotizar, Ingresos Totales salio '
+              '${r.ingresos} — que es lo que vale la OTRA— y se lee como el '
+              'ingreso del dia entero.',
+        );
+        expect(
+          r.precioPromedio,
+          isNull,
+          reason:
+              'Precio Promedio salio ${r.precioPromedio} sobre una suma '
+              'incompleta: un promedio a medias es un numero creible y '
+              'equivocado.',
+        );
+        // Lo que convierte el rotulo en algo que se puede arreglar.
+        expect(r.sinCotizar, 1);
+        // Y lo que SI se sabe se sigue diciendo: el peso y el numero de
+        // ordenes no se caen con el importe.
+        expect(r.totalOrdenes, 2);
+        expect(r.peso, 150);
+      });
+    });
+
+    group('Por Vehículo', () {
+      test(
+        'con todo cotizado, cada camion tiene su total y su promedio',
+        () async {
+          await pedido('a', rutaId: 'r1', precio: 30, peso: 100);
+          await pedido('b', rutaId: 'r1', precio: 10, peso: 50);
+
+          final v =
+              (await informes.mirar(const FiltroDeInforme()).first).porVehiculo;
+          expect(v.single.ingresos, 40);
+          expect(v.single.promedioPorOrden, 20);
+          expect(v.single.sinCotizar, 0);
+        },
+      );
+
+      test('una orden sin cotizar deja SU camion sin total y sin promedio, '
+          'y no lo recupera la siguiente', () async {
+        // El orden importa: la sin cotizar entra PRIMERO y la buena despues.
+        // Si el nulo se recuperase al seguir acumulando, esto saldria en 30.
+        await pedido('a', rutaId: 'r1', peso: 10); // sin cotizar
+        await pedido('b', rutaId: 'r1', precio: 30, peso: 20);
+
+        final v =
+            (await informes.mirar(const FiltroDeInforme()).first).porVehiculo;
+        expect(
+          v.single.ingresos,
+          isNull,
+          reason:
+              'El camion salio con ${v.single.ingresos} teniendo una orden sin '
+              'cotizar: ese es el total de las OTRAS, y en la tabla ocupa el '
+              'sitio del total del camion.',
+        );
+        expect(v.single.promedioPorOrden, isNull);
+        expect(v.single.sinCotizar, 1);
+        // El peso y las ordenes si se saben, y se siguen diciendo.
+        expect(v.single.ordenes, 2);
+        expect(v.single.peso, 30);
+      });
+
+      // No se puede ordenar por un numero que no se sabe: colar un camion sin
+      // total entre los tres primeros de `Top vehículos` seria decir que es de
+      // los que mas trae sin tener con que sostenerlo.
+      test('un camion sin total va al FINAL, no arriba', () async {
+        await pedido('a', rutaId: 'r1', peso: 10); // v1: sin cotizar
+        await pedido('b', rutaId: 'r2', precio: 5, peso: 10); // v2: 5
+
+        final v =
+            (await informes.mirar(const FiltroDeInforme()).first).porVehiculo;
+        expect(
+          v.map((f) => f.id).toList(),
+          ['v2', 'v1'],
+          reason:
+              'El camion SIN total se coló por delante de uno que si lo tiene: '
+              'en `Top vehículos` eso lo presenta como el que mas trae.',
+        );
+        expect(
+          v.last.ingresos,
+          isNull,
+          reason:
+              'El camion sin cotizar salio con un total de ${v.last.ingresos}: '
+              'un cero puesto donde no se sabe, que ademas es lo que lo manda '
+              'al final de la lista por el motivo equivocado.',
+        );
+      });
     });
   });
 

@@ -62,7 +62,15 @@ class FilaDeInforme {
   /// **Ingreso de un pedido = `price` si lo tiene, si no `pedidoCosto`.** Es el
   /// numero que mas facil se equivoca de todo el pliego, y por eso se calcula
   /// aqui y en ningun otro sitio.
-  final double importe;
+  ///
+  /// **`null` = SIN COTIZAR, y no es cero** (`CLAUDE.md` §2). Aqui habia un
+  /// `?? 0` y ese cero llegaba entero hasta la hoja que se manda a
+  /// contabilidad: el 22/09/2026, en produccion, `Pedidos` decia «sin cotizar»
+  /// en todas sus filas y `Reportes -> Detalle de Ordenes` decia **0,00 USD**
+  /// en las mismas, con el vehiculo teniendo su tarifa puesta (1,50 USD/km).
+  /// Eso no dice «no hay tarifa»: dice que el reparto fue gratis. Un hueco se
+  /// ve y se rellena; un cero se suma y nadie se entera.
+  final double? importe;
 
   final DateTime? fecha;
   final String? ruta;
@@ -82,12 +90,24 @@ class ResumenDeInforme {
     required this.ingresos,
     required this.peso,
     required this.precioPromedio,
+    this.sinCotizar = 0,
   });
 
   final int totalOrdenes;
-  final double ingresos;
+
+  /// `null` cuando **falta el importe de alguna orden**: un total a medias
+  /// parece completo y se cobra. Ver [ConsultasInformes.sumaCompleta].
+  final double? ingresos;
+
   final double peso;
-  final double precioPromedio;
+
+  /// `null` por lo mismo que [ingresos]: un promedio sobre una suma incompleta
+  /// es un numero creible y equivocado.
+  final double? precioPromedio;
+
+  /// Cuantas ordenes entraron sin importe. Es lo que convierte el `—` en algo
+  /// que se puede arreglar: dice cuantas faltan por cotizar.
+  final int sinCotizar;
 }
 
 class FilaDeVehiculo {
@@ -98,6 +118,7 @@ class FilaDeVehiculo {
     required this.ingresos,
     required this.peso,
     this.placa,
+    this.sinCotizar = 0,
   });
 
   /// El vehiculo, por su identificador. Dos camiones homonimos son dos filas.
@@ -106,10 +127,23 @@ class FilaDeVehiculo {
   final String nombre;
   final String? placa;
   final int ordenes;
-  final double ingresos;
+
+  /// `null` cuando alguna de sus ordenes no tiene importe.
+  final double? ingresos;
+
   final double peso;
 
-  double get promedioPorOrden => ordenes == 0 ? 0 : ingresos / ordenes;
+  /// Cuantas de sus [ordenes] entraron sin importe.
+  final int sinCotizar;
+
+  /// `null` arrastra: sin la suma no hay promedio. Con cero ordenes no se
+  /// divide por cero, pero eso aqui no pasa —una fila existe porque tiene al
+  /// menos un pedido—.
+  double? get promedioPorOrden {
+    final total = ingresos;
+    if (total == null) return null;
+    return ordenes == 0 ? 0 : total / ordenes;
+  }
 }
 
 class Informe {
@@ -216,6 +250,46 @@ SELECT o.id, o.customer_name, o.address, o.end_address, o.weight,
       ? null
       : DateTime.utc(dia.year, dia.month, dia.day, 23, 59, 59, 999);
 
+  /// EL INGRESO DE UN PEDIDO. Es el numero que mas facil se equivoca de todo el
+  /// pliego, y por eso se calcula aqui y en ningun otro sitio.
+  ///
+  /// ## De donde salia el `0,00 USD` de `Detalle de Órdenes`
+  ///
+  /// Esto era `precio ?? costo ?? 0`, copiado de `revenueOf` del Next
+  /// (`src/app/api/reports/route.ts:46-49`). Y `price` **no es un precio
+  /// propio**: es una COPIA de `pedidoCosto` que se hace al enganchar el pedido
+  /// a una ruta, y esa copia **pierde el nulo**. Lo dice el propio servidor, en
+  /// `api/internal/api/rutas.go:958`: «`price` se COPIA de `pedidoCosto` […]
+  /// **un `null` se guarda como 0**», y lo remacha el SQL:
+  /// `price = coalesce(sqlc.narg('price'), 0)` en `EngancharPedidoARuta`
+  /// (`api/db/queries/routes.sql:283`).
+  ///
+  /// O sea: en cuanto un pedido sin cotizar entra en una ruta, su `price` vale
+  /// `0` y ya nunca es nulo. `precio ?? costo` se queda con ese cero y no llega
+  /// a mirar `pedidoCosto`. Eso es exactamente lo que se midio el 22/09/2026 en
+  /// produccion: `Pedidos` —que lee `pedidoCosto`— decia «sin cotizar» en todas
+  /// sus filas, y `Reportes -> Detalle de Órdenes` decia `0,00 USD` en las
+  /// mismas, con el camion cotizado a 1,50 USD/km y una ruta de 10,4 km. No
+  /// decia «no hay tarifa»: decia que el reparto fue gratis.
+  ///
+  /// ## La regla, y por que no se tira el `price` entero
+  ///
+  ///  * con `pedidoCosto`, ese es el ingreso (y `price`, que es su copia, se
+  ///    respeta por delante para no separarse del patron);
+  ///  * **sin `pedidoCosto`, un `price` de CERO no es un precio**: es el
+  ///    `coalesce` de arriba, y se dice `null` = sin cotizar;
+  ///  * sin `pedidoCosto` pero con un `price` distinto de cero, ese numero no
+  ///    puede venir del `coalesce` —lo pone la APK de Entrega, que es quien
+  ///    cotiza— y se respeta. Tirarlo seria perder un cobro de verdad.
+  ///
+  /// **Un cero legitimo sigue siendo cero**: un domicilio gratis lleva
+  /// `pedidoCosto = 0`, y de ahi sale `0,00`, que es una cifra.
+  static double? ingresoDe({required double? precio, required double? costo}) {
+    if (costo != null) return precio ?? costo;
+    if (precio != null && precio != 0) return precio;
+    return null;
+  }
+
   /// De filas crudas a informe. Separado de la consulta **a proposito**: asi las
   /// cuatro cifras y `Por Vehículo` se prueban con datos a mano, sin base.
   static Informe armar(List<QueryRow> crudas) {
@@ -229,7 +303,7 @@ SELECT o.id, o.customer_name, o.address, o.end_address, o.weight,
           cliente: f.read<String>('customer_name'),
           destino: f.read<String?>('end_address') ?? f.read<String>('address'),
           pesoKg: f.read<double>('weight'),
-          importe: precio ?? costo ?? 0,
+          importe: ingresoDe(precio: precio, costo: costo),
           fecha: f.read<DateTime?>('created_at'),
           ruta: f.read<String?>('ruta_nombre'),
           vehiculoId: f.read<String?>('vehiculo_id'),
@@ -246,20 +320,50 @@ SELECT o.id, o.customer_name, o.address, o.end_address, o.weight,
     );
   }
 
+  /// UN TOTAL A MEDIAS ES PEOR QUE NINGUNO. Es la misma regla, la misma forma y
+  /// el mismo nombre que `TotalesPreDespacho._sumaCompleta`
+  /// (`pantallas/pedidos/datos/repositorio_pedidos.dart`): en cuanto falte UN
+  /// sumando, el total es `null` y la pantalla pinta `—` diciendo cuantos
+  /// faltan. Sumar lo que hay y callar lo que falta es la misma mentira con
+  /// menos escandalo.
+  ///
+  /// **La unica diferencia con aquella, y es a proposito:** sobre una lista
+  /// VACIA esto da `0`, no `null`. Alli una lista vacia significa «ningun
+  /// producto resuelto»; aqui significa «no hay ninguna orden en el filtro», y
+  /// entonces el cero es una cifra de verdad —«se sabe y vale cero»—, no un
+  /// hueco. La pantalla ademas ensena `No hay órdenes para los filtros
+  /// seleccionados` antes de llegar a pintarlo.
+  static double? sumaCompleta(Iterable<double?> valores) {
+    var suma = 0.0;
+    for (final valor in valores) {
+      if (valor == null) return null;
+      suma += valor;
+    }
+    return suma;
+  }
+
   static ResumenDeInforme resumir(List<FilaDeInforme> filas) {
-    var ingresos = 0.0;
     var peso = 0.0;
     for (final f in filas) {
-      ingresos += f.importe;
       peso += f.pesoKg;
+    }
+    final ingresos = sumaCompleta(filas.map((f) => f.importe));
+    final double? promedio;
+    if (filas.isEmpty) {
+      // Sin ordenes el promedio es 0, no una division por cero ni un `NaN` que
+      // se pinta como «NaN» en la tarjeta.
+      promedio = 0;
+    } else if (ingresos == null) {
+      promedio = null;
+    } else {
+      promedio = ingresos / filas.length;
     }
     return ResumenDeInforme(
       totalOrdenes: filas.length,
       ingresos: ingresos,
       peso: peso,
-      // Sin ordenes el promedio es 0, no una division por cero ni un `NaN` que
-      // se pinta como «NaN» en la tarjeta.
-      precioPromedio: filas.isEmpty ? 0 : ingresos / filas.length,
+      precioPromedio: promedio,
+      sinCotizar: filas.where((f) => f.importe == null).length,
     );
   }
 
@@ -277,18 +381,35 @@ SELECT o.id, o.customer_name, o.address, o.end_address, o.weight,
       final id = f.vehiculoId;
       if (id == null) continue; // sin vehiculo no entra (contrato §9)
       final previo = porId[id];
+      // Una sola orden sin cotizar deja SU CAMION sin total, y el `null` ya no
+      // se recupera aunque las siguientes si tengan importe: es la misma regla
+      // de [sumaCompleta], aplicada segun se agrupa.
+      final acumulado = previo == null ? 0.0 : previo.ingresos;
+      final importe = f.importe;
       porId[id] = FilaDeVehiculo(
         id: id,
         nombre: f.vehiculo ?? previo?.nombre ?? '',
         placa: f.placa ?? previo?.placa,
         ordenes: (previo?.ordenes ?? 0) + 1,
-        ingresos: (previo?.ingresos ?? 0) + f.importe,
+        ingresos: (acumulado == null || importe == null)
+            ? null
+            : acumulado + importe,
+        sinCotizar: (previo?.sinCotizar ?? 0) + (importe == null ? 1 : 0),
         peso: (previo?.peso ?? 0) + f.pesoKg,
       );
     }
     final lista = porId.values.toList()
       // De mas a menos ingreso: `Top vehículos` son las 3 primeras de aqui.
-      ..sort((a, b) => b.ingresos.compareTo(a.ingresos));
+      //
+      // **Un camion sin total va al final, no arriba.** No se puede ordenar por
+      // un numero que no se sabe, y colarlo entre los tres primeros con un `—`
+      // en la tarjeta seria decir que es de los que mas trae sin tener con que
+      // sostenerlo.
+      ..sort(
+        (a, b) => (b.ingresos ?? double.negativeInfinity).compareTo(
+          a.ingresos ?? double.negativeInfinity,
+        ),
+      );
     return lista;
   }
 }

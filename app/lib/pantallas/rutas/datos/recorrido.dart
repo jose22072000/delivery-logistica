@@ -22,6 +22,7 @@
 //    («nada se descarta en silencio»).
 
 import '../../../nucleo/base/base.dart';
+import '../../informes/datos/consultas_informes.dart';
 import 'geo.dart';
 import 'repositorio_rutas.dart';
 
@@ -121,7 +122,30 @@ Recorrido recorridoDe(RutaConTodo ruta) {
           punto: (parada.endLat == null || parada.endLng == null)
               ? null
               : Punto(parada.endLat!, parada.endLng!),
-          importe: parada.price,
+          // EL GLOBO Y LA HOJA DE PARADAS CONTABAN DOS COSAS DISTINTAS.
+          //
+          // Aqui se leia `parada.price` a secas y el detalle pinta
+          // `pedidoCosto`: dos columnas llamadas «el importe» de la misma
+          // parada, y **no era a proposito**. `orders.price` es una COPIA de
+          // `pedidoCosto` que se hace al enganchar el pedido a la ruta, y esa
+          // copia PIERDE EL NULO: el servidor la guarda con
+          // `price = coalesce(sqlc.narg('price'), 0)`
+          // (`api/db/queries/routes.sql:283`; lo dice tambien
+          // `api/internal/api/rutas.go:958`). O sea que una parada sin cotizar
+          // acaba con `price = 0` y el globo decia **`$0.00`** mientras la hoja
+          // de al lado decia «sin cotizar», sobre la misma parada.
+          //
+          // La regla es la que ya quedo fijada para Informes el 22/09/2026 y se
+          // usa DE ALLI, no copiada: dos respuestas a lo mismo se separan sin
+          // que salte nada si cada una tiene su copia (`CLAUDE.md` §3-bis), y
+          // `ingresoDe` dice de si misma que se calcula «aqui y en ningun otro
+          // sitio». Un `price` de cero sin `pedidoCosto` es ese `coalesce`, no
+          // un precio; un `price` distinto de cero si es un cobro de verdad y
+          // se respeta.
+          importe: ConsultasInformes.ingresoDe(
+            precio: parada.price,
+            costo: parada.pedidoCosto,
+          ),
           entregada: parada.resultado == ResultadoParada.entregado,
           esRegreso: parada.tripLeg == Tramo.regreso,
         ),

@@ -29,7 +29,14 @@
 //     la lectura»). Si el Excel llevara dos, la hoja y la pantalla darian dos
 //     numeros distintos para la misma suma, que es exactamente lo que esta
 //     pantalla existe para evitar. El Excel redondea **como la pantalla**.
-//  2. **El Next no pone fila de totales en las hojas.** Aqui si, en las dos
+//  2. **Un importe que no se sabe deja la celda VACIA.** El Next escribe el
+//     numero que tenga, y lo que tiene cuando no hay cotizacion es un `0`. En la
+//     web de produccion, el 22/09/2026: `Pedidos` decia «sin cotizar» en todas
+//     sus filas y esta misma hoja decia `0,00 USD` en las mismas. Un hueco se ve
+//     al sumar; un cero se suma y baja el total sin decirlo. Lo hace
+//     [ConversionDelInforme.convertir], y los totales de las dos tablas van por
+//     [ConsultasInformes.sumaCompleta].
+//  3. **El Next no pone fila de totales en las hojas.** Aqui si, en las dos
 //     tablas, con los mismos totales que el pie de la pantalla. Sin ella, quien
 //     cuadra caja tiene que volver a sumar 300 filas a mano; y una suma a mano
 //     sobre una hoja que ya trae el total es de donde salen las diferencias.
@@ -65,10 +72,20 @@ class ConversionDelInforme {
   /// Un importe guardado como texto no se suma, y la columna da cero en la hoja
   /// de quien la abra sin decir por que.
   ///
+  /// **`null` entra y `null` sale: la celda se queda VACIA, no en cero.** Es la
+  /// linea que mas importa de este fichero, porque es el que alguien abre para
+  /// cobrar. Una celda vacia se ve al sumar —y al ordenar, y al hacer un
+  /// promedio—; un cero se suma sin que nadie se entere, y baja el total tanto
+  /// como valga lo que faltaba. Ya se hacia asi con `Km desde partida`
+  /// (`_detalle`), y el importe es justo el que no lo hacia.
+  ///
   /// Lanza si se pide CUP sin tasa. No se cae a dolares: la tasa es por
   /// sucursal y sin la suya no se convierte nada. Quien llama lo enseña en
-  /// pantalla (regla 4: nada falla en silencio).
-  num convertir(double importeEnUsd) {
+  /// pantalla (regla 4: nada falla en silencio). Un importe que no se sabe **no
+  /// llega a pedir tasa**: no hay nada que convertir, asi que un informe sin
+  /// cotizar no se convierte en un error de tasa que despiste.
+  num? convertir(double? importeEnUsd) {
+    if (importeEnUsd == null) return null;
     if (moneda == 'CUP') {
       final tasa = cupPorUsd;
       if (tasa == null || tasa <= 0) {
@@ -157,6 +174,20 @@ abstract final class ExcelDelInforme {
         ['Ingresos Totales $m', c.convertir(r.ingresos)],
         ['Precio Promedio $m', c.convertir(r.precioPromedio)],
         ['Peso Total (kg)', _kg(r.peso)],
+        // CUANTAS FALTAN, Y SOLO SI FALTA ALGUNA.
+        //
+        // Las dos celdas de arriba salen VACIAS cuando falta el importe de
+        // alguna orden, y una celda vacia sin explicacion se lee como un fallo
+        // del fichero. Esta fila dice que no lo es y **cuantas** hay que
+        // cotizar. Un `0 sin cotizar` no se escribe: un cero ahi se lee como
+        // «ya se reviso», que es lo contrario de lo que esta fila significa.
+        if (r.sinCotizar > 0)
+          [
+            'Órdenes sin cotizar',
+            r.sinCotizar,
+            'Ingresos Totales y Precio Promedio van vacíos a propósito: no se '
+                'suma lo que falta.',
+          ],
       ],
     );
   }
@@ -164,13 +195,16 @@ abstract final class ExcelDelInforme {
   static Hoja _porVehiculo(Informe informe, ConversionDelInforme c) {
     final m = '(${c.moneda})';
     var ordenes = 0;
-    var ingresos = 0.0;
     var peso = 0.0;
+    var sinCotizar = 0;
     for (final v in informe.porVehiculo) {
       ordenes += v.ordenes;
-      ingresos += v.ingresos;
       peso += v.peso;
+      sinCotizar += v.sinCotizar;
     }
+    final ingresos = ConsultasInformes.sumaCompleta(
+      informe.porVehiculo.map((v) => v.ingresos),
+    );
     return Hoja(
       nombre: hojaPorVehiculo,
       filas: [
@@ -191,8 +225,17 @@ abstract final class ExcelDelInforme {
             _kg(v.peso),
             c.convertir(v.promedioPorOrden),
           ],
-        // El pie de la pantalla, con las mismas palabras.
-        ['Totales', '', ordenes, c.convertir(ingresos), _kg(peso), ''],
+        // El pie de la pantalla, con las mismas palabras. Y si falta algun
+        // importe, la celda del total va VACIA y el rotulo dice cuantos faltan:
+        // un pie que parece completo es lo que alguien copia a su hoja.
+        [
+          sinCotizar == 0 ? 'Totales' : 'Totales ($sinCotizar sin cotizar)',
+          '',
+          ordenes,
+          c.convertir(ingresos),
+          _kg(peso),
+          '',
+        ],
       ],
     );
   }
@@ -200,11 +243,14 @@ abstract final class ExcelDelInforme {
   static Hoja _detalle(Informe informe, ConversionDelInforme c) {
     final m = '(${c.moneda})';
     var peso = 0.0;
-    var total = 0.0;
+    var sinCotizar = 0;
     for (final f in informe.filas) {
       peso += f.pesoKg;
-      total += f.importe;
+      if (f.importe == null) sinCotizar++;
     }
+    final total = ConsultasInformes.sumaCompleta(
+      informe.filas.map((f) => f.importe),
+    );
     return Hoja(
       nombre: hojaDetalle,
       filas: [
@@ -229,9 +275,20 @@ abstract final class ExcelDelInforme {
             // como «salió de la partida», que es otra cosa (CLAUDE.md §2).
             f.kmDesdePartida == null ? null : _km(f.kmDesdePartida!),
             _kg(f.pesoKg),
+            // Y el importe igual: sin cotizar, HUECO. Es la columna que alguien
+            // suma fuera, y un cero ahi dice «ese domicilio fue gratis».
             c.convertir(f.importe),
           ],
-        ['Totales:', '', '', '', '', '', _kg(peso), c.convertir(total)],
+        [
+          sinCotizar == 0 ? 'Totales:' : 'Totales: ($sinCotizar sin cotizar)',
+          '',
+          '',
+          '',
+          '',
+          '',
+          _kg(peso),
+          c.convertir(total),
+        ],
       ],
     );
   }

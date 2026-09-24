@@ -16,6 +16,7 @@ import '../../../nucleo/base/base.dart';
 import '../../pedidos/datos/formato.dart';
 import '../../pedidos/vista/kit.dart';
 import '../datos/acciones_rutas.dart';
+import '../datos/importe_de_la_ruta.dart';
 import '../datos/repositorio_rutas.dart';
 import '../estado/proveedores_rutas.dart';
 
@@ -52,6 +53,13 @@ class ListaDeRutas extends ConsumerWidget {
     // cero**: «0 paradas» se lee como «esta ruta va vacia», que es un
     // diagnostico y no un «todavia no se sabe».
     final paradasPorRuta = ref.watch(paradasPorRutaProvider).value;
+    // Y EL DINERO, de la misma manera y por el mismo motivo.
+    //
+    // No sale de `ruta.totalPrice`, que es una columna `NOT NULL DEFAULT 0` y
+    // por tanto **no sabe decir «no se sabe»**: se suma de las paradas, que sí.
+    // Ver la cabecera de `datos/importe_de_la_ruta.dart` para los tres `?? 0`
+    // que borraban el rastro.
+    final importePorRuta = ref.watch(importePorRutaProvider).value;
 
     // Una lista vacia de una coleccion que nunca se bajo NO es «no hay rutas».
     //
@@ -113,6 +121,12 @@ class ListaDeRutas extends ConsumerWidget {
               paradas: paradasPorRuta == null
                   ? null
                   : (paradasPorRuta[ruta.id] ?? 0),
+              // Una ruta que no sale en el agrupado es una ruta SIN paradas, y
+              // eso sí es un cero que se sabe. `null` es sólo «la consulta no
+              // ha llegado todavía».
+              importe: importePorRuta == null
+                  ? null
+                  : (importePorRuta[ruta.id] ?? ImporteDeRuta.nada),
             ),
         ],
         Paginacion(
@@ -169,6 +183,7 @@ class _TarjetaDeRuta extends ConsumerWidget {
     required this.ruta,
     required this.vehiculo,
     required this.paradas,
+    required this.importe,
   });
 
   final Ruta ruta;
@@ -177,6 +192,12 @@ class _TarjetaDeRuta extends ConsumerWidget {
   /// Cuantas paradas lleva. `null` = todavia no ha llegado la cuenta; entonces
   /// **no se escribe un cero**, que se leeria como «esta ruta va vacia».
   final int? paradas;
+
+  /// Lo que suma la ruta y cuantas paradas le faltan por cotizar. `null` =
+  /// todavia no ha llegado la consulta; entonces **tampoco se escribe un cero**,
+  /// por el mismo motivo y con mas razon: un `$0.00` en el renglon del dinero se
+  /// lee como que el reparto salio gratis.
+  final ImporteDeRuta? importe;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -262,20 +283,36 @@ class _TarjetaDeRuta extends ConsumerWidget {
               //    un renglon de alto fijo: sin eso, una ruta completada —que no
               //    lleva boton— saldria mas baja que la de al lado, que es
               //    justo lo que se venia a arreglar.
+              //
+              //    CUANDO FALTA COTIZAR ALGUNA PARADA NO HAY IMPORTE, y aqui se
+              //    dice con cuantas de cuantas y en ambar, no con un `$0.00` en
+              //    el azul de siempre. El 22/09/2026, `RT-20260921-007` decia
+              //    `$0.00` en este mismo hueco con sus dos paradas sin cotizar.
+              //
+              //    El texto va en `Expanded` con `ellipsis` **y no en un
+              //    `Spacer`**: el rotulo largo es mas ancho que un `$0.00`, y
+              //    sin eso una tarjeta sin cotizar se desbordaria o creceria
+              //    respecto a la de al lado, que es lo que arregla
+              //    `tarjetas_de_la_misma_altura_test.dart`.
               const SizedBox(height: 6),
               SizedBox(
                 height: 32,
                 child: Row(
                   children: [
-                    Text(
-                      usd(ruta.totalPrice),
-                      style: Tipos.mono(
-                        tamano: 15,
-                        peso: FontWeight.w700,
-                        color: Colores.primario,
+                    Expanded(
+                      child: Text(
+                        importe == null ? '—' : importe!.rotulo,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Tipos.mono(
+                          tamano: 15,
+                          peso: FontWeight.w700,
+                          color: importe != null && !importe!.completo
+                              ? Colores.ambar
+                              : Colores.primario,
+                        ),
                       ),
                     ),
-                    const Spacer(),
                     if (ruta.status != EstadoRuta.completada)
                       TextButton(
                         onPressed: () async {
