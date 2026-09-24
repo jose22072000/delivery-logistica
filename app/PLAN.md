@@ -7,6 +7,15 @@ de `README.md`. Este documento **no vuelve a decidir nada de eso**: dice cómo s
 Terminado = **da los mismos números que la pantalla equivalente de Next**. Las dos en pie a
 la vez y se comparan. `../../delivery` no se toca.
 
+> **ESTE DOCUMENTO ES EL PLAN DE PARTIDA Y HAY UNA COSA QUE YA NO ES ASÍ.** Lo de la web
+> con **OPFS** y con `drift_worker.js` —§«Por qué Drift, y qué pasa en web», y el `web/`
+> del árbol de aquí abajo— se cambió el 16/09/2026: **la base de la web es EN MEMORIA**,
+> y el 24/09/2026 se quitaron el worker, su compilado y la guarda que lo exigía. Una copia
+> en el navegador sólo puede mentir, y lo hizo: guardó una cola, la cola se atascó y el
+> tablero se negó a bajar durante hora y media. Lo que manda es
+> `app/lib/nucleo/base/conexion/conexion_web.dart` y el §1 de `../CLAUDE.md`; lo de aquí
+> se deja escrito para saber de dónde se venía.
+
 ---
 
 ## 0 · Las decisiones, en cuatro líneas

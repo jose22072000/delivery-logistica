@@ -94,6 +94,16 @@ COPY app/ .
 COPY docs/orden-de-paradas.casos.json /docs/orden-de-paradas.casos.json
 COPY herramientas/mapa-cuba/niveles.go /herramientas/mapa-cuba/niveles.go
 
+#  * `docs/almacen-de-origen.casos.json` — el TERCERO, y del mismo tipo que el primero
+#    (24/09/2026). La regla de qué almacén es el de origen está escrita dos veces, en Go y
+#    en Dart, y este fichero es el único que las ata: lo leen
+#    `almacen_de_origen_casos_compartidos_test.dart` por `../docs/…` y su gemelo de Go. De
+#    ese almacén sale el kilometraje que se cobra, así que dos lados eligiendo cosas
+#    distintas es un importe creíble y equivocado. Sin él la prueba muere con un `[E]` al
+#    cargar y ESTA IMAGEN NO CONSTRUYE — comprobado el 24/09/2026, que es como se descubrió
+#    que faltaba.
+COPY docs/almacen-de-origen.casos.json /docs/almacen-de-origen.casos.json
+
 # LAS PRUEBAS, ANTES DE CONSTRUIR. Como en `Dockerfile.api` y `Dockerfile.sync`.
 #
 # El 16/09/2026 una mutación de prueba llegó a producción porque el Dockerfile del
@@ -185,12 +195,21 @@ RUN set -eu; \
     grep -q "main.dart.js?v=$H" build/web/flutter_bootstrap.js \
       || (echo "NO se pudo poner la huella en flutter_bootstrap.js" && exit 1)
 
-# `sqlite3.wasm` y `drift_worker.js` son FICHEROS DEL DESPLIEGUE (app/lib/nucleo/base/
-# conexion/conexion_web.dart lo dice con esas palabras): si falta uno, la aplicación
-# arranca y la base NO. Que el build falle aquí es mucho mejor que descubrirlo en la
-# pantalla de alguien que ya no tiene conexión para recargar.
+# `sqlite3.wasm` es un FICHERO DEL DESPLIEGUE (app/lib/nucleo/base/conexion/
+# conexion_web.dart lo dice con esas palabras): si falta, la aplicación arranca y la base
+# NO. Que el build falle aquí es mucho mejor que descubrirlo en la pantalla de alguien que
+# ya no tiene conexión para recargar.
+#
+# `drift_worker.js` ESTABA AQUÍ Y SE FUE — 24/09/2026. Era la segunda mitad de esta
+# comprobación y llevaba desde el 16/09 defendiendo algo que nadie ejecuta: ese día la base
+# de la web pasó a ser EN MEMORIA (`WasmDatabase.inMemory`), y sin almacenamiento que
+# compartir entre pestañas no hay worker que coordinar. Comprobado antes de quitarlo, no
+# leído del comentario: en todo `app/lib` no queda un `WasmDatabase.open` ni un
+# `driftWorkerUri`, y el `main.dart.js` compilado no nombra el worker por ninguna parte.
+# Con él se fueron los 760 KB de `web/drift_worker.js`, su `.map` y su `.deps`, que la
+# imagen servía a cada navegador que pasara. Una guarda que protege un fichero muerto
+# enseña a no fiarse de las guardas.
 RUN test -f build/web/sqlite3.wasm     || (echo "FALTA sqlite3.wasm en build/web"     && exit 1)
-RUN test -f build/web/drift_worker.js  || (echo "FALTA drift_worker.js en build/web"  && exit 1)
 
 FROM nginx:1.27-alpine
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf

@@ -237,16 +237,21 @@ gstatic.com al abrir la página. Es lo mismo que hace `deploy/Dockerfile.app`, y
 conexión de allá son unos megas menos por aparato y una dependencia menos de una red que
 unos días no está.
 
-Y **los dos ficheros del despliegue**, que el Dockerfile también comprueba:
+Y **el fichero del despliegue**, que el Dockerfile también comprueba:
 
 ```bash
-test -f build/web/sqlite3.wasm    || echo "FALTA sqlite3.wasm"
-test -f build/web/drift_worker.js || echo "FALTA drift_worker.js"
+test -f build/web/sqlite3.wasm || echo "FALTA sqlite3.wasm"
 ```
 
-Si falta uno, la aplicación arranca y **la base no**
+Si falta, la aplicación arranca y **la base no**
 (`app/lib/nucleo/base/conexion/conexion_web.dart`). Es de los fallos que no se ven hasta
 que alguien ya está sin conexión.
+
+**Eran dos y ahora es uno.** `drift_worker.js` se fue el 24/09/2026, con su fuente, su
+`.map` y su `.deps`: desde que la base de la web es en memoria (16/09) no hay
+almacenamiento que compartir entre pestañas, así que no hay worker que coordinar. Eran
+760 KB que la imagen servía sin que nadie los pidiera, y una guarda que hacía fallar el
+build por un fichero muerto.
 
 Para verla:
 
@@ -259,5 +264,16 @@ cd build/web && python3 -m http.server 8082
 ## 7. Y después
 
 Compilar no es publicar. Para que los aparatos se enteren de que hay una versión nueva hay
-que **colgar los ficheros** y **anunciarlos** poniéndole a la api `APP_ULTIMA_VERSION` y
-compañía. Está entero en **`docs/actualizaciones.md`**.
+que **colgar los ficheros** en MinIO y **anunciarlos**, poniéndole a la api las cinco
+variables de golpe —`APP_ULTIMA_VERSION`, `APP_ULTIMA_COMPILACION`, `APP_DESCARGA_ANDROID`
+y sus `_BYTES` y `_SHA256`— y volviéndola a desplegar. Los pasos numerados están en
+**`docs/despliegue.md` §3.1**, y el detalle de MinIO (cómo se sube, el `Cache-Control` que
+no es cosmética y las cuatro comprobaciones) en **`docs/actualizaciones.md` §3-bis**.
+
+**Y la firma se mira SIEMPRE, en el APK ya hecho**, porque `android/key.properties` no está
+en el repositorio y una máquina sin él vuelve a firmar con la de depuración sin que se vea:
+
+```bash
+apksigner verify --print-certs build/app/outputs/flutter-apk/app-release.apk
+# no puede decir CN=Android Debug
+```

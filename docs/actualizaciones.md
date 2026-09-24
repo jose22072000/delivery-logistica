@@ -2,8 +2,7 @@
 
 La web se actualiza sola. Los aparatos no: alguien tiene que bajarse un fichero e
 instalarlo. Este documento dice cómo se anuncia que hay una versión nueva, cómo se entera
-el aparato y —la parte que hoy está mal y hay que arreglar antes de repartir nada— **con
-qué clave se firma el APK**.
+el aparato y con qué clave se firma el APK.
 
 Compilar los ficheros es lo de antes y está aparte: **`docs/compilar.md`**.
 
@@ -242,25 +241,40 @@ rm -f /tmp/z'
 `PK` es la firma de un zip, que es lo que hay debajo de un APK. **Si ahí sale `<!`, lo que
 contesta es una página web y no un APK** — que es exactamente el fallo del 21/09.
 
-### El APK que está colgado hoy, 22/09/2026
+### El APK que se anuncia — la 1.0.1, desde el 24/09/2026
+
+Estas son las cinco líneas que van en el Environment de `reparto-api` en Dokploy, y las
+mismas que están escritas en `docker-compose.yml` (de donde las leen dos pruebas):
 
 ```
-APP_DESCARGA_ANDROID=https://archivos.procovar.cloud/reparto/apk/reparto-1.0.0-260921.apk
+APP_ULTIMA_VERSION=1.0.1
+APP_ULTIMA_COMPILACION=2
+APP_ULTIMA_PUBLICADA=2026-09-22
+APP_DESCARGA_ANDROID=https://archivos.procovar.cloud/reparto/apk/reparto-1.0.1-260922.apk
+APP_DESCARGA_ANDROID_BYTES=77646816
+APP_DESCARGA_ANDROID_SHA256=565647928d03200b2eda25ef28bde55e0f0d3e034f99d561f38b33a6aa47c49e
+```
+
+Los tres números están **medidos dentro del servidor el 22/09/2026**, bajando el fichero por
+el dominio y no del disco del host: misma huella que el fichero de `/var/lib/procovar`, `206`
+a la petición por rango y `PK` de magia. La compilación es el `+2` de `1.0.1+2`, que es lo
+que tenía `app/pubspec.yaml` cuando se compiló ese APK.
+
+**Por qué la 1.0.1 y no la que hay en el repositorio.** `pubspec.yaml` va por `1.0.4+5`, pero
+de la 1.0.4 no hay fichero colgado. Se anuncia lo que existe: inventarse la URL de un APK que
+no está es mandar a diez personas a un enlace roto — exactamente el fallo del 21/09, cuando
+la URL contestaba `200` con el `index.html` de la web dentro de un `.pmtiles`.
+
+Y la que estaba anunciada antes, que sigue colgada de red:
+
+```
+https://archivos.procovar.cloud/reparto/apk/reparto-1.0.0-260921.apk
 bytes  76.810.980
 sha256 02b12cf29dea62896f70d22c9fd8faa5e9e8d81a3d0bdc4ee34dc243db4c5bb5
 ```
 
-Y la 1.0.1, que es la que está instalada en el teléfono de Jose y todavía **no se anuncia**
-(medidas dentro del servidor el 22/09/2026):
-
-```
-https://archivos.procovar.cloud/reparto/apk/reparto-1.0.1-260922.apk
-bytes  77.646.816
-sha256 565647928d03200b2eda25ef28bde55e0f0d3e034f99d561f38b33a6aa47c49e
-```
-
-Bajado entero por el dominio desde dentro del servidor: misma huella que el fichero del host,
-`206` a la petición por rango y `PK` de magia.
+Se borra —`ssh vps 'rm -f /var/lib/procovar/apk/reparto-1.0.0-260921.apk'`— cuando Jose
+confirme que la 1.0.1 se descarga y se instala desde la URL nueva, y no antes.
 
 > **La mudanza, tal como se hizo, y el orden importa.** Primero se subió el APK a MinIO y se
 > comprobaron las cuatro cosas de arriba **con la api todavía anunciando la URL vieja** —así
@@ -281,10 +295,18 @@ Bajado entero por el dominio desde dentro del servidor: misma huella que el fich
 > sale mal no queda a qué volver. Con el nombre distinto el viejo sigue sirviendo hasta que
 > las variables apuntan al nuevo, y el cambio lo hace el despliegue de la api.
 
-## 4. La firma del APK — HOY ESTÁ MAL
+## 4. La firma del APK — RESUELTA el 21/09/2026
 
-> **`app/android/app/build.gradle.kts` firmaba el APK de release con la clave de
-> DEPURACIÓN.** Venía así de la plantilla de `flutter create`, con su `TODO` puesto.
+> **YA ESTÁ PUESTA LA CLAVE DE VERDAD.** `app/android/key.properties` existe y apunta al
+> almacén de `procovar/.secretos/`, así que `flutter build apk --release` sale firmado con
+> ella. Este apartado decía «HOY ESTÁ MAL» hasta el 24/09/2026 y era lo primero que leía
+> cualquiera que viniera a publicar una versión: mandaba a rehacer un trabajo ya hecho, y
+> además daba por bloqueado el reparto de APK que ya no lo está. Se deja lo de abajo
+> entero porque explica **por qué** importa y cómo se comprueba, que sigue haciendo falta
+> cada vez.
+
+> **De dónde venía.** `app/android/app/build.gradle.kts` firmaba el APK de release con la
+> clave de DEPURACIÓN. Venía así de la plantilla de `flutter create`, con su `TODO` puesto.
 
 Por qué no es un detalle:
 
@@ -368,15 +390,17 @@ sitio donde la respuesta es segura (`apksigner` viene con el SDK de Android, en
 apksigner verify --print-certs build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Hoy, en este repositorio, eso contesta **`CN=Android Debug`** — comprobado el 15/09/2026
-sobre el APK que sale de `flutter build apk --release`:
+El 15/09/2026, antes de tener la clave, eso contestaba **`CN=Android Debug`** sobre el APK
+que salía de `flutter build apk --release`:
 
 ```
 Signer #1 certificate DN: C=US, O=Android, CN=Android Debug
 ```
 
-Cuando la clave de verdad esté puesta, ahí saldrá el nombre que hayas escrito al crearla, y
-**no** `Android Debug`. El `SHA-256` que salga es la identidad del APK para Android:
+Con la clave de verdad puesta —lo está desde el 21/09/2026— ahí sale el nombre que se
+escribió al crearla, y **no** `Android Debug`. **Se mira en cada publicación**, porque
+`key.properties` no está en el repositorio: en una máquina que no lo tenga, Gradle vuelve a
+firmar con depuración y el aviso no se ve con `flutter build apk --release` a secas. El `SHA-256` que salga es la identidad del APK para Android:
 **apúntalo en `procovar/.secretos/`**, que es lo que permite comprobar de un vistazo, dentro
 de un año, si un APK que apareció por ahí es de los nuestros o uno de depuración que alguien
 dejó suelto.
@@ -440,13 +464,20 @@ menos llega mañana.
       Ver §3-bis, que trae cómo se sube, cómo se comprueba y qué pasó con el rango y
       Cloudflare. Lo único que queda de esto es **barrer la copia vieja** cuando Jose
       confirme que se descarga e instala desde la URL nueva.
+- [x] **Anunciarlo, que era lo único que faltaba para que el canal funcionara.** Hecho el
+      24/09/2026: las cinco variables de Android están puestas en `docker-compose.yml` con
+      los valores del APK colgado, y **el olvido ya no es un silencio** — con
+      `ENTORNO=produccion` y `APP_ULTIMA_VERSION` vacía la api no arranca, y dos pruebas
+      leen esos valores del compose y exigen que `/api/version` salga con su versión, sus
+      bytes y su huella. El paso a paso de publicar está en `docs/despliegue.md` §3.1.
+- [ ] **Subir la 1.0.4 y anunciarla.** Lo que se anuncia hoy es la **1.0.1** (compilación
+      2), el último APK colgado y medido; `app/pubspec.yaml` va por `1.0.4+5`.
 - [ ] **Windows y Linux siguen sin colgar.** `APP_DESCARGA_WINDOWS` y `APP_DESCARGA_LINUX`
       están vacías: el sitio ya existe (mismo bucket, prefijo `apk/` o uno nuevo), lo que
       falta es compilar y subir. No se inventa una URL que no tiene fichero detrás.
-- [ ] **La clave de firma**, §4. Hasta que exista, cualquier APK que salga de aquí es de
-      usar y tirar. **Esto va primero que lo demás**: el día que haya una clave de verdad,
-      el APK que ya esté instalado en los aparatos habrá que desinstalarlo igual, así que
-      cuanto antes se haga, menos gente lo sufre.
+- [x] **La clave de firma**, §4. Puesta el 21/09/2026 (`app/android/key.properties`). Lo que
+      queda es mirarla en cada publicación con `apksigner`, porque el fichero no está en el
+      repositorio y una máquina sin él vuelve a firmar con depuración sin decir nada.
 - [ ] **Enchufar el aviso a una pantalla.** `actualizacionProvider` está montado y probado,
       pero **nadie lo mira todavía**: no se tocó `app/lib/pantallas/`. Lo que falta es una
       pantalla que haga `ref.watch(actualizacionProvider)` y pinte los cinco casos —con el

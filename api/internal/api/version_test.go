@@ -3,6 +3,11 @@ package api_test
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -126,6 +131,84 @@ func TestElAnuncioLlevaElTamanoYLaHuella(t *testing.T) {
 	if f.SHA256 != huellaDeLaApk {
 		t.Fatalf("huella %q", f.SHA256)
 	}
+}
+
+// EL CAMINO ENTERO, CON LOS VALORES DE VERDAD — 24/09/2026.
+//
+// Las pruebas de arriba usan un `1.5.0` inventado: comprueban la forma del contrato, no
+// que el canal esté vivo. Ésta coge lo que hay escrito en `docker-compose.yml` —que es lo
+// mismo que va al Environment de `reparto-api` en Dokploy— y exige que `/api/version`
+// salga con su versión, su enlace, sus bytes y su huella.
+//
+// Sin esto, vaciar `APP_ULTIMA_VERSION` deja toda la suite en verde y el canal muerto: la
+// api arranca, contesta `ultima: null`, y desde fuera se ve igual que «no hay ninguna
+// versión nueva». Eso es lo que estuvo pasando.
+func TestElAnuncioSaleEnteroConLoQueHayPuesto(t *testing.T) {
+	compose := composeApp(t)
+	if compose["APP_ULTIMA_VERSION"] == "" {
+		t.Fatal("APP_ULTIMA_VERSION vacía en docker-compose.yml: ningún aparato en la calle " +
+			"se enteraría de que hay una versión nueva")
+	}
+	for _, nombre := range []string{
+		"APP_ULTIMA_VERSION", "APP_ULTIMA_COMPILACION", "APP_ULTIMA_PUBLICADA",
+		"APP_DESCARGA_ANDROID", "APP_DESCARGA_ANDROID_BYTES", "APP_DESCARGA_ANDROID_SHA256",
+	} {
+		t.Setenv(nombre, compose[nombre])
+	}
+
+	a := leerAnuncio(t, servidor(t))
+	if a.Ultima == nil {
+		t.Fatal("hay un APK colgado y /api/version no anuncia nada")
+	}
+	if a.Ultima.Version != compose["APP_ULTIMA_VERSION"] {
+		t.Fatalf("versión %q, en el compose %q", a.Ultima.Version, compose["APP_ULTIMA_VERSION"])
+	}
+	if a.Ultima.Compilacion == nil || *a.Ultima.Compilacion <= 0 {
+		t.Fatalf("sin compilación Android no compara nada al instalar encima: %v", a.Ultima.Compilacion)
+	}
+	if a.Ultima.Descargas["android"] != compose["APP_DESCARGA_ANDROID"] {
+		t.Fatalf("enlace %q, en el compose %q",
+			a.Ultima.Descargas["android"], compose["APP_DESCARGA_ANDROID"])
+	}
+	f, hay := a.Ultima.Ficheros["android"]
+	if !hay {
+		t.Fatalf("el anuncio va sin tamaño ni huella: %+v", a.Ultima)
+	}
+	if strconv.FormatInt(f.Bytes, 10) != compose["APP_DESCARGA_ANDROID_BYTES"] {
+		t.Fatalf("bytes %d, en el compose %q", f.Bytes, compose["APP_DESCARGA_ANDROID_BYTES"])
+	}
+	if f.SHA256 != strings.ToLower(compose["APP_DESCARGA_ANDROID_SHA256"]) {
+		t.Fatalf("huella %q, en el compose %q", f.SHA256, compose["APP_DESCARGA_ANDROID_SHA256"])
+	}
+}
+
+// composeApp lee los valores por defecto de las `APP_*` de `docker-compose.yml`, o sea el
+// `X` de `APP_LO_QUE_SEA: ${APP_LO_QUE_SEA:-X}`.
+//
+// Está escrito otra vez aquí y no compartido con `internal/config`: son dos paquetes de
+// prueba distintos y lo único que compartirlo ahorraría son doce líneas, a cambio de un
+// paquete nuevo que existe sólo para eso. Lo que NO se repite es el valor: los dos lo leen
+// del fichero, que es la regla de §3-bis del CLAUDE.md.
+//
+// El fichero vive fuera de `api/`, así que el `Dockerfile.api` lo copia a la misma ruta
+// relativa que tiene en el repositorio — «una imagen no es esta máquina».
+func composeApp(t *testing.T) map[string]string {
+	t.Helper()
+	ruta := filepath.Join("..", "..", "..", "docker-compose.yml")
+	crudo, err := os.ReadFile(ruta)
+	if err != nil {
+		t.Fatalf("no se pudo leer %s: %v", ruta, err)
+	}
+	patron := regexp.MustCompile(`(?m)^\s*(APP_[A-Z0-9_]+):\s*\$\{[A-Z0-9_]+:-(.*)\}\s*$`)
+	valores := map[string]string{}
+	for _, m := range patron.FindAllStringSubmatch(string(crudo), -1) {
+		valores[m[1]] = strings.TrimSpace(m[2])
+	}
+	if len(valores) == 0 {
+		t.Fatal("no se encontró ninguna APP_* en docker-compose.yml: o se movieron de sitio " +
+			"o cambió la forma de escribirlas, y esta prueba dejaría de mirar nada")
+	}
+	return valores
 }
 
 // `descargas` SE QUEDA COMO ESTABA, y esta prueba es la que lo sujeta.

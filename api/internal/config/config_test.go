@@ -1,6 +1,9 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -255,6 +258,170 @@ func TestLaFechaSeNormaliza(t *testing.T) {
 	if c.Publicada.PublicadaAt != "2026-09-15T00:00:00Z" {
 		t.Fatalf("fecha %q", c.Publicada.PublicadaAt)
 	}
+}
+
+// --------------------------------------------- El canal muerto tiene que DECIRSE
+//
+// Hasta el 24/09/2026 `APP_ULTIMA_VERSION` vacía era un `Warn` en el registro y nada más:
+// la api arrancaba verde y `/api/version` contestaba `ultima: null`, que desde fuera no se
+// distingue de «no hay ninguna versión nueva». Los aparatos están en la calle y casi todo
+// el día sin señal, así que ese silencio les cuesta semanas de versión vieja.
+
+// EN PRODUCCIÓN NO ARRANCA. Es el momento en que lo ve quien despliega, igual que todo lo
+// demás de esta configuración.
+func TestEnProduccionSinAnuncioNoArranca(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("ENTORNO", "produccion")
+	t.Setenv("APP_ULTIMA_VERSION", "")
+	t.Setenv("APP_SIN_ANUNCIO", "")
+
+	_, err := config.Cargar("dev")
+	if err == nil {
+		t.Fatal("el canal de actualización estaría muerto y la api arrancaría verde")
+	}
+	// El mensaje tiene que nombrar la variable Y la salida, o quien lo lea a las once de
+	// la noche no sabe qué hacer con él.
+	for _, quiero := range []string{"APP_ULTIMA_VERSION", "APP_SIN_ANUNCIO"} {
+		if !strings.Contains(err.Error(), quiero) {
+			t.Fatalf("el mensaje tiene que nombrar %s: %v", quiero, err)
+		}
+	}
+}
+
+// Y se puede decir que no se anuncia nada, pero hay que ESCRIBIRLO: así queda en el
+// Environment de Dokploy como una decisión y no como un descuido.
+func TestEnProduccionSePuedeDecirQueNoSeAnunciaNada(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("ENTORNO", "produccion")
+	t.Setenv("APP_ULTIMA_VERSION", "")
+	t.Setenv("APP_SIN_ANUNCIO", "si")
+
+	c, err := config.Cargar("dev")
+	if err != nil {
+		t.Fatalf("dicho a propósito, tiene que arrancar: %v", err)
+	}
+	if c.Publicada.HayAlguna() {
+		t.Fatalf("no se anuncia nada y aun así hay anuncio: %+v", c.Publicada)
+	}
+}
+
+// Un valor raro NO vale por «sí». Si valiera, un `APP_SIN_ANUNCIO=no` apagaría la guarda
+// diciendo justo lo contrario de lo que dice, y nadie miraría dos veces esa línea.
+func TestAppSinAnuncioConValorRaroNoArranca(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("ENTORNO", "produccion")
+	t.Setenv("APP_ULTIMA_VERSION", "")
+	t.Setenv("APP_SIN_ANUNCIO", "no")
+
+	_, err := config.Cargar("dev")
+	if err == nil || !strings.Contains(err.Error(), "APP_SIN_ANUNCIO") {
+		t.Fatalf("`no` no puede significar `si`: %v", err)
+	}
+}
+
+// En DESARROLLO sigue arrancando sin decir nada: levantar el reparto en el portátil para
+// mirar una pantalla no puede depender de que haya un APK publicado.
+func TestEnDesarrolloSinAnuncioArranca(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	t.Setenv("ENTORNO", "desarrollo")
+	t.Setenv("APP_ULTIMA_VERSION", "")
+	t.Setenv("APP_SIN_ANUNCIO", "")
+
+	if _, err := config.Cargar("dev"); err != nil {
+		t.Fatalf("en desarrollo tiene que arrancar igual: %v", err)
+	}
+}
+
+// ------------------------------------------- Y el canal VIVO, del compose al anuncio
+//
+// EL CAMINO ENTERO, con los valores de verdad. `docker-compose.yml` es el único sitio del
+// repositorio donde el canal de actualización se lee completo, y los MISMOS tres datos son
+// los que van al Environment de `reparto-api` en Dokploy. Si alguien vacía una de esas
+// líneas —o cuelga un APK y se olvida de los bytes o de la huella—, esto se pone rojo aquí
+// en vez de dejar diez aparatos sin enterarse durante semanas.
+//
+// Se lee el fichero y no se copian los valores a mano: dos sitios con el mismo número se
+// separan sin que salte nada (CLAUDE.md §3-bis).
+func TestElComposeAnunciaUnaVersionCompleta(t *testing.T) {
+	compose := leerCompose(t)
+
+	version := compose["APP_ULTIMA_VERSION"]
+	if version == "" {
+		t.Fatal("APP_ULTIMA_VERSION está vacía en docker-compose.yml: el canal de " +
+			"actualización está muerto y un aparato en la calle no se entera nunca de que " +
+			"hay una versión nueva. Si es a propósito, se dice con APP_SIN_ANUNCIO=si y se " +
+			"cambia esta prueba a mano, con el motivo escrito")
+	}
+
+	t.Setenv("DATABASE_URL", "postgres://u:c@localhost:5432/b")
+	t.Setenv("JWT_SECRET", secretoBueno)
+	for _, nombre := range []string{
+		"APP_ULTIMA_VERSION", "APP_ULTIMA_COMPILACION", "APP_ULTIMA_PUBLICADA",
+		"APP_DESCARGA_ANDROID", "APP_DESCARGA_ANDROID_BYTES", "APP_DESCARGA_ANDROID_SHA256",
+	} {
+		t.Setenv(nombre, compose[nombre])
+	}
+
+	c, err := config.Cargar("dev")
+	if err != nil {
+		t.Fatalf("lo que hay en docker-compose.yml no arranca: %v", err)
+	}
+	if !c.Publicada.HayAlguna() || c.Publicada.Version != version {
+		t.Fatalf("no se anuncia la versión del compose (%q): %+v", version, c.Publicada)
+	}
+	// La compilación es lo ÚNICO que Android compara de verdad al instalar encima. Sin
+	// ella se comparan los números del `1.0.1` y la 1.10 no se anunciaría nunca.
+	if c.Publicada.Compilacion <= 0 {
+		t.Fatalf("falta APP_ULTIMA_COMPILACION (el versionCode): %+v", c.Publicada)
+	}
+	if c.Publicada.Android == "" {
+		t.Fatal("se avisaría de una versión nueva sin decir de dónde bajarla")
+	}
+	f, hay := c.Publicada.Ficheros["android"]
+	if !hay {
+		t.Fatalf("la descarga va sin tamaño ni huella: %+v", c.Publicada.Ficheros)
+	}
+	// Sin bytes la pantalla enseña «30 MB/?» por datos móviles —Cloudflare quita el
+	// Content-Length— y sin huella una descarga cortada pasa por buena.
+	if f.Bytes <= 0 {
+		t.Fatalf("bytes %d", f.Bytes)
+	}
+	if len(f.SHA256) != 64 {
+		t.Fatalf("huella %q", f.SHA256)
+	}
+	if f.SHA256 != strings.ToLower(compose["APP_DESCARGA_ANDROID_SHA256"]) {
+		t.Fatalf("la huella que se anuncia no es la del compose: %q", f.SHA256)
+	}
+}
+
+// leerCompose saca los valores por defecto de las `APP_*` de `docker-compose.yml`, o sea
+// el `X` de `APP_LO_QUE_SEA: ${APP_LO_QUE_SEA:-X}`.
+//
+// El fichero vive FUERA de `api/`, así que el `Dockerfile.api` lo copia a la misma ruta
+// relativa que tiene en el repositorio — igual que `docs/orden-de-paradas.casos.json`.
+// «Una imagen no es esta máquina» (CLAUDE.md §4-bis): esto pasaba en el portátil y tiraba
+// la construcción sin ese COPY.
+func leerCompose(t *testing.T) map[string]string {
+	t.Helper()
+	ruta := filepath.Join("..", "..", "..", "docker-compose.yml")
+	crudo, err := os.ReadFile(ruta)
+	if err != nil {
+		t.Fatalf("no se pudo leer %s: %v", ruta, err)
+	}
+	patron := regexp.MustCompile(`(?m)^\s*(APP_[A-Z0-9_]+):\s*\$\{[A-Z0-9_]+:-(.*)\}\s*$`)
+	valores := map[string]string{}
+	for _, m := range patron.FindAllStringSubmatch(string(crudo), -1) {
+		valores[m[1]] = strings.TrimSpace(m[2])
+	}
+	if len(valores) == 0 {
+		t.Fatal("no se encontró ninguna APP_* en docker-compose.yml: o se movieron de sitio " +
+			"o cambió la forma de escribirlas, y esta prueba dejaría de mirar nada")
+	}
+	return valores
 }
 
 // --------------------------------------------------------------------------- Ventra

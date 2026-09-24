@@ -93,6 +93,33 @@ COPY app/lib/nucleo/refresco_en_vivo.dart /app/lib/nucleo/refresco_en_vivo.dart
 # en `/docs/...`.
 COPY docs/orden-de-paradas.casos.json /docs/orden-de-paradas.casos.json
 
+# Y EL SEGUNDO FICHERO DE CASOS COMPARTIDOS — 24/09/2026
+#
+# `internal/cotizar/almacen_casos_compartidos_test.go` lee
+# `docs/almacen-de-origen.casos.json`, que es EL MISMO fichero que lee
+# `app/test/nucleo/almacenes/almacen_de_origen_casos_compartidos_test.dart` — no una copia.
+# Es lo que ata la regla del almacén de origen escrita en Go con la escrita en Dart, y de
+# ese almacén sale el kilometraje que se cobra: si los dos lados eligen almacenes distintos,
+# nadie se entera y el importe sale creíble y equivocado. Si falta, la prueba hace `Fatalf`
+# y ESTA IMAGEN NO CONSTRUYE, que es lo que se quiere.
+#
+# Misma ruta que el de arriba: desde `/src/internal/cotizar`, `../../../docs/…` cae en
+# `/docs/…`.
+COPY docs/almacen-de-origen.casos.json /docs/almacen-de-origen.casos.json
+
+# Y EL COMPOSE, POR LA MISMA RAZÓN — 24/09/2026
+#
+# `internal/config/config_test.go` y `internal/api/version_test.go` leen las `APP_*` de
+# `docker-compose.yml` y exigen que el anuncio de versión salga entero: con su número, su
+# enlace, sus bytes y su huella. Es la guarda del canal de actualización, que estuvo muerto
+# desde que se montó porque `APP_ULTIMA_VERSION` se quedó vacía y eso no rompía nada: la
+# api arrancaba, `/api/version` contestaba `ultima: null`, y un aparato en la calle —que
+# pasa el día sin señal— no se enteraba nunca de que había una versión nueva.
+#
+# La ruta es la que esperan las pruebas: desde `/src/internal/config`, `../../../docker-
+# compose.yml` cae en `/docker-compose.yml`.
+COPY docker-compose.yml /docker-compose.yml
+
 # EL CÓDIGO GENERADO TIENE QUE SER EL DE LAS CONSULTAS. Si alguien editó a mano un
 # `.sql.go`, `sqlc diff` lo dice y ESTA IMAGEN NO CONSTRUYE. Es lo único que ata lo que se
 # despliega con lo que las guardas vigilan.

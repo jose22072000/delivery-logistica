@@ -95,17 +95,41 @@ services:
       PROCOVAR_AUTH_CLIENT_ID: ${PROCOVAR_AUTH_CLIENT_ID:-delivery}
       PROCOVAR_AUTH_SIGNING_KEY: ${PROCOVAR_AUTH_SIGNING_KEY:-}
       # El anuncio de versión de la APLICACIÓN, que es lo que leen los aparatos para saber
-      # si tienen que actualizarse. Vacías = no se anuncia ninguna y nadie avisa, que es lo
-      # correcto mientras no haya un fichero colgado de verdad. A MEDIAS NO ARRANCA: una
-      # URL sin `APP_ULTIMA_VERSION` no se anunciaría nunca, y al revés se avisaría sin
-      # decir de dónde bajarla. Ver docs/actualizaciones.md.
-      APP_ULTIMA_VERSION: ${APP_ULTIMA_VERSION:-}
-      APP_ULTIMA_COMPILACION: ${APP_ULTIMA_COMPILACION:-}
+      # si tienen que actualizarse. A MEDIAS NO ARRANCA: una URL sin `APP_ULTIMA_VERSION`
+      # no se anunciaría nunca, y al revés se avisaría sin decir de dónde bajarla. Ver
+      # docs/actualizaciones.md.
+      #
+      # ESTOS VALORES NO SON DE DESARROLLO Y NO SE INVENTAN: son los del APK que está
+      # colgado de verdad en MinIO, medidos DENTRO del servidor el 22/09/2026
+      # (docs/actualizaciones.md §3-bis). Están aquí porque este fichero es el único sitio
+      # del repositorio donde el canal de actualización se puede leer entero, y porque los
+      # MISMOS tres datos son los que van en el Environment de `reparto-api` en Dokploy.
+      # Una prueba los lee de aquí y exige que el anuncio salga completo
+      # (`api/internal/config/config_test.go`, TestElComposeAnuncia…): vaciar una línea de
+      # éstas deja la suite en rojo en vez de dejar el canal muerto en silencio.
+      #
+      # Estuvieron vacías hasta el 24/09/2026 y eso ya no es «el estado seguro»: el estado
+      # seguro era mientras no hubiera fichero colgado, y desde el 22/09 lo hay. Vacío
+      # ahora significa que un aparato en la calle nunca se entera de que hay versión
+      # nueva — y la aplicación se usa sin señal la mayor parte del día.
+      APP_ULTIMA_VERSION: ${APP_ULTIMA_VERSION:-1.0.1}
+      APP_ULTIMA_COMPILACION: ${APP_ULTIMA_COMPILACION:-2}
       APP_ULTIMA_NOTAS: ${APP_ULTIMA_NOTAS:-}
-      APP_ULTIMA_PUBLICADA: ${APP_ULTIMA_PUBLICADA:-}
-      APP_DESCARGA_ANDROID: ${APP_DESCARGA_ANDROID:-}
+      APP_ULTIMA_PUBLICADA: ${APP_ULTIMA_PUBLICADA:-2026-09-22}
+      # Los TRES juntos o ninguno: URL, BYTES y SHA256. Sin BYTES quien la baja por datos
+      # móviles ve «30 MB/?» —Cloudflare quita el Content-Length— y sin SHA256 una descarga
+      # cortada pasa por buena.
+      APP_DESCARGA_ANDROID: ${APP_DESCARGA_ANDROID:-https://archivos.procovar.cloud/reparto/apk/reparto-1.0.1-260922.apk}
+      APP_DESCARGA_ANDROID_BYTES: ${APP_DESCARGA_ANDROID_BYTES:-77646816}
+      APP_DESCARGA_ANDROID_SHA256: ${APP_DESCARGA_ANDROID_SHA256:-565647928d03200b2eda25ef28bde55e0f0d3e034f99d561f38b33a6aa47c49e}
+      # Windows y Linux siguen SIN COLGAR. No se inventa una URL que no tiene fichero
+      # detrás: un enlace roto en la pantalla de alguien es peor que no ofrecer nada.
       APP_DESCARGA_WINDOWS: ${APP_DESCARGA_WINDOWS:-}
       APP_DESCARGA_LINUX: ${APP_DESCARGA_LINUX:-}
+      # La única forma de dejar el canal callado en producción, y hay que ESCRIBIRLA:
+      # con ENTORNO=produccion y sin `APP_ULTIMA_VERSION`, la api no arranca. Aquí no hace
+      # falta porque el entorno es desarrollo. Ver api/internal/config/config.go.
+      APP_SIN_ANUNCIO: ${APP_SIN_ANUNCIO:-}
       # El paquete de MAPA de Cuba que la APK y el escritorio se guardan para
       # dibujar el mapa sin conexión. Es el mismo mecanismo de arriba y la misma
       # regla: A MEDIAS NO ARRANCA. De cada nivel van las TRES —URL, BYTES y

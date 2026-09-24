@@ -248,14 +248,32 @@ que no se tocó a propósito.
 - [ ] **Al terminar una subida, `ref.invalidate(actualizacionProvider)`.** Sin eso, un
       `PrimeroSube` se queda puesto hasta el siguiente arranque aunque la cola ya esté
       vacía, y la persona hizo justo lo que se le pidió.
-- [ ] **LA CLAVE DE FIRMA DEL APK.** Hoy sale firmado con la de DEPURACIÓN. Android rechaza
-      como actualización un APK firmado con otra clave: obliga a desinstalar, y desinstalar
-      **borra la base local** — el trabajo del día sin subir. `build.gradle.kts` ya usa la
-      buena si existe y grita si no; falta crearla (`docs/actualizaciones.md` §4). **Cuanto
-      más tarde se haga, más aparatos habrá que desinstalar el día que se haga.**
-- [ ] **Dónde se cuelgan los ficheros.** Se compilan a mano (`docs/compilar.md`); falta
-      decidir a qué URL estable van. Hasta entonces `APP_ULTIMA_VERSION` se queda vacía, que
-      es el estado seguro: no se anuncia nada.
+- [x] **LA CLAVE DE FIRMA DEL APK — HECHA el 21/09/2026.** Esta entrada decía hasta el
+      24/09/2026 que el APK salía firmado con la de DEPURACIÓN, y **eso ya no es verdad**:
+      `app/android/key.properties` apunta a la clave propia (`.secretos/`, fuera del
+      repositorio, con `key.properties` y `*.jks` en `.gitignore`). Se deja escrito porque
+      una lista de pendientes que miente cuesta una mañana de trabajo ya hecho. La
+      comprobación que vale sigue siendo la del APK, no la ausencia de avisos:
+      `apksigner verify --print-certs …` no puede decir `CN=Android Debug`
+      (`docs/actualizaciones.md` §4).
+- [x] **Dónde se cuelgan los ficheros — DECIDIDO el 22/09/2026: MinIO**, en
+      `https://archivos.procovar.cloud/reparto/apk/`, con los bytes fuera de toda imagen
+      (`docs/actualizaciones.md` §3-bis). No la carpeta del nginx de la web, que ya se probó
+      y un despliegue se llevó los ficheros por delante; ni una Release de GitHub, que el
+      repositorio es privado y pediría credenciales en el teléfono de un logístico.
+- [x] **Anunciarlo — HECHO el 24/09/2026.** Las cinco variables están puestas en
+      `docker-compose.yml` con los valores del APK que hay colgado, medidos dentro del
+      servidor. Y **el silencio se acabó**: con `ENTORNO=produccion` y `APP_ULTIMA_VERSION`
+      vacía la api **no arranca**, y dos pruebas leen `docker-compose.yml` y exigen que el
+      anuncio salga entero. Qué hay que hacer al publicar una versión, paso a paso, en
+      `docs/despliegue.md` §3.1.
+- [ ] **Windows y Linux siguen sin colgar.** `APP_DESCARGA_WINDOWS` y `APP_DESCARGA_LINUX`
+      están vacías: el sitio ya existe (mismo bucket), lo que falta es compilar y subir. No
+      se inventa una URL que no tiene fichero detrás.
+- [ ] **Subir la 1.0.4.** Lo que se anuncia hoy es la **1.0.1** (compilación 2), que es el
+      último APK que está colgado y medido. `app/pubspec.yaml` va ya por `1.0.4+5`, así que
+      hay una versión de repositorio que nadie puede instalar: compilar, subir y repetir los
+      pasos de `docs/despliegue.md` §3.1.
 
 ## La regla de Jose, 14/09/2026 — y lo que se cerró con ella
 

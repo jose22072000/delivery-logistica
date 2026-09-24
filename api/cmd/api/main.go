@@ -98,9 +98,15 @@ func correr() error {
 		reg.Warn("PROCOVAR_AUTH_SIGNING_KEY vacía: no se podrá preguntar a Accesos por los almacenes " +
 			"ni por las tasas, así que no se podrán cotizar domicilios")
 	}
-	// Tampoco impide arrancar: mientras no haya un APK colgado, no anunciar nada es lo
-	// correcto. Pero tiene que verse, porque desde fuera «los aparatos no avisan de la
-	// versión nueva» y «no se anunció ninguna» se parecen mucho.
+	// EN PRODUCCIÓN ESTO YA NO LLEGA AQUÍ: desde el 24/09/2026 `APP_ULTIMA_VERSION` vacía
+	// con `ENTORNO=produccion` para el arranque en `config.Cargar` (salvo que se diga a
+	// propósito con `APP_SIN_ANUNCIO=si`). Un `Warn` en el registro de un contenedor no lo
+	// lee nadie, y el canal de actualización estuvo muerto por eso: la api verde,
+	// `/api/version` contestando `ultima: null`, y diez aparatos que pasan el día sin señal
+	// sin enterarse nunca de que había una versión nueva.
+	//
+	// En desarrollo sigue siendo un aviso, que es lo correcto: levantar el reparto en el
+	// portátil no puede depender de que haya un APK publicado.
 	if !cfg.Publicada.HayAlguna() {
 		reg.Warn("APP_ULTIMA_VERSION vacía: /api/version no anuncia ninguna versión de la aplicación, " +
 			"así que ningún aparato avisará de que hay una nueva (docs/actualizaciones.md)")

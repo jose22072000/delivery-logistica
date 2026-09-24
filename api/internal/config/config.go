@@ -322,6 +322,9 @@ func Cargar(version string) (*Config, error) {
 	pub, errsPub := leerPublicada()
 	c.Publicada = pub
 	errs = append(errs, errsPub...)
+	if err := exigirAnuncio(c.Entorno, os.Getenv("APP_SIN_ANUNCIO"), pub); err != nil {
+		errs = append(errs, err)
+	}
 
 	mapa, errsMapa := leerMapa()
 	c.Mapa = mapa
@@ -559,6 +562,54 @@ func leerPublicada() (*Publicada, []error) {
 		return nil, errs
 	}
 	return p, nil
+}
+
+// exigirAnuncio no deja arrancar en PRODUCCIÓN con el canal de actualización muerto.
+//
+// EL SILENCIO ERA EL FALLO — 24/09/2026. Hasta hoy, `APP_ULTIMA_VERSION` vacía sólo
+// sacaba un `Warn` al arrancar. Un aviso en el registro de un contenedor no lo lee nadie:
+// la api arrancaba verde, `/api/version` contestaba `ultima: null`, y desde fuera se veía
+// exactamente igual que «no hay ninguna versión nueva». Los aparatos están en la calle y
+// la mayor parte del día sin señal, así que el único momento en que se enterarían de que
+// hay una nueva es justo el que se estaba perdiendo — semanas seguidas, sin un solo error.
+//
+// «Vacía = el estado seguro» era cierto MIENTRAS NO HUBIERA NADA COLGADO. Desde el
+// 22/09/2026 hay APK en MinIO (`docs/actualizaciones.md` §3-bis), así que vacío ya no
+// significa «todavía no hay nada»: significa que alguien se olvidó de la variable al
+// desplegar. Eso tiene que verse donde se ve todo lo demás de esta casa, en el arranque,
+// que es lo que mira quien despliega.
+//
+// EN DESARROLLO SIGUE SIENDO UN AVISO. Levantar el reparto en el portátil para mirar una
+// pantalla no puede depender de que haya un APK publicado, y las pruebas arrancan sin
+// entorno.
+//
+// Y HAY UNA SALIDA, PERO HAY QUE ESCRIBIRLA: `APP_SIN_ANUNCIO=si`. Si de verdad se quiere
+// desplegar sin anunciar nada —se retiró el fichero, se está migrando el almacén— se dice
+// con esa variable, y entonces es una DECISIÓN que alguien tomó y que se lee en el
+// Environment de Dokploy. Lo que no puede volver a pasar es que sea un descuido que no
+// deja rastro.
+func exigirAnuncio(entorno, sinAnuncio string, p *Publicada) error {
+	if entorno != "produccion" || p.HayAlguna() {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(sinAnuncio)) {
+	case "si", "sí", "1", "true":
+		return nil
+	case "":
+		return errors.New(
+			"APP_ULTIMA_VERSION vacía con ENTORNO=produccion: /api/version contestaría " +
+				"`ultima: null` y NINGÚN aparato se enteraría nunca de que hay una versión " +
+				"nueva —y eso desde fuera se ve igual que «no hay ninguna»—. Pon las tres de " +
+				"la descarga (APP_DESCARGA_ANDROID, _BYTES y _SHA256) con APP_ULTIMA_VERSION " +
+				"y APP_ULTIMA_COMPILACION, o di a propósito que no se anuncia nada con " +
+				"APP_SIN_ANUNCIO=si. Ver docs/despliegue.md §3.1 y docs/actualizaciones.md")
+	default:
+		// Un valor raro NO vale por «sí». Si se admitiera cualquier cosa, un
+		// `APP_SIN_ANUNCIO=no` apagaría la guarda diciendo lo contrario de lo que dice.
+		return fmt.Errorf(
+			"APP_SIN_ANUNCIO vale %q y sólo se admite `si` (o vacía): es una decisión de "+
+				"no anunciar ninguna versión, no un interruptor con medias tintas", sinAnuncio)
+	}
 }
 
 // unFicheroPublicado lee el tamaño y la huella de UNA descarga.

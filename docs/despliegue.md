@@ -654,7 +654,7 @@ Por eso la comprobación del espejo no es «el contenedor está corriendo» sino
 de §5, y por eso se mira **dos veces con unos minutos de diferencia**. Un espejo girando
 contra un 401 lleva dos horas «sano».
 
-### La imagen corre sus pruebas, y se lleva dos ficheros de fuera de `api/`
+### La imagen corre sus pruebas, y se lleva cuatro ficheros de fuera de `api/`
 
 `deploy/Dockerfile.espejo` hace `go vet ./... && go test ./...` antes de compilar, como los
 otros tres. **Son los cuatro, y éste era el que faltaba**: se escribió el 14/09/2026, dos
@@ -665,16 +665,24 @@ y dejando el tablero verde con la mitad de los pedidos — que es literalmente l
 con los 2.284 de una sola ventana (`CLAUDE.md` §3), con 200 OK.
 
 Y como el espejo y la api son **el mismo módulo de Go**, ese `go test ./...` corre también
-todas las pruebas de la api. Dos de ellas leen ficheros que **no están dentro de `api/`**, y
-las dos mueren con `t.Fatalf` si faltan, así que los dos Dockerfile de Go los copian:
+todas las pruebas de la api. Varias de ellas leen ficheros que **no están dentro de
+`api/`**, y todas mueren con `t.Fatalf` si faltan, así que los dos Dockerfile de Go los
+copian:
 
 | Fichero | Quién lo lee | Dónde cae en la imagen |
 |---|---|---|
 | `app/lib/nucleo/refresco_en_vivo.dart` | `internal/api/protocolo_avisos_test.go` — ata los tipos de aviso del servidor con los de la aplicación | `/app/lib/nucleo/…` |
 | `docs/orden-de-paradas.casos.json` | `internal/api/orden_de_paradas_test.go` — ata el orden de visita de Go con el de Dart; es el **mismo** fichero, no una copia | `/docs/…` |
+| `docs/almacen-de-origen.casos.json` | `internal/cotizar/almacen_casos_compartidos_test.go` — ata la regla del almacén de origen de Go con la de Dart; el **mismo** fichero. De ese almacén sale el kilometraje que se cobra | `/docs/…` |
+| `docker-compose.yml` | `internal/config/config_test.go` y `internal/api/version_test.go` — exigen que el anuncio de versión de la aplicación salga entero con los valores que hay escritos ahí | `/docker-compose.yml` |
 
-El segundo entró el 21/09/2026 y **tumbó la construcción de las dos imágenes de Go, la de
-la api incluida**, hasta que se añadió su `COPY`. Es la regla del `.dockerignore` otra vez,
+`docs/almacen-de-origen.casos.json` lo lee además la prueba gemela de Flutter, así que va
+también en `deploy/Dockerfile.app` (por `../docs/…` desde `/app`).
+
+El de orden de paradas entró el 21/09/2026 y **tumbó la construcción de las dos imágenes de
+Go, la de la api incluida**, hasta que se añadió su `COPY`. El del almacén de origen hizo lo
+mismo el 24/09/2026, y en la de la web: `[E]` al cargar
+`almacen_de_origen_casos_compartidos_test.dart`, comprobado construyendo sin la línea. Es la regla del `.dockerignore` otra vez,
 vista desde el otro lado: se excluye lo que se **regenera**, nunca lo que se **necesita** —
 y un fichero de `docs/` puede ser código para una prueba. Quien añada una prueba que lea
 algo de fuera de su módulo tiene que pasar por aquí; si no, lo descubre el build del
@@ -720,22 +728,112 @@ Con valor por defecto:
 | `PROCOVAR_AUTH_CLIENT_ID` | `delivery` | |
 
 Y las del **anuncio de versión de la aplicación**, que es lo que leen los aparatos para
-saber si tienen que actualizarse. Todas opcionales, pero **a medias no arranca**: con una
-URL puesta y sin `APP_ULTIMA_VERSION` no se anunciaría nada nunca, y con la versión puesta
-y sin ninguna URL se avisaría sin decir de dónde bajarla. El documento entero es
-`docs/actualizaciones.md`.
+saber si tienen que actualizarse. **A medias no arranca**: con una URL puesta y sin
+`APP_ULTIMA_VERSION` no se anunciaría nada nunca, y con la versión puesta y sin ninguna URL
+se avisaría sin decir de dónde bajarla. El documento entero es `docs/actualizaciones.md`.
 
 | Variable | Por defecto | Qué es |
 |---|---|---|
-| `APP_ULTIMA_VERSION` | vacía | La versión de la **aplicación** que hay colgada (`1.5.0`). Vacía = no se anuncia nada y ningún aparato avisa. Es el estado seguro mientras no haya un fichero de verdad colgado. |
+| `APP_ULTIMA_VERSION` | vacía | La versión de la **aplicación** que hay colgada (`1.0.1`). **Vacía con `ENTORNO=produccion` NO ARRANCA** — ver abajo. |
 | `APP_ULTIMA_COMPILACION` | vacía | El `versionCode` (el número de después del `+` en `pubspec.yaml`). Es lo único que Android compara de verdad. Si no es un número, no arranca. |
 | `APP_DESCARGA_ANDROID` | vacía | URL del `.apk`. |
-| `APP_DESCARGA_WINDOWS` | vacía | URL del escritorio de Windows. |
-| `APP_DESCARGA_LINUX` | vacía | URL del escritorio de Linux. |
+| `APP_DESCARGA_ANDROID_BYTES` | vacía | Lo que dice `stat -c%s` del fichero. **Obligatoria en cuanto hay URL.** Sin ella, quien baja por datos móviles ve «30 MB/?»: Cloudflare quita el `Content-Length` de la respuesta completa. |
+| `APP_DESCARGA_ANDROID_SHA256` | vacía | Lo que dice `sha256sum`, 64 hexadecimales. **Obligatoria en cuanto hay URL.** Sin ella una descarga cortada pasa por buena. |
+| `APP_DESCARGA_WINDOWS` · `_BYTES` · `_SHA256` | vacías | Igual que Android. Hoy sin colgar. |
+| `APP_DESCARGA_LINUX` · `_BYTES` · `_SHA256` | vacías | Igual que Android. Hoy sin colgar. |
 | `APP_ULTIMA_NOTAS` | vacía | Una línea de qué trae. |
 | `APP_ULTIMA_PUBLICADA` | vacía | `2026-09-15` o RFC3339. Se guarda normalizada. |
+| `APP_SIN_ANUNCIO` | vacía | La ÚNICA forma de desplegar en producción sin anunciar ninguna versión. Sólo se admite `si` (o vacía); cualquier otra cosa no arranca. |
 
 **No hay `APP_DESCARGA_WEB` y no la va a haber**: la web se actualiza sola al recargar.
+
+#### El canal de actualización muerto PARA EL ARRANQUE — 24/09/2026
+
+> **ANTES DE DESPLEGAR ESTE CAMBIO HAY QUE PONER LAS VARIABLES.** La api de producción
+> tiene hoy `APP_ULTIMA_VERSION` vacía, así que **el primer despliegue con este código no
+> arrancaría**. El orden es: primero las cinco en el Environment de `reparto-api`, y en el
+> mismo guardado; después el Deploy. Los valores están en `docker-compose.yml` y en
+> `docs/actualizaciones.md` §3-bis, y el contenedor viejo sigue en pie mientras tanto, así
+> que un arranque fallido no tira el reparto — pero deja el despliegue sin hacer y con un
+> mensaje que hay que saber leer.
+
+
+`APP_ULTIMA_VERSION` vacía era un `Warn` en el registro y nada más. Un aviso en el registro
+de un contenedor no lo lee nadie: la api arrancaba verde, `/api/version` contestaba
+`ultima: null`, y **desde fuera eso no se distingue de «no hay ninguna versión nueva»**. Los
+aparatos están en la calle y pasan casi todo el día sin señal, así que el único momento en
+que se enterarían de que hay una nueva es justo el que se estaba perdiendo — y se perdió
+desde que se montó el canal hasta hoy.
+
+«Vacía = el estado seguro» era cierto **mientras no hubiera nada colgado**. Desde el
+22/09/2026 hay APK en MinIO, así que vacío ya no significa «todavía no hay nada»: significa
+que alguien se olvidó de la variable.
+
+Así que, con `ENTORNO=produccion`:
+
+```
+reparto-api no puede arrancar:
+configuración no válida:
+  - APP_ULTIMA_VERSION vacía con ENTORNO=produccion: /api/version contestaría
+    `ultima: null` y NINGÚN aparato se enteraría nunca de que hay una versión nueva …
+```
+
+Y si de verdad se quiere desplegar sin anunciar nada —se retiró el fichero, se está
+cambiando el almacén— se dice con `APP_SIN_ANUNCIO=si`, que queda escrito en el Environment
+de Dokploy como una decisión de alguien. En `desarrollo` sigue siendo un aviso: levantar el
+reparto en el portátil no puede depender de que haya un APK publicado.
+
+**Y lo mismo por el otro lado, para que no se olvide en el repositorio**: los valores que
+hay que poner en Dokploy están escritos en `docker-compose.yml`, y dos pruebas los leen de
+ahí y exigen que el anuncio salga entero —versión, enlace, bytes y huella—:
+`TestElComposeAnunciaUnaVersionCompleta` (`api/internal/config/config_test.go`) y
+`TestElAnuncioSaleEnteroConLoQueHayPuesto` (`api/internal/api/version_test.go`). Vaciar una
+de esas líneas deja la suite en rojo y **el `Dockerfile.api` no construye**, en vez de dejar
+el canal muerto en silencio. Por eso ese Dockerfile copia `docker-compose.yml` dentro.
+
+#### Qué hay que hacer al publicar una versión nueva de la aplicación
+
+Los pasos completos, con los comandos de MinIO, están en `docs/actualizaciones.md` §3-bis.
+Resumido, y **en este orden**, que importa:
+
+1. **Compilar** el APK firmado con la clave de verdad (`docs/compilar.md`; la clave ya está
+   puesta desde el 21/09/2026, `app/android/key.properties`). Comprobar con qué clave salió
+   mirando el APK, no la ausencia de avisos:
+   `apksigner verify --print-certs build/app/outputs/flutter-apk/app-release.apk` — **no**
+   puede decir `CN=Android Debug`.
+2. **Subirlo a MinIO** con nombre nuevo, `reparto-<version>-<AAMMDD>.apk`. Nunca encima del
+   viejo: mientras se sube, la api estaría anunciando un fichero que ya no está debajo.
+   El `Cache-Control: private, no-store` del `mc cp` **no es cosmética**: sin él Cloudflare
+   cachea el `.apk` y de su copia no sirve peticiones por rango, y sin rango una descarga de
+   77 MB en la conexión de allá no termina nunca.
+3. **Medir los tres datos DENTRO del servidor**, bajando el fichero *por el dominio* (no del
+   disco del host): tamaño, `sha256`, que el rango dé `206` y que los dos primeros bytes
+   sean `PK`. Si sale `<!`, lo que contesta es una página web y no un APK — el fallo del
+   21/09.
+4. **Anunciarlo**: poner en el Environment de `reparto-api` en Dokploy (`applicationId
+   0iQ8gLv5ZIHD1n_DRlzOa`) las cinco de golpe, **las cinco o ninguna** —
+   `APP_ULTIMA_VERSION`, `APP_ULTIMA_COMPILACION`, `APP_DESCARGA_ANDROID`,
+   `APP_DESCARGA_ANDROID_BYTES`, `APP_DESCARGA_ANDROID_SHA256` — y volver a desplegar la
+   api. (`application.saveEnvironment` de la API de Dokploy quiere además `buildArgs`,
+   `buildSecrets` y `createEnvFile` o contesta 400: se releen de `application.one` y se
+   devuelven tal cual.)
+5. **Escribir esos mismos valores en `docker-compose.yml`** y dejarlos en el repositorio.
+   No es duplicar por gusto: es lo que hace que las dos pruebas de arriba sigan mirando algo
+   de verdad, y lo que deja a la vista qué hay colgado sin entrar a Dokploy.
+6. **Comprobar el anuncio tomando la URL de lo que contesta `/api/version`**, no de lo que
+   uno cree haber puesto, y bajarla:
+
+   ```bash
+   ssh vps 'curl -s https://reparto.procovar.cloud/api/version'
+   ```
+
+   Tiene que traer `ultima` con su versión, su `compilacion`, su `descargas.android` y su
+   `ficheros.android` con `bytes` y `sha256`. Si trae `ultima: null`, el canal está muerto.
+   **Esto se lanza DENTRO del servidor** (`ssh vps '…'`), nunca desde el portátil: el
+   `CLAUDE.md` de Procovar §2 prohíbe cualquier petición a un dominio de la casa desde aquí,
+   y el antiabuso de Hostinger ya bloqueó una IP por eso.
+7. **El APK viejo no se borra** hasta que Jose confirme que el nuevo se descarga y se
+   instala. Con el nombre distinto los dos conviven y siempre hay a qué volver.
 | `PROCOVAR_AUTH_SIGNING_KEY` | vacía | La llave con la que se firma hacia Accesos (HMAC). Sin ella no se pueden pedir los almacenes ni las tasas, así que **no se puede cotizar ningún domicilio**. Arranca, pero lo avisa. |
 
 Las tres URL se comprueban al arrancar aunque sean opcionales: una `PEDIDO_API_URL` sin
@@ -937,8 +1035,33 @@ proceso vivo es la base, no la api.
 > curl -s https://reparto.procovar.cloud/api/version
 > ```
 
-Y en el registro del arranque, los cinco avisos que **no** impiden arrancar pero que hay
-que leer al desplegar, porque cada uno es una cosa que no va a funcionar:
+Y **`/api/version` es además la comprobación del canal de actualización**, que hay que
+mirar en cada despliegue de la api. No basta con que conteste 200:
+
+```bash
+ssh vps 'curl -s https://reparto.procovar.cloud/api/version'
+```
+
+```jsonc
+{
+  "version": "a3f9c21",
+  "ultima": {
+    "version": "1.0.1",
+    "compilacion": 2,
+    "descargas": { "android": "https://archivos.procovar.cloud/reparto/apk/…" },
+    "ficheros":  { "android": { "bytes": 77646816, "sha256": "5656…" } }
+  }
+}
+```
+
+**`"ultima": null` significa que el canal está muerto**: ningún aparato se va a enterar de
+que hay una versión nueva, y como pasan el día sin señal eso son semanas con la de hace
+tiempo. Desde el 24/09/2026 eso ya no puede pasar por descuido —con `ENTORNO=produccion` la
+api **no arranca** sin `APP_ULTIMA_VERSION`— pero se mira igual, porque `APP_SIN_ANUNCIO=si`
+sí lo permite y alguien pudo dejarlo puesto.
+
+Y en el registro del arranque, los avisos que **no** impiden arrancar pero que hay que leer
+al desplegar, porque cada uno es una cosa que no va a funcionar:
 
 ```
 SERVICE_API_KEY vacía: las rutas de servicio quedan cerradas …
@@ -948,7 +1071,8 @@ PROCOVAR_AUTH_SIGNING_KEY vacía: … no se podrán cotizar domicilios
 APP_ULTIMA_VERSION vacía: /api/version no anuncia ninguna versión de la aplicación …
 ```
 
-Si sale alguno y no era intencionado, falta una variable.
+Si sale alguno y no era intencionado, falta una variable. **El último de esa lista sólo
+sale en `desarrollo`**: en producción no es un aviso, es que la api no arranca.
 
 ### sync
 
@@ -1026,9 +1150,11 @@ curl -s -o /dev/null -w '%{http_code}\n' https://reparto.procovar.cloud/nginx-sa
 Eso sólo dice que nginx sirve. Lo que hay que comprobar de verdad, en el navegador:
 
 1. La página abre y **no se queda en blanco**.
-2. En la consola no hay un 404 de `sqlite3.wasm` ni de `drift_worker.js`. Si falta uno,
-   la aplicación arranca y **la base local no**; el `Dockerfile.app` lo comprueba al
-   construir para que falle ahí y no en la pantalla de alguien que ya no tiene conexión.
+2. En la consola no hay un 404 de `sqlite3.wasm`. Si falta, la aplicación arranca y **la
+   base no**; el `Dockerfile.app` lo comprueba al construir para que falle ahí y no en la
+   pantalla de alguien que ya no tiene conexión. (`drift_worker.js` ya no se mira: se
+   quitó el 24/09/2026 junto con su guarda, porque desde que la base de la web es en
+   memoria no hay worker que coordinar.)
 3. La aplicación no muestra el aviso de **«la base cayó a memoria»**. Si lo muestra, al
    recargar la pestaña se pierde todo lo que no se haya subido — que en una aplicación
    que existe para trabajar sin conexión no es un detalle.
@@ -1236,7 +1362,7 @@ Lo que sí se comprobó, y con qué:
 | `deploy/migrar.sh` no tiene errores de sintaxis | `sh -n` |
 | Todas las rutas que copian los Dockerfile existen | `api/cmd/api`, `api/cmd/espejo`, `sync/cmd/sync`, `api/db/migrations`, `sync/db/migrations`, `deploy/migrar.sh` y los dos `go.sum` |
 | **`flutter build web` TERMINA** | las mismas banderas del `Dockerfile.app` (`--release --no-web-resources-cdn --base-href / --dart-define=…`); 90 s y `✓ Built build/web` |
-| **Las dos comprobaciones que el `Dockerfile.app` hace fallar el build pasan** | `build/web/sqlite3.wasm` y `build/web/drift_worker.js` están los dos |
+| **La comprobación que el `Dockerfile.app` hace fallar el build pasa** | `build/web/sqlite3.wasm` está. Eran dos: `drift_worker.js` se quitó el 24/09/2026 con su guarda |
 | CanvasKit queda DENTRO y no se baja de gstatic | `--no-web-resources-cdn` deja `build/web/canvaskit/` |
 | La capa de dependencias del `Dockerfile.app` se sostiene | `flutter pub get` en una carpeta vacía con SÓLO `pubspec.yaml` y `pubspec.lock` → `Got dependencies!`. Era la duda razonable: con `generate: true` podía pedir el `l10n.yaml` y los `.arb`, que en esa capa aún no están. No los pide |
 | El puerto de nginx cuadra con el `EXPOSE` | `deploy/nginx.conf` → `listen 8080` |

@@ -43,8 +43,13 @@ bool get almacenamientoFragil => _fragil;
 /// es exactamente el fallo que se esta quitando, por el otro lado.
 ///
 /// `sqlite3.wasm` sigue siendo un FICHERO DEL DESPLIEGUE: si falta, la
-/// aplicacion arranca y la base no. `drift_worker.js` ya no hace falta: sin
-/// almacenamiento que compartir entre pestanas, no hay worker que coordinar.
+/// aplicacion arranca y la base no. El worker de Drift ya NO hace falta —sin
+/// almacenamiento que compartir entre pestanas no hay nada que coordinar— y el
+/// 24/09/2026 se fue ENTERO: `web/drift_worker.dart`, su `.js` compilado, el
+/// `.map` y el `.deps` (760 KB que la imagen servia a cada navegador), y la
+/// guarda del `deploy/Dockerfile.app` que hacia fallar el build si no estaba.
+/// Se comprobo antes de quitarlo: en `lib` no queda un `WasmDatabase.open` ni
+/// un `driftWorkerUri`, y el `main.dart.js` compilado no lo nombra.
 ///
 /// [dueno] se ignora aqui. Una base por persona tiene sentido donde la copia
 /// PERSISTE y dos personas comparten el aparato (`nombre.dart`); en una pestana
