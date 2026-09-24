@@ -144,12 +144,21 @@ class BarraSuperior extends ConsumerWidget implements PreferredSizeWidget {
           // Lo que hace que quepa en un teléfono es que la caja mida 150 en vez
           // de 220 (ver `_Sucursal`), no un reparto de espacio.
           _Sucursal(compacta: estrecho),
-          // `Idioma` (ES/EN) va JUSTO AQUI, entre sucursal y moneda, y se oculta
-          // por debajo de 640 px (§11). No esta todavia porque no hay ARB ni
-          // `flutter_localizations` en el pubspec — es la ola 1-C —, y un
-          // desplegable de idioma que no cambia ni una palabra ensena a
-          // desconfiar de la barra entera. Cuando entre gen_l10n se anade aqui,
-          // envuelto en `if (ancho >= Anchos.idioma)`.
+          // AQUI NO VA NINGUN SELECTOR DE IDIOMA, Y NO ES UN PENDIENTE.
+          //
+          // El pliego lo pide (`docs/pantallas.md` §11: `Idioma` ES/EN entre
+          // sucursal y moneda, oculto por debajo de 640 px), y llego a estar
+          // medio hecho: 305 claves en `app_es.arb`, otras 305 en `app_en.arb`,
+          // la clase `Textos` de gen_l10n y sus delegaciones. Enchufado a UNA
+          // pantalla de las cuarenta y pico; el resto de la aplicacion, incluida
+          // esta barra, siempre fueron literales en espanol a pelo.
+          //
+          // **Jose decidio el 24/09/2026 quitarlo entero.** Las ocho sucursales
+          // son de Cuba y nadie ha pedido ingles; lo que habia era codigo muerto
+          // que las pruebas daban por vivo, que es peor que no tenerlo. No hay
+          // nada que terminar aqui: si algun dia hace falta ingles, se empieza
+          // de cero y se empieza por las pantallas, no por la barra. El porque
+          // completo esta en `lib/idioma.dart`.
           const SizedBox(width: 8),
           const _Moneda(),
           const SizedBox(width: 8),

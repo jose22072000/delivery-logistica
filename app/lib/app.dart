@@ -7,7 +7,7 @@ import 'navegacion/portero.dart';
 import 'navegacion/rutas.dart';
 import 'nucleo/proveedores.dart';
 import 'nucleo/sincro/vigia.dart';
-import 'textos/textos.dart';
+import 'idioma.dart';
 
 /// La aplicacion.
 ///
@@ -87,9 +87,11 @@ class _RepartoAppState extends ConsumerState<RepartoApp> {
     // pantalla.
     builder: (contexto, pantalla) =>
         FondoDePapel(child: pantalla ?? const SizedBox.shrink()),
-    // Sin estas dos lineas `Textos.of(context)` revienta en cada pantalla, y
-    // las de Material dejarian un selector de fecha en ingles dentro de una
-    // pantalla en espanol.
+    // ESPANOL Y NADA MAS. Las delegaciones son las de MATERIAL, no unas
+    // nuestras: sin ellas Flutter cae en `DefaultMaterialLocalizations`, que
+    // solo sabe ingles, y los cinco calendarios de la aplicacion saldrian con
+    // `January` y `Cancel` dentro de una pantalla en espanol. El porque de que
+    // aqui no haya traduccion esta escrito en `lib/idioma.dart`.
     localizationsDelegates: delegacionesDeIdioma,
     supportedLocales: idiomas,
     routerConfig: _enrutador,

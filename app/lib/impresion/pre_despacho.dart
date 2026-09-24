@@ -21,10 +21,11 @@ import 'estilo.dart';
 import 'hoja.dart';
 import 'piezas.dart';
 
-/// Los literales de la hoja. Van en espanol y NO pasan por los textos de
-/// `lib/textos/`: este papel es el punto de paridad con la hoja de Next y se
-/// compara palabra a palabra con ella, asi que no puede cambiar con el idioma
-/// que tenga puesta la barra superior.
+/// Los literales de la hoja. Van en espanol y nunca pasaron por la capa de
+/// idiomas que hubo en `lib/textos/` (quitada entera el 24/09/2026,
+/// ver `lib/idioma.dart`): este papel es el punto de paridad con la hoja de Next
+/// y se compara palabra a palabra con ella. Los vigila
+/// `test/impresion/literales_de_las_hojas_test.dart`.
 abstract final class TextoPreDespacho {
   static const String titulo = 'Pre-despacho';
   static const String pedidosDel = 'Pedidos del ';

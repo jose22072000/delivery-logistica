@@ -15,7 +15,6 @@ import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 
-import '../textos/textos.dart';
 import 'estilo.dart';
 
 /// Quién arma los bytes de la hoja. Se recibe la función y no los bytes ya
@@ -47,45 +46,44 @@ class VistaPreviaPdf extends StatelessWidget {
   final VoidCallback? alCerrar;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.textos;
-
-    return PdfPreview(
-      build: armar,
-      // El papel ya viene decidido por la hoja (A4 con 12 mm); el selector de
-      // formato solo serviría para que alguien imprima el pre-despacho en A5 y
-      // no pueda escribir en la columna de marcar.
-      canChangePageFormat: false,
-      canChangeOrientation: false,
-      canDebug: false,
-      initialPageFormat: hojaA4,
-      pdfFileName: nombreDeFichero,
-      allowPrinting: true,
-      allowSharing: true,
-      useActions: true,
-      actionBarTheme: const PdfActionBarTheme(alignment: WrapAlignment.end),
-      actions: <PdfPreviewAction>[
-        // `Cerrar` es de la vista, no del PDF: en el HTML de Next era un botón
-        // flotante con `display:none` al imprimir, y aquí sencillamente no
-        // entra en el papel.
-        PdfPreviewAction(
-          icon: const Icon(Icons.close),
-          onPressed: (BuildContext _, LayoutCallback _, PdfPageFormat _) =>
-              alCerrar != null ? alCerrar!() : Navigator.of(context).maybePop(),
-        ),
-      ],
-      previewPageMargin: const EdgeInsets.all(12),
-      scrollViewDecoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+  Widget build(BuildContext context) => PdfPreview(
+    build: armar,
+    // El papel ya viene decidido por la hoja (A4 con 12 mm); el selector de
+    // formato solo serviría para que alguien imprima el pre-despacho en A5 y
+    // no pueda escribir en la columna de marcar.
+    canChangePageFormat: false,
+    canChangeOrientation: false,
+    canDebug: false,
+    initialPageFormat: hojaA4,
+    pdfFileName: nombreDeFichero,
+    allowPrinting: true,
+    allowSharing: true,
+    useActions: true,
+    actionBarTheme: const PdfActionBarTheme(alignment: WrapAlignment.end),
+    actions: <PdfPreviewAction>[
+      // `Cerrar` es de la vista, no del PDF: en el HTML de Next era un botón
+      // flotante con `display:none` al imprimir, y aquí sencillamente no
+      // entra en el papel.
+      PdfPreviewAction(
+        icon: const Icon(Icons.close),
+        onPressed: (BuildContext _, LayoutCallback _, PdfPageFormat _) =>
+            alCerrar != null ? alCerrar!() : Navigator.of(context).maybePop(),
       ),
-      onError: (BuildContext ctx, Object error) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(t.nuevoPdfNoSePudo, textAlign: TextAlign.center),
-        ),
+    ],
+    previewPageMargin: const EdgeInsets.all(12),
+    scrollViewDecoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.surface,
+    ),
+    // Literal en espanol, como TODO el texto de la aplicacion: la traduccion
+    // al ingles se quito entera el 24/09/2026 y esta pantalla era su unico
+    // consumidor de verdad (era `t.nuevoPdfNoSePudo`). Ver `lib/idioma.dart`.
+    onError: (BuildContext ctx, Object error) => const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Text('No se pudo armar la hoja', textAlign: TextAlign.center),
       ),
-    );
-  }
+    ),
+  );
 }
 
 /// Manda la hoja a la impresora sin pasar por la vista previa.

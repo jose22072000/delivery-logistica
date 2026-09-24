@@ -25,8 +25,11 @@ import 'estilo.dart';
 import 'hoja.dart';
 import 'piezas.dart';
 
-/// Los literales de la hoja, en espanol y fuera de `lib/textos/`: este papel es
-/// el punto de paridad con el de Next (P7) y se compara palabra a palabra.
+/// Los literales de la hoja, en espanol y siempre constantes: este papel es el
+/// punto de paridad con el de Next (P7) y se compara palabra a palabra. Nunca
+/// pasaron por la capa de idiomas que hubo en `lib/textos/`, quitada entera el
+/// 24/09/2026 (`lib/idioma.dart`). Los vigila
+/// `test/impresion/literales_de_las_hojas_test.dart`.
 abstract final class TextoPostDespacho {
   static const String titulo = 'Post-despacho';
   static const String salio = 'Salió ';

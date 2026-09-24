@@ -16,7 +16,11 @@ dependencies:
   flutter_web_plugins:
     sdk: flutter
 
-  # Los textos: gen_l10n necesita este paquete del SDK para las delegaciones.
+  # LAS DELEGACIONES DE MATERIAL. Sigue aqui aunque la traduccion al ingles se
+  # quitara entera el 24/09/2026 (`lib/idioma.dart`), y no es un resto olvidado:
+  # sin este paquete Flutter cae en `DefaultMaterialLocalizations`, que solo sabe
+  # ingles, y los cinco calendarios de la aplicacion saldrian con `January` y
+  # `Cancel` dentro de una pantalla en espanol. Lo vigila `test/idioma_test.dart`.
   flutter_localizations:
     sdk: flutter
 
@@ -129,8 +133,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  # Los textos se generan con gen_l10n; la configuracion vive en l10n.yaml.
-  generate: true
+  # SIN `generate: true`. Era solo para gen_l10n, y gen_l10n se fue con la
+  # traduccion al ingles el 24/09/2026: no quedan `.arb` ni `l10n.yaml` que
+  # generar. Dejarlo puesto hacia que `flutter pub get` buscara un `l10n.yaml`
+  # que ya no existe.
 
   assets:
     # Roboto EMBEBIDA para el PDF: `PdfGoogleFonts` la baja por red y esto se

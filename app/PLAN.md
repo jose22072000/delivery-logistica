@@ -29,7 +29,6 @@ la vez y se comparan. `../../delivery` no se toca.
 app/
 ├─ pubspec.yaml
 ├─ analysis_options.yaml         flutter_lints + riverpod_lint + custom_lint
-├─ l10n.yaml                     configuración de gen_l10n
 ├─ build.yaml                    drift_dev + riverpod_generator + json_serializable
 ├─ PLAN.md                       este fichero
 ├─ README.md                     las 8 reglas (ya está)
@@ -87,9 +86,6 @@ app/
 │   │   ├─ geo/
 │   │   │   └─ geo.dart              haversineKm, vecinoMasCercano, tramos — calcado de
 │   │   │                            reglas-negocio §1
-│   │   ├─ i18n/
-│   │   │   ├─ arb/app_es.arb        ES = la verdad, literal del pliego
-│   │   │   └─ arb/app_en.arb
 │   │   └─ registro/registro.dart    Registro.info/aviso/fallo
 │   ├─ diseno/                   el kit, calcado de pantallas.md §9
 │   │   ├─ cajon.dart            Cajon — SIEMPRE cajón, nunca AlertDialog (§9.2)
@@ -855,7 +851,27 @@ formatos de `parseCoordInput`. A mano: en avión, abrir el detalle de una ruta y
 el recorrido**; y que el enlace de Google Maps abre la aplicación de Google Maps en el
 teléfono, no el navegador.
 
-### 4.3 · Los textos — `lib/nucleo/i18n/`
+### 4.3 · Los textos — ~~`lib/nucleo/i18n/`~~ **NO SE HIZO. Se deshizo el 24/09/2026.**
+
+> **Esta sección está muerta y se deja escrita para que nadie la retome creyendo
+> que es un pendiente.** Se llegó a hacer —305 claves en `app_es.arb`, otras 305
+> en `app_en.arb`, la clase `Textos` de `gen_l10n`, `l10n.yaml` y las
+> delegaciones en `app.dart`—, y quedó **enchufada a una sola pantalla** de las
+> cuarenta y pico: `lib/impresion/vista_previa.dart`. Todo el resto de la
+> interfaz siempre fueron literales en español a pelo; no había `locale:`, ni
+> provider, ni forma de cambiar de idioma. Las ocho sucursales son de Cuba y
+> nadie ha pedido inglés, así que era código muerto que las pruebas daban por
+> vivo, que es peor que no tenerlo.
+>
+> **Jose decidió el 24/09/2026 quitarlo entero.** El porqué y lo único que
+> sobrevive —`flutter_localizations`, por las delegaciones de Material: sin ellas
+> los cinco calendarios de la aplicación salen en inglés— está en
+> `lib/idioma.dart`, con su guarda en `test/idioma_test.dart`. De las tres
+> pruebas de textos se salvó lo que no miraba la traducción: los literales de las
+> hojas impresas, hoy en `test/impresion/literales_de_las_hojas_test.dart`.
+>
+> Lo de abajo es el plan original, tal como se escribió.
+
 
 **Cómo está hoy:** diccionarios `es`/`en` de next-intl, anidados por espacios de nombre.
 
@@ -973,7 +989,7 @@ requiere que la anterior esté entera.
 
 ```
 Ola 0  ── esqueleto ───────────────────────────────────────────────  (nadie más empieza)
-         pubspec, analysis_options, l10n.yaml, build.yaml, tema,
+         pubspec, analysis_options, build.yaml, tema,
          go_router con las 7 rutas vacías, Armazon + BarraLateral + BarraSuperior,
          web/index.html con sqlite3.wasm y drift_worker.js en su sitio
                                   │

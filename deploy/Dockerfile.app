@@ -72,8 +72,7 @@ WORKDIR /app
 COPY app/pubspec.yaml app/pubspec.lock ./
 RUN flutter pub get
 
-# El resto del código. `lib/textos/generado` lo escribe gen_l10n solo durante el build
-# (app/pubspec.yaml: `generate: true` + l10n.yaml), así que no hace falta traerlo hecho.
+# El resto del código.
 COPY app/ .
 
 # LOS DOS FICHEROS DE FUERA DE `app/` QUE LAS PRUEBAS LEEN, y por qué están aquí.
@@ -107,19 +106,20 @@ COPY herramientas/mapa-cuba/niveles.go /herramientas/mapa-cuba/niveles.go
 #
 # `timeout 600` porque un contenedor sin pantalla es más lento que esta máquina, y
 # una prueba colgada no puede dejar el build corriendo para siempre.
-# LOS TEXTOS GENERADOS, ANTES DE ANALIZAR. Sin esto la imagen NO CONSTRUYE.
-#
-# `.dockerignore` excluye `app/lib/textos/generado/` y `lib/textos/textos.dart`
-# lo importa, así que dentro de la imagen ese directorio no existe. Antes daba
-# igual porque el primer mandato tras el `COPY` era `flutter build web`, **y ése
-# sí genera l10n**. `flutter analyze` no: se queda en 11 errores de
-# «Target of URI doesn't exist: 'generado/textos.dart'».
-#
-# O sea: el `analyze` que se añadió aquí para que no se escapara nada habría
-# roto todos los despliegues de la web. Lo cazó el auditor reproduciendo la
-# secuencia del Dockerfile paso a paso, no leyéndola.
-RUN flutter gen-l10n
 
+# AQUÍ NO VA `flutter gen-l10n`, Y ESO ES UN CAMBIO A PROPÓSITO.
+#
+# Estuvo, y hacía falta: `.dockerignore` excluía `app/lib/textos/generado/`,
+# `lib/textos/textos.dart` lo importaba, y `flutter analyze` —a diferencia de
+# `flutter build web`— no genera l10n, así que sin ese paso la imagen moría en
+# 11 «Target of URI doesn't exist: 'generado/textos.dart'». Costó dos intentos
+# descubrirlo, reproduciendo la secuencia del Dockerfile paso a paso.
+#
+# El 24/09/2026 se quitó entera la traducción al inglés (`app/lib/idioma.dart`):
+# no quedan `.arb`, ni `l10n.yaml`, ni clase generada, ni `generate: true` en el
+# pubspec, ni la línea del `.dockerignore` que los excluía. `flutter gen-l10n`
+# aquí fallaría por no encontrar nada que generar. Los tres se fueron juntos, que
+# es como tenían que irse.
 RUN flutter analyze
 RUN timeout 600 flutter test
 

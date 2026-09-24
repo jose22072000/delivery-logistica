@@ -271,11 +271,15 @@ Dos reglas que salieron de ese día:
 - **Nunca `git add -A` mientras un agente está mutando el árbol.** Se le lleva la
   mutación al commit. Pasó, y se desplegó.
 - **Los tres Dockerfile corren sus pruebas antes de construir.** `Dockerfile.api`
-  y `.sync` hacen `go vet && go test`; `Dockerfile.app` hace `flutter gen-l10n`,
-  `flutter analyze` y `flutter test`. Poner eso en la imagen de la web costó dos
+  y `.sync` hacen `go vet && go test`; `Dockerfile.app` hace `flutter analyze` y
+  `flutter test`. Poner eso en la imagen de la web costó dos
   intentos y los dos enseñan lo mismo —**una imagen no es esta máquina**—:
-  `.dockerignore` excluye los textos generados y `analyze` no los genera (sí lo
-  hacía `build web`, que era lo único que había antes); y las pruebas abren bases
+  `.dockerignore` excluía los textos generados y `analyze` no los genera (sí lo
+  hacía `build web`, que era lo único que había antes), así que hubo que meter un
+  `flutter gen-l10n` delante — **ese paso ya no está**: la traducción al inglés se
+  quitó entera el 24/09/2026 y con ella los `.arb`, el `l10n.yaml`, la clase
+  generada, el `generate: true` del pubspec y la línea del `.dockerignore`
+  (`app/lib/idioma.dart`); y las pruebas abren bases
   de verdad con Drift, así que hace falta `libsqlite3-dev` — **el `-dev`, no el
   `-0`**, porque el `-0` instala `libsqlite3.so.0` y Dart abre la biblioteca por
   su nombre sin versión. El de sync sólo compilaba, y por eso la mutación llegó al

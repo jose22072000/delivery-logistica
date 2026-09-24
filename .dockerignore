@@ -25,7 +25,6 @@ app/android/local.properties
 app/ios/Pods/
 app/.idea/
 app/*.iml
-app/lib/textos/generado/
 
 # Secretos. Nunca dentro de una imagen: las capas se quedan ahí aunque luego se borren.
 .env

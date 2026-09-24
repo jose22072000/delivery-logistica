@@ -6,8 +6,16 @@ abstract final class Anchos {
   /// pantalla y se abre con el boton de menu.
   static const escritorio = 1024.0;
 
-  /// Por debajo de esto se oculta el selector de idioma. Sucursal y moneda NO
-  /// se ocultan nunca: son los que cambian los numeros.
+  /// El umbral estrecho de la barra superior. En el pliego (§11) es el punto
+  /// por debajo del cual se oculta el selector de idioma; aqui **no hay
+  /// selector de idioma** —la traduccion al ingles se quito entera el
+  /// 24/09/2026, ver `lib/idioma.dart`—, pero el numero sigue siendo el que
+  /// manda: por debajo de el la barra se compacta (la caja de sucursal pasa de
+  /// 220 a 150) para que quepa en un telefono. Sucursal y moneda NO se ocultan
+  /// nunca: son los que cambian los numeros.
+  ///
+  /// Se conserva el nombre para no tocar `barra_superior.dart` y
+  /// `menu_de_cuenta.dart` por un renombre, y porque es el umbral del pliego.
   static const idioma = 640.0;
 
   /// Tabla de Pedidos, por orden de prescindibilidad (§11).
