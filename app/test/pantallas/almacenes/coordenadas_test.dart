@@ -21,6 +21,32 @@ void main() {
     expect(leerCoordenadas('0,0'), const PuntoEnElMapa(0, 0));
   });
 
+  test('lo escrito se vuelve a leer: la ida y la vuelta del mismo punto', () {
+    // Ahora hay TRES vias que escriben en la caja de coordenadas —la mano, el
+    // mapa y la geocodificacion— y las tres pasan por `escribirCoordenadas`. Si
+    // lo que escribe una no lo sabe leer `leerCoordenadas`, el punto se pierde
+    // entre que se elige y que se guarda, y nadie lo ve: la caja se queda con un
+    // texto que parece bueno y el almacen se manda sin punto.
+    for (final punto in const [
+      PuntoEnElMapa(20.0247, -75.8219),
+      PuntoEnElMapa(-23.5505, -46.6333),
+      PuntoEnElMapa(0, 0),
+      PuntoEnElMapa(85.0511287798066, 179.999999),
+    ]) {
+      final texto = escribirCoordenadas(punto);
+      final vuelta = leerCoordenadas(texto);
+      expect(vuelta, isNotNull, reason: '«$texto» tiene que poder leerse');
+      expect(vuelta!.lat, closeTo(punto.lat, 1e-5), reason: texto);
+      expect(vuelta.lng, closeTo(punto.lng, 1e-5), reason: texto);
+    }
+    // Cinco decimales, coma Y ESPACIO: el mismo formato que el servidor
+    // (`FormatCoords` en `api/internal/cotizar/geocode.go`).
+    expect(
+      escribirCoordenadas(const PuntoEnElMapa(20.0247, -75.8219)),
+      '20.02470, -75.82190',
+    );
+  });
+
   test('lo que rechaza', () {
     expect(leerCoordenadas(''), isNull);
     expect(leerCoordenadas('19.83'), isNull);

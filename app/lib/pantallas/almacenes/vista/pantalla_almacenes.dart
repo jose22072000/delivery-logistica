@@ -8,7 +8,10 @@ import '../../../diseno/cajon.dart';
 import '../../../diseno/colores.dart';
 import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/tema.dart';
+import '../../rutas/datos/mapa_en_vivo.dart';
 import '../datos/almacen_api.dart';
+import '../datos/coordenadas.dart';
+import '../datos/geocodificar.dart';
 import '../estado/estado_almacenes.dart';
 import 'almacenes_de_la_ultima_bajada.dart';
 import 'editor_almacen.dart';
@@ -51,6 +54,22 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
     return bien;
   }
 
+  /// DONDE ABRIR EL MAPA de un almacen que todavia no tiene punto.
+  ///
+  /// El de otro almacen de la misma sucursal, si lo hay. El patron abria en la
+  /// sucursal de quien mira —y su propio comentario cuenta que un administrador
+  /// no tiene ninguna, asi que abria «en cualquier parte»—; aqui no hay
+  /// coordenadas de sucursal en ningun sitio, pero sus almacenes SI las tienen y
+  /// estan a dos calles. Si no hay ninguno con punto se abre en Cuba entera, que
+  /// al menos se ve que hay que moverse.
+  PuntoEnElMapa? _centroDeLaSucursal(SucursalDeAccesos sucursal, int? indice) {
+    for (final (i, a) in sucursal.almacenes.indexed) {
+      if (i == indice || a.sinPunto) continue;
+      return PuntoEnElMapa(a.latitud!, a.longitud!);
+    }
+    return null;
+  }
+
   Future<void> _abrirEditor(SucursalDeAccesos sucursal, {int? indice}) async {
     final almacen = indice == null ? null : sucursal.almacenes[indice];
     await abrirPanel<void>(
@@ -60,6 +79,14 @@ class _PantallaAlmacenesState extends ConsumerState<PantallaAlmacenes> {
           almacen: almacen,
           sucursal: sucursal.nombre,
           guardando: _guardando,
+          // Las dos piezas de fuera, inyectadas desde aqui. El editor no las
+          // busca el solo: asi se prueba entero sin que salga una peticion.
+          geocodificador: ref.read(geocodificadorProvider),
+          // El MISMO puerto que el mapa de la ruta, asi que en la APK y en el
+          // escritorio esto ya trae el paquete de Cuba descargado por la linea
+          // de `main.dart`, sin que aqui haya que saberlo.
+          fondoDelMapa: ref.read(fondoDeCallesProvider),
+          centroDelMapa: _centroDeLaSucursal(sucursal, indice),
           alQuitar: indice == null
               ? null
               : () async {

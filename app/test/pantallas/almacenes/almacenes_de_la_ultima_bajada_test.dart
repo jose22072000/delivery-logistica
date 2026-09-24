@@ -27,7 +27,7 @@ import 'package:reparto/nucleo/plataforma.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/pantallas/almacenes/vista/pantalla_almacenes.dart';
 import 'package:reparto/pantallas/rutas/vista/asistente_nueva_ruta.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 import '../../apoyo/servidor_falso.dart';
