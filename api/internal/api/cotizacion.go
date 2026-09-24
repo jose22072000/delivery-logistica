@@ -54,8 +54,20 @@ const (
 	msgLoteSinPedidos    = "Se espera { orders: [...] }"
 	msgFaltaSucursal     = "Falta sucursalCodigo"
 	msgFaltaUbicacion    = "Falta la ubicación del cliente (lat/lng)"
-	msgFaltaPeso         = "Falta el peso (pesoKg > 0)"
-	msgSinCalculo        = "No se pudo calcular con los datos que hay"
+	// LA UBICACIÓN ESTÁ, PERO NO EXISTE. Distinto de la de arriba a propósito: quien lee
+	// «falta» se va a buscar un campo vacío y este campo está lleno, con un número que no
+	// es un punto de la Tierra.
+	//
+	// El contrato de delivery sólo comprueba `Number.isFinite`, y nos separamos de él
+	// (CLAUDE.md §2). Una latitud de 200 ES finita: pasa el filtro, la haversine devuelve
+	// un número grande y con sentido aparente, y el domicilio sale cobrado a cientos o
+	// miles de kilómetros. Es literalmente el caso que el CLAUDE.md §4 pone como lo peor
+	// que puede pasar —«un importe así se lee bien y está mal»—, y encima lo cobra la APK
+	// tal cual. Mejor un 400 que dice qué mirar.
+	msgUbicacionImposibleF = "La ubicación del cliente (%s, %s) no es un punto del mapa: " +
+		"la latitud va de -90 a 90 y la longitud de -180 a 180. Hay que corregirla en PEDIDO."
+	msgFaltaPeso  = "Falta el peso (pesoKg > 0)"
+	msgSinCalculo = "No se pudo calcular con los datos que hay"
 
 	// Los que llevan el código o el nombre de la sucursal dentro. Se nombra SIEMPRE a la
 	// sucursal: «no hay tasa» a secas obliga a adivinar cuál de las ocho falta.
@@ -384,6 +396,14 @@ func (s *Servidor) cotizarDomicilio(w http.ResponseWriter, r *http.Request) {
 	// 2. La ubicación del cliente.
 	if !c.Lat.Finito() || !c.Lng.Finito() {
 		httpx.Error(w, r, http.StatusBadRequest, msgFaltaUbicacion)
+		return
+	}
+	// Y TIENE QUE CAER EN EL PLANETA. Ver `msgUbicacionImposibleF`: lo que se tapa aquí no
+	// es un error, es un importe equivocado que nadie va a cuestionar.
+	if !puntoDelPlaneta(c.Lat.Valor, c.Lng.Valor) {
+		httpx.Error(w, r, http.StatusBadRequest, fmt.Sprintf(msgUbicacionImposibleF,
+			strconv.FormatFloat(c.Lat.Valor, 'g', -1, 64),
+			strconv.FormatFloat(c.Lng.Valor, 'g', -1, 64)))
 		return
 	}
 	// 3. El peso. Aquí sí se exige > 0: un domicilio de 0 kg no es un domicilio, es un

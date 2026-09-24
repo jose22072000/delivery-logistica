@@ -85,6 +85,13 @@ func (s *Servidor) crearTipoDeVehiculo(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusBadRequest, "El nombre del tipo es obligatorio")
 		return
 	}
+	// El costo por km del TIPO es el valor por defecto de todos los camiones que lo usen,
+	// así que un número imposible aquí se reparte por toda la flota. Misma guarda que en
+	// `vehiculos.go`, y a propósito la misma función: dos copias de esta regla acabarían
+	// admitiendo cosas distintas por las dos puertas de la misma pantalla.
+	if !costoKmValido(w, r, c.CostoKmUsd) {
+		return
+	}
 	// `costo_km_usd` se deja vacío a propósito si no lo mandan: es un valor por defecto
 	// para los camiones de ese tipo, y ponerle un número inventado es peor que no
 	// tenerlo, porque se cobra igual y nadie lo revisa.
@@ -120,6 +127,9 @@ func (s *Servidor) actualizarTipoDeVehiculo(w http.ResponseWriter, r *http.Reque
 	}
 	var c cuerpoTipoVehiculo
 	if !httpx.LeerJSON(w, r, &c) {
+		return
+	}
+	if !costoKmValido(w, r, c.CostoKmUsd) {
 		return
 	}
 	t, err := a.ActualizarTipoDeVehiculo(r.Context(), sqlc.ActualizarTipoDeVehiculoParams{

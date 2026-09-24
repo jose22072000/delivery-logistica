@@ -7,6 +7,7 @@
 package httpx
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 )
@@ -29,16 +30,67 @@ const (
 	MsgMetodoNoValido = "Método no permitido"
 )
 
+// respuesta500 es el cuerpo del 500 escrito A MANO, sin pasar por el codificador.
+//
+// Tiene que ser literal: se usa justo cuando codificar ha fallado, y volver a llamar a
+// `Error` —que llama a `JSON`— sería intentar la misma operación que acaba de romperse.
+var respuesta500 = []byte(`{"error":"` + MsgErrorInterno + `"}` + "\n")
+
 // JSON escribe una respuesta con código y cuerpo.
+//
+// SE CODIFICA ANTES DE ESCRIBIR LA CABECERA, y eso no es una manía de estilo: es lo que
+// impide que una respuesta rota salga con un código de éxito.
+//
+// Lo que pasaba antes, y pasó (24/09/2026, probándolo desde fuera): `json.Encoder` se
+// niega a escribir un `float64` que no sea finito —`json: unsupported value: NaN`— y ese
+// error llegaba con el `200` YA ENVIADO. Al cliente le quedaba un `200 OK` con el cuerpo
+// **vacío**. Con `POST /api/routes` y `originLat: 1e308`, la resta de la haversine se
+// desborda a −Inf, `math.Sin(-Inf)` es NaN y la ruta se guardaba con `total_distance = NaN`:
+// el alta contestaba `201` sin cuerpo y, a partir de ahí, `GET /api/routes` contestaba
+// `200` con cero bytes PARA SIEMPRE —la lista entera de la sucursal, no sólo esa ruta—.
+// Ni un error, ni un 500, ni una línea de registro que un cliente pudiera enseñar: la
+// pantalla se queda sin rutas y nadie sabe por qué. Es el §3 del CLAUDE.md en su peor
+// forma: una lista que vuelve a medias con un 2xx.
+//
+// Ahora un cuerpo que no se puede codificar es un 500 con el mensaje de siempre. Se pierde
+// la respuesta igual —no hay forma de inventarla— pero se pierde RUIDOSAMENTE: el cliente
+// ve un error, el registro lleva la ruta y el porqué, y el 500 sube de nivel en el
+// registro (`RegistrarPeticiones`).
+//
+// El coste es tener el cuerpo en memoria un instante. Ya se tenía: el objeto entero estaba
+// montado antes de codificarlo, y la bajada más grande que sirve esta API son 2.000 filas
+// por colección (`TopeDeBajada`).
 func JSON(w http.ResponseWriter, r *http.Request, codigo int, cuerpo any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(codigo)
 	if cuerpo == nil {
+		w.WriteHeader(codigo)
 		return
 	}
-	if err := json.NewEncoder(w).Encode(cuerpo); err != nil {
-		// La cabecera ya salió: no se puede corregir el código. Sólo queda dejar
-		// constancia, porque desde fuera esto se ve como una respuesta cortada.
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(cuerpo); err != nil {
+		// `Registro` admite una petición nil; `r.URL.Path` no. Se saca con cuidado
+		// porque este camino se recorre precisamente cuando algo ya ha ido mal.
+		ruta, metodo := "", ""
+		if r != nil {
+			metodo = r.Method
+			if r.URL != nil {
+				ruta = r.URL.Path
+			}
+		}
+		Registro(r).Error("la respuesta no se pudo codificar: sale un 500 en vez de un cuerpo cortado",
+			"err", err, "ruta", ruta, "metodo", metodo, "codigo_que_iba", codigo)
+		w.WriteHeader(http.StatusInternalServerError)
+		if _, err := w.Write(respuesta500); err != nil {
+			Registro(r).Error("no se pudo escribir la respuesta", "err", err)
+		}
+		return
+	}
+
+	w.WriteHeader(codigo)
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		// Aquí la cabecera ya salió y el cuerpo iba entero: esto es el cliente que se
+		// fue a mitad, no un cuerpo imposible. Sólo queda dejar constancia.
 		Registro(r).Error("no se pudo escribir la respuesta", "err", err)
 	}
 }

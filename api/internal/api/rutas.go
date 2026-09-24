@@ -60,7 +60,36 @@ const (
 	// que es lo que hace que quien lo lee sepa de qué ruta le están hablando.
 	msgRutaConResultados = "Esa ruta ya tiene %d parada(s) cerradas y no se puede borrar: " +
 		"se perdería la hoja de lo que bajó del camión. Márcala como cancelada si hace falta."
+	// EL PUNTO DE PARTIDA TIENE QUE CAER EN EL PLANETA. Ver `puntoDelPlaneta`.
+	msgOrigenImposible = "El punto de partida (%s, %s) no es un punto del mapa: " +
+		"la latitud va de -90 a 90 y la longitud de -180 a 180. " +
+		"Vuelve a elegir el almacén de salida."
 )
+
+// puntoDelPlaneta dice si una coordenada se puede medir.
+//
+// POR QUÉ EXISTE, con el caso concreto (24/09/2026, probando la API desde fuera). Armar
+// una ruta con `originLat: 1e308` daba un `201` CON EL CUERPO VACÍO y dejaba la lista de
+// rutas de esa sucursal contestando `200` con cero bytes para siempre. La cadena entera:
+//
+//	kmHaversine hace `(lat2 - lat1) * math.Pi / 180`. Con 1e308 esa resta se desborda a
+//	±Inf, `math.Sin(±Inf)` es NaN, y `total_distance` se guardaba como NaN. `json.Encoder`
+//	se niega a codificar un NaN, así que toda respuesta que llevara esa ruta dentro salía
+//	cortada —y con el código de éxito ya escrito—.
+//
+// `httpx.JSON` ya no deja salir una respuesta rota con un 2xx (ahora es un 500), pero eso
+// es la red de abajo: lo que no puede pasar es que el dato imposible ENTRE. Un almacén no
+// está en la latitud 1e308 ni en la 91; si llega una, es el mapa que no terminó de cargar
+// o un campo mal tecleado, y las dos cosas se arreglan volviendo a elegir el origen.
+//
+// El cero SIGUE VALIENDO, que es lo que dice el contrato: es una coordenada legítima —el
+// golfo de Guinea— y es además lo que manda la pantalla mientras el mapa carga.
+func puntoDelPlaneta(lat, lng float64) bool {
+	if math.IsNaN(lat) || math.IsNaN(lng) || math.IsInf(lat, 0) || math.IsInf(lng, 0) {
+		return false
+	}
+	return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+}
 
 // ---------------------------------------------------------------------------
 // Geometría  (reglas-negocio §1.1 a §1.3)
@@ -689,6 +718,16 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	origenLat, origenLng := *c.OriginLat.Valor, *c.OriginLng.Valor
+	// Y TIENE QUE SER UN PUNTO DEL MAPA. Va justo detrás del `== null` y antes que nada
+	// más: si la coordenada no se puede medir, todo lo que viene después —el orden de
+	// visita, los km, el `segmentKm` con el que se cobra el domicilio— sale sin sentido.
+	// Ver `puntoDelPlaneta` para el incidente que lo puso aquí.
+	if !puntoDelPlaneta(origenLat, origenLng) {
+		httpx.Error(w, r, http.StatusBadRequest, fmt.Sprintf(msgOrigenImposible,
+			strconv.FormatFloat(origenLat, 'g', -1, 64),
+			strconv.FormatFloat(origenLng, 'g', -1, 64)))
+		return
+	}
 
 	vehiculoPedido := strings.TrimSpace(c.VehicleID.Con(""))
 	if vehiculoPedido == "" {
@@ -851,11 +890,26 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 	// Se ordena por el DESTINO (`end_lat`/`end_lng`), no por `lat`/`lng`: el camión va a
 	// donde se entrega, no a donde se facturó.
 	geo := make([]paradaGeo, 0, len(pedidos))
+	// LAS COORDENADAS IMPOSIBLES SE NOMBRAN, NO SE SALTAN. Una parada que se cae de la
+	// lista en silencio es un pedido que se queda en el almacén con la ruta dada por
+	// buena; y si se dejara entrar, su NaN se comería `total_distance` y con él la
+	// respuesta entera (ver `puntoDelPlaneta`). Estas coordenadas no las teclea nadie:
+	// vienen del espejo de PEDIDO, así que una fuera del planeta es un dato que alguien
+	// tiene que arreglar allí y hay que poder decir cuál.
+	var sinMapa []uuid.UUID
 	for _, p := range pedidos {
 		if p.EndLat == nil || p.EndLng == nil {
 			continue // el SQL ya los excluye; aquí es sólo por no desreferenciar
 		}
+		if !puntoDelPlaneta(*p.EndLat, *p.EndLng) {
+			sinMapa = append(sinMapa, p.ID)
+			continue
+		}
 		geo = append(geo, paradaGeo{id: p.ID, lat: *p.EndLat, lng: *p.EndLng})
+	}
+	if len(sinMapa) > 0 {
+		httpx.Error(w, r, http.StatusConflict, mensajeSinMapa(pedidos, sinMapa))
+		return
 	}
 	// EL ORDEN BUENO, NO EL DEL GREEDY A SECAS — 21/09/2026. Aquí se llamaba a
 	// `ordenVecinoMasProximo` y es lo que Jose estaba viendo en la pantalla: cruces y un
@@ -1505,7 +1559,27 @@ func (s *Servidor) cerrarRuta(w http.ResponseWriter, r *http.Request) {
 			if nota != nil {
 				aviso.Nota = *nota
 			}
-			avisos = append(avisos, aviso)
+			// UN AVISO POR PEDIDO, EL ÚLTIMO — y es el que la base acaba teniendo.
+			//
+			// Una hoja de cierre puede traer el mismo `orderId` dos veces: la cola del
+			// aparato junta apuntes cuando vuelve la señal, y una corrección —«entregado»
+			// y luego «devuelto»— es justo el caso S3 del guion de QA. En la base no hay
+			// duda: son dos UPDATE seguidos y manda el segundo. En PEDIDO sí la había,
+			// porque se le mandaban LOS DOS en el mismo lote y cuál gana depende de en qué
+			// orden los aplique él. Ahí es donde el vendedor ve «entregado» sobre un pedido
+			// que volvió en el camión: un estado creíble y equivocado, y las dos
+			// aplicaciones diciendo cosas distintas del mismo pedido.
+			//
+			// `aplicados` NO se toca: sigue llevando una entrada por cada cosa que se
+			// procesó, que es el acuse que el aparato compara con lo que mandó.
+			if donde, repetido := dondeEstaElAviso(avisos, aviso.PedidoID); repetido {
+				httpx.Registro(r).Warn("la hoja de cierre trae el mismo pedido dos veces: a PEDIDO va el último",
+					"ruta", ruta.ID, "pedido", aviso.PedidoID,
+					"antes", avisos[donde].Estado, "ahora", aviso.Estado)
+				avisos[donde] = aviso
+			} else {
+				avisos = append(avisos, aviso)
+			}
 		}
 	}
 
@@ -1551,6 +1625,20 @@ func (s *Servidor) cerrarRuta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, r, http.StatusOK, salida)
+}
+
+// dondeEstaElAviso busca un aviso ya puesto para ese pedido de PEDIDO.
+//
+// Es una búsqueda lineal y está bien que lo sea: una hoja de cierre son las paradas de UN
+// camión —decenas, no miles— y un mapa aquí obligaría a mantener dos estructuras a la vez
+// con el mismo contenido, que es como se separan. Ver el porqué en `cerrarRuta`.
+func dondeEstaElAviso(avisos []AvisoDeParada, pedidoID string) (int, bool) {
+	for i, a := range avisos {
+		if a.PedidoID == pedidoID {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // motivoDelCierreIncompleto arma el texto que va a acabar en la bandeja del aparato.
@@ -1805,6 +1893,44 @@ func mensajeYaEntregados(pedidos []sqlc.PedidosParaArmarRutaRow) string {
 		return mensaje + fmt.Sprintf(" y %d más.", len(malos)-5)
 	}
 	return mensaje + "."
+}
+
+// mensajeSinMapa arma el 409 de los pedidos cuyo destino no cae en el planeta.
+//
+// SE NOMBRAN, como todos los rechazos de este fichero: el logístico tiene delante una
+// selección de quince tarjetas y un «no se pudo» le obliga a quitarlas de una en una para
+// averiguar cuál sobra. Y se dice DÓNDE se arregla, que no es aquí: estas coordenadas las
+// escribe PEDIDO y las copia el espejo, así que reintentar no cambia nada —un rechazo
+// permanente disfrazado de reintento es lo que prohíbe el CLAUDE.md—.
+func mensajeSinMapa(pedidos []sqlc.PedidosParaArmarRutaRow, sinMapa []uuid.UUID) string {
+	malo := make(map[uuid.UUID]bool, len(sinMapa))
+	for _, id := range sinMapa {
+		malo[id] = true
+	}
+	detalle := make([]string, 0, 5)
+	for _, p := range pedidos {
+		if !malo[p.ID] || len(detalle) == 5 {
+			continue
+		}
+		detalle = append(detalle, fmt.Sprintf("%s (%s, %s)", quienEs(p.OperationNumber, p.CustomerName),
+			strconv.FormatFloat(valorO(p.EndLat), 'g', -1, 64),
+			strconv.FormatFloat(valorO(p.EndLng), 'g', -1, 64)))
+	}
+	mensaje := fmt.Sprintf("%d de los pedidos elegidos tienen el punto de entrega fuera del mapa "+
+		"y no se les puede calcular el recorrido: %s", len(sinMapa), strings.Join(detalle, ", "))
+	if len(sinMapa) > 5 {
+		mensaje += fmt.Sprintf(" y %d más", len(sinMapa)-5)
+	}
+	return mensaje + ". Hay que corregir la dirección en PEDIDO; desde aquí no se arregla."
+}
+
+// valorO saca el float de un puntero, o 0. Sólo para escribir el número en un mensaje:
+// llegar aquí con nil ya lo descarta el bucle que llama.
+func valorO(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 // mensajeNoFacturados arma el 409 de facturación, o "" si todos cuadran.

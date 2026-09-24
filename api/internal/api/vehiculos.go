@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +43,62 @@ const TipoPorDefecto = "truck"
 const CapacidadPorDefecto = 1000.0
 
 var EstadoPorDefecto = sqlc.VehicleStatusAvailable
+
+// ---------------------------------------------------------------------------
+// Los dos números de un camión, y por qué se comprueban
+// ---------------------------------------------------------------------------
+//
+// El contrato de delivery no los valida: `capacity ?? 1000` y `costoKmUsd` tal cual. Nos
+// separamos de él a propósito (CLAUDE.md §2, «el patrón se sigue SALVO donde se
+// equivoca») porque los dos son números que se usan para decidir y para cobrar, y un
+// número creíble y equivocado es el fallo que más caro sale en este proyecto.
+//
+//   - CAPACIDAD. Es el único freno que tiene el armador contra un camión sobrecargado
+//     (`pesoTotal > vehiculo.Capacity`). Con capacidad `0` o negativa ese freno deja de
+//     medir nada: rechaza TODAS las rutas, incluso la de un solo bulto, y con un mensaje
+//     —«Peso total (0.0 kg) supera la capacidad del vehículo (-5 kg)»— que no se puede
+//     entender ni arreglar desde la pantalla donde sale. Un camión que no lleva nada no
+//     existe: si la capacidad no es positiva, es un campo mal escrito.
+//   - COSTO POR KM. Un negativo se lee igual de bien que un positivo y significa que el
+//     kilómetro PAGA. Es el mismo caso que el cero que el CLAUDE.md ya manda dejar
+//     vacío, un escalón peor. El vacío sigue valiendo y sigue significando «usa el del
+//     tipo»; lo que no vale es un número que no se puede cobrar.
+//
+// Los dos rechazan además NaN e ±Infinity. Por JSON no entran como literales, pero sí como
+// `1e308 * algo` en cuanto alguien haga una cuenta con ellos, y un no-finito guardado
+// revienta la codificación de TODA respuesta que lo lleve dentro (ver `httpx.JSON`).
+
+const (
+	msgCapacidadImposible = "La capacidad del camión tiene que ser un número de kilos mayor que cero, y llegó '%s'"
+	msgCostoKmImposible   = "El costo por kilómetro no puede ser negativo, y llegó '%s'. " +
+		"Déjalo vacío si todavía no se sabe: un hueco se ve y se rellena."
+)
+
+// capacidadValida comprueba los kilos que admite el camión.
+func capacidadValida(w http.ResponseWriter, r *http.Request, v httpx.Opcional[float64]) bool {
+	if v.Valor == nil { // ausente o null: se usa el de la casa
+		return true
+	}
+	if *v.Valor > 0 && !math.IsInf(*v.Valor, 0) {
+		return true
+	}
+	httpx.Error(w, r, http.StatusBadRequest, fmt.Sprintf(msgCapacidadImposible,
+		strconv.FormatFloat(*v.Valor, 'g', -1, 64)))
+	return false
+}
+
+// costoKmValido comprueba el costo por km. Vacío SÍ vale: es «usa el del tipo».
+func costoKmValido(w http.ResponseWriter, r *http.Request, v httpx.Opcional[float64]) bool {
+	if v.Valor == nil {
+		return true
+	}
+	if *v.Valor >= 0 && !math.IsInf(*v.Valor, 0) && !math.IsNaN(*v.Valor) {
+		return true
+	}
+	httpx.Error(w, r, http.StatusBadRequest, fmt.Sprintf(msgCostoKmImposible,
+		strconv.FormatFloat(*v.Valor, 'g', -1, 64)))
+	return false
+}
 
 type VehiculoSalida struct {
 	ID                uuid.UUID  `json:"id"`
@@ -148,6 +206,9 @@ func (s *Servidor) crearVehiculo(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, http.StatusBadRequest, "Vehicle name is required")
 		return
 	}
+	if !capacidadValida(w, r, c.Capacity) || !costoKmValido(w, r, c.CostoKmUsd) {
+		return
+	}
 	tipo, ok := s.tipoPorNombre(w, r, a, c.Type.Con(TipoPorDefecto))
 	if !ok {
 		return
@@ -205,6 +266,11 @@ func (s *Servidor) actualizarVehiculo(w http.ResponseWriter, r *http.Request) {
 	}
 	var c cuerpoVehiculo
 	if !httpx.LeerJSON(w, r, &c) {
+		return
+	}
+	// Los mismos dos números que en el alta, y por lo mismo: un PATCH es la otra puerta a
+	// la misma fila. Validar sólo el alta deja el agujero abierto a un botón de distancia.
+	if !capacidadValida(w, r, c.Capacity) || !costoKmValido(w, r, c.CostoKmUsd) {
 		return
 	}
 
