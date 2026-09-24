@@ -154,10 +154,49 @@ func (p *Porteria) Resolver(ctx context.Context, u *auth.Usuario, cabecera strin
 
 	id, err := uuid.Parse(pedida)
 	if err != nil {
-		// Un id que ni siquiera es un uuid es exactamente el mismo caso que uno que ya
-		// no está: los ids viejos de delivery eran cuid. Mismo trato, mismo aviso.
-		p.avisar(deLaPersona, pedida, u)
-		return a, nil
+		// NO ES UN UUID. Antes de nada: casi siempre es el CÓDIGO de la sucursal.
+		//
+		// Accesos firma `sucursal`/`branch_id` con el CÓDIGO —`CAM`, `HOL`, `STG`—,
+		// y lo hace en las dos puertas: el token de la APK y del escritorio
+		// (`apk-tokens.ts`, `firmarAcceso`) y el token de la web que emite
+		// `auth_web.go`, cuyo propio comentario dice «el CÓDIGO de la sucursal
+		// (CAM, HOL…), que es lo que lee el alcance». Aquí no se leía: se hacía
+		// `uuid.Parse("CAM")`, fallaba, y se caía en el «no existe -> todas».
+		//
+		// O sea que CUALQUIER persona que entrara con un token de Accesos de verdad
+		// —web o escritorio, ADMINISTRADOR, SUPERVISOR, GESTOR u OPERADOR— veía las
+		// OCHO sucursales. Comprobado el 24/09/2026 con Accesos levantado en el
+		// portátil: un ADMINISTRADOR de Camagüey pedía `/api/orders` y le volvían
+		// los 46 pedidos de las tres sucursales en vez de sus 19. Con 200, sin un
+		// solo error, y con la pantalla enseñando un número creíble y equivocado.
+		//
+		// Es la regla 1 de la casa —«el alcance sale de quién pregunta»— y es el
+		// mismo fallo que ya costó dinero en delivery: «un operador de Santiago vio
+		// los precios de La Habana».
+		//
+		// No se vio antes porque las pruebas de este paquete meten un `uuid` en
+		// `Usuario.Sucursal` (`stg.String()`), que es justo lo que el código suponía
+		// y nunca lo que llega: una prueba que copia la suposición que prueba no
+		// prueba nada. Ahora hay una que entra con el código, como Accesos.
+		fila, errCodigo := a.q.BuscarSucursalPorCodigo(ctx, &pedida)
+		switch {
+		case errCodigo == nil:
+			a.sucursal = &fila.ID
+			a.codigo = fila.ExternalID
+			if deLaPersona {
+				a.persona = &fila.ID
+			}
+			return a, nil
+		case errors.Is(errCodigo, pgx.ErrNoRows):
+			// Ni uuid ni código conocido. Es el mismo caso que un id que ya no
+			// está —los ids viejos de delivery eran cuid—: mismo trato, mismo aviso.
+			p.avisar(deLaPersona, pedida, u)
+			return a, nil
+		default:
+			// Igual que abajo: «no pude comprobarlo» NO es «no existe». Un fallo de
+			// la base no puede abrir el alcance a las ocho.
+			return nil, errCodigo
+		}
 	}
 
 	fila, err := a.q.ResolverSucursal(ctx, id)

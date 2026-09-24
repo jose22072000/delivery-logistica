@@ -100,4 +100,79 @@ void main() {
     expect(hoja.lineas.length, 1);
     expect(hoja.lineas.single.producto, 'Arroz');
   });
+
+  // ---------------------------------------------------------------------------
+  // «SIN LINEAS» NO ES «NADA QUEDA» — 24/09/2026
+  //
+  // La hoja del post-despacho decia «Nada: se entregó todo lo que salió» en
+  // cuanto no habia lineas que enseñar. Pero las lineas salen de los RENGLONES
+  // de cada pedido, y un pedido sin renglones no aporta ninguna: en Pedidos
+  // salen con «—» en Artículos y los hay de verdad.
+  //
+  // Resultado, visto en el escritorio: una ruta con TRES paradas sin marcar
+  // imprimia, encima de las dos firmas —chofer y almacen—, que no queda nada en
+  // el camion y que se entregó todo; y dos lineas mas abajo el mismo papel las
+  // listaba como «SIN MARCAR». El §4 del `CLAUDE.md` en su forma mas cara: una
+  // respuesta vacia leida como la afirmacion mas tranquilizadora que hay.
+  //
+  // Las dos pruebas van EN PAREJA: una que el hueco se diga, y otra que cuando
+  // de verdad se entregó todo NO salga el aviso. Sin la segunda, «avisar
+  // siempre» pasaria la primera, y un aviso que sale siempre deja de leerse.
+  // ---------------------------------------------------------------------------
+
+  test('paradas sin entregar y sin renglones: NO CONSTA, no «nada queda»', () {
+    final hoja = armarPostDespacho(const [
+      ParadaDelCierre(pedidoId: 'p1', cliente: 'Ferretería 12', lineas: []),
+      ParadaDelCierre(pedidoId: 'p2', cliente: 'Ferretería 16', lineas: []),
+      ParadaDelCierre(pedidoId: 'p3', cliente: 'Ferretería 20', lineas: []),
+    ]);
+
+    expect(hoja.sinMarcar, 3);
+    expect(hoja.lineas, isEmpty, reason: 'no hay renglones que listar');
+    expect(
+      hoja.seEntregoTodo,
+      isFalse,
+      reason: 'ninguna se marcó como entregada: decir que sí es la mentira cara',
+    );
+    expect(
+      hoja.noConstaQueQueda,
+      isTrue,
+      reason:
+          'el papel que firma el almacén no puede decir «nada queda» con tres '
+          'paradas sin marcar listadas dos líneas más abajo',
+    );
+    expect(noConstaQueBaja(3), contains('NO CONSTA'));
+    expect(
+      noConstaQueBaja(3),
+      contains('3 paradas'),
+      reason: 'un aviso que no dice cuántas no sirve para contar el camión',
+    );
+  });
+
+  test('y cuando SÍ se entregó todo, el aviso no sale', () {
+    final hoja = armarPostDespacho(const [
+      ParadaDelCierre(
+        pedidoId: 'p1',
+        cliente: 'Ana',
+        resultado: 'entregado',
+        lineas: [LineaDeParada('Arroz', 2)],
+      ),
+      // Entregada y SIN renglones: sigue siendo «se entregó todo».
+      ParadaDelCierre(
+        pedidoId: 'p2',
+        cliente: 'Beto',
+        resultado: 'entregado',
+        lineas: [],
+      ),
+    ]);
+
+    expect(hoja.seEntregoTodo, isTrue);
+    expect(
+      hoja.noConstaQueQueda,
+      isFalse,
+      reason:
+          'un aviso que sale siempre deja de leerse, y entonces tampoco se lee '
+          'el día que importa',
+    );
+  });
 }

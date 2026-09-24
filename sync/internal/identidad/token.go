@@ -1,6 +1,7 @@
 package identidad
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -57,8 +58,38 @@ var algoritmos = map[string]func() hash.Hash{
 // ErrTokenRoto: no es un JWT, o no se puede leer.
 var ErrTokenRoto = errors.New("token ilegible")
 
+// Resolutor traduce el CÓDIGO de la sucursal a NUESTRO id.
+//
+// LO QUE ACCESOS FIRMA ES EL CÓDIGO —`CAM`, `HOL`, `STG`—, no un uuid: es la única clave
+// que cruza los cinco sistemas de Procovar, porque los identificadores internos de cada
+// aplicación no se parecen en nada (`apk-tokens.ts`, `firmarAcceso`, y el token de la web
+// que emite `api/internal/api/auth_web.go`).
+//
+// Aquí eso se hacía `uuid.Parse("CAM")`, fallaba, y **todo el protocolo contestaba 401**:
+// `POST /sync/aparato` el primero, y sin alta no hay `POST /sync/subida` —contesta 404—,
+// así que la cola del aparato no subía NUNCA. Es el mismo cuadro del 16/09/2026 que este
+// fichero cuenta más arriba, por otro camino: el cliente trata un 401 que sobrevive a
+// renovar como «la sesión murió» y echa a la persona a la pantalla de acceso justo cuando
+// vuelve la señal, con el día del almacén dentro.
+//
+// La traducción la hace quien tiene la tabla, que es `reparto-api`
+// (`GET /api/service/sucursal?codigo=CAM`). Aquí no se copia la lista de sucursales: una
+// segunda copia es un segundo sitio que se queda viejo.
+type Resolutor func(ctx context.Context, codigo string) (uuid.UUID, error)
+
+// ErrNoSePudoComprobar: el código no se pudo traducir porque el reparto no contestó.
+//
+// VA SEPARADO DE `ErrSinSesion` A PROPÓSITO, y es la diferencia entre un susto y perder el
+// día: un 401 mata la sesión en el cliente (`docs/identidad.md`, regla 3), mientras que un
+// 5xx conserva los tokens y reintenta. Si un tropiezo del reparto saliera por aquí como
+// 401, el aparato se quedaría en la puerta con la cola dentro — exactamente lo que este
+// arreglo viene a evitar.
+var ErrNoSePudoComprobar = errors.New("no se pudo comprobar la sucursal")
+
 // DeToken construye la fuente de identidad que verifica el token de auth.
-func DeToken(secreto []byte) Fuente {
+//
+// `resolutor` puede ser nil sólo donde no haya códigos que traducir (pruebas de firma).
+func DeToken(secreto []byte, resolutor Resolutor) Fuente {
 	return func(r *http.Request) (Identidad, error) {
 		crudo := ""
 		if cab := r.Header.Get("Authorization"); cab != "" {
@@ -70,9 +101,22 @@ func DeToken(secreto []byte) Fuente {
 		if strings.TrimSpace(crudo) == "" {
 			return Identidad{}, ErrSinSesion
 		}
-		id, err := verificar(crudo, secreto)
+		id, codigo, err := verificar(crudo, secreto)
 		if err != nil {
 			return Identidad{}, err
+		}
+		if codigo != "" {
+			if resolutor == nil {
+				return Identidad{}, fmt.Errorf(
+					"%w: el token trae el código %q y no hay con qué traducirlo", ErrSinSesion, codigo)
+			}
+			s, err := resolutor(r.Context(), codigo)
+			if err != nil {
+				// El resolutor distingue «no es de ninguna sucursal» (ErrSinSesion) de
+				// «no pude preguntarlo» (ErrNoSePudoComprobar). Se pasa tal cual.
+				return Identidad{}, err
+			}
+			id.Sucursal = s
 		}
 		// Se guarda DESPUÉS de verificar, nunca antes: lo que se reenvía al reparto tiene
 		// que ser un token que ya pasó por la firma, el `exp` y el alcance de aquí.
@@ -145,66 +189,68 @@ func (c *reclamos) UnmarshalJSON(b []byte) error {
 // esa diferencia existe.
 const margen = time.Minute
 
-func verificar(token string, secreto []byte) (Identidad, error) {
+// verificar devuelve la identidad y, cuando la sucursal del token no es un uuid, el
+// CÓDIGO que hay que traducir. Traducirlo aquí es imposible: hace falta ir al reparto.
+func verificar(token string, secreto []byte) (Identidad, string, error) {
 	partes := strings.Split(token, ".")
 	if len(partes) != 3 {
-		return Identidad{}, ErrTokenRoto
+		return Identidad{}, "", ErrTokenRoto
 	}
 
 	cabecera, err := decodificar(partes[0])
 	if err != nil {
-		return Identidad{}, ErrTokenRoto
+		return Identidad{}, "", ErrTokenRoto
 	}
 	var cab struct {
 		Alg string `json:"alg"`
 	}
 	if err := json.Unmarshal(cabecera, &cab); err != nil {
-		return Identidad{}, ErrTokenRoto
+		return Identidad{}, "", ErrTokenRoto
 	}
 	// El `alg` del token NO elige nada: sólo tiene que coincidir con uno de los nuestros.
 	// Un token que diga `none` o `RS256` se cae aquí, no más abajo.
 	nuevoHash, ok := algoritmos[cab.Alg]
 	if !ok {
-		return Identidad{}, fmt.Errorf("%w: algoritmo %q no admitido", ErrSinSesion, cab.Alg)
+		return Identidad{}, "", fmt.Errorf("%w: algoritmo %q no admitido", ErrSinSesion, cab.Alg)
 	}
 
 	firma, err := decodificar(partes[2])
 	if err != nil {
-		return Identidad{}, ErrTokenRoto
+		return Identidad{}, "", ErrTokenRoto
 	}
 	mac := hmac.New(nuevoHash, secreto)
 	mac.Write([]byte(partes[0] + "." + partes[1]))
 	// Tiempo constante: comparar firmas con `==` filtra por el tiempo de respuesta
 	// cuántos bytes iniciales acertó quien prueba.
 	if !hmac.Equal(mac.Sum(nil), firma) {
-		return Identidad{}, ErrSinSesion
+		return Identidad{}, "", ErrSinSesion
 	}
 
 	cuerpo, err := decodificar(partes[1])
 	if err != nil {
-		return Identidad{}, ErrTokenRoto
+		return Identidad{}, "", ErrTokenRoto
 	}
 	var c reclamos
 	if err := json.Unmarshal(cuerpo, &c); err != nil {
-		return Identidad{}, ErrTokenRoto
+		return Identidad{}, "", ErrTokenRoto
 	}
 
 	ahora := time.Now()
 	// Sin `exp` no hay sesión que muera nunca. Se exige.
 	if c.Exp == nil {
-		return Identidad{}, fmt.Errorf("%w: el token no trae exp", ErrSinSesion)
+		return Identidad{}, "", fmt.Errorf("%w: el token no trae exp", ErrSinSesion)
 	}
 	if ahora.After(time.Unix(int64(*c.Exp), 0).Add(margen)) {
-		return Identidad{}, fmt.Errorf("%w: caducado", ErrSinSesion)
+		return Identidad{}, "", fmt.Errorf("%w: caducado", ErrSinSesion)
 	}
 	if c.Nbf != nil && ahora.Add(margen).Before(time.Unix(int64(*c.Nbf), 0)) {
-		return Identidad{}, fmt.Errorf("%w: todavía no vale", ErrSinSesion)
+		return Identidad{}, "", fmt.Errorf("%w: todavía no vale", ErrSinSesion)
 	}
 
 	var id Identidad
 	id.Persona = primero(c.Sub, c.ID)
 	if id.Persona == "" {
-		return Identidad{}, ErrSinSesion
+		return Identidad{}, "", ErrSinSesion
 	}
 
 	sucursal := strings.TrimSpace(primero(c.BranchID, c.BranchIDSnake, c.Sucursal))
@@ -225,21 +271,22 @@ func verificar(token string, secreto []byte) (Identidad, error) {
 		// cualquier otro sin sucursal se queda fuera, que es el fallo barato: se arregla
 		// dándole la suya.
 		if !veTodo(c) {
-			return Identidad{}, fmt.Errorf(
+			return Identidad{}, "", fmt.Errorf(
 				"%w: sin sucursal y sin un rol que vea todo no hay alcance que aplicar",
 				ErrSinSesion)
 		}
 		id.EsSuperAdmin = true
-		return id, nil
+		return id, "", nil
 	}
-	s, err := uuid.Parse(sucursal)
-	if err != nil {
-		// Una sucursal que no se entiende NO se trata como «ninguna»: eso convertiría un
-		// dato roto en permiso para verlo todo.
-		return Identidad{}, ErrSinSesion
+	if s, err := uuid.Parse(sucursal); err == nil {
+		id.Sucursal = s
+		return id, "", nil
 	}
-	id.Sucursal = s
-	return id, nil
+	// NO ES UN UUID: es el CÓDIGO que firma Accesos. Se devuelve para que lo traduzca
+	// quien tiene la tabla. Lo que NO se hace es tratarlo como «ninguna» —eso convertiría
+	// un dato que no se entiende en permiso para verlo todo, que es la regla 1 de la
+	// casa— ni darlo por bueno sin comprobar que existe.
+	return id, sucursal, nil
 }
 
 // LOS DOS ROLES QUE VEN LAS OCHO SUCURSALES, y no hay más.

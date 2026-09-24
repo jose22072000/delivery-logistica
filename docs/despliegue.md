@@ -945,7 +945,7 @@ del front de notify.
 | `FLUTTER_VERSION` | `3.44.0` | `app/pubspec.lock` pide flutter `>=3.44.0` y dart `>=3.13.3`. |
 | `GO_VERSION` (los tres de Go) | `1.27` | `go.mod` dice `go 1.27.0`. |
 | `GOPROXY` (los cuatro de Go) | `https://proxy.golang.org,direct` | Por si la red del servidor lo bloquea. |
-| `VERSION` (sólo api) | `dev` | Lo que devuelve `/version`. Pásale `git describe --tags --always`. |
+| `VERSION` (sólo api) | `dev` | Lo que devuelve `/version`. **No** vale `git describe`: un Build Arg de Dokploy es una cadena literal y `.dockerignore` excluye `.git`. Qué se le pone y por qué, en **§6-ter**. |
 
 Las tres URL las ve **el navegador**, no el contenedor: son las públicas, nunca
 `http://api:8080`, que desde el navegador no existe.
@@ -1304,6 +1304,206 @@ eventos y los suelta en bloque) y **nunca** `Connection: keep-alive` (con Cloudf
 delante da `ERR_QUIC_PROTOCOL_ERROR`). Las manda el propio servicio; lo que hay que
 vigilar al desplegar es que nadie ponga delante un proxy que amortigüe la respuesta ni un
 tiempo de espera corto para esa ruta.
+
+### 6-ter. El Build Arg `VERSION`: que la api sepa decir qué está corriendo
+
+**Comprobado el 24/09/2026:** `GET https://reparto.procovar.cloud/api/version` contestaba
+`{"version":"dev", …}`. No era un fallo de la api. `deploy/Dockerfile.api` declara
+`ARG VERSION=dev` y la incrusta al compilar con `-X main.version=${VERSION}`, y en Dokploy
+el campo **Build Args de `reparto-api` estaba vacío**, así que se quedaba el valor por
+defecto. La api corría sin saber decir qué está corriendo, que es exactamente lo que hace
+falta el día que algo falla y hay que averiguar si el servidor tiene el arreglo o no.
+
+**Ya está puesto** (24/09/2026):
+
+```
+VERSION=1.0.5-260924
+```
+
+**Qué valor va ahí, y por qué ése.** El formato es el mismo que ya usan los APK en MinIO
+(`reparto-1.0.1-260922.apk`): **la versión que se reparte, un guion, y la fecha del
+despliegue en `AAMMDD`**. Esto es un monorepo y un commit se lleva la api, el espejo, el
+sincronizador, la web y el APK a la vez, así que el número de `app/pubspec.yaml` —sin el
+`+compilación`— vale para las cinco piezas; y la fecha es lo que contesta «¿esto es de
+antes o de después del arreglo?» sin abrirle el historial de git a nadie.
+
+Lo que **no** se puede hacer, aunque §3.4 lo dijera hasta hoy: pasarle
+`git describe --tags --always`. Dos razones, y las dos se sostienen solas:
+
+- Un Build Arg de Dokploy es **una cadena literal**, no una orden de shell: lo que se
+  escriba ahí llega tal cual a `--build-arg`.
+- Y aunque se ejecutara, `.dockerignore` excluye `.git`: **dentro del contexto de
+  construcción no hay repositorio al que preguntarle nada**. El hash corto tendría que
+  entrar desde fuera igual que cualquier otra cadena.
+
+**El Build Arg se aplica al CONSTRUIR, no ahora.** Cambiarlo no toca el contenedor que ya
+está corriendo: `/api/version` seguirá diciendo `dev` hasta el siguiente despliegue de
+`reparto-api`. Y por eso **no se lanza un despliegue sólo por esto**: se aprovecha el
+siguiente. Dos redespliegues seguidos son dos ventanas de caída.
+
+**Y hay que subirlo a mano en cada versión**, igual que las migraciones (§2.1): el campo es
+una cadena fija y Dokploy no la recalcula. Si se olvida, `/api/version` no falla a lo bruto
+—contesta la versión anterior— y eso para esto es lo mismo que mentir. Va en el **paso 4**
+de la publicación de una versión, junto a las cinco variables del anuncio.
+
+Se pone así, y lo importante es **cómo**: `application.saveEnvironment` es un `PUT` del
+bloque entero, de modo que **si se manda sólo `buildArgs`, se borra el `env`** — y sin
+`APP_DESCARGA_ANDROID_BYTES` y `_SHA256` la api no arranca. Se lee lo que hay, se añade lo
+nuevo y se devuelve todo; y se comprueba que el `env` salió **idéntico**, no parecido:
+
+```bash
+ssh vps 'K=$(cat /root/secretos/dokploy.key) python3 - <<PY
+import json, os, urllib.request, hashlib
+K = os.environ["K"]; APP = "0iQ8gLv5ZIHD1n_DRlzOa"; BASE = "http://127.0.0.1:3000/api"
+
+def pedir(url, data=None):
+    r = urllib.request.Request(url, data=data,
+        headers={"x-api-key": K, "Content-Type": "application/json"})
+    if data is not None: r.get_method = lambda: "POST"
+    return json.load(urllib.request.urlopen(r, timeout=30))
+
+a = pedir(f"{BASE}/application.one?applicationId={APP}")
+env = a.get("env") or ""
+antes = hashlib.sha256(env.encode()).hexdigest()
+
+pedir(f"{BASE}/application.saveEnvironment", json.dumps({
+    "applicationId": APP,
+    "env": env,                                   # tal cual vino: no se toca nada de nadie
+    "buildArgs": "VERSION=1.0.5-260924",
+    "buildSecrets": a.get("buildSecrets") or "",  # los tres van o contesta 400
+    "createEnvFile": bool(a.get("createEnvFile")),
+}).encode())
+
+b = pedir(f"{BASE}/application.one?applicationId={APP}")
+print("env INTACTO:", antes == hashlib.sha256((b.get("env") or "").encode()).hexdigest())
+print("buildArgs:", repr(b.get("buildArgs")))
+PY'
+```
+
+El `env` llega **descifrado** por esta API, así que devolverlo tal cual es correcto y no lo
+cifra dos veces. Aun así se compara el `sha256` de antes y el de después: es la única
+prueba de que no se le llevó por delante el trabajo a nadie.
+
+**`VERSION_APP` se queda SIN PONER.** Es una variable de entorno que **pisa** la versión
+incrustada (`config.Cargar` → `valor("VERSION_APP", version)`, §3.1). Poniéndola,
+`/api/version` deja de describir el binario que corre y pasa a describir lo que alguien
+escribió en un formulario: un número creíble y equivocado sobre la pregunta «¿tiene el
+servidor el arreglo?». La versión la pone el compilador, y sólo el compilador. La variable
+existe para arrancar a mano un binario suelto, no para producción.
+
+**Las otras tres no tienen este problema — tienen uno peor: no tienen versión ninguna.**
+`Dockerfile.sync` y `Dockerfile.espejo` compilan con `-ldflags="-s -w"` **sin `-X`**, no
+hay `var version` en sus `main`, y no publican ninguna ruta que la diga: `reparto-sync`
+sólo contesta `{"estado":"bien"}` (§5) y el espejo no tiene servidor (§2-bis).
+`reparto-web` es Flutter servido por nginx y lleva dentro la de `pubspec.yaml`. Así que
+ahí no falta un Build Arg: faltan tres servicios que sepan decir qué son, y hoy la única
+forma de saberlo es mirar la fecha de la imagen. Queda apuntado; darles `/version` es
+trabajo de su código, no del despliegue. Los Build Args que `reparto-web` **sí** tiene
+puestos son otros tres (`API_URL`, `SYNC_URL`, `AUTH_URL`, §3.4).
+
+### 6-quater. El portal de `procovar.cloud`, donde se abre y se baja el Reparto
+
+Desde el portal se entra a las aplicaciones de la casa, y el Reparto tiene que estar ahí
+con sus dos botones: **Abrir** la web y **Descargar APK**.
+
+**Dónde vive el portal, que es lo que despista.** Es `PROCOVAR-DEV/procovar-portal` y está
+en **este mismo VPS**, pero es un **Compose** de Dokploy (proyecto `Procovar`, servicio
+`Portal`), no una Application. Por eso **no tiene fichero en
+`/etc/dokploy/traefik/dynamic/`** y buscarlo ahí da cero: su router va en las etiquetas del
+contenedor y Traefik lo descubre por el proveedor de Docker.
+
+```
+traefik.http.routers.procovar-portal-h8x18f-37-websecure.rule = Host(`procovar.cloud`)
+```
+
+Como además el dominio está detrás del proxy de Cloudflare, sus IP son de Cloudflare y
+desde fuera parece que el portal está en otra máquina. No lo está.
+
+| Qué | Dónde |
+|---|---|
+| Contenedores | `procovar-portal-h8x18f-portal-1` (nginx) y `procovar-portal-h8x18f-api-1` (Express) |
+| Red | `procovar-portal-net`, la api en `172.29.0.2:3000` |
+| Base | **SQLite en un volumen**: `/data/portal.db` dentro del contenedor de la api |
+| APK subidos | `/data/apks/<id>.apk` |
+| Panel | `https://procovar.cloud`, usuario `admin` |
+| La clave | **sembrada en el código**, `ADMIN_PASSWORD` en `server/src/db.js`. No hay ninguna ruta ni pantalla para cambiarla, así que es la que hay. No está en `.secretos` y no hace falta que esté. |
+
+**El Reparto ya está dado de alta** (24/09/2026), como `APP-012`, id **12**:
+
+| Campo | Valor |
+|---|---|
+| `nombre` | `Reparto` |
+| `link` | `https://reparto.procovar.cloud` — el botón **Abrir** |
+| `url_download` | `https://archivos.procovar.cloud/reparto/apk/reparto-1.0.1-260922.apk` — el botón **Descargar APK** |
+| imagen | el camión de `app/web/icons/Icon-512.png` centrado sobre su ámbar, PNG 600×400 |
+| `activo` | sí |
+
+**Por qué el APK apunta a MinIO y no se sube al portal**, que es la otra forma y la que usa
+«Domicilio (APK)» (sus 113 MB están en `/data/apks/5.apk`):
+
+- El fichero **ya está en MinIO**, y es **el mismo** que anuncia `GET /api/version` y el
+  mismo que se baja la APK para actualizarse sola. Una copia en el portal serían dos
+  ficheros que se pueden desincronizar sin que nadie lo note, y el del portal no tiene
+  quien le compruebe el `sha256`.
+- Comprobado desde dentro del servidor: el objeto es **público** y sirve por rangos
+  (`206`, `content-range: bytes 0-0/77646816`), que es justo lo que hace que una descarga
+  de 77 MB termine en la conexión de allá. Subirlo al portal sería repetir 77 MB por la
+  subida por trozos para acabar en el mismo disco.
+
+**Y por eso hay un paso nuevo al publicar una versión.** `url_download` lleva el **nombre
+del fichero**, y los nombres cambian con la versión a propósito (paso 2 de la publicación:
+nunca encima del viejo). Si no se actualiza, el portal se queda ofreciendo el APK anterior
+y **no da ningún error**: da una descarga que funciona y está atrasada, que es la peor
+forma de estar mal. Va con el paso 4, al lado de las cinco variables del anuncio:
+
+Se manda con un heredoc, que evita la pelea de comillas, y **la clave se lee dentro del
+contenedor**: no se copia a ningún fichero ni se escribe aquí.
+
+```bash
+ssh vps 'bash -s' <<'''REMOTE'''
+IP=172.29.0.2
+NUEVA=https://archivos.procovar.cloud/reparto/apk/reparto-<version>-<AAMMDD>.apk
+
+P=$(docker exec procovar-portal-h8x18f-api-1 \
+      sed -n "s/.*ADMIN_PASSWORD = .\(.*\)./\1/p" /app/src/db.js)
+T=$(python3 -c "
+import json,urllib.request,sys
+d=json.dumps({'''username''':'''admin''','''password''':sys.argv[1]}).encode()
+r=urllib.request.Request('''http://$IP:3000/api/auth/login''', data=d,
+                         headers={'''Content-Type''':'''application/json'''})
+print(json.load(urllib.request.urlopen(r))['''token'''])" "$P")
+unset P
+
+curl -s -X PUT "http://$IP:3000/api/admin/applications/12" \
+  -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+  -d "{\"codigo\":\"APP-012\",\"nombre\":\"Reparto\",
+       \"link\":\"https://reparto.procovar.cloud\",
+       \"url_download\":\"$NUEVA\"}"
+REMOTE
+```
+
+Tres cosas de ese `PUT`, sacadas de `server/src/index.js` y `db.js` y no de suponer:
+
+- **`codigo`, `nombre` y `link` son obligatorios** en cada `PUT` o contesta 400, aunque no
+  cambien. Por eso van ahí aunque sólo se toque la URL.
+- **Lo que no se manda no se toca.** `updateApplication` sólo escribe las claves que vienen
+  en el cuerpo, así que la descripción y el `activo` se quedan como estaban.
+- **La imagen igual: sin `imagenDataUrl` se queda la que hay.** Sólo se pierde mandando
+  `clearImage`. No hay que volver a subir el camión cada vez.
+
+Y la comprobación, que se hace **por el dominio público y desde dentro del servidor**, no
+mirando la base:
+
+```bash
+ssh vps 'curl -s https://procovar.cloud/api/applications | grep -o "APP-012[^}]*"'
+```
+
+> **Un despiste que ya está ahí y no es nuestro:** `APP-001` (Pedidos) tiene
+> `url_download = /api/applications/5/apk`, que es el APK de **Domicilio**. Su tarjeta
+> enseña un botón «Descargar APK» que baja la aplicación de otro. Se arregla con el mismo
+> `PUT` de arriba sobre el id 1 y `url_download` vacío. Queda escrito, no tocado: es el
+> registro de otra aplicación.
+
 
 ---
 

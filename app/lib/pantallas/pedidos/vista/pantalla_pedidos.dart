@@ -222,8 +222,23 @@ extension _DireccionDePedidos on _PantallaPedidosState {
     // `replace` y no `go`: cambiar un filtro no es navegar a otro sitio.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (GoRouter.of(context).state.uri.toString() == destino) return;
-      GoRouter.of(context).replace(destino);
+      final enElFotograma = GoRouter.of(context);
+      // SI YA NO ESTAMOS EN PEDIDOS, NO SE TOCA LA DIRECCION — 24/09/2026.
+      //
+      // Esto dejaba el menu de la izquierda MUERTO en cuanto alguien abria
+      // Pedidos: se pulsaba «Rutas», `context.go('/routes')` hacia su trabajo,
+      // y un instante despues este `replace` —encolado desde el ultimo `build`
+      // de una pantalla que todavia no se ha desmontado— volvia a poner
+      // `/orders?...` encima. Desde la silla de quien trabaja: se entra en
+      // Pedidos y **ya no se sale**. Ni error, ni aviso, ni nada; el resto de
+      // la pantalla sigue respondiendo, asi que ni siquiera parece colgada.
+      // Visto dos veces seguidas en el escritorio el 24/09/2026.
+      //
+      // `mounted` NO basta: entre el `go` y este callback la pantalla de antes
+      // sigue montada, que es justo la ventana en la que esto muerde.
+      if (enElFotograma.state.matchedLocation != FiltrosEnLaUrl.camino) return;
+      if (enElFotograma.state.uri.toString() == destino) return;
+      enElFotograma.replace(destino);
     });
   }
 }

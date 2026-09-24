@@ -126,9 +126,21 @@ func De(ctx context.Context) (Identidad, bool) {
 }
 
 // Exigir corta la petición si no hay sesión. El mensaje es el literal de `delivery`.
+//
+// «NO HAY SESIÓN» Y «NO PUDE COMPROBARLO» NO SE CONTESTAN IGUAL, y la diferencia es el
+// día de trabajo de alguien. El cliente trata un 401 que sobrevive a renovar como «la
+// sesión murió» y se va a la pantalla de acceso; un 5xx conserva los tokens y reintenta
+// luego (`docs/identidad.md`, regla 3). Así que un tropiezo del reparto al traducir el
+// código de la sucursal sale como **503**, no como 401: quien está en el patio de un
+// almacén con la cola llena vuelve a intentarlo, no se queda fuera.
 func Exigir(fuente Fuente, siguiente http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, err := fuente(r)
+		if errors.Is(err, ErrNoSePudoComprobar) {
+			httpx.Fallo(w, http.StatusServiceUnavailable,
+				"No se pudo comprobar tu sucursal ahora mismo. Tu sesión sigue valiendo: se reintenta solo.")
+			return
+		}
 		if err != nil {
 			httpx.Fallo(w, http.StatusUnauthorized, "Unauthorized")
 			return

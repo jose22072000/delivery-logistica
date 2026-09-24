@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"procovar/reparto-sync/internal/identidad"
 	"procovar/reparto-sync/internal/sincro"
 )
 
@@ -326,4 +327,66 @@ func motivoDe(datos []byte) string {
 		texto = texto[:500]
 	}
 	return texto
+}
+
+// SucursalPorCodigo traduce el CÓDIGO que firma Accesos (`CAM`) a NUESTRO id.
+//
+// La tabla `branches` es del reparto, no de aquí, y aquí no se copia: una segunda lista de
+// sucursales es una segunda lista que se queda vieja. Ver
+// `api/internal/api/sucursales.go` y `internal/identidad/token.go`.
+//
+// Los tres finales son TRES cosas distintas y se devuelven distintas, porque arriba se
+// contestan distinto:
+//
+//	200  -> el id
+//	404  -> ese código no es de ninguna sucursal: sesión que no vale (401 arriba)
+//	resto o fallo de red -> NO SE SABE: 503 arriba, que conserva los tokens
+func (c *Cliente) SucursalPorCodigo(ctx context.Context, codigo string) (uuid.UUID, error) {
+	q := url.Values{}
+	q.Set("codigo", codigo)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.base+"/api/service/sucursal?"+q.Encode(), nil)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%w: %v", identidad.ErrNoSePudoComprobar, err)
+	}
+	c.cabeceras(req, time.Time{})
+
+	res, err := c.http.Do(req)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%w: %v", identidad.ErrNoSePudoComprobar, err)
+	}
+	defer res.Body.Close()
+	cuerpo, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%w: %v", identidad.ErrNoSePudoComprobar, err)
+	}
+
+	switch res.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		// LA SUCURSAL NO EXISTE AQUÍ. Es un «no» de verdad y se dice como tal: el aparato
+		// no se puede dar de alta y hay que arreglarlo en la oficina. Lo que NO se hace es
+		// dejarle pasar sin sucursal, que en el reparto significa las ocho.
+		return uuid.Nil, fmt.Errorf("%w: la sucursal %q no existe en el reparto",
+			identidad.ErrSinSesion, codigo)
+	default:
+		return uuid.Nil, fmt.Errorf("%w: el reparto contestó %d: %s",
+			identidad.ErrNoSePudoComprobar, res.StatusCode, motivoDe(cuerpo))
+	}
+
+	var sobre struct {
+		ID uuid.UUID `json:"id"`
+	}
+	if err := json.Unmarshal(cuerpo, &sobre); err != nil {
+		return uuid.Nil, fmt.Errorf("%w: no se entendió la respuesta: %v",
+			identidad.ErrNoSePudoComprobar, err)
+	}
+	if sobre.ID == uuid.Nil {
+		// Un uuid en blanco NO es una respuesta buena: guardado en `aparatos.branch_id`
+		// sería un aparato que no es de ninguna sucursal.
+		return uuid.Nil, fmt.Errorf("%w: el reparto devolvió una sucursal vacía para %q",
+			identidad.ErrNoSePudoComprobar, codigo)
+	}
+	return sobre.ID, nil
 }

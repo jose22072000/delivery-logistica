@@ -21,6 +21,7 @@ import 'package:flutter/services.dart' show AssetBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../pantallas/rutas/datos/post_despacho.dart' show noConstaQueBaja;
 import 'estilo.dart';
 import 'hoja.dart';
 import 'piezas.dart';
@@ -52,6 +53,13 @@ abstract final class TextoPostDespacho {
   static const String total = 'Total';
 
   static const String nadaQueda = 'Nada: se entregó todo lo que salió.';
+
+  /// LO QUE NO SE SABE SE DICE. El texto es el MISMO que el de la pantalla
+  /// (`pantallas/rutas/datos/post_despacho.dart`, `noConstaQueBaja`) y por eso
+  /// se delega en vez de copiarse: dos copias de una frase acaban diciendo
+  /// cosas distintas y la que se olvide es la del papel, que es la que firma
+  /// el almacén.
+  static String noConsta(int paradas) => noConstaQueBaja(paradas);
   static const String todoEntregado = 'Todas las paradas se entregaron.';
 
   static const String etiquetaDevuelto = 'Devuelto';
@@ -108,7 +116,9 @@ Future<Uint8List> pdfPostDespacho(
         ),
         _pildoras(h),
         tituloDeSeccion(TextoPostDespacho.seccionQueda),
-        if (filas.isEmpty)
+        if (h.noConstaQueQueda)
+          vacio(TextoPostDespacho.noConsta(h.pendientes.length))
+        else if (filas.isEmpty)
           vacio(TextoPostDespacho.nadaQueda)
         else
           _tabla(filas, totales),

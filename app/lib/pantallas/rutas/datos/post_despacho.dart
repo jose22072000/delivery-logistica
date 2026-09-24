@@ -75,7 +75,35 @@ class HojaPostDespacho {
 
   /// Toda parada que no sea `entregado`, en el orden en que llegaron.
   final List<ParadaDelCierre> pendientes;
+
+  /// SE ENTREGO TODO DE VERDAD, que NO es lo mismo que «no hay lineas que
+  /// enseñar» — y la diferencia es mercancia que se pierde sin que salte nada.
+  ///
+  /// La hoja decia «Nada: se entregó todo lo que salió» en cuanto [lineas]
+  /// venia vacia. Pero [lineas] sale de los RENGLONES de cada pedido, y un
+  /// pedido sin renglones —los hay: en Pedidos salen con «—» en Artículos— no
+  /// aporta ninguno. Asi que una ruta con tres paradas SIN MARCAR y sin
+  /// renglones imprimia, en el papel que firma el almacen, que no queda nada
+  /// arriba y que se entregó todo. Dos lineas mas abajo el mismo papel las
+  /// listaba como «SIN MARCAR». Visto el 24/09/2026.
+  ///
+  /// Es el §4 del `CLAUDE.md` en su forma mas cara: **una respuesta vacia no es
+  /// una respuesta buena**, y aqui el hueco se leia como la afirmacion mas
+  /// tranquilizadora que hay justo encima de dos firmas.
+  bool get seEntregoTodo => pendientes.isEmpty;
+
+  /// Hay paradas que no se entregaron y NO se sabe que llevaban: ninguna trajo
+  /// renglones. No es «no queda nada», es «no consta».
+  bool get noConstaQueQueda => lineas.isEmpty && pendientes.isNotEmpty;
 }
+
+/// LO QUE NO SE SABE SE DICE, y con las mismas palabras en la pantalla y en el
+/// papel. Ver [HojaPostDespacho.noConstaQueQueda].
+String noConstaQueBaja(int paradas) => paradas == 1
+    ? 'Una parada no se entregó y su pedido no trae renglones: NO CONSTA qué '
+          'baja del camión. Cuéntalo a mano contra la lista de abajo.'
+    : '$paradas paradas no se entregaron y sus pedidos no traen renglones: NO '
+          'CONSTA qué baja del camión. Cuéntalo a mano contra la lista de abajo.';
 
 /// **REGLA CLAVE: lo que QUEDA es todo lo que no se entrego** — lo devuelto, lo
 /// cancelado y, sobre todo, lo que nadie marco.

@@ -28,6 +28,11 @@ type querierFalso struct {
 
 	// Fallo que devuelve ResolverSucursal, para la prueba de «la base no contesta».
 	falloAlResolver error
+	// Lo mismo para la búsqueda POR CÓDIGO, que es el camino por el que entra un token
+	// de Accesos de verdad. Va aparte porque son dos consultas distintas y la de arriba
+	// no la toca: con una sola variable, la prueba del fallo por código habría pasado
+	// sin ejecutar nada nuevo.
+	falloAlBuscarPorCodigo error
 
 	// Lo que se vio pasar. Es lo que se comprueba: qué sucursal llegó a cada consulta.
 	sucursalPedida    []pgtype.UUID
@@ -44,6 +49,24 @@ func (q *querierFalso) ResolverSucursal(_ context.Context, id uuid.UUID) (sqlc.R
 		return sqlc.ResolverSucursalRow{}, pgx.ErrNoRows
 	}
 	return fila, nil
+}
+
+// BuscarSucursalPorCodigo es la sucursal por su `external_id` (CAM, HOL, STG...), que es
+// lo que Accesos firma dentro del token. Repite el WHERE del SQL de verdad
+// (`db/queries/branches.sql`): comparación exacta, sin `ilike` y sin recortes.
+func (q *querierFalso) BuscarSucursalPorCodigo(_ context.Context, codigo *string) (sqlc.BuscarSucursalPorCodigoRow, error) {
+	if q.falloAlBuscarPorCodigo != nil {
+		return sqlc.BuscarSucursalPorCodigoRow{}, q.falloAlBuscarPorCodigo
+	}
+	if codigo == nil {
+		return sqlc.BuscarSucursalPorCodigoRow{}, pgx.ErrNoRows
+	}
+	for id, s := range q.sucursales {
+		if s.ExternalID != nil && *s.ExternalID == *codigo {
+			return sqlc.BuscarSucursalPorCodigoRow{ID: id, Name: s.Name, ExternalID: s.ExternalID}, nil
+		}
+	}
+	return sqlc.BuscarSucursalPorCodigoRow{}, pgx.ErrNoRows
 }
 
 // ListarVehiculos repite el WHERE del SQL de verdad (`db/queries/vehicles.sql`): sin

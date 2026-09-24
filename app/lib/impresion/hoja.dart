@@ -158,6 +158,17 @@ class HojaPostDespacho {
   /// empaques fraccionados un resto de coma flotante no puede ensuciar la hoja.
   List<LineaPostDespacho> get lineasConResto =>
       lineas.where((l) => l.queda > 0.0001).toList(growable: false);
+
+  /// HAY PARADAS SIN ENTREGAR Y NO SE SABE QUE LLEVABAN — 24/09/2026.
+  ///
+  /// La tabla sale de los RENGLONES de cada pedido, y un pedido sin renglones
+  /// —los hay, y en Pedidos salen con «—» en Artículos— no aporta ninguna. La
+  /// hoja imprimia entonces «Nada: se entregó todo lo que salió» en el papel
+  /// que firma el almacen, con tres paradas SIN MARCAR listadas dos lineas mas
+  /// abajo. Un hueco leido como la afirmacion mas tranquilizadora que hay.
+  ///
+  /// «No hay lineas» no es «no queda nada»: es **no consta**, y se dice.
+  bool get noConstaQueQueda => lineasConResto.isEmpty && pendientes.isNotEmpty;
 }
 
 /// Los totales del pie de cada tabla, apartados del dibujo para poder probarlos

@@ -121,6 +121,10 @@ func (s *Servidor) Rutas() http.Handler {
 	rt.ManejarFunc(http.MethodGet, "/api/branches/{id}", s.obtenerSucursal, sesion...)
 	rt.ManejarFunc(http.MethodPatch, "/api/branches/{id}", s.actualizarSucursal, admin...)
 	rt.ManejarFunc(http.MethodDelete, "/api/branches/{id}", s.borrarSucursal, admin...)
+	// La traducción del CÓDIGO de Accesos a nuestro id, para `reparto-sync`. Va con
+	// clave de servicio porque quien pregunta es el paso que resuelve la identidad y
+	// por tanto todavía no tiene ninguna. El porqué entero, en `sucursales.go`.
+	rt.ManejarFunc(http.MethodGet, "/api/service/sucursal", s.sucursalPorCodigo, s.mediosDeServicio()...)
 
 	// Vehículos.
 	rt.ManejarFunc(http.MethodGet, "/api/vehicles", s.listarVehiculos, sesion...)

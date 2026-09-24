@@ -51,11 +51,59 @@ final servicioTableroProvider = Provider<ServicioTablero>(
 /// se mide desde el almacen de una sucursal, asi que un tablero de las diez
 /// mezcladas ordenaria los pedidos de Holguin por su distancia al almacen de
 /// Santiago (§2).
+/// LO QUE EL TOKEN TRAE ES EL CODIGO, NO EL ID — 24/09/2026.
+///
+/// `Sesion.sucursalId` sale del token de Accesos, y ahi la sucursal va con su
+/// CODIGO: `CAM`, `HAB`, `STG` (`nucleo/identidad/sesion.dart`, y del otro lado
+/// `apk-tokens.ts`). Aqui, en cambio, todo va por el id del reparto: las
+/// columnas, las tarjetas, el nombre de la sucursal, su almacen y los camiones
+/// se leen de la base local por `branches.id`, que es un uuid.
+///
+/// Devolver el codigo tal cual hacia que el Tablero **no se abriera**, y sin
+/// decir nada: `GET /api/board?branchId=CAM` contesta 404 —«un id que ni
+/// siquiera es un uuid es el mismo caso que uno que ya no esta»— y las lecturas
+/// locales no encontraban ni la sucursal ni sus columnas. Desde la silla de
+/// quien trabaja: pulsas «Tablero» y no pasa nada. Ni una pantalla de error, ni
+/// un aviso, ni una rueda. Se vio el primer dia que se pudo entrar con el
+/// Accesos de verdad levantado en el portatil.
+///
+/// La traduccion se hace igual que en el resto del aparato —«se traduce con
+/// `branches.external_id` y no se adivina», `nucleo/almacenes/almacen_de_referencia.dart`—
+/// y si no hay con que traducir **no se inventa**: se devuelve `null`, que es
+/// «todavia no se sabe cual», y no el codigo, que seria un id falso.
+/// SOLO SE TRADUCE LO DE LA SESION, y no lo que se elige arriba.
+///
+/// Son dos cosas distintas aunque viajen por el mismo hueco:
+///
+///  * **Lo que elige arriba un Super Admin** sale de la lista de sucursales que
+///    sirve el servidor, asi que YA es un id del reparto. Va tal cual: si el
+///    aparato todavia no tiene esa sucursal bajada, preguntarsela al servidor es
+///    exactamente lo que hay que hacer, y traducirla contra una copia que no la
+///    tiene la dejaria en `null` — el tablero se quedaria mudo al cambiar de
+///    sucursal, que es justo lo que caza
+///    `el_filtro_no_pide_al_servidor_test.dart`.
+///  * **La de la sesion** es un CODIGO (`CAM`), y esa si hay que traducirla.
+Future<String?> _idDeLaSesion(BaseLocal base, String codigoOId) async {
+  // Una sesion guardada de antes —o la de la web— puede traer ya el id. Se
+  // respeta: lo que se busca es el id del reparto, venga escrito como venga.
+  final porId = await (base.select(
+    base.branches,
+  )..where((b) => b.id.equals(codigoOId))).getSingleOrNull();
+  if (porId != null) return porId.id;
+
+  final porCodigo = await (base.select(
+    base.branches,
+  )..where((b) => b.externalId.equals(codigoOId))).getSingleOrNull();
+  return porCodigo?.id;
+}
+
 final sucursalDelTableroProvider = FutureProvider<String?>((ref) async {
   final mirada = ref.watch(sucursalMiradaProvider);
   if (mirada != null && mirada.isNotEmpty) return mirada;
   final sesion = await ref.watch(almacenSesionProvider).leer();
-  return sesion?.sucursalId;
+  final suya = sesion?.sucursalId;
+  if (suya == null || suya.isEmpty) return null;
+  return _idDeLaSesion(ref.watch(baseProvider), suya);
 });
 
 /// Los filtros de la mitad izquierda.

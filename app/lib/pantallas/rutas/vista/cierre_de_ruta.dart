@@ -599,7 +599,16 @@ class _QuedaEnElCamion extends StatelessWidget {
             ?.copyWith(fontWeight: FontWeight.bold),
       ),
       const SizedBox(height: 6),
-      if (hoja.lineas.isEmpty)
+      // «Sin lineas» NO es «nada queda»: un pedido sin renglones no aporta
+      // ninguna, y decir que se entregó todo encima de tres paradas sin marcar
+      // es el numero creible y equivocado que nadie desmiente. Ver
+      // `HojaPostDespacho.seEntregoTodo`.
+      if (hoja.noConstaQueQueda)
+        Text(
+          noConstaQueBaja(hoja.pendientes.length),
+          style: Tipos.texto(tamano: 13, color: Colores.ambar, alto: 1.5),
+        )
+      else if (hoja.lineas.isEmpty)
         const Text('Nada: se entregó todo lo que salió.')
       else
         Wrap(

@@ -1,0 +1,92 @@
+# ACCESOS EN EL PORTATIL: lo unico que le faltaba al entorno local del reparto.
+# Sin esto no se puede ENTRAR en la aplicacion de escritorio ni en la APK.
+#
+#   docker compose -f deploy/accesos-local/docker-compose.yml up -d --build
+#
+# Va en la MISMA red que el reparto (`reparto_default`) y no en el host, y eso no
+# es un detalle: `reparto-api` le pide a Accesos los almacenes y la tasa, y desde
+# un contenedor no se llega al 127.0.0.1 del portatil (el cortafuegos del equipo
+# tira lo que sale del puente de docker hacia el host). Con Accesos DENTRO de la
+# red, todo se habla por nombre de servicio y no hace falta tocar el cortafuegos.
+#
+# La base va en el Postgres que ya esta (reparto-postgres-1) con una base aparte
+# `procovar_auth`: la regla de la casa es un motor y muchas bases.
+#
+#   crear la base, una vez:
+#     docker exec reparto-postgres-1 psql -U reparto -d postgres \
+#       -c "CREATE DATABASE procovar_auth OWNER reparto;"
+#
+# TODAS las claves de aqui son de mentira y estan a la vista a proposito.
+name: accesos-local
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Redis con centinela. DOS contenedores porque Accesos no sabe hablar de otra
+  # forma: `src/lib/redis.ts` revienta si `REDIS_SENTINELS` viene vacia, y eso
+  # es lo mismo que pasa en produccion (`procovar-sentinel`).
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    volumes:
+      - ./redis.conf:/etc/redis/redis.conf:ro
+    networks: [reparto]
+    restart: unless-stopped
+
+  sentinel:
+    image: redis:7-alpine
+    # El centinela REESCRIBE su fichero, por eso se copia a un sitio suyo antes
+    # de arrancar: montado de solo lectura se muere al primer cambio de estado.
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf"]
+    volumes:
+      - ./sentinel.conf:/etc/redis/sentinel.conf:ro
+    networks: [reparto]
+    depends_on: [redis]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Accesos. El repo `procovar/auth`, con su propio Dockerfile.
+  # ---------------------------------------------------------------------------
+  accesos:
+    build:
+      context: ../../../auth
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://reparto:reparto@postgres:5432/procovar_auth?sslmode=disable
+      # EL MISMO que el de `api` y `sync` del reparto, y no es un detalle: la API
+      # del reparto verifica con `crypto/hmac` el token que firma Accesos. Dos
+      # secretos distintos dan 401 en todo sin decir por que.
+      JWT_SECRET: secreto-de-desarrollo-de-mas-de-32-caracteres
+      BETTER_AUTH_SECRET: secreto-better-auth-local-de-mentira-32
+      CALLBACK_SECRET: secreto-callback-local-de-mentira-32-ok
+      SERVICE_AUTH_SECRET: secreto-de-servicio-local-de-mentira-32
+      BEARER_TOKEN: bearer-local-de-mentira-para-el-portatil
+      SERVICE_AUTH_MAX_SKEW: "300"
+      APP_NAME: Accesos (local)
+      APP_URL: http://127.0.0.1:3500
+      ROOT_DOMAIN: localhost
+      SUPPORT_EMAIL: nadie@procovar.local
+      # De donde puede llamar un NAVEGADOR. La aplicacion de escritorio no manda
+      # `Origin`, asi que esto es solo para la web del reparto en local.
+      ORIGENES_APP: http://localhost:8082,http://127.0.0.1:8082
+      REDIS_MASTER_NAME: procovar
+      REDIS_SENTINELS: sentinel:26379
+      REDIS_PASSWORD: redis-local-de-mentira
+      REDIS_PREFIX: "accesos-local:"
+      REDIS_DB_DEFAULT: "4"
+      REDIS_DB_LOCKS: "5"
+      REDIS_DB_SESSIONS: "6"
+      REDIS_DB_CACHE: "7"
+      QB_AUTH_JWKS_CACHE_TTL_SECONDS: "300"
+    ports:
+      - "127.0.0.1:3500:3500"
+    networks: [reparto]
+    depends_on: [redis, sentinel]
+    restart: unless-stopped
+
+networks:
+  reparto:
+    external: true
+    name: reparto_default

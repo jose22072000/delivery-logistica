@@ -36,6 +36,16 @@ func (a *Acotado) ListarSucursalesVisibles(ctx context.Context) ([]sqlc.ListarSu
 	return a.q.ListarSucursales(ctx, a.personaPg())
 }
 
+// BuscarSucursalPorCodigo traduce el código de Accesos (`CAM`, `HOL`…) a NUESTRO id.
+//
+// NO LLEVA ALCANCE, y es lo correcto: es la misma consulta que usa `Porteria.Resolver`
+// para saber QUÉ acotar, así que acotarla con lo que todavía no se ha resuelto sería una
+// pescadilla. Lo que devuelve —el id, el nombre y el código de una sucursal— no es dato
+// de nadie: la lista entera ya la da `/api/branches` a cualquiera con sesión.
+func (a *Acotado) BuscarSucursalPorCodigo(ctx context.Context, codigo string) (sqlc.BuscarSucursalPorCodigoRow, error) {
+	return a.q.BuscarSucursalPorCodigo(ctx, &codigo)
+}
+
 func (a *Acotado) ObtenerSucursal(ctx context.Context, id uuid.UUID) (sqlc.Branch, error) {
 	return a.q.ObtenerSucursal(ctx, sqlc.ObtenerSucursalParams{ID: id, Sucursal: a.sucursalPg()})
 }

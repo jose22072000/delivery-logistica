@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -286,4 +287,65 @@ func direccionDeOrigen(b sqlc.Branch) string {
 		return *b.Address
 	}
 	return fmt.Sprintf("%g, %g", b.Lat, b.Lng)
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/service/sucursal?codigo=CAM — traducir el código a NUESTRO id.
+//
+// # Por qué existe
+//
+// Accesos firma dentro del token el CÓDIGO de la sucursal (`CAM`, `HOL`, `STG`), que es
+// la única clave que cruza los cinco sistemas: los identificadores internos de cada
+// aplicación no se parecen en nada. Aquí, en cambio, todo cuelga de `branches.id`, que es
+// un uuid nuestro.
+//
+// `reparto-api` puede traducirlo él solo porque la tabla es suya (`internal/alcance`).
+// `reparto-sync` NO: tiene su propia base y ahí no hay sucursales. Y la necesita de
+// verdad — `POST /sync/aparato` guarda `branch_id` — así que hacía `uuid.Parse("CAM")`,
+// fallaba, y contestaba **401 a todo lo del protocolo**. Lo que eso provoca aguas arriba
+// está escrito en `sync/internal/identidad/token.go` y ya pasó el 16/09/2026: el cliente
+// trata un 401 que sobrevive a renovar como «la sesión murió», así que echa a la persona
+// a la pantalla de acceso **justo cuando vuelve la señal**, con el día del almacén dentro
+// del aparato y sin haber subido nada.
+//
+// # Por qué con clave de servicio y no con la sesión de quien pide
+//
+// Porque quien pregunta es el sincronizador **antes** de saber quién llama: es el paso
+// que resuelve la identidad, así que no puede exigir una. La clave es la misma que ya
+// comparten los dos servicios (`SERVICE_API_KEY`), y lo que se devuelve —el id de una
+// sucursal y su nombre— no es dato de nadie.
+//
+// Devuelve 404 cuando el código no es de ninguna. Eso NO se trata como «todas» en el
+// sincronizador: allí no hay nada que enseñar de más, sólo un aparato que no se puede dar
+// de alta, y decirlo es lo correcto.
+
+// SucursalPorCodigoSalida es lo justo: quien pregunta sólo necesita el id.
+type SucursalPorCodigoSalida struct {
+	ID         uuid.UUID `json:"id"`
+	Name       string    `json:"name"`
+	ExternalID *string   `json:"externalId"`
+}
+
+func (s *Servidor) sucursalPorCodigo(w http.ResponseWriter, r *http.Request) {
+	a, ok := acotado(w, r)
+	if !ok {
+		return
+	}
+	codigo := strings.TrimSpace(r.URL.Query().Get("codigo"))
+	if codigo == "" {
+		httpx.Error(w, r, http.StatusBadRequest, "Falta el código de la sucursal")
+		return
+	}
+	fila, err := a.BuscarSucursalPorCodigo(r.Context(), codigo)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		httpx.Error(w, r, http.StatusNotFound, httpx.MsgNoEncontrado)
+		return
+	case err != nil:
+		httpx.ErrorInterno(w, r, err)
+		return
+	}
+	httpx.JSON(w, r, http.StatusOK, SucursalPorCodigoSalida{
+		ID: fila.ID, Name: fila.Name, ExternalID: fila.ExternalID,
+	})
 }

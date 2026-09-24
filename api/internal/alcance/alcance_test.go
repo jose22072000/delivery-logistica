@@ -376,3 +376,114 @@ func TestLaTransaccionHeredaElAlcance(t *testing.T) {
 		t.Fatalf("dentro de la transacción se perdió el alcance: %v", q.sucursalPedida)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// EL TOKEN DE ACCESOS TRAE EL CÓDIGO, NO EL UUID — 24/09/2026
+//
+// Las pruebas de arriba meten un `uuid` en `Usuario.Sucursal` porque eso es lo que el
+// código suponía. Lo que llega de verdad es el CÓDIGO: Accesos firma `sucursal: "CAM"`
+// tanto en el token de la APK y del escritorio (`apk-tokens.ts`) como en el de la web
+// (`auth_web.go`). Con `uuid.Parse("CAM")` fallando, el alcance se iba al «no existe ->
+// todas» y un ADMINISTRADOR de Camagüey veía las tres sucursales de la base local —46
+// pedidos en vez de sus 19—, con 200 y sin un error en ningún sitio.
+//
+// Van EN PAREJA a propósito: una que acota cuando el código es bueno, y otra que NO
+// acota —y avisa— cuando no lo es. Sin la segunda, «devolver siempre la primera
+// sucursal» pasaría la primera.
+// ---------------------------------------------------------------------------
+
+func TestElCodigoDeSucursalDeAccesosAcota(t *testing.T) {
+	q := base()
+	p, registro := porteria(q)
+
+	// Tal cual lo firma Accesos: el código, no el uuid.
+	u := &auth.Usuario{ID: "p-20", Email: "stg@procovar.cu", Rol: "ADMINISTRADOR", Sucursal: "STG"}
+	a, err := p.Resolver(context.Background(), u, "")
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if a.Todas() {
+		t.Fatal("un ADMINISTRADOR con su código de sucursal NO puede ver las ocho: es la regla 1 de la casa")
+	}
+
+	vs, err := a.ListarVehiculos(context.Background())
+	if err != nil {
+		t.Fatalf("listar: %v", err)
+	}
+	// El de Santiago y el compartido. El de Holguín NO.
+	for _, n := range nombres(vs) {
+		if strings.Contains(n, "Holguín") {
+			t.Fatalf("Santiago llegó a un vehículo de Holguín: %v", nombres(vs))
+		}
+	}
+	if len(vs) != 2 {
+		t.Fatalf("esperaba 2 vehículos (el suyo y el compartido), salieron %d: %v", len(vs), nombres(vs))
+	}
+	// Y la consulta tiene que haber recibido el UUID de Santiago, no un NULL ni otro.
+	if !q.sucursalPedida[0].Valid || uuid.UUID(q.sucursalPedida[0].Bytes) != stg {
+		t.Fatalf("a la consulta le llegó %v, y tenía que llegarle %s", q.sucursalPedida[0], stg)
+	}
+	if strings.Contains(registro.String(), "no existe") {
+		t.Fatalf("un código bueno no puede dejar el aviso de «no existe»: %q", registro.String())
+	}
+}
+
+func TestUnCodigoQueNoEsDeNadieAvisaYNoAcotaACero(t *testing.T) {
+	q := base()
+	p, registro := porteria(q)
+
+	u := &auth.Usuario{ID: "p-21", Email: "nadie@procovar.cu", Rol: "ADMINISTRADOR", Sucursal: "XXX"}
+	a, err := p.Resolver(context.Background(), u, "")
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if !a.Todas() {
+		t.Fatal("un código desconocido se trata como una sucursal que ya no está: todas y aviso, nunca cero")
+	}
+	if !strings.Contains(registro.String(), "[alcance] la sucursal XXX de nadie@procovar.cu no existe: se le enseñan todas") {
+		t.Fatalf("falta el aviso; quedó: %q", registro.String())
+	}
+}
+
+// «No pude comprobarlo» no es «no existe», también por este camino. Si un fallo de la
+// base al buscar el código abriera el alcance, medio segundo de Postgres caído enseñaría
+// las ocho sucursales a un operador — que es justo lo que la prueba hermana del uuid ya
+// impide.
+func TestFalloDeLaBaseAlBuscarElCodigoNoAbreElAlcance(t *testing.T) {
+	q := base()
+	q.falloAlBuscarPorCodigo = errBaseCaida
+	p, _ := porteria(q)
+
+	u := &auth.Usuario{ID: "p-22", Rol: "OPERADOR", Sucursal: "STG"}
+	a, err := p.Resolver(context.Background(), u, "")
+	if err == nil {
+		t.Fatalf("un fallo de la base tiene que ser un 500, y devolvió alcance todas=%v", a.Todas())
+	}
+}
+
+// El Super Admin que elige sucursal ARRIBA manda un código por la cabecera, no un uuid:
+// es el mismo selector que pinta `/api/branches`, y lo que la aplicación guarda es lo
+// que Accesos le dio. Si sólo se resolviera el código de la persona, elegir Holguín
+// seguiría enseñándolo todo.
+func TestElSuperAdminTambienPuedeElegirPorCodigo(t *testing.T) {
+	q := base()
+	p, _ := porteria(q)
+
+	u := &auth.Usuario{ID: "p-23", Rol: "SUPER ADMIN"} // sin sucursal propia
+	a, err := p.Resolver(context.Background(), u, "HOL")
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if a.Todas() {
+		t.Fatal("eligió Holguín y siguió viéndolas todas")
+	}
+	vs, err := a.ListarVehiculos(context.Background())
+	if err != nil {
+		t.Fatalf("listar: %v", err)
+	}
+	for _, n := range nombres(vs) {
+		if strings.Contains(n, "Santiago") {
+			t.Fatalf("eligiendo Holguín salió un camión de Santiago: %v", nombres(vs))
+		}
+	}
+}

@@ -79,7 +79,12 @@ func arrancar(log *slog.Logger) error {
 	// de un proxy que ya lo haya verificado. El porqué largo, en `internal/identidad`.
 	fuente := identidad.DeCabeceras
 	if cfg.Identidad == "token" {
-		fuente = identidad.DeToken([]byte(cfg.JWTSecreto))
+		// LA SUCURSAL DEL TOKEN VIENE COMO CÓDIGO (`CAM`), no como uuid, y aquí no hay
+		// tabla de sucursales: la traduce el reparto, y el caché evita una ida y vuelta
+		// por cada apunte de una cola de ocho horas. El porqué entero, en
+		// `internal/identidad/token.go`.
+		codigos := identidad.NuevoCache(cliente.SucursalPorCodigo, time.Hour)
+		fuente = identidad.DeToken([]byte(cfg.JWTSecreto), codigos.Resolver)
 	}
 	publico.Handle("/sync/", identidad.Exigir(fuente, mux))
 	publico.HandleFunc("GET /salud", func(w http.ResponseWriter, r *http.Request) {
