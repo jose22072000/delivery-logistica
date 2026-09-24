@@ -1,11 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../diseno/colores.dart';
 import '../../../diseno/tema.dart';
+import '../../../mapa/anuncio_de_mapa.dart' show enMegas;
+import '../../../navegacion/aviso_de_version_nueva.dart'
+    show abridorDeLaDescargaProvider;
 import '../../../navegacion/portero.dart';
 import '../../../nucleo/identidad/entrada_por_accesos.dart';
 import '../../../nucleo/plataforma.dart';
+import '../datos/oferta_de_la_puerta.dart';
 import '../datos/servicio_acceso.dart';
 import '../estado/estado_acceso.dart';
 
@@ -141,6 +147,11 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
     // normal. **Ni se pinta ni se pregunta**: la comprobación del almacén es una
     // ida y vuelta de verdad, y aquí no la paga nadie.
     final hayPromesaDeDiaSinSenal = ref.watch(trabajaSinConexionProvider);
+    // LA OTRA CARA DE LO MISMO: `trabajaSinConexion` es `false` **solo** en la
+    // web (`nucleo/plataforma.dart`). Con nombre porque lo que se decide con
+    // ella aqui abajo no tiene nada que ver con ninguna promesa: son las dos
+    // salidas de la puerta.
+    final esLaWeb = !hayPromesaDeDiaSinSenal;
     // LA PROMESA, comprobada. Ver `nucleo/identidad/almacen_sesion.dart`.
     //
     // En web se le pregunta al almacén **sólo si ya falló de verdad**: nada de
@@ -312,12 +323,108 @@ class _PantallaAccesoState extends ConsumerState<PantallaAcceso> {
                       style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
                     ),
                   ],
+                  // LAS DOS SALIDAS DE LA PUERTA — **SOLO EN LA WEB**.
+                  //
+                  // El porque entero, destino por destino, esta en
+                  // `../datos/oferta_de_la_puerta.dart`. En dos lineas: la web
+                  // es el unico sitio donde la aplicacion NO esta instalada, y
+                  // el unico donde quien mira ya esta en un navegador.
+                  //
+                  // Este `if` es **la** linea que separa los destinos, y es la
+                  // que se rompe para comprobar que hay pruebas que lo cazan
+                  // (`test/pantallas/acceso/salidas_de_la_puerta_test.dart`).
+                  // Ademas de decidir, evita la peticion: en la APK y en el
+                  // escritorio `ofertaDeLaPuertaProvider` no llega a
+                  // construirse, asi que no sale nada a la red desde la puerta.
+                  if (esLaWeb) ...[
+                    const SizedBox(height: Aire.xl),
+                    const _SalidasDeLaPuerta(),
+                  ],
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// BAJARSE LA APLICACION E IRSE AL PORTAL, debajo del formulario de la web.
+///
+/// Van juntas y debajo de «Entrar» porque son lo segundo: quien llega aqui viene
+/// a entrar. Separadas por una linea para que no se lean como parte del
+/// formulario.
+class _SalidasDeLaPuerta extends ConsumerWidget {
+  const _SalidasDeLaPuerta();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // `asData?.value`: mientras la pregunta esta en vuelo no se pinta nada, y si
+    // fallo tampoco. No hay rueda ni hueco reservado — nadie esta esperando
+    // esto, y un sitio que parpadea debajo del boton de entrar mueve el boton
+    // bajo el dedo de quien iba a pulsarlo.
+    final oferta = ref.watch(ofertaDeLaPuertaProvider).asData?.value;
+    // El mismo abridor que usa el aviso de version nueva, y por el mismo motivo:
+    // dentro de una prueba no hay sistema operativo al otro lado, y lo que hay
+    // que poder comprobar es **que se pidio abrir ese enlace**.
+    final abrir = ref.read(abridorDeLaDescargaProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Divider(color: Colores.linea, height: 1),
+        const SizedBox(height: Aire.lg),
+        // SIN ANUNCIO NO HAY BOTON. Nada de un enlace muerto ni de un boton
+        // apagado con una explicacion: nadie vino a descargarse nada.
+        if (oferta != null) ...[
+          OutlinedButton.icon(
+            onPressed: () => unawaited(abrir(oferta.enlace)),
+            icon: const Icon(Icons.download_outlined, size: 18),
+            // EL TAMANO VA EN EL BOTON, no en la letra de debajo. Son ~77 MB, y
+            // con la conexion de alla pulsar sin saberlo es la tarde de datos de
+            // alguien. Y «para Android» tambien va en el boton: esta pagina se
+            // abre igual desde un ordenador, y ahi este fichero no sirve.
+            label: Text(
+              switch (oferta.bytes) {
+                final int b => 'Descargar la aplicación para Android '
+                    '(${enMegas(b)})',
+                // Una api anterior al 22/09/2026 no manda `ficheros`. No se
+                // inventa un numero ni se escribe «? MB»: se dice abajo que no
+                // se sabe.
+                null => 'Descargar la aplicación para Android',
+              },
+            ),
+          ),
+          const SizedBox(height: Aire.xs),
+          Text(
+            'Versión ${oferta.version}. Se descarga el APK; ábrelo en el '
+            'teléfono para instalarlo. La aplicación instalada trabaja sin '
+            'señal; esta página, no.',
+            style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
+          ),
+          if (oferta.bytes == null) ...[
+            const SizedBox(height: Aire.xs),
+            Text(
+              'El servidor no dice cuánto pesa: bájalo con wifi.',
+              style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
+            ),
+          ],
+          const SizedBox(height: Aire.md),
+        ],
+        // EL PORTAL NO DEPENDE DE LA API, asi que sale siempre — tambien el dia
+        // que no haya nada colgado o el servidor no conteste.
+        TextButton.icon(
+          onPressed: () => unawaited(abrir(enlaceDelPortal)),
+          icon: const Icon(Icons.open_in_new, size: 18),
+          label: const Text('Ir a procovar.cloud'),
+        ),
+        const SizedBox(height: Aire.xs),
+        Text(
+          'El portal de Procovar: desde ahí se entra a las demás aplicaciones.',
+          style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
+        ),
+      ],
     );
   }
 }
