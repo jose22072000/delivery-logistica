@@ -18,6 +18,7 @@ import 'identidad/almacen_sesion.dart';
 import 'identidad/renovador.dart';
 import 'plataforma.dart';
 import 'red/cliente_api.dart';
+import 'red/escritura_en_vivo.dart';
 import 'red/entorno.dart';
 import 'red/eventos.dart';
 import 'red/fallos.dart';
@@ -273,6 +274,26 @@ final clienteSyncProvider = Provider<ClienteApi>(
   (ref) => _cliente(ref, Entorno.syncUrl),
 );
 
+/// LA ESCRITURA EN VIVO: **solo en la web**, y ahi siempre.
+///
+/// Es el unico sitio donde se decide, y por eso la decision es una linea:
+/// `trabajaSinConexion` es `true` en la APK y en el escritorio —los que se van
+/// al patio de un almacen con el dia dentro— y `false` en un navegador. Quien
+/// escribe (`pantallas/rutas/datos/acciones_rutas.dart`,
+/// `pantallas/tablero/datos/repositorio.dart`) no pregunta por el destino: le
+/// llega esto o le llega `null`, y asi una prueba puede ejercitar los dos mundos
+/// sin compilar para web.
+///
+/// El porque entero esta en `nucleo/red/escritura_en_vivo.dart`. En dos lineas:
+/// la cola de la web sale por `/sync`, alli hace falta un aparato dado de alta,
+/// en un navegador no hay par de tokens que dar de alta y el alta contestaba
+/// 401 — asi que la web no escribia NADA y no lo decia.
+final escrituraEnVivoProvider = Provider<EscrituraEnVivo?>(
+  (ref) => ref.watch(trabajaSinConexionProvider)
+      ? null
+      : EscrituraEnVivo(ref.watch(clienteApiProvider)),
+);
+
 /// LA BAJADA DEL DIA. Se dispara al entrar y despues de subir la cola.
 final bajadaProvider = Provider<Bajada>(
   (ref) => Bajada(
@@ -389,12 +410,33 @@ class LaSalud extends Notifier<SaludDeLaRed> {
     // esto, con el modo avión puesto había que esperar a que tres peticiones se
     // cayeran: dos minutos con el Panel diciendo «Los datos son de ahora
     // mismo». Ver `SaludDeLaRed.sinInterfaz`.
+    //
+    // Y SE CREE TAMBIÉN AL NACER, no sólo al cambiar — 22/09/2026. El caso del
+    // repartidor no es «se va la red con la aplicación abierta»: es **abrir la
+    // aplicación con el modo avión ya puesto**, saliendo del almacén sin
+    // cobertura. Ahí no hay ningún cambio que avisar, porque el sistema ya
+    // estaba diciendo que no hay interfaz antes de que nadie preguntara; si esto
+    // sólo escuchara los cambios, la salud nacería «bien» y se quedaría así
+    // hasta que alguien pidiera algo y se cayera.
+    //
+    // Por eso el `fireImmediately`, y por eso lo de `naciendo`: durante `build`
+    // TODAVÍA NO HAY `state`. Leerlo ahí dentro revienta con «Tried to read the
+    // state of an uninitialized provider», y escribirlo no serviría de nada
+    // porque el `return` de abajo lo pisaría. Así que mientras se nace, el
+    // estado se lleva en la mano y se devuelve; después ya es `state`.
+    var naciendo = true;
+    var alNacer = SaludDeLaRed.bienDeSalida;
     ref.listen<AsyncValue<bool>>(hayRedProvider, (_, ahora) {
       final hay = ahora.value;
       if (hay == null) return;
+      if (naciendo) {
+        alNacer = hay ? alNacer.conInterfaz() : alNacer.sinRed();
+        return;
+      }
       state = hay ? state.conInterfaz() : state.sinRed();
     }, fireImmediately: true);
-    return SaludDeLaRed.bienDeSalida;
+    naciendo = false;
+    return alNacer;
   }
 
   /// Lo llama el ciclo al acabar, TODOS los ciclos — tambien los que dispara el

@@ -483,6 +483,22 @@ void main() {
   ) async {
     await sembrarLoBasico();
     await sembrarPedidos(3);
+    // CON RENGLONES, que sin ellos no hay hoja. `sembrarPedidos` siembra
+    // pedidos pelados, y desde el 22/09/2026 `Ver e imprimir` está apagado
+    // mientras el pre-despacho no tenga ni una línea: es la misma regla que ya
+    // tenía Pedidos —«una hoja en blanco no es una hoja»— aplicada también
+    // aquí, porque los dos botones abren el MISMO cajón. Antes el del asistente
+    // se encendía con cero productos y sacaba una hoja vacía.
+    for (var i = 0; i < 3; i++) {
+      await sembrarRenglon(
+        base,
+        id: 'ri$i',
+        pedidoId: 'p$i',
+        producto: 'MALTA GUAJIRA 1500 ML BLISTER 6U',
+        unidades: 10,
+        empaques: 2,
+      );
+    }
     await pintar(tester, pantalla: const Size(390, 844));
     await llegarAlPaso4(tester);
 
@@ -495,7 +511,11 @@ void main() {
     await hastaElFinalDelPaso(tester);
     await tester.tap(find.byKey(AsistenteNuevaRuta.claveDelBotonDePreDespacho));
     await asentar(tester);
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Ver e imprimir'));
+    // `Ver e imprimir` vive ahora en el PIE del cajon del pre-despacho, y es un
+    // `FilledButton`: el cajon es el mismo que abre el boton de Pedidos
+    // (`pedidos/vista/vista_pre_despacho.dart`), para que los dos caminos no
+    // lleven a dos papeles distintos para el mismo almacen.
+    await tester.tap(find.widgetWithText(FilledButton, 'Ver e imprimir'));
     await asentar(tester);
 
     final hoja = find.byType(VistaPreviaPdf);

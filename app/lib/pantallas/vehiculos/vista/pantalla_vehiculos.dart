@@ -6,6 +6,7 @@ import 'package:reparto/nucleo/frescura/copia_bajada.dart';
 import 'package:reparto/nucleo/plataforma.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
+import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/cajon.dart';
 import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/tema.dart';
@@ -32,14 +33,7 @@ class PantallaVehiculos extends ConsumerStatefulWidget {
 }
 
 class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
-  final _buscador = TextEditingController();
   bool _guardando = false;
-
-  @override
-  void dispose() {
-    _buscador.dispose();
-    super.dispose();
-  }
 
   AjustesDeLaApi get _ajustes =>
       ref.read(ajustesVehiculosProvider).value ??
@@ -186,21 +180,15 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              SizedBox(
-                width: 220,
-                child: TextField(
-                  controller: _buscador,
-                  onChanged: (t) {
-                    ref.read(busquedaVehiculosProvider.notifier).poner(t);
-                    ref.read(paginaVehiculosProvider.notifier).poner(1);
-                  },
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    hintText: 'Buscar',
-                    prefixIcon: Icon(Icons.search, size: 18),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
+              // La caja de la casa. Antes consultaba en CADA letra y no tenia
+              // respiro ninguno: la misma caja en cinco pantallas y cinco
+              // comportamientos distintos.
+              CajaDeBusqueda(
+                valor: ref.watch(busquedaVehiculosProvider),
+                alBuscar: (t) {
+                  ref.read(busquedaVehiculosProvider.notifier).poner(t);
+                  ref.read(paginaVehiculosProvider.notifier).poner(1);
+                },
               ),
               OutlinedButton(
                 onPressed: _abrirTipos,

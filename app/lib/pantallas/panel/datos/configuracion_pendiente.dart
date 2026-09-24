@@ -52,6 +52,7 @@ library;
 
 import 'package:drift/drift.dart';
 
+import '../../../nucleo/almacenes/almacen_de_referencia.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/frescura/primera_bajada.dart';
 
@@ -309,14 +310,16 @@ SELECT
   EXISTS (
     SELECT 1 FROM vehicles v WHERE v.branch_id = b.id
   ) AS con_vehiculo,
-  -- EL MISMO FILTRO QUE EL PASO 2 DEL ASISTENTE: activo y con coordenadas. Un
-  -- almacen sin punto no sirve para medir, asi que no cuenta como almacen.
+  -- LAS MISMAS CONDICIONES QUE EL TABLERO Y QUE CLIENTES, porque es la misma
+  -- pregunta: «¿hay un almacen del que salir?». No se escriben aqui: se
+  -- interpolan de `AlmacenDeReferencia`, que es donde viven, para que no puedan
+  -- separarse. Se separaron —a este le faltaba descartar el (0,0)— y el 22/09/2026
+  -- el Panel decia ✓ donde el Tablero decia que no habia tablero.
   EXISTS (
     SELECT 1 FROM warehouses w
      WHERE b.external_id IS NOT NULL
        AND w.sucursal_codigo = b.external_id
-       AND w.activo = 1
-       AND w.lat IS NOT NULL AND w.lng IS NOT NULL
+       AND ${AlmacenDeReferencia.sqlSirveParaMedir}
   ) AS con_almacen,
   -- LA TASA ES DE LA SUCURSAL, y por eso sale de `branches` y no de `settings`.
   --

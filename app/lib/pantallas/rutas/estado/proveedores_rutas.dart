@@ -22,11 +22,17 @@ final consultasRutasProvider = Provider<ConsultasRutas>(
 /// Las cinco acciones de escritura. Comparten la MISMA cola y el MISMO reloj que
 /// el resto de la aplicacion: dos relojes distintos serian dos horas distintas
 /// para el mismo cierre.
+///
+/// Y comparten el mismo `escrituraEnVivoProvider`, que es `null` en la APK y en
+/// el escritorio —alli se escribe en local y se encola— y **no es null en la
+/// web**, donde el gesto va al servidor y se espera (`CLAUDE.md` §1). Todo el
+/// porque esta en `nucleo/red/escritura_en_vivo.dart`.
 final accionesDeRutaProvider = Provider<AccionesDeRuta>(
   (ref) => AccionesDeRuta(
     ref.watch(baseProvider),
     ref.watch(colaProvider),
     reloj: ref.watch(relojProvider),
+    enVivo: ref.watch(escrituraEnVivoProvider),
   ),
 );
 

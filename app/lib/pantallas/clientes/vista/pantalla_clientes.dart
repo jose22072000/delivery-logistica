@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reparto/nucleo/frescura/primera_bajada.dart';
@@ -7,6 +5,7 @@ import 'package:reparto/nucleo/frescura/reloj_de_datos.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 
 import '../../../diseno/anchos.dart';
+import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/colores.dart';
 import '../../../diseno/tabla_ancha.dart';
 import '../../../diseno/tema.dart';
@@ -32,26 +31,18 @@ class PantallaClientes extends ConsumerStatefulWidget {
 }
 
 class _PantallaClientesState extends ConsumerState<PantallaClientes> {
-  final _buscador = TextEditingController();
-  Timer? _espera;
-
-  @override
-  void dispose() {
-    _espera?.cancel();
-    _buscador.dispose();
-    super.dispose();
-  }
-
-  /// 400 ms de espera antes de buscar (§4). Sin ella, escribir «camagüey» son
-  /// ocho consultas y ocho repintados, y en un telefono se nota.
+  /// EL RESPIRO Y EL CONTROLADOR YA NO SON DE AQUI — 22/09/2026.
+  ///
+  /// Estaban copiados a mano en esta pantalla, otra vez en Vehiculos, otra en
+  /// el asistente, y en el Tablero directamente no estaban: alli habia que dar
+  /// Intro. Copiar un temporizador cinco veces es como se llega a «en una
+  /// pantalla hay que dar Intro y en otra no». Todo eso vive ahora en
+  /// `CajaDeBusqueda`, con sus pruebas.
   void _buscar(String texto) {
-    _espera?.cancel();
-    _espera = Timer(const Duration(milliseconds: 400), () {
-      final filtros = ref.read(filtrosClientesProvider);
-      ref
-          .read(filtrosClientesProvider.notifier)
-          .poner(filtros.copiar(q: texto.trim().isEmpty ? null : texto.trim()));
-    });
+    final filtros = ref.read(filtrosClientesProvider);
+    ref
+        .read(filtrosClientesProvider.notifier)
+        .poner(filtros.copiar(q: texto.trim().isEmpty ? null : texto.trim()));
   }
 
   void _cambiar(FiltrosClientes nuevos) =>
@@ -97,13 +88,12 @@ class _PantallaClientesState extends ConsumerState<PantallaClientes> {
           _Filtros(
             filtros: filtros,
             datos: pagina.value,
-            buscador: _buscador,
             alBuscar: _buscar,
             alCambiar: _cambiar,
-            alQuitar: () {
-              _buscador.clear();
-              ref.read(filtrosClientesProvider.notifier).quitar();
-            },
+            // `quitar()` deja `q` en null, y la caja se vacia sola con el: el
+            // texto de la caja manda desde fuera. Antes hacia falta acordarse
+            // de limpiar el controlador a mano aqui.
+            alQuitar: ref.read(filtrosClientesProvider.notifier).quitar,
           ),
           const SizedBox(height: Aire.lg),
           // El dato viejo NO se borra mientras refresca: el giro de
@@ -199,7 +189,6 @@ class _Filtros extends StatelessWidget {
   const _Filtros({
     required this.filtros,
     required this.datos,
-    required this.buscador,
     required this.alBuscar,
     required this.alCambiar,
     required this.alQuitar,
@@ -207,7 +196,6 @@ class _Filtros extends StatelessWidget {
 
   final FiltrosClientes filtros;
   final PaginaClientes? datos;
-  final TextEditingController buscador;
   final ValueChanged<String> alBuscar;
   final ValueChanged<FiltrosClientes> alCambiar;
   final VoidCallback alQuitar;
@@ -223,19 +211,11 @@ class _Filtros extends StatelessWidget {
       runSpacing: 12,
       crossAxisAlignment: WrapCrossAlignment.end,
       children: [
-        SizedBox(
-          width: 260,
-          child: TextField(
-            controller: buscador,
-            onChanged: alBuscar,
-            style: Tipos.texto(tamano: 14),
-            decoration: const InputDecoration(
-              isDense: true,
-              prefixIcon: Icon(Icons.search, size: 18),
-              prefixIconConstraints: BoxConstraints(minWidth: 36),
-              hintText: 'Buscar por nombre, dirección o municipio…',
-            ),
-          ),
+        CajaDeBusqueda(
+          valor: filtros.q ?? '',
+          ancho: 260,
+          pista: 'Buscar por nombre, dirección o municipio…',
+          alBuscar: alBuscar,
         ),
         // Los selectores de la base sólo aparecen si tienen mas de una opcion:
         // un desplegable con una sola opcion no filtra nada y ocupa sitio.

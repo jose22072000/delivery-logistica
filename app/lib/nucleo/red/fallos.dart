@@ -46,9 +46,26 @@ class FalloDeRed extends FalloApi {
 ///
 /// **Un `Rechazo` no se reintenta jamas.**
 class Rechazo extends FalloApi {
-  const Rechazo(this.codigo, this.mensaje, {this.marca});
+  const Rechazo(this.codigo, this.mensaje, {this.marca, this.cuerpo});
 
   final int codigo;
+
+  /// EL CUERPO ENTERO DE LA RESPUESTA, sin tocar. `null` si no vino ninguno.
+  ///
+  /// [mensaje] es lo que se pinta y basta casi siempre. Esto es para los pocos
+  /// «no» que traen **una lista nombrada** al lado de la frase, y en los que la
+  /// frase sola no le dice a nadie qué hacer:
+  ///
+  ///  * `POST /api/board/columns/{id}/route` contesta 409 con `descartados`, que
+  ///    es quién se cayó de la zona y por qué. Sin esa lista, una columna de
+  ///    doce que produce una ruta de nueve no tiene explicación, «que es la
+  ///    manera más rápida de que el logístico deje de fiarse» (tablero.md §5.2).
+  ///  * `DELETE /api/board/columns/{id}` contesta 409 con `pedidos`, el número
+  ///    que decide si hay que vaciar dos tarjetas o mover ochenta.
+  ///
+  /// Se guarda crudo y no interpretado a propósito: quien lo lee sabe de qué
+  /// endpoint viene y esta capa no.
+  final Object? cuerpo;
 
   @override
   final String mensaje;

@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../impresion/armar_post_despacho.dart' as papel;
 import '../../../impresion/post_despacho.dart' show pdfPostDespacho;
 import '../../../impresion/vista_previa.dart';
+import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
 import '../../pedidos/datos/formato.dart';
 import '../../pedidos/datos/repositorio_pedidos.dart';
@@ -229,7 +230,22 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
           '${ruta?.ruta.routeCode ?? ruta?.ruta.name ?? widget.rutaId} · '
           '${paradas.length} parada(s)',
       ancho: AnchoCajon.xl,
-      pie: Row(
+      // EL PIE VA EN UN `Wrap`, NO EN UN `Row` — 22/09/2026.
+      //
+      // Era un `Row` con un `Spacer`, y un `Row` no baja de linea: aprieta.
+      // Medido a 390 px —el telefono de Jose—, los tres botones piden 678 px en
+      // los 342 que hay: **desbordaba 336 px** y `Guardar 0 marcada(s)`
+      // terminaba en x=677.9, o sea 288 px POR FUERA de la pantalla. El boton
+      // de guardar el cierre, inalcanzable en un telefono, que es justo el
+      // aparato con el que se cierra una ruta en el patio del almacen.
+      //
+      // Con el `Wrap` los que no caben bajan ENTEROS y `Guardar` se queda solo
+      // en la segunda linea, que ademas es donde tiene que estar: es la accion
+      // principal.
+      pie: Wrap(
+        alignment: WrapAlignment.end,
+        spacing: Aire.sm,
+        runSpacing: Aire.sm,
         children: [
           OutlinedButton(
             onPressed: () => _verPostDespacho(
@@ -239,15 +255,13 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
             ),
             child: const Text('Post-despacho'),
           ),
-          const Spacer(),
           TextButton(
             onPressed: () => Navigator.of(context).maybePop(),
             child: const Text('Cerrar'),
           ),
           // **En una ruta completada no hay boton de guardar.** No es que este
           // apagado: no esta. Un boton apagado invita a buscar como encenderlo.
-          if (!_soloLectura) ...[
-            const SizedBox(width: 8),
+          if (!_soloLectura)
             FilledButton(
               onPressed: _guardando || (_marcadas == 0 && !_completando)
                   ? null
@@ -260,7 +274,6 @@ class _CierreDeRutaState extends ConsumerState<CierreDeRuta> {
                     : 'Guardar $_marcadas marcada(s)',
               ),
             ),
-          ],
         ],
       ),
       cuerpo: Padding(

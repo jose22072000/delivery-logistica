@@ -20,6 +20,8 @@ import '../../../impresion/hoja.dart' as papel;
 import '../../../impresion/pre_despacho.dart' show pdfPreDespacho;
 import '../../../impresion/vista_previa.dart';
 import '../../../diseno/anchos.dart';
+import '../../../diseno/caja_de_busqueda.dart';
+import '../../../diseno/caja_de_numero.dart';
 import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
@@ -27,13 +29,15 @@ import '../../pedidos/datos/formato.dart';
 import '../../pedidos/datos/repositorio_pedidos.dart';
 import '../../pedidos/estado/proveedores_pedidos.dart';
 import '../../pedidos/vista/kit.dart';
+import '../../pedidos/vista/vista_pre_despacho.dart';
 import '../../almacenes/vista/almacenes_de_la_ultima_bajada.dart';
 import '../datos/acciones_rutas.dart';
 import '../datos/meter_la_zona.dart';
 import '../datos/repositorio_rutas.dart';
-import '../../tablero/estado/proveedores.dart';
+import '../datos/zona_en_el_asistente.dart';
 import '../estado/proveedores_rutas.dart';
 import 'aviso_de_rechazo.dart';
+import 'selector_de_zona.dart';
 
 class AsistenteNuevaRuta extends ConsumerStatefulWidget {
   const AsistenteNuevaRuta({super.key});
@@ -133,8 +137,6 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   String? _vehiculoId;
   DateTime? _fechaDeEntrega;
   final _nombre = TextEditingController();
-  final _buscador = TextEditingController();
-  Timer? _espera;
 
   /// EL DESPLAZAMIENTO DE LA CAJA DE LA LISTA, y es SUYO.
   ///
@@ -156,6 +158,22 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
 
   FiltrosDisponibles _filtros = const FiltrosDisponibles();
 
+  /// LA ZONA DEL TABLERO ELEGIDA EN EL PASO 4. `null` = todas.
+  ///
+  /// Es un filtro mas, y por eso vive aqui y no dentro de `_filtros`: los de
+  /// `_filtros` los resuelve la consulta de disponibles en la base, y este se
+  /// aplica encima con `soloDeLaZona`. No baja a la consulta a proposito —lo
+  /// que esta puesto en una zona lo sabe el tablero, no la tabla de pedidos— y
+  /// asi la lista de zonas y la de disponibles no se pueden contradecir.
+  String? _zonaId;
+
+  /// ¿El camion del paso 3 lo eligio una PERSONA?
+  ///
+  /// Es lo unico que separa «el camion que trajo la zona anterior» —que se pisa
+  /// sin preguntar, porque no era la decision de nadie— de «el que eligio quien
+  /// esta armando», que no se pisa. El porque entero, en `camionDeLaZona`.
+  bool _camionAMano = false;
+
   /// Que el salto al paso 3 pase **una sola vez**. Sin esto, volver a mano al
   /// paso 1 rebotaria al 3 en el siguiente repintado y no habria forma de
   /// cambiar de sucursal.
@@ -168,9 +186,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
 
   @override
   void dispose() {
-    _espera?.cancel();
     _nombre.dispose();
-    _buscador.dispose();
     _desplazamientoDeLaLista.dispose();
     super.dispose();
   }
@@ -186,14 +202,19 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   void _ponerFiltros(FiltrosDisponibles nuevos) =>
       setState(() => _filtros = nuevos);
 
-  /// 400 ms de espera antes de buscar. Sin ella, escribir «camagüey» son ocho
-  /// consultas y ocho repintados con la lista entera de disponibles detras.
-  void _buscar(String texto) {
-    _espera?.cancel();
-    _espera = Timer(const Duration(milliseconds: 400), () {
-      if (mounted) _ponerFiltros(_filtros.copiarCon(q: texto.trim()));
-    });
-  }
+  /// LO QUE LLEGA YA VIENE CON SU RESPIRO: lo pone `CajaDeBusqueda`.
+  ///
+  /// Aqui habia un `TextEditingController` y un `Timer` copiados a mano, y esa
+  /// copia es la razon de que cada buscador se portara distinto —«tengo q dar
+  /// enter para q el filtro funcione»— y de que al escribir rapido se perdieran
+  /// letras: el repintado con el eco de la busqueda anterior reescribia el
+  /// campo por detras. Se tecleo `CHAPLIN` y se quedo en `CH`. El arreglo vive
+  /// en la pieza compartida, en su `didUpdateWidget`.
+  ///
+  /// **Sin `trim()` a proposito**: el texto tiene que volver tal cual para que
+  /// la caja reconozca su propio eco, y quien busca de verdad ya lo recorta
+  /// (`repositorio_rutas.dart`).
+  void _buscar(String texto) => _ponerFiltros(_filtros.copiarCon(q: texto));
 
   /// La sucursal se autocompleta: la del selector de la barra superior, o la
   /// unica que haya (pliego §3, paso 1). Preguntar por algo que sólo tiene una
@@ -223,6 +244,11 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     _salida = null;
     _elegidos.clear();
     _filtros = FiltrosDisponibles(sucursalId: _sucursalId);
+    // Y la zona tampoco: las zonas del tablero son de una sucursal, y dejar
+    // puesta la de la otra acotaria la lista a unos pedidos que ya no existen
+    // aqui —o, peor, la dejaria en blanco sin que se vea por que.
+    _zonaId = null;
+    _camionAMano = false;
   });
 
   @override
@@ -264,7 +290,18 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     }
 
     final lista = ref.watch(disponiblesProvider(_filtros));
-    final disponibles = lista.value ?? const <Pedido>[];
+    // LA ZONA DEL TABLERO ES EL ULTIMO FILTRO, Y SE APLICA AQUI.
+    //
+    // La zona se lee del tablero en cada repintado y no se guarda: si alguien
+    // la vacia o la borra mientras el asistente esta abierto, deja de acotar y
+    // la lista vuelve a ser la entera. Guardada, seguiria acotando por una zona
+    // que ya no existe, y eso son pedidos que no salen sin ninguna razon a la
+    // vista.
+    final zona = ref
+        .watch(zonasParaArmarProvider(_sucursalId))
+        .where((z) => z.id == _zonaId)
+        .firstOrNull;
+    final disponibles = soloDeLaZona(lista.value ?? const <Pedido>[], zona);
     final peso = _peso;
     final capacidad = _vehiculo?.capacity;
     final sobrepeso = capacidad != null && peso > capacidad;
@@ -563,8 +600,12 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
                     : '${v.capacity.toStringAsFixed(0)} kg',
               ),
           ],
-          alElegir: (id) =>
-              setState(() => _vehiculoId = id.isEmpty ? null : id),
+          alElegir: (id) => setState(() {
+            _vehiculoId = id.isEmpty ? null : id;
+            // A MANO. Desde aqui lo elige una persona, y a partir de ese
+            // momento una zona del tablero ya no se lo pisa sin decirlo.
+            _camionAMano = _vehiculoId != null;
+          }),
         ),
         const SizedBox(height: 8),
         TextField(
@@ -630,7 +671,13 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   /// **Lo que se queda fuera se DICE, con el numero y el motivo.** Meter nueve
   /// de doce en silencio es la peor version de esto: quien pulsa la zona cree
   /// que lleva la zona entera y se entera en el almacen, cargando.
-  void _meterLaZona(String nombre, List<String> ids, List<Pedido> disponibles) {
+  void _meterLaZona(
+    String nombre,
+    List<String> ids,
+    List<Pedido> disponibles, {
+    String? delCamion,
+    String? devuelveElCamion,
+  }) {
     final reparto = repartirLaZona(
       ids: ids,
       disponibles: disponibles,
@@ -645,11 +692,97 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
       }
     });
 
+    final parte = <String>[
+      parteDeLaZona(nombre, ids.length, reparto),
+      ?delCamion,
+    ].join(' · ');
+
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
-        SnackBar(content: Text(parteDeLaZona(nombre, ids.length, reparto))),
+        SnackBar(
+          content: Text(parte),
+          // Cuando el camion cambia hay algo que leer y algo que decidir, y
+          // cuatro segundos no dan para las dos cosas.
+          duration: Duration(seconds: devuelveElCamion == null ? 4 : 10),
+          action: devuelveElCamion == null
+              ? null
+              : SnackBarAction(
+                  label: 'Dejar el mío',
+                  onPressed: () => _dejarMiCamion(devuelveElCamion),
+                ),
+        ),
       );
+  }
+
+  /// ELEGIR UNA ZONA DEL TABLERO EN EL PASO 4: acota, marca y trae el camion.
+  ///
+  /// Los tres a la vez y en este orden, que es el gesto entero que pidio Jose:
+  ///
+  /// 1. **el camion primero**, porque su capacidad es la que decide que cabe, y
+  ///    repartir con el camion de antes para cambiarlo despues deja fuera
+  ///    pedidos que si cabian;
+  /// 2. la zona queda puesta como filtro, asi que **la lista de abajo se queda
+  ///    solo con sus pedidos** (`soloDeLaZona`, aplicado en `build`);
+  /// 3. y se marcan, con `repartirLaZona`, **la misma regla** que usa «Armar la
+  ///    ruta de esta zona» desde el tablero.
+  ///
+  /// Lo que estuviera elegido de otra zona **no se borra**: se pueden juntar dos
+  /// zonas en un camion, y quitarle a alguien lo que habia marcado porque toco
+  /// un filtro es la clase de cosa de la que uno se entera cargando. Lo que
+  /// queda elegido y fuera de la lista lo dice la linea de resumen, que ya
+  /// contaba ese caso.
+  void _elegirLaZona(ZonaParaArmar? zona) {
+    if (zona == null) {
+      setState(() => _zonaId = null);
+      return;
+    }
+
+    final camion = camionDeLaZona(
+      zona: zona,
+      elegidoId: _vehiculoId,
+      elegidoNombre: _vehiculo?.name,
+      elegidoAMano: _camionAMano,
+      vehiculosDeLaRuta: vehiculosDeLaSucursal(
+        ref.read(vehiculosProvider).value ?? const <Vehiculo>[],
+        _sucursalId,
+      ),
+    );
+
+    setState(() {
+      _zonaId = zona.id;
+      if (camion.cambia) {
+        _vehiculoId = camion.vehiculoId;
+        // Lo puso la zona, no una persona: la siguiente zona puede pisarlo.
+        _camionAMano = false;
+      }
+    });
+
+    _meterLaZona(
+      zona.nombre,
+      zona.ids,
+      // La lista SIN acotar: acotarla es lo que este mismo gesto acaba de
+      // hacer, y repartir sobre ella dejaria fuera todo lo que trajera la zona
+      // anterior.
+      ref.read(disponiblesProvider(_filtros)).value ?? const <Pedido>[],
+      delCamion: camion.parte,
+      devuelveElCamion: camion.devuelve,
+    );
+  }
+
+  /// DESHACER el cambio de camion que trajo la zona.
+  ///
+  /// **No vuelve a repartir a proposito.** Lo elegido se queda elegido: quien
+  /// pulsa esto quiere su camion, no que le deshagan la zona que acaba de
+  /// meter. Si con el suyo ya no cabe, la barra de peso lo dice en rojo y el
+  /// boton de generar no deja pasar — que es donde tiene que verse, y no
+  /// quitando marcas por detras.
+  void _dejarMiCamion(String vehiculoId) {
+    setState(() {
+      _vehiculoId = vehiculoId;
+      // Vuelve a ser suyo: la siguiente zona tendra que avisar otra vez.
+      _camionAMano = true;
+    });
   }
 
   Widget _barraDeFiltros(List<Sucursal> sucursales) {
@@ -694,6 +827,24 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     );
 
     final controles = <Widget>[
+      // LA ZONA DEL TABLERO, EL PRIMERO DE LOS FILTROS.
+      //
+      // Para eso se arma el tablero: el estudio de que va junto con que ya se
+      // hizo alli, con el mapa, los kilometros al almacen y el peso delante.
+      // Volver a elegir los mismos pedidos uno a uno aqui es hacer dos veces el
+      // mismo trabajo, y la segunda vez peor, porque aqui no se ve la cercania.
+      //
+      // Va el primero porque no es un filtro mas: los demas estrechan la lista
+      // y este ademas **la marca entera y trae el camion**. Jose, 16/09/2026:
+      // «no me deja elegir lo q tengo en el tablero q para eso es para yo hacer
+      // el tablero con los pedidos... sin necesidad de estar eligiendolos en
+      // uno a uno y ya se hizo el estudio antes»; y 22/09/2026, «ya selecciono
+      // los pedidos de ese tablero ya tendria el camion preparado».
+      SelectorDeZonaDelTablero(
+        sucursalId: _sucursalId,
+        zonaId: _zonaId,
+        alElegir: _elegirLaZona,
+      ),
       OutlinedButton(
         onPressed: () async {
           final hoy = DateTime.now();
@@ -717,14 +868,13 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
             : () => _ponerFiltros(_filtros.copiarCon(limpiarDia: true)),
         child: const Text('Todos los días'),
       ),
-      TextField(
-        controller: _buscador,
-        decoration: const InputDecoration(
-          isDense: true,
-          border: OutlineInputBorder(),
-          hintText: 'Buscar pedido...',
-        ),
-        onChanged: _buscar,
+      // La MISMA caja que Pedidos, Clientes, Vehiculos, Rutas y el Tablero.
+      // `ancho: null` porque el ancho lo da el `Wrap` de arriba con `caja()`.
+      CajaDeBusqueda(
+        valor: _filtros.q,
+        ancho: null,
+        pista: 'Buscar pedido...',
+        alBuscar: _buscar,
       ),
       Selector<String>(
         titulo: 'Vendedor del pedido',
@@ -747,32 +897,26 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         ],
         alElegir: (m) => _ponerFiltros(_filtros.copiarCon(municipio: m)),
       ),
-      TextField(
-        keyboardType: TextInputType.number,
-        decoration: const InputDecoration(
-          isDense: true,
-          border: OutlineInputBorder(),
-          hintText: 'km máx.',
-        ),
-        onSubmitted: (texto) => _ponerFiltros(
-          _filtros.copiarCon(
-            kmMax: double.tryParse(texto.trim()),
-            limpiarKmMax: texto.trim().isEmpty,
-          ),
+      // LOS DOS TOPES TAMPOCO PIDEN YA INTRO: se aplican al salir del campo.
+      //
+      // No llevan el respiro de la caja de buscar a proposito: tecleando `12`
+      // aplicaria primero `1`, que es un numero valido y deja la lista casi
+      // vacia. Un numero se aplica entero o no se aplica. El porque entero, en
+      // `caja_de_numero.dart`.
+      CajaDeNumero(
+        valor: _filtros.kmMax,
+        ancho: null,
+        pista: 'km máx.',
+        alAplicar: (km) => _ponerFiltros(
+          _filtros.copiarCon(kmMax: km, limpiarKmMax: km == null),
         ),
       ),
-      TextField(
-        keyboardType: TextInputType.number,
-        decoration: const InputDecoration(
-          isDense: true,
-          border: OutlineInputBorder(),
-          hintText: 'costo mín.',
-        ),
-        onSubmitted: (texto) => _ponerFiltros(
-          _filtros.copiarCon(
-            costoMin: double.tryParse(texto.trim()),
-            limpiarCostoMin: texto.trim().isEmpty,
-          ),
+      CajaDeNumero(
+        valor: _filtros.costoMin,
+        ancho: null,
+        pista: 'costo mín.',
+        alAplicar: (costo) => _ponerFiltros(
+          _filtros.copiarCon(costoMin: costo, limpiarCostoMin: costo == null),
         ),
       ),
       Selector<EstadoDelPedido>(
@@ -802,7 +946,11 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
       ),
       OutlinedButton(
         onPressed: () {
-          _buscador.clear();
+          // La caja de buscar se vacia sola: `limpios()` deja `q: ''` y la
+          // pieza compartida se pone al dia con lo que venga de fuera.
+          // La zona es un filtro, y un «Limpiar» que la dejara puesta seria
+          // mentira: la lista seguiria acotada sin nada que lo dijera.
+          setState(() => _zonaId = null);
           // **Vuelve a `domicilio = 1`**, no a «sin nada»: una ruta se arma
           // con lo que hay que llevar a casa, y ese es el arranque del pliego.
           _ponerFiltros(_filtros.limpios());
@@ -894,24 +1042,6 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     final columnaLista = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // LAS ZONAS DEL TABLERO, ANTES QUE LOS FILTROS.
-        //
-        // Para eso se arma el tablero: el estudio de que va junto con que ya se
-        // hizo alli, con el mapa, los kilometros al almacen y el peso delante.
-        // Volver a elegir los mismos pedidos uno a uno aqui es hacer dos veces
-        // el mismo trabajo, y la segunda vez peor, porque aqui no se ve la
-        // cercania.
-        //
-        // Palabras de Jose, 16/09/2026: «no me deja elegir lo q tengo en el
-        // tablero q para eso es para yo hacer el tablero con los pedidos... sin
-        // necesidad de estar eligiendolos en uno a uno y ya se hizo el estudio
-        // antes».
-        _ZonasDelTablero(
-          sucursalId: _sucursalId,
-          yaElegidos: _elegidos.keys.toSet(),
-          disponibles: disponibles,
-          alElegirZona: _meterLaZona,
-        ),
         _barraDeFiltros(sucursales),
         const SizedBox(height: Aire.md),
         _BarraDePeso(peso: peso, capacidad: capacidad),
@@ -1041,20 +1171,16 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     );
   }
 
-  /// Abre el pre-despacho en su propio cajón. El contenido es **el mismo**
-  /// widget que en escritorio va en la columna de al lado: dos pre-despachos
-  /// distintos serían dos papeles distintos para el mismo almacén.
-  void _abrirPreDespacho(BuildContext contexto, Widget cuerpo) {
-    unawaited(
-      abrirCajon<void>(
-        contexto,
-        (_) => Cajon(
-          titulo: 'Pre-despacho',
-          subtitulo: 'Lo que hay que sacar del almacén',
-          cuerpo: SingleChildScrollView(child: cuerpo),
-        ),
-      ),
-    );
+  /// Abre el pre-despacho en su propio cajón. Es **el mismo cajón** que abre el
+  /// botón de Pedidos (`pedidos/vista/vista_pre_despacho.dart`): mismo título,
+  /// mismas cuentas en el subtítulo, misma tabla y mismo `Ver e imprimir` en el
+  /// pie. Dos pre-despachos distintos serían dos papeles distintos para el
+  /// mismo almacén.
+  void _abrirPreDespacho(
+    BuildContext contexto,
+    _PreDespachoLateral preDespacho,
+  ) {
+    unawaited(abrirCajon<void>(contexto, (_) => preDespacho.cajon()));
   }
 
   Future<void> _generar() async {
@@ -1396,20 +1522,59 @@ class _PreDespachoLateral extends ConsumerWidget {
             '${dia!.month.toString().padLeft(2, '0')}-'
             '${dia!.day.toString().padLeft(2, '0')}';
 
+  /// La suma, en vivo. `null` mientras no hay nada elegido o todavía se está
+  /// sumando.
+  TotalesPreDespacho? totalesDe(WidgetRef ref) => elegidos.isEmpty
+      ? null
+      : ref
+            .watch(
+              preDespachoDeLoElegidoEnElAsistenteProvider(
+                ([...elegidos]..sort()).join(','),
+              ),
+            )
+            .value;
+
+  /// EL CAJÓN DEL MÓVIL, con **el mismo cuerpo** que la columna de escritorio y
+  /// el mismo que el pre-despacho de Pedidos. Dos pre-despachos distintos serían
+  /// dos papeles distintos para el mismo almacén.
+  Widget cajon() => Consumer(
+    builder: (contexto, ref, _) {
+      final totales = totalesDe(ref);
+      return CajonDePreDespacho(
+        totales: totales,
+        pie: totales == null ? null : _resumen(),
+        alImprimir: totales == null
+            ? null
+            : () => _verEImprimir(contexto, totales),
+      );
+    },
+  );
+
+  /// Lo que el asistente añade debajo de la tabla y Pedidos no tiene: el peso
+  /// contra la **capacidad del vehículo**, que es de la ruta y no del almacén.
+  ///
+  /// Los empaques, las unidades y los dos pesos ya los pone
+  /// `TotalesDelPreDespacho` dentro de la vista, con su rótulo cada uno.
+  /// Repetirlos aquí era pintar los mismos números dos veces con nombres
+  /// distintos, que es de donde salen los «tres números para lo mismo».
+  Widget _resumen() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text('Pedidos elegidos: ${elegidos.length}'),
+      Text(
+        'Capacidad del vehículo: ${pesoKg.toStringAsFixed(1)} / '
+        '${capacidad?.toStringAsFixed(0) ?? '—'} kg',
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // La caja está SIEMPRE, con su título y su botón: es el sitio donde se mira
     // lo que hay que sacar del almacén, y un sitio que aparece y desaparece
     // según lo que lleves elegido no se aprende. Lo que cambia es lo de dentro.
-    final totales = elegidos.isEmpty
-        ? null
-        : ref
-              .watch(
-                preDespachoDeLoElegidoEnElAsistenteProvider(
-                  ([...elegidos]..sort()).join(','),
-                ),
-              )
-              .value;
+    final totales = totalesDe(ref);
 
     final Widget dentro;
     if (elegidos.isEmpty) {
@@ -1420,52 +1585,14 @@ class _PreDespachoLateral extends ConsumerWidget {
     } else if (totales == null) {
       dentro = const Text(AsistenteNuevaRuta.cargandoPedidos);
     } else {
-      dentro = Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // La tabla va dentro de su propio desplazamiento lateral: en un
-          // telefono tres columnas con nombres de producto largos no caben, y lo
-          // que no cabe tiene que poder alcanzarse, no recortarse.
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columns: const [
-                DataColumn(label: Text('Producto')),
-                DataColumn(label: Text('Emp.')),
-                DataColumn(label: Text('Uds.')),
-              ],
-              rows: [
-                for (final linea in totales.lineas)
-                  DataRow(
-                    cells: [
-                      DataCell(Text(linea.producto)),
-                      DataCell(Text(cantidad(linea.empaques))),
-                      // `—` cuando el catálogo no dice cuántas unidades trae
-                      // el empaque. Ver `LineaPreDespacho.unidades`.
-                      DataCell(
-                        Text(
-                          linea.unidades == null
-                              ? '—'
-                              : cantidad(linea.unidades!),
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-          ),
-          Divider(height: Aire.lg, thickness: 1, color: Colores.linea),
-          Text('Pedidos: ${elegidos.length}'),
-          Text('Empaques: ${cantidad(totales.empaques)}'),
-          Text(
-            'Unidades: ${totales.unidades == null ? '—' : cantidad(totales.unidades!)}',
-          ),
-          Text(
-            'Peso: ${pesoKg.toStringAsFixed(1)} / '
-            '${capacidad?.toStringAsFixed(0) ?? '—'} kg',
-          ),
-        ],
-      );
+      // LA MISMA TABLA QUE PEDIDOS — 22/09/2026.
+      //
+      // Aquí había una tabla propia de TRES columnas (`Producto`, `Emp.`,
+      // `Uds.`), sin los kg, con otros rótulos y con el aire de `DataTable` sin
+      // tocar. La de Pedidos tenía cuatro. Eran dos pre-despachos parecidos
+      // para el mismo almacén, que es exactamente como acaban siendo dos
+      // papeles distintos.
+      dentro = VistaPreDespacho(totales: totales, pie: _resumen());
     }
 
     return Container(
@@ -1528,7 +1655,10 @@ class _PreDespachoLateral extends ConsumerWidget {
     abrirCajon<void>(
       context,
       (contexto) => Cajon(
-        titulo: 'Pre-despacho',
+        // `Hoja de pre-despacho`: la vista previa del PDF se abre ENCIMA de la
+        // vista del pre-despacho, y con los dos cajones apilados y el mismo
+        // título no hay forma de saber cuál se está mirando.
+        titulo: PreDespacho.tituloDeLaHoja,
         subtitulo:
             '${elegidos.length} pedido(s) · '
             '${pesoKg.toStringAsFixed(1)} kg',
@@ -1619,88 +1749,22 @@ final preDespachoDeLoElegidoEnElAsistenteProvider =
           .preDespachoDe(clave.isEmpty ? const [] : clave.split(',')),
     );
 
-/// LAS ZONAS DEL TABLERO, para meterlas de una en la ruta.
+/// LAS ZONAS DEL TABLERO, ahora en la fila de filtros del paso 4.
 ///
-/// El tablero es donde se decide QUE VA JUNTO, con el mapa y los kilometros al
-/// almacen delante. Este atajo es lo que hace que ese trabajo sirva para algo
-/// aqui; sin el, armar la ruta es repetirlo a mano y a ciegas.
+/// Eran unas fichas encima de los filtros: una por zona, y pulsarla metia sus
+/// pedidos en lo elegido. Se quedaron cortas y **son el desplegable de
+/// `selector_de_zona.dart`** desde el 22/09/2026, con lo que faltaba:
 ///
-/// Sale SOLO si el tablero cargado es el de la sucursal que se eligio en el
-/// paso 1. Ensenar las zonas de Santiago mientras se arma una ruta de La Habana
-/// seria ofrecer pedidos que no son de esta ruta, y aceptarlos es un rechazo al
-/// guardar.
-class _ZonasDelTablero extends ConsumerWidget {
-  const _ZonasDelTablero({
-    required this.sucursalId,
-    required this.yaElegidos,
-    required this.disponibles,
-    required this.alElegirZona,
-  });
-
-  final String? sucursalId;
-  final Set<String> yaElegidos;
-  final List<Pedido> disponibles;
-  final void Function(String nombre, List<String> ids, List<Pedido> disponibles)
-  alElegirZona;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final tablero = ref.watch(tableroProvider).value;
-    if (tablero == null ||
-        tablero.problema != null ||
-        tablero.columnas.isEmpty ||
-        sucursalId == null ||
-        tablero.sucursalId != sucursalId) {
-      return const SizedBox.shrink();
-    }
-
-    final hayDisponible = {for (final p in disponibles) p.id};
-
-    final fichas = <Widget>[];
-    for (final zona in tablero.columnas) {
-      final ids = [
-        for (final t in tablero.deColumna(zona.id)) t.pedido.pedidoId,
-      ];
-      if (ids.isEmpty) continue;
-      // El numero es «cuantos de esta zona se pueden meter AHORA», no cuantos
-      // tiene: los que ya no estan disponibles no van a entrar, y ensenar el
-      // total prometeria de mas.
-      final entran = ids
-          .where((id) => hayDisponible.contains(id) && !yaElegidos.contains(id))
-          .length;
-      fichas.add(
-        ActionChip(
-          avatar: const Icon(Icons.dashboard_customize_outlined, size: 16),
-          label: Text(
-            '${zona.nombre} · $entran/${ids.length}'
-            '  ${zona.pesoKg.toStringAsFixed(0)} kg',
-          ),
-          onPressed: () => alElegirZona(zona.nombre, ids, disponibles),
-        ),
-      );
-    }
-    if (fichas.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Aire.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Zonas del tablero',
-            style: Tipos.texto(tamano: 12, peso: FontWeight.w700),
-          ),
-          Text(
-            'Lo que ya organizaste. Pulsa una y entran sus pedidos de una vez.',
-            style: Tipos.texto(tamano: 11, color: Colores.tintaSuave),
-          ),
-          const SizedBox(height: 6),
-          Wrap(spacing: 6, runSpacing: 6, children: fichas),
-        ],
-      ),
-    );
-  }
-}
+/// > «tengo un seleccionar con dropdown q tenga todos los pedidos y de ahi
+/// > selecciono el tablero y ya selecciono los pedidos de ese tablero ya
+/// > tendria el camion preparado»
+///
+/// La ficha marcaba y ya: la lista seguia entera, asi que habia que buscar a
+/// mano cuales eran los de la zona, y **el camion previsto de la zona se
+/// quedaba en el tablero**. Ahora elegir la zona acota la lista, la marca y
+/// trae su camion (`_elegirLaZona`). No se dejan las dos: dos maneras de sacar
+/// los pedidos de una zona dan dos resultados distintos el dia que una se quede
+/// atras.
 
 /// El botón que abre el pre-despacho en el móvil, con lo que hay dentro.
 ///

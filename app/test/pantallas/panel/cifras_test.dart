@@ -275,4 +275,204 @@ void main() {
       expect(filas.single.pedidos, 1);
     });
   });
+
+  // ── EL ALCANCE DE LAS OCHO CIFRAS, NO SÓLO DE LAS DE PEDIDOS ──────────────
+  //
+  // Arriba ya había alcance para `sinRuta` y `pesoPendiente`. Las otras seis
+  // —`totalPedidos`, `totalDomicilios`, `entregadosHoy`, `rutasActivas`,
+  // `totalVehiculos` y `vehiculosEnRuta`— no tenían **ni una ruta ni un vehículo
+  // de una segunda sucursal** con que comprobarlas: si el filtro por sucursal se
+  // cae de cualquiera de esas seis subconsultas, toda la suite sigue verde y el
+  // logístico de Camagüey ve los números de las otras siete.
+  //
+  // No es hipotético en esta casa: ya pasó en delivery (Next), donde un operador
+  // de Santiago vio los precios de La Habana. Y es la regla dura del CLAUDE.md
+  // §4: **el alcance sale de quién pregunta, no de lo que mande el cliente.**
+  //
+  // Las cifras están elegidas para que ninguna coincida: lo de Santiago, lo de
+  // Camagüey y la suma de las dos son tres números distintos en las OCHO. Así
+  // «ver de más» no puede confundirse con «ver lo suyo».
+  group('alcance por sucursal de TODAS las cifras', () {
+    setUp(() async {
+      await base
+          .into(base.branches)
+          .insert(
+            BranchesCompanion.insert(
+              id: 'cam',
+              name: 'Camagüey',
+              lat: 21.38,
+              lng: -77.92,
+            ),
+          );
+
+      // Santiago: 2 pedidos (1 repartible, 1 entregado hoy), 2 rutas (1 en
+      // marcha) y 2 camiones (1 en la calle).
+      await pedido('s1', peso: 10, costo: 3);
+      await pedido(
+        's2',
+        rutaId: 'rs1',
+        peso: 7,
+        costo: 4,
+        entregadoEn: DateTime(2026, 9, 14, 8, 0),
+      );
+      await vehiculo('vs1');
+      await vehiculo('vs2');
+      await ruta('rs1', 'in_progress', vehiculo: 'vs1');
+      await ruta('rs2', 'planned', vehiculo: 'vs2');
+
+      // Camagüey: 4 pedidos (2 repartibles, 2 entregados hoy), 3 rutas (2 en
+      // marcha) y 4 camiones (2 en la calle).
+      await pedido('c1', sucursal: 'cam', peso: 100, costo: 50);
+      await pedido('c2', sucursal: 'cam', peso: 200, costo: 60);
+      await pedido(
+        'c3',
+        sucursal: 'cam',
+        rutaId: 'rc1',
+        peso: 5,
+        costo: 70,
+        entregadoEn: DateTime(2026, 9, 14, 9, 0),
+      );
+      await pedido(
+        'c4',
+        sucursal: 'cam',
+        rutaId: 'rc1',
+        peso: 5,
+        costo: 80,
+        entregadoEn: DateTime(2026, 9, 14, 9, 30),
+      );
+      await vehiculo('vc1', sucursal: 'cam');
+      await vehiculo('vc2', sucursal: 'cam');
+      await vehiculo('vc3', sucursal: 'cam');
+      await vehiculo('vc4', sucursal: 'cam');
+      await ruta('rc1', 'in_progress', sucursal: 'cam', vehiculo: 'vc1');
+      await ruta('rc2', 'in_progress', sucursal: 'cam', vehiculo: 'vc2');
+      await ruta('rc3', 'completed', sucursal: 'cam', vehiculo: 'vc3');
+    });
+
+    /// Las ocho cifras de una sucursal, con su nombre, para poder decir en el
+    /// mensaje de fallo CUÁL se salió de su sucursal y por cuánto.
+    Map<String, num> ocho(CifrasDelPanel c) => {
+      'totalPedidos': c.totalPedidos,
+      'sinRuta': c.sinRuta,
+      'rutasActivas': c.rutasActivas,
+      'entregadosHoy': c.entregadosHoy,
+      'totalVehiculos': c.totalVehiculos,
+      'vehiculosEnRuta': c.vehiculosEnRuta,
+      'pesoPendiente': c.pesoPendiente,
+      'totalDomicilios': c.totalDomicilios,
+    };
+
+    // Lo de cada una, escrito aparte para poder compararlo en los dos sentidos:
+    // que cada sucursal vea LO SUYO y que NO vea lo de la otra.
+    const deSantiago = {
+      'totalPedidos': 2,
+      'sinRuta': 1,
+      'rutasActivas': 1,
+      'entregadosHoy': 1,
+      'totalVehiculos': 2,
+      'vehiculosEnRuta': 1,
+      'pesoPendiente': 10.0,
+      'totalDomicilios': 7.0,
+    };
+    const deCamaguey = {
+      'totalPedidos': 4,
+      'sinRuta': 2,
+      'rutasActivas': 2,
+      'entregadosHoy': 2,
+      'totalVehiculos': 4,
+      'vehiculosEnRuta': 2,
+      'pesoPendiente': 300.0,
+      'totalDomicilios': 260.0,
+    };
+    const deLasDos = {
+      'totalPedidos': 6,
+      'sinRuta': 3,
+      'rutasActivas': 3,
+      'entregadosHoy': 3,
+      'totalVehiculos': 6,
+      'vehiculosEnRuta': 3,
+      'pesoPendiente': 310.0,
+      'totalDomicilios': 267.0,
+    };
+
+    test('Santiago ve LO SUYO en las ocho cifras', () async {
+      final dio = ocho(await panel.cifras(sucursalId: 'stg').first);
+      for (final cifra in deSantiago.keys) {
+        expect(
+          dio[cifra],
+          deSantiago[cifra],
+          reason:
+              'el Panel de Santiago dice $cifra = ${dio[cifra]} y lo suyo son '
+              '${deSantiago[cifra]}. Lo de Camagüey es ${deCamaguey[cifra]} y '
+              'las dos juntas ${deLasDos[cifra]}: si salió uno de esos dos, el '
+              'filtro por sucursal se cayó de esa subconsulta y Santiago está '
+              'viendo números que no son suyos',
+        );
+      }
+    });
+
+    test('Camagüey ve LO SUYO y NO lo de Santiago', () async {
+      final dio = ocho(await panel.cifras(sucursalId: 'cam').first);
+      for (final cifra in deCamaguey.keys) {
+        expect(
+          dio[cifra],
+          deCamaguey[cifra],
+          reason:
+              'el Panel de Camagüey dice $cifra = ${dio[cifra]} y lo suyo son '
+              '${deCamaguey[cifra]}. Lo de Santiago es ${deSantiago[cifra]} y '
+              'las dos juntas ${deLasDos[cifra]}: el logístico de Camagüey no '
+              'puede ver las otras siete sucursales (CLAUDE.md §4)',
+        );
+        expect(
+          dio[cifra],
+          isNot(deSantiago[cifra]),
+          reason:
+              '$cifra de Camagüey salió igual que la de Santiago '
+              '(${deSantiago[cifra]}): o el filtro no filtra o esta prueba dejó '
+              'de distinguir las dos sucursales y ya no comprueba nada',
+        );
+        expect(
+          dio[cifra],
+          isNot(deLasDos[cifra]),
+          reason:
+              '$cifra de Camagüey salió igual que la suma de las dos '
+              '(${deLasDos[cifra]}): está viendo lo de Santiago además de lo '
+              'suyo',
+        );
+      }
+    });
+
+    test('sin sucursal elegida se suman las dos, y ahí sí', () async {
+      // La pareja: el filtro tiene que filtrar cuando se pide y NO filtrar
+      // cuando no se pide. Sin esto, «no ver lo de la otra» se aprobaría con una
+      // consulta que no devuelve nada.
+      final dio = ocho(await panel.cifras().first);
+      for (final cifra in deLasDos.keys) {
+        expect(
+          dio[cifra],
+          deLasDos[cifra],
+          reason:
+              'sin sucursal el Panel dice $cifra = ${dio[cifra]} y tenían que '
+              'ser las dos juntas, ${deLasDos[cifra]}',
+        );
+      }
+    });
+
+    test('«Pendiente por sucursal» también se queda en la suya', () async {
+      // La tarjeta de debajo de las cifras. Va con ellas porque es la misma
+      // pregunta y tiene que dar el mismo alcance: si la lista enseña las ocho
+      // sucursales debajo de unas cifras de una, la pantalla se contradice sola.
+      final filas = await panel.porSucursal(sucursalId: 'cam').first;
+
+      expect(
+        filas.map((f) => f.sucursal).toList(),
+        ['Camagüey'],
+        reason:
+            'el desglose de Camagüey trajo '
+            '${filas.map((f) => '${f.sucursal}(${f.pedidos})').join(', ')}',
+      );
+      expect(filas.single.pedidos, 2);
+      expect(filas.single.pesoKg, 300);
+    });
+  });
 }

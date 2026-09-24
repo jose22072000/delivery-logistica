@@ -42,6 +42,9 @@ class InterceptorFallos extends Interceptor {
       codigo,
       mensajeDelServidor(error) ?? 'El servidor rechazó la petición.',
       marca: marcaDelServidor(error),
+      // El cuerpo entero, para los «no» que traen una lista nombrada al lado de
+      // la frase. Ver [Rechazo.cuerpo].
+      cuerpo: error.response?.data,
     );
   }
 
