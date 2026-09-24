@@ -12,6 +12,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../diseno/anchos.dart';
 import '../../../diseno/caja_de_busqueda.dart';
@@ -25,6 +26,7 @@ import '../../../nucleo/base/base.dart';
 import '../../../nucleo/frescura/primera_bajada.dart';
 import '../../../nucleo/frescura/reloj_de_datos.dart';
 import '../../../nucleo/proveedores.dart';
+import '../datos/filtros_en_la_url.dart';
 import '../datos/filtros_pedidos.dart';
 import '../datos/formato.dart';
 import '../datos/repositorio_pedidos.dart';
@@ -35,8 +37,12 @@ import 'kit.dart';
 import 'tabla_pedidos.dart';
 import 'vista_pre_despacho.dart';
 
-class PantallaPedidos extends ConsumerWidget {
-  const PantallaPedidos({super.key});
+class PantallaPedidos extends ConsumerStatefulWidget {
+  const PantallaPedidos({this.consulta = const <String, String>{}, super.key});
+
+  /// Lo que venía en la dirección (`estado.uri.queryParameters`). Vacío cuando
+  /// se pinta la pantalla suelta en una prueba, que es el caso de siempre.
+  final Map<String, String> consulta;
 
   /// El texto literal de la franja azul del arranque acotado.
   static const franjaAzul =
@@ -49,8 +55,37 @@ class PantallaPedidos extends ConsumerWidget {
   static const mandarAUnaZona = 'Mandar a una zona';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PantallaPedidos> createState() => _PantallaPedidosState();
+}
+
+class _PantallaPedidosState extends ConsumerState<PantallaPedidos> {
+  /// Lo que traía el enlace y no se pudo aplicar. Se lee UNA vez, al montar: a
+  /// partir de ahí quien manda es la barra de filtros.
+  late final List<String> _noSePudieron;
+
+  @override
+  void initState() {
+    super.initState();
+    final lectura = FiltrosEnLaUrl.leer(widget.consulta);
+    _noSePudieron = lectura.noSePudieron;
+    // FUERA DEL `build`. Tocar un provider mientras se pinta es el error que
+    // Riverpod corta en seco; y va sólo si el enlace traía algo, para que abrir
+    // `/orders` a pelo no pise unos filtros que ya estuvieran puestos.
+    if (widget.consulta.isNotEmpty) {
+      Future.microtask(() {
+        if (!mounted) return;
+        ref.read(filtrosPedidosProvider.notifier).poner(lectura.filtros);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final filtros = ref.watch(filtrosPedidosProvider);
+    // LA DIRECCIÓN SIGUE A LOS FILTROS. Sin esto el enlace de la barra del
+    // navegador se queda en `/orders` diga lo que diga la pantalla, y recargar
+    // vuelve a la lista entera.
+    _ponerEnLaDireccion(filtros);
     final total = ref.watch(totalPedidosProvider);
     final pagina = ref.watch(paginaPedidosProvider);
     final descargados = ref.watch(pedidosDescargadosProvider);
@@ -83,6 +118,12 @@ class PantallaPedidos extends ConsumerWidget {
               const BarraDeDatos(colecciones: ColeccionesDePantalla.pedidos),
             ],
           ),
+          // LO QUE EL ENLACE TRAÍA Y NO SE PUDO APLICAR, ANTES QUE NADA.
+          //
+          // Va encima de la franja azul y encima del conteo a propósito: quien
+          // abrió un enlace tiene que enterarse de que la lista NO está acotada
+          // como el enlace decía, antes de leer un número y creérselo.
+          if (_noSePudieron.isNotEmpty) _FranjaNoSePudo(_noSePudieron),
           if (filtros.arranqueAcotado) const _FranjaAzul(),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: Aire.md),
@@ -158,6 +199,74 @@ class PantallaPedidos extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// LA DIRECCIÓN, AL DÍA CON LOS FILTROS.
+///
+/// Se llama desde el `build` pero no pinta nada: empuja la dirección nueva
+/// **después** del fotograma, porque `context.go` en mitad de un `build`
+/// reconstruye el árbol que se está construyendo.
+///
+/// Y sólo cuando de verdad cambia. Sin esa comparación, cada repintado —y hay
+/// uno por cada emisión de los streams de la lista, o sea varios por segundo
+/// mientras baja— metería una entrada en el historial del navegador, y volver
+/// atrás sería pulsar cincuenta veces para salir de la pantalla.
+extension _DireccionDePedidos on _PantallaPedidosState {
+  void _ponerEnLaDireccion(FiltrosPedidos filtros) {
+    final router = GoRouter.maybeOf(context);
+    // Sin enrutador —una prueba que pinta la pantalla suelta— no hay dirección
+    // que poner, y eso no puede ser un fallo.
+    if (router == null) return;
+    final destino = FiltrosEnLaUrl.direccion(filtros);
+    if (router.state.uri.toString() == destino) return;
+    // `replace` y no `go`: cambiar un filtro no es navegar a otro sitio.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (GoRouter.of(context).state.uri.toString() == destino) return;
+      GoRouter.of(context).replace(destino);
+    });
+  }
+}
+
+/// LO QUE EL ENLACE PEDÍA Y NO SE PUDO HACER, con su clave y su valor.
+///
+/// «No se pudo aplicar un filtro» no le dice nada a nadie; `desde=31-12-2026`
+/// sí, porque quien mandó el enlace puede corregirlo. Es la misma regla del
+/// §3-quinquies: el motivo literal o nada.
+class _FranjaNoSePudo extends StatelessWidget {
+  const _FranjaNoSePudo(this.cuales);
+
+  final List<String> cuales;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(top: Aire.sm),
+    padding: const EdgeInsets.all(Aire.lg),
+    decoration: BoxDecoration(
+      color: Colores.ambarFondo,
+      border: Border.all(color: Colores.ambar.withValues(alpha: 0.45)),
+      borderRadius: BorderRadius.circular(Radios.lg),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${FiltrosEnLaUrl.noSePudieronAplicar}: ${cuales.join(', ')}.',
+          style: Tipos.texto(
+            tamano: 13,
+            peso: FontWeight.w600,
+            color: Colores.tinta,
+            alto: 1.5,
+          ),
+        ),
+        const SizedBox(height: Aire.xs),
+        Text(
+          FiltrosEnLaUrl.yPorEsoLaListaNoEstaAcotada,
+          style: Tipos.texto(tamano: 13, color: Colores.tinta, alto: 1.5),
+        ),
+      ],
+    ),
+  );
 }
 
 class _FranjaAzul extends ConsumerWidget {

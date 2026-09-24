@@ -24,5 +24,13 @@ PantallaRegistrada registrarPedidos() => const PantallaRegistrada(
   construir: _construir,
 );
 
+/// LOS FILTROS SALEN DE LA DIRECCIÓN, y por eso `estado` ya no se tira.
+///
+/// Aquí ponía `const PantallaPedidos()` y el `GoRouterState` entero se perdía,
+/// contra el contrato de `pantalla_registrada.dart`. Lo que costaba:
+/// `/orders?municipio=Centro` abría la lista SIN acotar y sin decirlo, y
+/// recargar dentro de la pantalla borraba los nueve filtros. El porqué entero y
+/// lo que pasa con un valor que no se entiende, en
+/// `datos/filtros_en_la_url.dart`.
 Widget _construir(BuildContext contexto, GoRouterState estado) =>
-    const PantallaPedidos();
+    PantallaPedidos(consulta: estado.uri.queryParameters);

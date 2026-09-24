@@ -31,7 +31,7 @@ import 'package:reparto/pantallas/pedidos/datos/repositorio_pedidos.dart';
 import 'package:reparto/pantallas/pedidos/vista/kit.dart';
 import 'package:reparto/pantallas/pedidos/vista/pantalla_pedidos.dart';
 import 'package:reparto/pantallas/pedidos/vista/vista_pre_despacho.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 import 'sembrar.dart';

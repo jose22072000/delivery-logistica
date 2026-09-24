@@ -470,6 +470,10 @@ class Selector<T> extends StatelessWidget {
   final void Function(T) alElegir;
   final bool buscadorSiempre;
 
+  /// Lo que se lee cuando el buscador del desplegable no encuentra nada.
+  /// Literal aquí para que la prueba busque lo que se lee en pantalla.
+  static const nadaQueCuadre = 'Nada que cuadre con';
+
   @override
   Widget build(BuildContext context) {
     final elegida = opciones.where((o) => o.valor == valor).firstOrNull;
@@ -565,10 +569,19 @@ class _MenuConBuscadorState<T> extends State<_MenuConBuscador<T>> {
   @override
   Widget build(BuildContext context) {
     final busca = _texto.trim().toLowerCase();
+    // SE BUSCA TAMBIÉN POR LA NOTA, no sólo por la etiqueta. La nota es el
+    // código de la sucursal (`CAM`, `HOL`, `STG`), que es como se las nombra
+    // aquí; buscando sólo por etiqueta, escribir `CAM` en el selector de
+    // sucursal del asistente no encuentra Camagüey. Es lo que ya hace el
+    // hermano de `lib/diseno/selector.dart` y no se había traído.
     final visibles = busca.isEmpty
         ? widget.opciones
         : widget.opciones
-              .where((o) => o.etiqueta.toLowerCase().contains(busca))
+              .where(
+                (o) =>
+                    o.etiqueta.toLowerCase().contains(busca) ||
+                    (o.nota ?? '').toLowerCase().contains(busca),
+              )
               .toList();
 
     return ConstrainedBox(
@@ -606,6 +619,32 @@ class _MenuConBuscadorState<T> extends State<_MenuConBuscador<T>> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // BUSCAR Y NO ENCONTRAR NADA SE DICE — 24/09/2026.
+                  //
+                  // Visto en el navegador, en el paso 1 del asistente: con
+                  // `me` escrito en el buscador de sucursales, el panel se
+                  // quedaba con la caja de buscar y NADA debajo, encima de un
+                  // desplegable con las tres sucursales dentro. Un panel en
+                  // blanco es indistinguible de «este desplegable está roto» y
+                  // de «aquí no hay nada que elegir», que es justo lo que no
+                  // pasa.
+                  //
+                  // El hermano de `lib/diseno/selector.dart` ya lo decía; este
+                  // —que es el que usan Pedidos y los cuatro pasos del
+                  // asistente— no. Mismo texto, para que sea la misma frase en
+                  // toda la aplicación.
+                  if (visibles.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(Aire.lg),
+                      child: Text(
+                        '${Selector.nadaQueCuadre} «${_texto.trim()}»',
+                        textAlign: TextAlign.center,
+                        style: Tipos.texto(
+                          tamano: 13,
+                          color: Colores.tintaSuave,
+                        ),
+                      ),
+                    ),
                   for (final opcion in visibles)
                     MenuItemButton(
                       onPressed: () => widget.alElegir(opcion.valor),

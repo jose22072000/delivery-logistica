@@ -27,7 +27,7 @@ import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/pantallas/pedidos/estado/proveedores_pedidos.dart';
 import 'package:reparto/pantallas/pedidos/vista/cajon_detalle_pedido.dart';
 import 'package:reparto/pantallas/pedidos/vista/pantalla_pedidos.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 import 'sembrar.dart';

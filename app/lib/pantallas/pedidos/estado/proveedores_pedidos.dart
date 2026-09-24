@@ -123,12 +123,56 @@ final paginaPedidosProvider = StreamProvider<List<Pedido>>((ref) {
 
 /// Los renglones de los pedidos de la pagina: la columna `Artículos` y el peso
 /// por linea de la ficha salen de aqui.
+///
+/// ## STREAM, no Future — 24/09/2026, y es el §3-ter otra vez
+///
+/// Esto era un `FutureProvider` que esperaba a `paginaPedidosProvider.future`,
+/// o sea que se recalculaba **cuando cambiaba la tabla de PEDIDOS**. Y en la
+/// bajada `orders` va antes que `order_items` (`Colecciones.todas`): cuando los
+/// renglones entran, la tabla de pedidos ya no se toca, así que esta respuesta
+/// no se volvía a pedir nunca.
+///
+/// Lo que quedaba en pantalla, medido con la sonda del §3-ter —montar con la
+/// base vacía, sembrar los pedidos, y DESPUÉS los renglones sin remontar—:
+///
+///     tras los pedidos:   guion=3  arroz=0
+///     tras los renglones: arroz=0      <-- aquí ya tenía que decir «Arroz ×2»
+///
+/// La columna `Artículos` se quedaba en «—» encima de un pedido con doce
+/// líneas, y «—» no se lee como «todavía no ha llegado»: se lee como **«este
+/// pedido no lleva nada»**. Un dato creíble y equivocado que ninguna pantalla
+/// desmiente, que es el fallo que más caro sale aquí.
+///
+/// Se vigilan las DOS tablas de las que sale la columna: `order_items` y
+/// `products` —el peso por empaque se resuelve contra el catálogo, y `products`
+/// baja aún más tarde que los renglones—. Y el coste está acotado: se leen los
+/// renglones de los 50 pedidos de la página, no de los doce mil.
 final renglonesDePaginaProvider =
-    FutureProvider<Map<String, List<RenglonConPeso>>>((ref) async {
-      final pagina = await ref.watch(paginaPedidosProvider.future);
-      return ref.watch(consultasPedidosProvider).renglonesDe([
-        for (final p in pagina) p.id,
-      ]);
+    StreamProvider<Map<String, List<RenglonConPeso>>>((ref) {
+      final base = ref.watch(baseProvider);
+      final consultas = ref.watch(consultasPedidosProvider);
+      final pagina = ref.watch(paginaPedidosProvider).value;
+      if (pagina == null) {
+        // La página todavía no ha contestado. Un stream vacío deja esto
+        // «cargando», que es la verdad; cuando conteste, este provider se
+        // rehace solo porque la mira con `watch`.
+        return const Stream<Map<String, List<RenglonConPeso>>>.empty();
+      }
+      final ids = [for (final p in pagina) p.id];
+
+      Future<Map<String, List<RenglonConPeso>>> mirar() =>
+          consultas.renglonesDe(ids);
+
+      return () async* {
+        // El primero enseguida: `tableUpdates` no emite al suscribirse, y sin
+        // esto la columna arrancaría vacía aunque los renglones ya estuvieran.
+        yield await mirar();
+        yield* base
+            .tableUpdates(
+              TableUpdateQuery.onAllTables([base.orderItems, base.products]),
+            )
+            .asyncMap((_) => mirar());
+      }();
     });
 
 /// Lo que llena los desplegables «Municipio del cliente» y «Vendedor del

@@ -15,7 +15,7 @@ import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/frescura/frescura.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/pantallas/pedidos/vista/pantalla_pedidos.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 import 'sembrar.dart';

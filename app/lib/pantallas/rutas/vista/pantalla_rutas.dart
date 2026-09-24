@@ -7,6 +7,35 @@
 // se puede hacer sin conexion es abrir el enlace de Google Maps, y los rechazos
 // del servidor llegan tarde, al subir, y salen en la bandeja con su hora y su
 // motivo. Nunca se descartan.
+//
+// ## PENDIENTE: los filtros de esta pantalla NO van en la dirección
+//
+// El contrato de `navegacion/pantalla_registrada.dart` dice que van:
+//
+// > **Los filtros van en la URL** (`estado.uri.queryParameters`) […] Lee de ahí
+// > y escribe con `context.go(...)`; no guardes el filtro sólo en un `State`.
+//
+// `pantallas/rutas/registro.dart` tira el `GoRouterState` entero
+// —`_construir` devuelve `const PantallaRutas()`— y la pestaña, el buscador, el
+// vehículo y el rango de fechas viven sólo aquí dentro. En la web eso son dos
+// cosas que se ven:
+//
+//  * mandar `/routes` a alguien no le lleva a lo que uno está mirando —ni
+//    siquiera a la misma pestaña—, y
+//  * **recargar borra los filtros sin decir nada**, que es el caso que el
+//    encargo del 24/09/2026 manda probar («entrar por la URL de cada pantalla y
+//    recargar estando dentro»).
+//
+// Hecho ya para Pedidos, y ahí está el molde entero, con el aviso de lo que un
+// enlace trae y no se puede aplicar: `pantallas/pedidos/datos/filtros_en_la_url.dart`
+// y su prueba `test/pantallas/pedidos/filtros_en_la_url_test.dart`.
+//
+// **Lo que cuesta traerlo aquí:** un fichero `datos/filtros_en_la_url.dart`
+// propio (los filtros de Rutas son 5, no 11), una línea en `registro.dart`,
+// pasar este widget a `ConsumerStatefulWidget` con su `initState` y su empuje
+// de la dirección, y el par de pruebas. Medio día, del que la mitad es la
+// pestaña: `Pestanas` guarda la suya en su propio estado y hay que dejarla
+// leer de fuera sin perder el deslizamiento.
 
 import 'dart:async';
 
