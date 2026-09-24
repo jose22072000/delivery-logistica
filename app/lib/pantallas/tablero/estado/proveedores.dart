@@ -21,11 +21,18 @@ final consultasTableroProvider = Provider<ConsultasTablero>(
   (ref) => ConsultasTablero(ref.watch(baseProvider)),
 );
 
+/// Las escrituras del tablero.
+///
+/// `escrituraEnVivoProvider` es `null` en la APK y en el escritorio —arrastrar
+/// no llama a nadie y el apunte espera en la cola— y **no es null en la web**,
+/// donde cada gesto va al servidor y se espera su respuesta antes de mover una
+/// sola tarjeta (`CLAUDE.md` §1 y §3-quinquies).
 final repositorioTableroProvider = Provider<RepositorioTablero>(
   (ref) => RepositorioTablero(
     ref.watch(baseProvider),
     ref.watch(colaProvider),
     reloj: ref.watch(relojProvider),
+    enVivo: ref.watch(escrituraEnVivoProvider),
   ),
 );
 

@@ -73,6 +73,14 @@ type registrador struct {
 
 func (q *registrador) apuntar(s pgtype.UUID) { q.visto = append(q.visto, s) }
 
+// ObtenerSucursal es LA PRIMERA consulta del tablero y, desde el 22/09/2026, la que decide
+// desde dónde se mide: de la fila que devuelve sale el `external_id` con el que
+// `almacenDe` le pide a Accesos los almacenes de esa sucursal. Por eso se apunta aquí.
+func (q *registrador) ObtenerSucursal(_ context.Context, arg sqlc.ObtenerSucursalParams) (sqlc.Branch, error) {
+	q.apuntar(arg.Sucursal)
+	return sqlc.Branch{ID: arg.ID}, nil
+}
+
 func (q *registrador) ListarColumnasDelTablero(_ context.Context, arg sqlc.ListarColumnasDelTableroParams) ([]sqlc.ListarColumnasDelTableroRow, error) {
 	q.apuntar(arg.Sucursal)
 	return nil, nil
@@ -238,6 +246,18 @@ var consultasDelTablero = []struct {
 	nombre string
 	llamar func(context.Context, *alcance.Acotado) error
 }{
+	// LA PRIMERA DE TODAS, y la que se quedó fuera de esta tabla hasta el 23/09/2026.
+	//
+	// `tableroDe` la llama con el `branchId` QUE MANDA EL CLIENTE, y con lo que devuelve
+	// —su `external_id`— le pide a Accesos los almacenes de esa sucursal. Desde que el
+	// origen sale de Accesos y no de `saved_origins`, este narg es lo ÚNICO que separa a
+	// un logístico de Santiago del almacén de Holguín: quitarlo no rompe ninguna otra
+	// consulta, porque todas reciben después el id ya «validado». Se pide LA DE AL LADO,
+	// como las del espejo, que es la forma que caza la fuga.
+	{"ObtenerSucursal", func(ctx context.Context, a *alcance.Acotado) error {
+		_, err := a.ObtenerSucursal(ctx, hol)
+		return err
+	}},
 	{"ListarColumnasDelTablero", func(ctx context.Context, a *alcance.Acotado) error {
 		_, err := a.ListarColumnasDelTablero(ctx, stg)
 		return err
@@ -312,10 +332,6 @@ var consultasDelTablero = []struct {
 	}},
 	{"QuitarDelTableroLosDeRuta", func(ctx context.Context, a *alcance.Acotado) error {
 		_, err := a.QuitarDelTableroLosDeRuta(ctx, uuid.New())
-		return err
-	}},
-	{"TableroOrigenes", func(ctx context.Context, a *alcance.Acotado) error {
-		_, err := a.TableroOrigenes(ctx)
 		return err
 	}},
 	{"TableroObtenerPedido", func(ctx context.Context, a *alcance.Acotado) error {
@@ -455,6 +471,13 @@ func TestLosDosDeArribaSiguenSinAcotarEnElTablero(t *testing.T) {
 // eso es grave; con esto dice a quién se le enseñan los datos de quién.
 func porQueDuele(nombre string) string {
 	switch nombre {
+	case "ObtenerSucursal":
+		return "Es la puerta del tablero: `tableroDe` la llama con el `branchId` que " +
+			"manda el cliente y de la fila que devuelve saca el `external_id` con el " +
+			"que `almacenDe` le pide a Accesos los almacenes. Sin narg, un OPERADOR de " +
+			"Santiago que pida `GET /api/board?branchId=<uuid de Holguín>` se lleva el " +
+			"tablero de Holguín MEDIDO DESDE EL ALMACÉN DE HOLGUÍN, con sus kilómetros " +
+			"y todo: nada en la pantalla lo desmiente. CLAUDE.md §4."
 	case "EspejoListarRutas":
 		return "Aquí el alcance es el ÚNICO filtro: esta consulta no tiene `BranchID`. " +
 			"Sin narg, CADA APARATO se baja en su sincronización las rutas de las ocho " +

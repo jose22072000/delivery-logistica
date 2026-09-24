@@ -3,15 +3,18 @@ import 'package:drift/drift.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/cola/cola_salida.dart';
 import '../../../nucleo/cola/provisionales.dart';
+import '../../../nucleo/red/escritura_en_vivo.dart';
 import '../../../nucleo/reloj.dart';
 import '../../rutas/datos/geo.dart';
+import '../../rutas/datos/importe_de_la_ruta.dart';
 import 'consultas.dart';
 import 'esquema.dart';
 import 'modelos.dart';
 
 /// LAS ESCRITURAS DEL TABLERO.
 ///
-/// La regla que manda sobre todas las demas de esta pantalla:
+/// La regla que manda sobre todas las demas de esta pantalla, **en la APK y en
+/// el escritorio**:
 ///
 /// > **Arrastrar no llama a nadie.** Se escribe en la base local y se encola el
 /// > apunte, las dos cosas en LA MISMA transaccion. La subida va por detras,
@@ -26,13 +29,140 @@ import 'modelos.dart';
 /// el apunte no, la tarjeta se habria movido en el aparato y no habria nadie
 /// que lo fuera a contar nunca. Al reves —el apunte sin la colocacion— la
 /// pantalla ensenaria una cosa y el servidor otra.
+///
+/// # EN LA WEB, ARRASTRAR SÍ LLAMA — 22/09/2026
+///
+/// Medido en produccion: se colocaba una tarjeta, la ficha se cerraba, la
+/// tarjeta seguia donde estaba y «Vista (0)» seguia en 0. La cola del navegador
+/// no subia NADA —`POST /sync/aparato` contestaba 401, porque en un navegador no
+/// hay par de tokens que dar de alta— y la base de la web es en memoria, asi que
+/// el apunte moria con la pestana. Ni un mensaje.
+///
+/// `CLAUDE.md` §1: «la web siempre esta en vivo porque saca de la base de datos
+/// de la nube, no de una extra». Asi que cuando hay [EscrituraEnVivo] el apunte
+/// no se encola: **se manda al servidor y se espera**, y va EN EL MISMO SITIO en
+/// el que iba el apunte —dentro de la transaccion—. Eso es lo que sostiene la
+/// regla entera: si el servidor dice que no, [_mandarOEncolar] lanza, Drift
+/// deshace la transaccion y **la tarjeta no se movio**. No hay un instante en el
+/// que la pantalla ensene como hecho algo que el servidor rechazo, y el motivo
+/// que sale es el suyo, literal (`CLAUDE.md` §3-quinquies).
+///
+/// No hizo falta ni un endpoint nuevo: las siete escrituras del tablero ya
+/// estaban montadas en `api/internal/api/tablero.go`, y la web ya se autentica
+/// contra `/api/*` con la cookie de Accesos (`nucleo/red/escritura_en_vivo.dart`
+/// lo cuenta entero).
 class RepositorioTablero {
-  RepositorioTablero(this._base, this._cola, {Reloj reloj = relojDelAparato})
-    : _reloj = reloj;
+  RepositorioTablero(
+    this._base,
+    this._cola, {
+    Reloj reloj = relojDelAparato,
+    EscrituraEnVivo? enVivo,
+  }) : _reloj = reloj,
+       _enVivo = enVivo;
 
   final BaseLocal _base;
   final ColaDeSalida _cola;
   final Reloj _reloj;
+
+  /// Quien manda el gesto al servidor y espera. `null` en la APK y en el
+  /// escritorio, que es donde la cola es la respuesta correcta. Lo decide
+  /// `estado/proveedores.dart`, no un `kIsWeb` metido aqui dentro.
+  final EscrituraEnVivo? _enVivo;
+
+  /// POR DONDE SALE EL GESTO: al servidor en el acto, o a la cola.
+  ///
+  /// Se llama exactamente donde se llamaba a `_cola.encolar`, ni una linea antes
+  /// ni una despues, y eso es deliberado: dentro de la transaccion que acaba de
+  /// escribir la fila. Si el servidor dice que no, esto lanza y Drift deshace
+  /// **todo** lo de esa transaccion.
+  ///
+  /// El «no» sale como [RechazoDelTablero], que es lo que caza
+  /// `vista/acciones.dart` y lo que pinta con su texto tal cual, sin envolverlo
+  /// en «Ha ocurrido un error».
+  Future<Object?> _mandarOEncolar({
+    required String metodo,
+    required String ruta,
+    Map<String, Object?> cuerpo = const <String, Object?>{},
+    String? provisional,
+  }) async {
+    final enVivo = _enVivo;
+    if (enVivo == null) {
+      await _cola.encolar(
+        metodo: metodo,
+        ruta: ruta,
+        cuerpo: cuerpo,
+        provisional: provisional,
+      );
+      return null;
+    }
+    try {
+      return await enVivo.mandar(metodo: metodo, ruta: ruta, cuerpo: cuerpo);
+    } on RechazoDelServidor catch (no) {
+      throw _comoRechazo(no);
+    }
+  }
+
+  /// El «no» del servidor traducido SIN PERDER LO QUE TRAE AL LADO.
+  ///
+  /// La frase sola no siempre basta y aquí hay dos casos concretos en los que
+  /// perderla es perder lo que le dice a la persona qué hacer:
+  ///
+  ///  * `descartados`, del 409 de armar la ruta de una zona: quién se cayó y por
+  ///    qué, uno a uno. «La columna no tiene ningún pedido que se pueda repartir
+  ///    hoy» sobre doce tarjetas, sin decir cuáles ni por qué, es el aviso que
+  ///    hace que el logístico deje de fiarse del tablero (tablero.md §5.2). Se
+  ///    formatea IGUAL que lo formatea el camino de aquí, que es lo que pinta
+  ///    `vista/acciones.dart`.
+  ///  * `pedidos`, del 409 de borrar una zona: el número que decide si hay que
+  ///    vaciar dos tarjetas o mover ochenta.
+  static RechazoDelTablero _comoRechazo(RechazoDelServidor no) {
+    final cuerpo = no.cuerpo;
+    if (cuerpo is! Map<Object?, Object?>) return RechazoDelTablero(no.motivo);
+
+    final cuantos = cuerpo['pedidos'];
+    final crudos = cuerpo['descartados'];
+    final detalles = <String>[];
+    if (crudos is List) {
+      for (final d in crudos) {
+        if (d is! Map<Object?, Object?>) continue;
+        final quien = d['operationNumber'] ?? d['pedidoId'];
+        final cliente = d['customerName'];
+        final motivo = d['motivo'];
+        detalles.add(
+          [
+            if (quien is String && quien.isNotEmpty) quien,
+            if (cliente is String && cliente.isNotEmpty) cliente,
+          ].join(' · ') +
+              (motivo is String && motivo.isNotEmpty ? ': $motivo' : ''),
+        );
+      }
+    }
+    return RechazoDelTablero(
+      no.motivo,
+      pedidos: cuantos is num ? cuantos.toInt() : null,
+      detalles: detalles,
+    );
+  }
+
+  /// LA MARCA DE «esto de aquí todavía no está arriba»: `1` en el aparato, `0`
+  /// en la web.
+  ///
+  /// `nacio_aqui` existe para una sola cosa: que «actualizar» no borre trabajo
+  /// que sólo vive en este aparato. **En un navegador ese trabajo no existe** —
+  /// aquí no se escribe una fila hasta que el servidor la ha aceptado— así que
+  /// la marca es falsa por definición.
+  ///
+  /// Y dejarla puesta no era inofensivo, que es lo que la trae aquí: el ciclo
+  /// pasa por `Huerfanos.volverAEncolar` ANTES de subir, y ése busca justamente
+  /// las filas con `nacio_aqui = 1` que no tienen apunte vivo detrás — o sea,
+  /// **todas las de la web**— y las vuelve a encolar. Con eso la cola se llena
+  /// otra vez, el ciclo vuelve a pedir `POST /sync/aparato` y vuelve a comerse
+  /// su 401: el fallo del 22/09/2026 entero, reconstruido por la espalda.
+  ///
+  /// La otra mitad de la marca —que la bajada se niegue para no pisar lo que no
+  /// subió— ya estaba apagada en la web desde el 16/09/2026 (`datos/servicio.dart`,
+  /// «EN LA WEB NO HAY NADA QUE PROTEGER»). Esto la apaga por el otro lado.
+  int get _nacioAqui => _enVivo == null ? 1 : 0;
 
   String get _tablaColumnas => EsquemaTablero.columnas;
   String get _tablaColocaciones => EsquemaTablero.colocaciones;
@@ -109,8 +239,8 @@ class RepositorioTablero {
         // estuviera protegida.
         'INSERT INTO $_tablaColocaciones '
         '(order_id, column_id, posicion, colocado_at, updated_at, nacio_aqui) '
-        'VALUES (?1, ?2, ?3, ?4, ?4, 1)',
-        [pedidoId, columnaId, donde, _ahora],
+        'VALUES (?1, ?2, ?3, ?4, ?4, ?5)',
+        [pedidoId, columnaId, donde, _ahora, _nacioAqui],
       );
 
       // El apunte va DENTRO de la transaccion. Si la columna todavia es
@@ -118,7 +248,7 @@ class RepositorioTablero {
       // `Provisionales` cuando la creacion de la columna suba: es lo que impide
       // que las doce colocaciones de detras acaben en una columna que no existe
       // en ningun sitio (tablero.md §9).
-      await _cola.encolar(
+      await _mandarOEncolar(
         metodo: 'PUT',
         ruta: '/board/placements/$pedidoId',
         cuerpo: <String, Object?>{'columnaId': columnaId, 'posicion': donde},
@@ -150,7 +280,7 @@ class RepositorioTablero {
         'WHERE column_id = ?1 AND posicion > ?2',
         [fila.read<String>('column_id'), fila.read<int>('posicion')],
       );
-      await _cola.encolar(
+      await _mandarOEncolar(
         metodo: 'DELETE',
         ruta: '/board/placements/$pedidoId',
         cuerpo: const <String, Object?>{},
@@ -204,7 +334,7 @@ class RepositorioTablero {
           'INSERT INTO $_tablaColumnas '
           '(id, branch_id, nombre, posicion, vehicle_id, created_at, updated_at, '
           ' nacio_aqui) '
-          'VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1)',
+          'VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)',
           [
             id,
             sucursalId,
@@ -212,9 +342,10 @@ class RepositorioTablero {
             fila.read<int>('siguiente'),
             vehiculoId,
             _ahora,
+            _nacioAqui,
           ],
         );
-        await _cola.encolar(
+        await _mandarOEncolar(
           metodo: 'POST',
           ruta: '/board/columns?branchId=$sucursalId',
           cuerpo: <String, Object?>{
@@ -267,11 +398,11 @@ class RepositorioTablero {
           // tenia— no es trabajo sin subir, y marcarlo congela el tablero por
           // nada. Los gestos marcaban por ejecutarse, no por cambiar.
           'UPDATE $_tablaColumnas SET nombre = ?1, updated_at = ?2, '
-          'nacio_aqui = CASE WHEN nombre <> ?1 THEN 1 ELSE nacio_aqui END '
+          'nacio_aqui = CASE WHEN nombre <> ?1 THEN ?4 ELSE nacio_aqui END '
           'WHERE id = ?3',
-          [limpio, _ahora, columnaId],
+          [limpio, _ahora, columnaId, _nacioAqui],
         );
-        await _cola.encolar(
+        await _mandarOEncolar(
           metodo: 'PATCH',
           ruta: '/board/columns/$columnaId',
           cuerpo: <String, Object?>{'nombre': limpio},
@@ -295,14 +426,14 @@ class RepositorioTablero {
         // Igual que el renombrado: elegir camion sin senal es un cambio de
         // aqui que arriba todavia no esta.
         'UPDATE $_tablaColumnas SET vehicle_id = ?1, updated_at = ?2, '
-        'nacio_aqui = CASE WHEN vehicle_id IS NOT ?1 THEN 1 ELSE nacio_aqui END '
+        'nacio_aqui = CASE WHEN vehicle_id IS NOT ?1 THEN ?4 ELSE nacio_aqui END '
         'WHERE id = ?3',
-        [vehiculoId, _ahora, columnaId],
+        [vehiculoId, _ahora, columnaId, _nacioAqui],
       );
       // El campo viaja SIEMPRE, tambien vacio: «no me lo toques» y «quitamelo»
       // son dos ordenes distintas, y el servidor las distingue por que el campo
       // este presente.
-      await _cola.encolar(
+      await _mandarOEncolar(
         metodo: 'PATCH',
         ruta: '/board/columns/$columnaId',
         cuerpo: <String, Object?>{'vehiculoId': vehiculoId},
@@ -328,12 +459,12 @@ class RepositorioTablero {
         await _base.customStatement(
           // Y el orden. Es lo que decide por donde empieza el camion.
           'UPDATE $_tablaColumnas SET posicion = ?1, updated_at = ?2, '
-          'nacio_aqui = CASE WHEN posicion <> ?1 THEN 1 ELSE nacio_aqui END '
+          'nacio_aqui = CASE WHEN posicion <> ?1 THEN ?5 ELSE nacio_aqui END '
           'WHERE id = ?3 AND branch_id = ?4',
-          [i + 1, _ahora, idsEnOrden[i], sucursalId],
+          [i + 1, _ahora, idsEnOrden[i], sucursalId, _nacioAqui],
         );
       }
-      await _cola.encolar(
+      await _mandarOEncolar(
         metodo: 'PUT',
         ruta: '/board/columns/orden?branchId=$sucursalId',
         cuerpo: <String, Object?>{'ids': idsEnOrden},
@@ -357,7 +488,7 @@ class RepositorioTablero {
       // orden, y quitar tarjeta a tarjeta es ademas reaplicable — quitar dos
       // veces lo que ya no esta no es un error, es el mismo tablero.
       for (final pedidoId in dentro) {
-        await _cola.encolar(
+        await _mandarOEncolar(
           metodo: 'DELETE',
           ruta: '/board/placements/$pedidoId',
           cuerpo: const <String, Object?>{},
@@ -388,11 +519,11 @@ class RepositorioTablero {
           // columna mandando sus tarjetas a otra.
           'UPDATE $_tablaColocaciones SET column_id = ?1, posicion = ?2, '
           'nacio_aqui = CASE WHEN column_id <> ?1 OR posicion <> ?2 '
-          '              THEN 1 ELSE nacio_aqui END, '
+          '              THEN ?5 ELSE nacio_aqui END, '
           'updated_at = ?3 WHERE order_id = ?4',
-          [destinoId, donde, _ahora, dentro[i]],
+          [destinoId, donde, _ahora, dentro[i], _nacioAqui],
         );
-        await _cola.encolar(
+        await _mandarOEncolar(
           metodo: 'PUT',
           ruta: '/board/placements/${dentro[i]}',
           cuerpo: <String, Object?>{'columnaId': destinoId, 'posicion': donde},
@@ -437,7 +568,7 @@ class RepositorioTablero {
       final cola = destinoId != null
           ? '?destino=$destinoId'
           : (vaciar ? '?vaciar=1' : '');
-      await _cola.encolar(
+      await _mandarOEncolar(
         metodo: 'DELETE',
         ruta: '/board/columns/$columnaId$cola',
         cuerpo: const <String, Object?>{},
@@ -524,7 +655,46 @@ class RepositorioTablero {
           Parada(t.pedido.pedidoId, p.lat, p.lng),
     ];
 
-    final rutaId = Provisionales.nuevoId();
+    // El cuerpo, UNO SOLO: lo manda la web ahora y lo encola la APK para luego.
+    final cuerpo = <String, Object?>{
+      'nombre': ?nombre,
+      'vehiculoId': ?columna?.vehiculoId,
+      // El orden del logistico gana al greedy por defecto (§5.4).
+      'optimizar': false,
+    };
+
+    // EN LA WEB LA RUTA LA CREA EL SERVIDOR, Y SU ID ES EL BUENO.
+    //
+    // Aqui se ponia un `local-…` de `Provisionales` y se esperaba a que el
+    // apunte subiera para sustituirlo. En un navegador ese apunte NO SUBE NUNCA
+    // —la cola sale por `/sync` y alli no hay aparato que dar de alta— asi que
+    // la sustitucion no llega jamas: la pantalla se iria a `/routes/local-9f3a`,
+    // y al recargar no habria ni ruta ni tarjetas, porque la base es en memoria.
+    //
+    // Se manda ANTES de escribir nada y no dentro de la transaccion como los
+    // demas gestos, porque aqui la respuesta **es un dato que hace falta**: sin
+    // el id del servidor no se puede ni empezar a escribir la fila.
+    final enVivo = _enVivo;
+    final String rutaId;
+    if (enVivo != null) {
+      final respuesta = await _mandarOEncolar(
+        metodo: 'POST',
+        ruta: '/board/columns/$columnaId/route',
+        cuerpo: cuerpo,
+      );
+      final id = respuesta is Map<Object?, Object?> ? respuesta['id'] : null;
+      if (id is! String || id.isEmpty) {
+        // Dijo que si y no dijo cual. No se inventa un id: dar la ruta por
+        // armada con uno que no existe es el fallo de hoy otra vez.
+        throw const RechazoDelTablero(
+          'La ruta se armó en el servidor, pero la respuesta llegó sin su '
+          'identificador. Actualiza el tablero para verla.',
+        );
+      }
+      rutaId = id;
+    } else {
+      rutaId = Provisionales.nuevoId();
+    }
 
     await _base.transaction(() async {
       await _base
@@ -559,10 +729,16 @@ class RepositorioTablero {
               totalWeight: Value(
                 buenos.fold<double>(0, (a, t) => a + t.pedido.weight),
               ),
+              // ESTO NO ES EL IMPORTE DE LA RUTA. Es el espejo de la cuenta que
+              // hace el servidor (`api/internal/api/rutas.go:810-814`), y la
+              // columna es `NOT NULL DEFAULT 0` en los dos lados: no sabe decir
+              // «no se sabe». El importe se saca de las paradas con
+              // `ImporteDeRuta`, que sí lo sabe. El porqué entero está en
+              // `espejoDelTotalDelServidor`, y hay una prueba que se pone roja
+              // si alguna pantalla vuelve a leer `totalPrice`.
               totalPrice: Value(
-                buenos.fold<double>(
-                  0,
-                  (a, t) => a + (t.pedido.pedidoCosto ?? 0),
+                ImporteDeRuta.espejoDelTotalDelServidor(
+                  buenos.map((t) => t.pedido.pedidoCosto),
                 ),
               ),
               vehicleId: Value(columna?.vehiculoId),
@@ -596,16 +772,18 @@ class RepositorioTablero {
         );
       }
 
-      await _cola.encolar(
-        metodo: 'POST',
-        ruta: '/board/columns/$columnaId/route',
-        cuerpo: <String, Object?>{
-          'nombre': ?nombre,
-          'vehiculoId': ?columna?.vehiculoId,
-          'optimizar': false,
-        },
-        provisional: rutaId,
-      );
+      // En la web ya esta arriba —y con el id del servidor puesto—, asi que no
+      // hay nada que encolar. Lo que quede de distinto entre lo que se escribio
+      // aqui y lo que guardo el servidor (un descartado de mas, por ejemplo) lo
+      // cuadra la siguiente bajada del tablero, que en la web nunca se niega.
+      if (enVivo == null) {
+        await _mandarOEncolar(
+          metodo: 'POST',
+          ruta: '/board/columns/$columnaId/route',
+          cuerpo: cuerpo,
+          provisional: rutaId,
+        );
+      }
     });
     EsquemaTablero.avisarDeCambio(_base);
     return rutaId;

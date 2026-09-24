@@ -148,6 +148,7 @@ class _Cabecera extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final tema = Theme.of(context);
     final excede = columna.excedeCamion;
+    final capacidad = columna.vehiculoCapacidad;
     return DragTarget<TarjetaArrastrada>(
       // Tambien se puede soltar en la cabecera: en el movil es lo que queda a
       // la vista cuando la columna esta llena.
@@ -180,31 +181,48 @@ class _Cabecera extends ConsumerWidget {
                 ),
               ],
             ),
-            Row(
+            // `Wrap` Y NO `Row`: con la capacidad delante, «1.210 kg / 1.000 kg ·
+            // 0,00 USD» mas el aviso no cabe en una columna de 300 px y un `Row`
+            // se desborda —franja amarilla y negra— o, con `Expanded`, se come
+            // con puntos suspensivos justo el numero que hay que leer. Aqui baja
+            // a la linea de abajo y se lee entero.
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 6,
               children: [
                 Text(
-                  '${pesoBonito(columna.pesoKg)} · '
+                  // CUÁNTO LLEVA **Y CUÁNTO CABE**, como el paso 3 del
+                  // asistente de rutas («0.0 / 1000 kg»). Sin el segundo número
+                  // el peso no dice nada: no hay forma de saber que te estás
+                  // pasando hasta que el camión está en el almacén, y para
+                  // entonces la ruta ya se armó. Sin camión previsto se pinta
+                  // sólo el peso: un «/ —» promete un tope que nadie ha puesto.
+                  '${pesoBonito(columna.pesoKg)}'
+                  '${capacidad == null ? '' : ' / ${pesoBonito(capacidad)}'} · '
                   '${dineroBonito(ref, columna.costoUsd)}',
                   style: tema.textTheme.bodySmall,
                 ),
                 // El exceso AVISA y no impide: el tablero es un borrador y el
                 // camion previsto es una intencion. La capacidad se comprueba
                 // donde importa, al armar la ruta (§7.3).
-                if (excede == true) ...[
-                  const SizedBox(width: 6),
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    size: 16,
-                    color: ColoresTablero.ambar,
+                if (excede == true)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        size: 16,
+                        color: ColoresTablero.ambar,
+                      ),
+                      const SizedBox(width: 2),
+                      Text(
+                        'no cabe',
+                        style: tema.textTheme.bodySmall?.copyWith(
+                          color: ColoresTablero.ambar,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 2),
-                  Text(
-                    'no cabe',
-                    style: tema.textTheme.bodySmall?.copyWith(
-                      color: ColoresTablero.ambar,
-                    ),
-                  ),
-                ],
               ],
             ),
             Row(

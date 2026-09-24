@@ -175,12 +175,17 @@ func (a *Acotado) QuitarDelTableroLosDeRuta(ctx context.Context, ruta uuid.UUID)
 // Armar la ruta de una columna — consultas COMPARTIDAS con el armador de siempre
 // ---------------------------------------------------------------------------
 
-// TableroOrigenes son los puntos de partida. Se usan para resolver desde dónde se mide la
-// cercanía; el filtro por sucursal concreta lo hace el manejador sobre lo devuelto,
-// porque el alcance de un Super Admin es «todas» y aun así el tablero es de una.
-func (a *Acotado) TableroOrigenes(ctx context.Context) ([]sqlc.ListarOrigenesRow, error) {
-	return a.q.ListarOrigenes(ctx, a.sucursalPg())
-}
+// AQUÍ ESTABA `TableroOrigenes`, Y SE QUITÓ ENTERA (22/09/2026).
+//
+// Servía para una sola cosa: resolver desde dónde mide el tablero, y lo resolvía con
+// `saved_origins` —los puntos de partida de esta base— en vez de con los almacenes, que
+// viven en Accesos. Por eso La Habana, la única sucursal con un punto de partida
+// guardado, tenía tablero y las otras siete recibían «no tiene ningún almacén con
+// coordenadas» teniéndolo puesto. Hoy el manejador se lo pregunta a Accesos, igual que la
+// cotización (`api/internal/api/tablero.go`, `almacenDe`).
+//
+// No se deja «por si acaso»: una consulta que resuelve la pregunta equivocada es
+// exactamente lo que el siguiente vuelve a usar.
 
 func (a *Acotado) TableroObtenerPedido(ctx context.Context, id uuid.UUID) (sqlc.ObtenerPedidoRow, error) {
 	return a.q.ObtenerPedido(ctx, sqlc.ObtenerPedidoParams{ID: id, Sucursal: a.sucursalPg()})

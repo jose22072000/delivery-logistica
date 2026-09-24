@@ -35,6 +35,7 @@ import (
 	"procovar/reparto-api/internal/alcance"
 	"procovar/reparto-api/internal/auth"
 	"procovar/reparto-api/internal/config"
+	"procovar/reparto-api/internal/cotizar"
 	"procovar/reparto-api/internal/httpx"
 	"procovar/reparto-api/internal/store/sqlc"
 )
@@ -147,7 +148,6 @@ type tableroFalso struct {
 	// El pedido que OTRO se lleva entre la validación y el enganche. Es la carrera de
 	// verdad, la única que sí se arregla reintentando.
 	seLoLlevan  uuid.UUID
-	sinOrigen   bool
 	borrarFalla bool
 	capacidad   float64
 
@@ -177,11 +177,10 @@ func nuevoTablero() *tableroFalso {
 			pedHol:  {id: pedHol, sucursal: sucHol, nombre: "De Holguín", peso: 7, lat: 20.9, lng: -76.2, factura: &igual},
 		},
 		colocadas: map[uuid.UUID]colocacion{},
-		origenes: []sqlc.ListarOrigenesRow{{
-			ID: uuid.New(), Name: "Almacén principal", Lat: 20.0247, Lng: -75.8219,
-			BranchID:  pgtype.UUID{Bytes: [16]byte(sucStg), Valid: true},
-			CreatedAt: pgtype.Timestamptz{Time: time.Now().Add(-48 * time.Hour), Valid: true},
-		}},
+		// SIN `origenes`, y a propósito: los puntos de partida de esta base NO son los
+		// almacenes. Sembrarlos aquí es lo que hacía pasar las pruebas mientras siete
+		// sucursales de ocho se quedaban sin tablero. Desde dónde se mide lo dice
+		// Accesos, y en las pruebas, `almacenesDelTablero`.
 	}
 	return t
 }
@@ -209,19 +208,22 @@ func (q *tableroFalso) ObtenerSucursal(_ context.Context, arg sqlc.ObtenerSucurs
 	if arg.Sucursal.Valid && uuid.UUID(arg.Sucursal.Bytes) != arg.ID {
 		return sqlc.Branch{}, pgx.ErrNoRows
 	}
+	// CON SU CÓDIGO PUESTO, que es lo que se le pregunta a Accesos para saber desde
+	// dónde se mide. Sin él, el tablero de esa sucursal no existe — y ése era el fallo:
+	// se resolvía por `saved_origins`, que no es donde viven los almacenes.
+	stg, hol := "STG", "HOL"
 	switch arg.ID {
 	case sucStg:
-		return sqlc.Branch{ID: sucStg, Name: "Santiago"}, nil
+		return sqlc.Branch{ID: sucStg, Name: "Santiago", ExternalID: &stg}, nil
 	case sucHol:
-		return sqlc.Branch{ID: sucHol, Name: "Holguín"}, nil
+		return sqlc.Branch{ID: sucHol, Name: "Holguín", ExternalID: &hol}, nil
 	}
 	return sqlc.Branch{}, pgx.ErrNoRows
 }
 
+// ListarOrigenes sigue aquí porque la interfaz de sqlc la exige, pero EL TABLERO YA NO LA
+// USA: los orígenes son los puntos de partida de esta base y el almacén vive en Accesos.
 func (q *tableroFalso) ListarOrigenes(_ context.Context, sucursal pgtype.UUID) ([]sqlc.ListarOrigenesRow, error) {
-	if q.sinOrigen {
-		return nil, nil
-	}
 	var salida []sqlc.ListarOrigenesRow
 	for _, o := range q.origenes {
 		if sucursal.Valid && o.BranchID.Bytes != sucursal.Bytes {
@@ -786,6 +788,13 @@ func montarTab(t *testing.T, q sqlc.Querier) http.Handler {
 	if err != nil {
 		t.Fatalf("configuración: %v", err)
 	}
+	// EL ALMACÉN SALE DE ACCESOS, así que sin Accesos no hay tablero. Se pone uno de
+	// mentira por defecto —con las coordenadas de Santiago de verdad, para que los
+	// kilómetros de las pruebas se puedan comparar con un mapa— y se respeta el que la
+	// prueba haya puesto antes con `conAccesos`.
+	if _, esElDeVerdad := Accesos.(*accesosHTTP); esElDeVerdad {
+		conAccesos(t, almacenesDelTablero())
+	}
 	reg := slog.New(slog.NewTextHandler(io.Discard, nil))
 	s := NuevoServidor(cfg, reg,
 		alcance.NuevaPorteria(fuenteTab{q: q}, reg),
@@ -802,6 +811,23 @@ func montarTab(t *testing.T, q sqlc.Querier) http.Handler {
 	s.rutasTablero(rt, sesion, admin)
 	s.rutasEspejo(rt, sesion, admin)
 	return rt.Handler()
+}
+
+// almacenesDelTablero es lo que Accesos contesta en las pruebas del tablero: Santiago con
+// su almacén principal y Holguín con el suyo. LAS DOS SUCURSALES, siempre: con una sola
+// sembrada, un filtro que mira la tabla equivocada sale verde igual, que es exactamente
+// como el fallo del 22/09/2026 llegó a producción.
+func almacenesDelTablero() *accesosFalso {
+	return &accesosFalso{sucursales: []SucursalConAlmacenes{
+		{Codigo: "STG", Nombre: "Santiago", Almacenes: []Almacen{
+			{Nombre: "Almacén principal", Principal: true, Activo: true,
+				Latitud: flotante(20.0247), Longitud: flotante(-75.8219)},
+		}},
+		{Codigo: "HOL", Nombre: "Holguín", Almacenes: []Almacen{
+			{Nombre: "Nave de Holguín", Principal: true, Activo: true,
+				Latitud: flotante(20.8872), Longitud: flotante(-76.2631)},
+		}},
+	}}
 }
 
 func tokenTab(t *testing.T, sucursal string) string {
@@ -1013,10 +1039,17 @@ func TestSuperAdminSinSucursalNoVeElTableroDeTodas(t *testing.T) {
 }
 
 // Sin almacén con coordenadas NO HAY TABLERO: no se ordena por un punto inventado.
+//
+// «Sin almacén» es lo que diga ACCESOS, que es donde viven. Antes se miraba `saved_origins`
+// y por eso este 409 salía en siete sucursales de ocho teniendo el almacén puesto.
 func TestSinAlmacenConCoordenadasEs409(t *testing.T) {
-	q := nuevoTablero()
-	q.sinOrigen = true
-	h := montarTab(t, q)
+	conAccesos(t, &accesosFalso{sucursales: []SucursalConAlmacenes{
+		{Codigo: "STG", Nombre: "Santiago", Almacenes: []Almacen{
+			// Dado de alta, sin punto. Es un estado normal y no sirve para medir.
+			{Nombre: "Central", Principal: true, Activo: true},
+		}},
+	}})
+	h := montarTab(t, nuevoTablero())
 
 	w := pedirTab(t, h, http.MethodGet, "/api/board", tokenTab(t, sucStg.String()), "")
 	if w.Code != http.StatusConflict {
@@ -1024,6 +1057,102 @@ func TestSinAlmacenConCoordenadasEs409(t *testing.T) {
 	}
 	if leerTab(t, w)["error"] != "Santiago no tiene ningún almacén con coordenadas" {
 		t.Fatalf("mensaje %q", w.Body.String())
+	}
+}
+
+// EL FALLO DEL 22/09/2026, CON DOS SUCURSALES SEMBRADAS.
+//
+// Cada sucursal mide desde SU almacén, el de Accesos, el mismo que enseña la pantalla de
+// Almacenes y el mismo que cuenta el Panel. Con una sola sucursal sembrada esto sale verde
+// aunque el origen salga de la tabla equivocada — que es como llegó a producción: La
+// Habana, la única con un `saved_origins`, tenía tablero, y las otras siete recibían «no
+// tiene ningún almacén con coordenadas» con el almacén puesto y con su punto.
+func TestCadaSucursalMideDesdeSuAlmacenDeAccesos(t *testing.T) {
+	h := montarTab(t, nuevoTablero())
+
+	for _, c := range []struct {
+		sucursal uuid.UUID
+		almacen  string
+		lat      float64
+	}{
+		{sucStg, "Almacén principal", 20.0247},
+		{sucHol, "Nave de Holguín", 20.8872},
+	} {
+		w := pedirTab(t, h, http.MethodGet, "/api/board", tokenTab(t, c.sucursal.String()), "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("sucursal %s: código %d — %s", c.almacen, w.Code, w.Body.String())
+		}
+		alm, _ := leerTab(t, w)["almacen"].(map[string]any)
+		if alm["nombre"] != c.almacen || alm["lat"] != c.lat {
+			t.Fatalf("el tablero midió desde %v y tenía que medir desde %q (%v)",
+				alm, c.almacen, c.lat)
+		}
+	}
+}
+
+// LA REGLA ES LA MISMA FUNCIÓN QUE LA DE LA COTIZACIÓN, no una copia.
+//
+// `cotizar.ElegirAlmacen` es quien decide desde dónde se mide el domicilio que se le cobra
+// al cliente. Si el tablero eligiera otro, ordenaría por una distancia y se cobraría por
+// otra, y ninguna pantalla lo desmentiría: sale una lista con sus kilómetros y todo.
+//
+// El principal va EL ÚLTIMO de la lista a propósito: quien coja «el primero» pasa las otras
+// pruebas y falla ésta.
+func TestElTableroYLaCotizacionEligenElMismoAlmacen(t *testing.T) {
+	deAccesos := []Almacen{
+		{Nombre: "Patio", Activo: true, Latitud: flotante(20.1), Longitud: flotante(-75.9)},
+		{Nombre: "Central", Principal: true, Activo: true,
+			Latitud: flotante(20.0247), Longitud: flotante(-75.8219)},
+	}
+	conAccesos(t, &accesosFalso{sucursales: []SucursalConAlmacenes{
+		{Codigo: "STG", Nombre: "Santiago", Almacenes: deAccesos},
+	}})
+	h := montarTab(t, nuevoTablero())
+
+	w := pedirTab(t, h, http.MethodGet, "/api/board", tokenTab(t, sucStg.String()), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	esperado := cotizar.ElegirAlmacen(almacenesConPunto(deAccesos))
+	alm, _ := leerTab(t, w)["almacen"].(map[string]any)
+	if alm["nombre"] != esperado.Nombre || alm["lat"] != *esperado.Latitud {
+		t.Fatalf("el tablero mide desde %v y la cotización desde %q (%v): son el mismo dato",
+			alm, esperado.Nombre, *esperado.Latitud)
+	}
+}
+
+// (0,0) ES EL GOLFO DE GUINEA, no Santiago. Un almacén así no tiene coordenadas: las tiene
+// sin poner, y medir desde ahí pone el pedido más lejano el primero sin que nada falle.
+func TestUnAlmacenEnCeroCeroNoEsUnPunto(t *testing.T) {
+	conAccesos(t, &accesosFalso{sucursales: []SucursalConAlmacenes{
+		{Codigo: "STG", Nombre: "Santiago", Almacenes: []Almacen{
+			{Nombre: "Central", Principal: true, Activo: true,
+				Latitud: flotante(0), Longitud: flotante(0)},
+		}},
+	}})
+	h := montarTab(t, nuevoTablero())
+
+	w := pedirTab(t, h, http.MethodGet, "/api/board", tokenTab(t, sucStg.String()), "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ACCESOS CAÍDO NO ES «NO TIENES ALMACÉN».
+//
+// Decirle al logístico que su sucursal no tiene almacén cuando lo que pasa es que Accesos
+// no contesta le manda a arreglar algo que no está roto, y el mensaje que vería es
+// creíble. Se dice quién no contestó.
+func TestSiAccesosNoContestaElTableroNoAcusaALaSucursal(t *testing.T) {
+	conAccesos(t, &accesosFalso{fallo: errAccesosCaido})
+	h := montarTab(t, nuevoTablero())
+
+	w := pedirTab(t, h, http.MethodGet, "/api/board", tokenTab(t, sucStg.String()), "")
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	if msg, _ := leerTab(t, w)["error"].(string); !strings.Contains(msg, "Accesos") {
+		t.Fatalf("mensaje %q: tiene que decir quién no contestó", msg)
 	}
 }
 

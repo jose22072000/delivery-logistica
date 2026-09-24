@@ -22,11 +22,32 @@ class AlmacenOrigen {
 /// que no son el sitio del que sale la mercancia. El mensaje es literal, el
 /// mismo que devuelve el servidor con su 409.
 class SinAlmacenConCoordenadas implements Exception {
-  const SinAlmacenConCoordenadas(this.sucursal);
+  const SinAlmacenConCoordenadas(this.sucursal) : noHaBajado = false;
+
+  /// LO QUE NO SE SABE NO ES LO MISMO QUE LO QUE FALTA — 22/09/2026.
+  ///
+  /// Este aparato no ha descargado los almacenes todavia, asi que **no hay nada
+  /// que le permita decir que la sucursal no tiene almacen**. Decirlo igual es
+  /// mandar a alguien a dar de alta lo que ya existe, y en la web —donde la base
+  /// nace vacia en cada carga y se vuelve a llenar en cada ciclo— salia cada vez
+  /// que la copia se estaba rehaciendo: la pantalla en blanco acusando a La
+  /// Habana de no tener el almacen que dos segundos antes ensenaba arriba.
+  ///
+  /// Es el mismo `ComoVa.sinSaber` que el paso a paso del Panel ya distinguia, y
+  /// por eso el Panel decia ✓ donde el Tablero decia que no.
+  const SinAlmacenConCoordenadas.todaviaNoHaBajado(this.sucursal)
+    : noHaBajado = true;
 
   final String sucursal;
 
-  String get mensaje => '$sucursal no tiene ningún almacén con coordenadas';
+  /// `true` = no se miro, porque los almacenes no han llegado a este aparato.
+  final bool noHaBajado;
+
+  String get mensaje => noHaBajado
+      ? 'Los almacenes todavía no han llegado a este aparato, así que no se '
+            'sabe desde dónde medir. No es que $sucursal no lo tenga puesto: es '
+            'que no ha bajado. Vuelve a intentarlo en un momento.'
+      : '$sucursal no tiene ningún almacén con coordenadas';
 
   @override
   String toString() => mensaje;

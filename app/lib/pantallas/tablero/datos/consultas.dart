@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../../nucleo/almacenes/almacen_de_referencia.dart';
 import '../../../nucleo/base/base.dart';
 import 'esquema.dart';
 import 'geo.dart';
@@ -114,48 +115,45 @@ class ConsultasTablero {
     return fila?.name ?? 'Esta sucursal';
   }
 
-  /// DE DONDE SE MIDE LA CERCANIA. Se resuelve igual que en
-  /// `/api/quote/home-delivery` y en el servidor del tablero:
+  /// DE DONDE SE MIDE LA CERCANIA.
   ///
-  ///  1. el primer almacen con `principal` **y** coordenadas;
-  ///  2. si no hay, el primero con coordenadas, principal o no;
-  ///  3. si no hay ninguno, **no hay tablero**.
+  /// La regla entera —que condiciones tiene que cumplir un almacen y cual se
+  /// elige— vive en [AlmacenDeReferencia], **y no aqui**: la comparten el paso a
+  /// paso del Panel y la ficha de Clientes, que hacen la misma pregunta sobre el
+  /// mismo dato. Tenerla escrita tres veces es como llegamos al 22/09/2026 con
+  /// tres pantallas contestando cosas distintas de la misma sucursal
+  /// (`CLAUDE.md` §3-bis).
   ///
   /// Sale de `warehouses`, que es lo que bajo por la manana: asi el orden por
   /// cercania no depende de preguntarle a nadie.
+  ///
+  /// Lanza [SinAlmacenConCoordenadas], y en DOS formas que no son la misma:
+  /// «no tiene» —se miro y no hay— y «todavia no ha bajado» —no se pudo mirar—.
+  /// La segunda no acusa a nadie de un hueco que no tiene.
   Future<AlmacenOrigen> almacenDe(String sucursalId) async {
     final sucursal = await (_base.select(
       _base.branches,
     )..where((b) => b.id.equals(sucursalId))).getSingleOrNull();
-    final codigo = sucursal?.externalId;
-
-    final almacenes =
-        await (_base.select(_base.warehouses)..where(
-              (w) =>
-                  w.activo.equals(true) & w.lat.isNotNull() & w.lng.isNotNull(),
-            ))
-            .get();
 
     // `warehouses` guarda la sucursal por CODIGO (`STG`), no por id: viene de
     // Accesos, que es otra base. Si la sucursal no tiene codigo no se adivina
     // nada — se queda sin tablero, que es lo honesto.
-    final suyos = almacenes.where((w) => w.sucursalCodigo == codigo).toList();
-    if (suyos.isEmpty) {
-      throw SinAlmacenConCoordenadas(await nombreDeSucursal(sucursalId));
+    final elegido = await AlmacenDeReferencia.de(_base, sucursal?.externalId);
+    if (elegido == null) {
+      final nombre = await nombreDeSucursal(sucursalId);
+      // ¿No hay, o no se ha mirado? Se pregunta SOLO cuando no hay ninguno:
+      // con un almacen delante, lo que diga la bajada no cambia nada.
+      final hayAlgunAlmacen =
+          await (_base.selectOnly(_base.warehouses)
+                ..addColumns([_base.warehouses.id])
+                ..limit(1))
+              .get();
+      if (hayAlgunAlmacen.isEmpty &&
+          !await AlmacenDeReferencia.bajaronLosAlmacenes(_base)) {
+        throw SinAlmacenConCoordenadas.todaviaNoHaBajado(nombre);
+      }
+      throw SinAlmacenConCoordenadas(nombre);
     }
-    // (0,0) es el golfo de Guinea, no Santiago: un almacen asi no tiene
-    // coordenadas, las tiene sin poner. Ordenar desde ahi pondria el pedido mas
-    // lejano el primero.
-    final validos = suyos
-        .where((w) => !(w.lat == 0 && w.lng == 0))
-        .toList(growable: false);
-    if (validos.isEmpty) {
-      throw SinAlmacenConCoordenadas(await nombreDeSucursal(sucursalId));
-    }
-    final elegido = validos.firstWhere(
-      (w) => w.principal,
-      orElse: () => validos.first,
-    );
     return AlmacenOrigen(
       id: elegido.id,
       nombre: elegido.nombre,

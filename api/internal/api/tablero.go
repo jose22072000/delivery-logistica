@@ -39,6 +39,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"procovar/reparto-api/internal/alcance"
+	"procovar/reparto-api/internal/cotizar"
 	"procovar/reparto-api/internal/httpx"
 	"procovar/reparto-api/internal/store/sqlc"
 )
@@ -305,7 +306,7 @@ func (s *Servidor) tableroDe(w http.ResponseWriter, r *http.Request, a *alcance.
 		return ctx, false
 	}
 
-	origen, ok := s.almacenDe(w, r, a, id, suc.Name)
+	origen, ok := s.almacenDe(w, r, suc)
 	if !ok {
 		return ctx, false
 	}
@@ -314,52 +315,86 @@ func (s *Servidor) tableroDe(w http.ResponseWriter, r *http.Request, a *alcance.
 
 // almacenDe resuelve el punto desde el que se mide, y NO se inventa ninguno.
 //
-// La spec manda resolverlo igual que `/api/quote/home-delivery`: el almacén principal con
-// coordenadas, si no el primero que las tenga, y si no hay ninguno NO HAY TABLERO. Se
-// ordena desde el sitio del que sale la mercancía o no se ordena — medir desde las
-// coordenadas de la sucursal da un orden que parece bueno y no lo es, y con esas mismas
-// coordenadas se le cobra el domicilio al cliente.
+// SALE DE ACCESOS, QUE ES DONDE VIVEN LOS ALMACENES, y se elige con la MISMA función que
+// `/api/quote/home-delivery` y que `GET /api/customers` (`cotizar.ElegirAlmacen`): el
+// principal con coordenadas, si no el primero que las tenga, y si no hay ninguno NO HAY
+// TABLERO. La misma función y no «la misma regla escrita otra vez»: dos copias de una
+// regla se separan, y ésta decide desde dónde se mide lo que se le cobra al cliente.
 //
-// DE DÓNDE SALE HOY: de `saved_origins`, los puntos de partida de esta base, que es lo
-// que hay. Los almacenes de verdad viven en Accesos y se piden por HTTP; este servicio
-// todavía no tiene por dónde preguntarles (no hay ni cliente ni variable de entorno para
-// Accesos), así que se usa el punto de partida de la sucursal, que es exactamente el sitio
-// del que sale el camión. `saved_origins` no tiene marca de `principal`, así que se toma
-// EL MÁS ANTIGUO: es el que se crea junto con la sucursal y el que nadie ha tocado.
-func (s *Servidor) almacenDe(w http.ResponseWriter, r *http.Request, a *alcance.Acotado, sucursal uuid.UUID, nombre string) (AlmacenSalida, bool) {
-	origenes, err := a.TableroOrigenes(r.Context())
-	if err != nil {
-		httpx.ErrorInterno(w, r, err)
-		return AlmacenSalida{}, false
+// # DE DÓNDE SALÍA ANTES, Y POR QUÉ ERA EL FALLO (22/09/2026)
+//
+// Salía de `saved_origins` —los puntos de partida de ESTA base, herencia de delivery— y
+// no de los almacenes. Son dos cosas distintas y no se llenan igual: el punto de partida
+// lo dejó puesto quien dio de alta la sucursal en delivery, y el almacén lo pone el
+// logístico desde la pantalla de Almacenes, que escribe en Accesos y **no toca esta
+// base**. Resultado: La Habana, la única sucursal con `saved_origins`, tenía tablero, y
+// las otras siete recibían `409 «<Sucursal> no tiene ningún almacén con coordenadas»`
+// teniendo el almacén puesto, con su punto, a la vista en la pantalla de Almacenes y con
+// el ✓ del Panel al lado. Tres pantallas contestando cosas distintas sobre el mismo dato:
+// `CLAUDE.md` §3-bis. Lo que lo ata ahora es una prueba —`TestElTableroYLaCotizacionMiran
+// ElMismoAlmacen`— y no este comentario.
+//
+// # ACCESOS CAÍDO NO ES «NO TIENE ALMACÉN»
+//
+// La cotización trata el fallo de Accesos como lista vacía y acaba en el 409, y ahí es lo
+// correcto: nunca se contesta un importe aproximado. Aquí no: decirle al logístico que su
+// sucursal no tiene almacén cuando lo que pasa es que Accesos no contesta le manda a
+// arreglar algo que no está roto. Eso es un 502 con el nombre de quien no contestó, igual
+// que en `GET /api/almacenes`.
+func (s *Servidor) almacenDe(w http.ResponseWriter, r *http.Request, suc sqlc.Branch) (AlmacenSalida, bool) {
+	codigo := ""
+	if suc.ExternalID != nil {
+		codigo = strings.TrimSpace(*suc.ExternalID)
 	}
 
-	elegido := AlmacenSalida{}
-	var cuando time.Time
-	hay := false
-	for _, o := range origenes {
-		if !o.BranchID.Valid || uuid.UUID(o.BranchID.Bytes) != sucursal {
-			continue
+	var lista []Almacen
+	if codigo != "" {
+		crudos, err := s.accesos.AlmacenesDeSucursal(r.Context(), codigo)
+		if err != nil {
+			httpx.Error(w, r, http.StatusBadGateway,
+				fmt.Sprintf("No se pudieron traer los almacenes de Accesos: %s", err))
+			return AlmacenSalida{}, false
 		}
-		// (0,0) es el golfo de Guinea, no Santiago: un origen así no tiene coordenadas,
-		// las tiene sin poner. Ordenar desde ahí pondría el pedido más lejano el primero.
-		if o.Lat == 0 && o.Lng == 0 {
-			continue
-		}
-		if hay && o.CreatedAt.Valid && !cuando.IsZero() && !o.CreatedAt.Time.Before(cuando) {
-			continue
-		}
-		elegido = AlmacenSalida{Nombre: o.Name, Lat: o.Lat, Lng: o.Lng}
-		if o.CreatedAt.Valid {
-			cuando = o.CreatedAt.Time
-		}
-		hay = true
+		lista = crudos
 	}
-	if !hay {
+	// Una sucursal sin código no tiene a quién preguntarle: no se adivina nada y se dice
+	// lo mismo que si no tuviera almacén, que es lo que le pasa de hecho.
+
+	elegido := cotizar.ElegirAlmacen(almacenesConPunto(lista))
+	if elegido == nil {
 		httpx.Error(w, r, http.StatusConflict,
-			fmt.Sprintf("%s no tiene ningún almacén con coordenadas", nombre))
+			fmt.Sprintf(msgSinAlmacenF, suc.Name))
 		return AlmacenSalida{}, false
 	}
-	return elegido, true
+	return AlmacenSalida{Nombre: elegido.Nombre, Lat: *elegido.Latitud, Lng: *elegido.Longitud}, true
+}
+
+// almacenesConPunto traduce lo que da Accesos a lo que entiende la fórmula y deja fuera
+// los que no tienen un punto DE VERDAD.
+//
+// (0,0) es el golfo de Guinea, no Santiago: un almacén así no tiene coordenadas, las tiene
+// sin poner. Ordenar el tablero desde ahí pondría el pedido más lejano el primero y nada
+// en la pantalla lo desmentiría — sale una lista ordenada, con sus kilómetros y todo.
+func almacenesConPunto(crudos []Almacen) []cotizar.Almacen {
+	salida := make([]cotizar.Almacen, 0, len(crudos))
+	for _, a := range crudos {
+		if a.Latitud == nil || a.Longitud == nil {
+			continue
+		}
+		if *a.Latitud == 0 && *a.Longitud == 0 {
+			continue
+		}
+		id := ""
+		if a.ID != nil {
+			id = *a.ID
+		}
+		salida = append(salida, cotizar.Almacen{
+			ID: id, Nombre: a.Nombre, Direccion: a.Direccion,
+			Latitud: a.Latitud, Longitud: a.Longitud,
+			Principal: a.Principal, Activo: a.Activo,
+		})
+	}
+	return salida
 }
 
 // ---------------------------------------------------------------------------
@@ -1264,7 +1299,7 @@ func (s *Servidor) armarRutaDeColumna(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorInterno(w, r, err)
 		return
 	}
-	almacen, ok := s.almacenDe(w, r, a, columna.BranchID, suc.Name)
+	almacen, ok := s.almacenDe(w, r, suc)
 	if !ok {
 		return
 	}

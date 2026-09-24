@@ -132,9 +132,24 @@ porque tocaba fichero de otro. **Ninguna de estas es opcional.**
       **una línea** —`Optimizado: &optimizar`, con `optimizar := c.Optimizar.Con(false)`—
       y no se tocó aquí porque ese fichero lo estaba escribiendo otro (`CLAUDE.md`
       §4-bis). Con su prueba al lado, que hoy no existe.
-- [ ] **El almacén del tablero sale de `saved_origins`**, no de Accesos. `clientes.go` ya
-      trajo `Accesos.AlmacenesDeSucursal` y `almacenDeReferencia`, que es lo correcto
-      según la spec. Hay que enganchar el tablero a eso.
+- [x] ~~**El almacén del tablero sale de `saved_origins`**, no de Accesos~~ — **hecho
+      (22-23/09/2026), y no era deuda: era el fallo.** `saved_origins` sólo estaba lleno
+      para La Habana, así que las otras siete sucursales recibían
+      `409 «<Sucursal> no tiene ningún almacén con coordenadas»` **con su almacén puesto**
+      y con el ✓ del Panel al lado. Sin Tablero esas sucursales no arman el día: la ruta
+      sale de una zona entera, no pedido a pedido. Hoy `almacenDe` (`internal/api/tablero.go`)
+      pide `s.accesos.AlmacenesDeSucursal(external_id)` y elige con la MISMA función que la
+      cotización, `cotizar.ElegirAlmacen`; `alcance.TableroOrigenes` se quitó entera.
+      Accesos caído es un **502 con su nombre**, no el 409, que acusaría a la sucursal de
+      un hueco que no tiene. En el aparato, la regla vive una sola vez en
+      `app/lib/nucleo/almacenes/almacen_de_referencia.dart`, compartida con el Panel y
+      Clientes. Lo que lo ata son pruebas con **dos sucursales sembradas**:
+      `TestCadaSucursalMideDesdeSuAlmacenDeAccesos`,
+      `TestElTableroYLaCotizacionEligenElMismoAlmacen`,
+      `TestSiAccesosNoContestaElTableroNoAcusaALaSucursal` y
+      `app/test/pantallas/tablero/las_tres_pantallas_contestan_igual_test.dart`. Y el narg
+      de `ObtenerSucursal` —lo único que ya separa a un logístico de Santiago del almacén
+      de Holguín— entró en la tabla de `TestCadaConsultaDelTableroLlevaLaSucursalDeQuienPregunta`.
 
 ## Limpieza que el compilador no ve
 

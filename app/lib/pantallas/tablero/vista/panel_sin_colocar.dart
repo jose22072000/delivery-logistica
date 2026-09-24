@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../diseno/caja_de_busqueda.dart';
+import '../../../diseno/caja_de_numero.dart';
 import '../../../diseno/tema.dart';
 import '../datos/modelos.dart';
 import '../estado/filtros_en_la_url.dart';
@@ -49,16 +51,6 @@ class PanelSinColocar extends ConsumerStatefulWidget {
 }
 
 class _PanelSinColocarState extends ConsumerState<PanelSinColocar> {
-  late final TextEditingController _busqueda = TextEditingController(
-    text: ref.read(filtrosTableroProvider).q ?? '',
-  );
-
-  @override
-  void dispose() {
-    _busqueda.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final tema = Theme.of(context);
@@ -101,18 +93,21 @@ class _PanelSinColocarState extends ConsumerState<PanelSinColocar> {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: TextField(
-                controller: _busqueda,
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  isDense: true,
-                  prefixIcon: Icon(Icons.search),
-                  // La misma caja de la lista de pedidos, contenido de los
-                  // renglones incluido: «¿que pedidos llevan malta?».
-                  hintText: 'Cliente, operación, dirección, artículo…',
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (texto) => FiltrosEnLaUrl.poner(
+              // LA CAJA DE LA CASA, y aqui es donde faltaba — 22/09/2026.
+              //
+              // Esto era un `TextField` con `onSubmitted` y nada mas: se
+              // escribia `DAYLIS` y no pasaba NADA hasta pulsar Intro. Palabras
+              // de Jose: «tengo q dar enter para q el filtro funcione». Nadie
+              // pulsa Intro en un buscador.
+              //
+              // `ancho: null` = el ancho de la columna, que es lo que habia.
+              child: CajaDeBusqueda(
+                valor: filtros.q ?? '',
+                ancho: null,
+                // La misma caja de la lista de pedidos, contenido de los
+                // renglones incluido: «¿que pedidos llevan malta?».
+                pista: 'Cliente, operación, dirección, artículo…',
+                alBuscar: (texto) => FiltrosEnLaUrl.poner(
                   context,
                   ref,
                   filtros.copiaCon(q: texto),
@@ -288,21 +283,37 @@ class _Filtros extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 12),
-        TextFormField(
-          initialValue: filtros.kmMax?.toString() ?? '',
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            labelText: 'Hasta cuántos km del almacén',
-            border: OutlineInputBorder(),
+        // EL TOPE DE KM, SIN PEDIR INTRO — 22/09/2026.
+        //
+        // Era un `TextFormField` con `onFieldSubmitted` a secas: escribir `12` y
+        // pasar al filtro de al lado no hacia nada, y en la misma columna la
+        // caja de buscar ya aplica sola. Jose: «tengo q dar enter para q el
+        // filtro funcione… ahi en tableros».
+        //
+        // `CajaDeNumero` y no una caja escrita aqui: un numero NO lleva el
+        // respiro de la caja de buscar —tecleando `12` se aplicaria primero `1`,
+        // que es un tope valido y deja la lista casi vacia—, asi que aplica al
+        // salir del campo, con Intro para quien tiene el habito, y lo que no es
+        // un numero devuelve el campo a lo aplicado en vez de dejar la pantalla
+        // diciendo una cosa y el filtro haciendo otra.
+        //
+        // La etiqueta va arriba, como la del cobro del domicilio: el `hintText`
+        // de la caja desaparece en cuanto hay algo escrito, y un campo con un
+        // numero suelto y sin nombre no dice de que es.
+        Text(
+          'Hasta cuántos km del almacén',
+          style: Tipos.texto(tamano: 12, color: Colores.tintaSuave),
+        ),
+        const SizedBox(height: 6),
+        CajaDeNumero(
+          valor: filtros.kmMax,
+          ancho: null,
+          pista: 'Sin tope',
+          alAplicar: (valor) => poner(
+            valor == null
+                ? filtros.copiaCon(quitarKmMax: true)
+                : filtros.copiaCon(kmMax: valor),
           ),
-          onFieldSubmitted: (texto) {
-            final valor = double.tryParse(texto.replaceAll(',', '.'));
-            poner(
-              valor == null
-                  ? filtros.copiaCon(quitarKmMax: true)
-                  : filtros.copiaCon(kmMax: valor),
-            );
-          },
         ),
         const SizedBox(height: 12),
         // EL COBRO DEL DOMICILIO, que decide si un pedido se puede repartir hoy.
