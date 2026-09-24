@@ -623,6 +623,30 @@ rato — hacen falta para medir cada domicilio y no cambian de un minuto a otro.
    coordenadas"`.** *Es desde donde sale la mercancía, que es lo que mide la APK. Sin almacén con
    coordenadas no se contesta un número aproximado: se dice que no se puede.*
 
+#### AQUÍ NOS SEPARAMOS DEL PATRÓN — 24/09/2026 (`CLAUDE.md` §2)
+
+Eso es lo que hace el Next, y le faltan dos condiciones y un desempate. La regla de **este**
+proyecto es una sola y vale para los cinco consumidores (cotización, tablero, clientes, Panel y
+el aparato):
+
+1. **Sirven para medir** los que están `activo`, tienen las **dos** coordenadas y **no** están
+   en `(0,0)`.
+2. De ésos gana el `principal`; si hay varios o ninguno, **el primero por nombre ascendente**
+   (y el `id` desempata a dos nombres iguales).
+3. Si no sirve ninguno, el mismo 409.
+
+**Por qué `activo`:** el servidor no lo filtraba y el aparato sí, así que en una sucursal con el
+almacén principal dado de baja —con coordenadas buenas— el mismo botón «Armar la ruta de esta
+zona» daba **dos kilometrajes** según se pulsara en el navegador o en el teléfono, y de esos km
+sale el cobro. Jose: *«no puede dar distinto, debe dar igual […] eso debe dar igual en todos los
+datos»*. **Por qué el nombre:** «el primero de la lista» deja la decisión en manos de quien
+sirva la lista, y Accesos (HTTP) y la base local no la sirven igual.
+
+Vive en `api/internal/cotizar/almacen.go` (`ElegirAlmacen`) y en
+`app/lib/nucleo/almacenes/almacen_de_referencia.dart` (`AlmacenDeReferencia`), y lo que ata a los
+dos es `docs/almacen-de-origen.casos.json` —el mismo fichero para las pruebas de Go y las de
+Dart—, no un comentario (§3-bis).
+
 ---
 
 ## 11. `scope.ts` — a qué datos llega quien pide

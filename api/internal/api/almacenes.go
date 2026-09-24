@@ -322,6 +322,28 @@ type Almacen struct {
 	Activo    bool     `json:"activo"`
 }
 
+// Y `activo` AUSENTE ES `true`, NO `false` — 24/09/2026.
+//
+// El contrato lo da por opcional (`activo?`, `docs/contratos-api.md`), Accesos lo guarda
+// con `@default(true)` y al escribir lo rellena con `a.activo ?? true`, y el aparato lo lee
+// igual: `activo: Value(a['activo'] != false)`, en `app/lib/nucleo/sincro/bajada.dart`. Un
+// `bool` pelado de Go entiende lo contrario —ausente = `false`—, y desde que `activo` FILTRA
+// (`cotizar.ElegirAlmacen`) eso sería el `409 «<Sucursal> no tiene ningún almacén con
+// coordenadas»` en las ocho sucursales a la vez y con el teléfono funcionando, porque el
+// teléfono lee el mismo JSON al revés. Es el `CLAUDE.md` §3-bis una capa más abajo: dos
+// lados leyendo el mismo campo y entendiendo cosas distintas, sin que falle nada.
+func (a *Almacen) UnmarshalJSON(crudo []byte) error {
+	// `mismo` no hereda los métodos de `Almacen`, así que esto no se llama a sí mismo. Los
+	// campos que el JSON no traiga se quedan con lo que valgan aquí.
+	type mismo Almacen
+	copia := mismo{Activo: true}
+	if err := json.Unmarshal(crudo, &copia); err != nil {
+		return err
+	}
+	*a = Almacen(copia)
+	return nil
+}
+
 type SucursalConAlmacenes struct {
 	Codigo    string    `json:"codigo"`
 	Nombre    string    `json:"nombre"`

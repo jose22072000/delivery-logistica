@@ -1,0 +1,143 @@
+{
+  "queEsEsto": "EL ALMACÉN DESDE EL QUE SE MIDE, elegido DOS VECES: en el servidor (`api/internal/cotizar/almacen.go`, `ElegirAlmacen`) y en el aparato (`app/lib/nucleo/almacenes/almacen_de_referencia.dart`, `AlmacenDeReferencia.elegir`). De ese almacén sale la distancia con la que se cobra el domicilio, así que elegir distinto no da un error: da DOS KILOMETRAJES para el mismo botón, los dos creíbles. Este fichero es lo que los ata (CLAUDE.md §3-bis: se atan con una PRUEBA, no con un comentario).",
+  "quienLoLee": [
+    "api/internal/cotizar/almacen_casos_compartidos_test.go",
+    "app/test/nucleo/almacenes/almacen_de_origen_casos_compartidos_test.dart"
+  ],
+  "laDecisionDeJose": "24/09/2026. Un auditor encontró que el servidor y el aparato elegían almacenes distintos: Go no filtraba `activo` a propósito y Dart sí. Jose: «no puede dar distinto, debe dar igual. ¿Cómo que distinto si es la misma API los dos? No tienen que elegir distinto, eso debe dar igual en todos los datos. Es un lugar distinto pero ya más nada.» Una sola regla, el mismo almacén elegido en todas partes.",
+  "laRegla": [
+    "1. SIRVEN PARA MEDIR los que cumplen las tres: `activo`, las DOS coordenadas puestas, y que no sean (0,0).",
+    "2. DE LOS QUE SIRVEN gana el `principal`; si hay varios o ninguno, el primero por nombre ascendente.",
+    "3. Si no sirve ninguno NO HAY DESDE DONDE MEDIR, y eso se dice: `nil`/`null`, y quien llama contesta 409 «<Sucursal> no tiene ningún almacén con coordenadas». No se aproxima con las coordenadas de la sucursal: no son el sitio del que sale la carga, y un importe aproximado se cobra igual que uno bueno."
+  ],
+  "porQueElDesempateEsPorNOMBREYNoPorElOrdenDeLaLista": "El servidor recibe los almacenes de Accesos por HTTP y el aparato los lee de su base local: NO llegan en el mismo orden, y ninguno de los dos manda en el del otro. Con el desempate «el primero de la lista» el origen lo decidiría quien sirvió la lista, así que dos lecturas seguidas pueden medir desde almacenes distintos y los km de la misma tarjeta bailan solos. Por eso los casos de este fichero se dan DESORDENADOS a propósito: el que los lee no puede pre-ordenarlos.",
+  "porQueNoCuentaUnINACTIVO": "Es la regla que ya seguían el Panel, el Tablero y Clientes, y desde el 24/09/2026 también el servidor. Un almacén dado de baja con coordenadas buenas es el peor caso que hay: sus coordenadas son válidas, la cuenta sale, el número es creíble y NINGUNA pantalla lo desmiente. Lo que se ve es que el mismo botón «Armar la ruta de esta zona» daba dos kilometrajes según se pulsara en el navegador (servidor, `ElegirAlmacen` → el de baja) o en el teléfono (local → el activo). Y esos km son los del cobro.",
+  "porQueNoCuentaEl00": "(0,0) es el golfo de Guinea, no Santiago: un almacén así no tiene coordenadas, las tiene SIN PONER. Medir desde ahí da ~8.600 km y un orden de tarjetas que parece bueno y no lo es.",
+  "comoSeLee": "Para cada caso, `almacenes` es la lista TAL CUAL se le da a la función —sin ordenar— y `elegido` es el `id` que tiene que devolver, o `null` si no hay ninguno. `lat`/`lng` ausentes o `null` = coordenada sin poner. Si se cambia la regla hay que cambiar los DOS lados y este fichero a la vez: tocar uno solo pone en rojo la prueba del otro.",
+  "casos": [
+    {
+      "nombre": "sin almacenes",
+      "nota": "La sucursal no tiene ninguno dado de alta. No hay desde donde medir, y se dice.",
+      "almacenes": [],
+      "elegido": null
+    },
+    {
+      "nombre": "ninguno con coordenadas",
+      "nota": "Hay almacenes, pero a nadie le pusieron el punto. Se miró, y no sirve.",
+      "almacenes": [
+        { "id": "A", "nombre": "Almacén norte", "principal": true, "activo": true },
+        { "id": "B", "nombre": "Zona sur", "principal": false, "activo": true }
+      ],
+      "elegido": null
+    },
+    {
+      "nombre": "media coordenada no es un punto",
+      "nota": "Latitud sí, longitud no. Hace falta latitud Y longitud.",
+      "almacenes": [
+        { "id": "M", "nombre": "A medias", "principal": true, "activo": true, "lat": 20.02 },
+        { "id": "A", "nombre": "Bueno", "principal": false, "activo": true, "lat": 20.05, "lng": -75.8 }
+      ],
+      "elegido": "A"
+    },
+    {
+      "nombre": "el principal con punto gana",
+      "nota": "Dado al revés del alfabeto y en último lugar, para que no gane por el orden.",
+      "almacenes": [
+        { "id": "A", "nombre": "Almacén norte", "principal": false, "activo": true, "lat": 20.02, "lng": -75.82 },
+        { "id": "P", "nombre": "Zona franca", "principal": true, "activo": true, "lat": 20.05, "lng": -75.8 }
+      ],
+      "elegido": "P"
+    },
+    {
+      "nombre": "el principal SIN punto cede al primero que lo tenga",
+      "nota": "Ser principal no basta: si no se puede medir desde él, no sirve.",
+      "almacenes": [
+        { "id": "P", "nombre": "Principal sin punto", "principal": true, "activo": true },
+        { "id": "B", "nombre": "Zona sur", "principal": false, "activo": true, "lat": 20.05, "lng": -75.8 },
+        { "id": "A", "nombre": "Almacén norte", "principal": false, "activo": true, "lat": 20.02, "lng": -75.82 }
+      ],
+      "elegido": "A"
+    },
+    {
+      "nombre": "sin principal manda el NOMBRE, no el orden de la lista",
+      "nota": "Dados al revés del alfabeto. Si el desempate fuera «el primero de la lista» saldría «Zona sur», y entonces el servidor y el aparato medirían desde almacenes distintos según cómo sirviera la lista cada uno.",
+      "almacenes": [
+        { "id": "Z", "nombre": "Zona sur", "principal": false, "activo": true, "lat": 20.05, "lng": -75.8 },
+        { "id": "A", "nombre": "Almacén norte", "principal": false, "activo": true, "lat": 20.02, "lng": -75.82 }
+      ],
+      "elegido": "A"
+    },
+    {
+      "nombre": "dos principales: manda el nombre entre ellos",
+      "nota": "No debería pasar —Accesos deja uno solo— pero si pasa los dos lados tienen que elegir el mismo, no el que cada lista traiga delante.",
+      "almacenes": [
+        { "id": "Z", "nombre": "Zona franca", "principal": true, "activo": true, "lat": 20.05, "lng": -75.8 },
+        { "id": "A", "nombre": "Almacén norte", "principal": true, "activo": true, "lat": 20.02, "lng": -75.82 }
+      ],
+      "elegido": "A"
+    },
+    {
+      "nombre": "EL CASO DE JOSE: el principal dado de baja con coordenadas buenas",
+      "nota": "Una sucursal con dos almacenes: el principal de baja con el punto bien puesto, y otro activo. Hasta el 24/09/2026 el servidor medía desde el de baja y el aparato desde el activo, así que «Armar la ruta de esta zona» daba dos kilometrajes según se pulsara en el navegador o en el teléfono — y de esos km sale el cobro. Gana el ACTIVO en los dos.",
+      "almacenes": [
+        { "id": "BAJA", "nombre": "Almacén viejo", "principal": true, "activo": false, "lat": 20.0247, "lng": -75.8219 },
+        { "id": "VIVO", "nombre": "Zona franca", "principal": false, "activo": true, "lat": 20.06, "lng": -75.9 }
+      ],
+      "elegido": "VIVO"
+    },
+    {
+      "nombre": "el único que hay está de baja",
+      "nota": "No se mide desde un almacén cerrado por no dar el 409: el 409 dice qué arreglar, y un número sacado de un sitio del que ya no sale mercancía no lo desmiente nadie.",
+      "almacenes": [
+        { "id": "BAJA", "nombre": "Almacén viejo", "principal": true, "activo": false, "lat": 20.0247, "lng": -75.8219 }
+      ],
+      "elegido": null
+    },
+    {
+      "nombre": "un inactivo no gana ni por nombre",
+      "nota": "Alfabéticamente el de baja va primero. El filtro se aplica ANTES del desempate, no después.",
+      "almacenes": [
+        { "id": "BAJA", "nombre": "Almacén norte", "principal": false, "activo": false, "lat": 20.02, "lng": -75.82 },
+        { "id": "VIVO", "nombre": "Zona sur", "principal": false, "activo": true, "lat": 20.05, "lng": -75.8 }
+      ],
+      "elegido": "VIVO"
+    },
+    {
+      "nombre": "el (0,0) no cuenta, aunque sea el principal",
+      "nota": "Golfo de Guinea. Cede al que tiene un punto de verdad.",
+      "almacenes": [
+        { "id": "CERO", "nombre": "Almacén sin punto", "principal": true, "activo": true, "lat": 0, "lng": 0 },
+        { "id": "A", "nombre": "Zona franca", "principal": false, "activo": true, "lat": 20.02, "lng": -75.82 }
+      ],
+      "elegido": "A"
+    },
+    {
+      "nombre": "el único que hay está en (0,0)",
+      "nota": "No tiene coordenadas: las tiene sin poner. Es el mismo 409 que si no tuviera ninguna.",
+      "almacenes": [
+        { "id": "CERO", "nombre": "Almacén sin punto", "principal": true, "activo": true, "lat": 0, "lng": 0 }
+      ],
+      "elegido": null
+    },
+    {
+      "nombre": "(0,0) no es lo mismo que lat 0 con longitud buena",
+      "nota": "Lo que se descarta es el par (0,0) entero, no un cero suelto. Un cero de latitud con longitud puesta es un punto del ecuador: raro para Cuba, pero es un punto, y descartarlo sería inventarse una regla que el otro lado no tiene.",
+      "almacenes": [
+        { "id": "ECU", "nombre": "Almacén ecuador", "principal": true, "activo": true, "lat": 0, "lng": -75.82 }
+      ],
+      "elegido": "ECU"
+    },
+    {
+      "nombre": "las tres condiciones a la vez y un solo superviviente",
+      "nota": "Uno de baja, uno en (0,0), uno sin punto y uno sin longitud. Sólo queda «Zona franca», que ni es principal ni es el primero de la lista ni es el primero del alfabeto.",
+      "almacenes": [
+        { "id": "BAJA", "nombre": "Almacén A", "principal": true, "activo": false, "lat": 20.02, "lng": -75.82 },
+        { "id": "CERO", "nombre": "Almacén B", "principal": false, "activo": true, "lat": 0, "lng": 0 },
+        { "id": "NADA", "nombre": "Almacén C", "principal": false, "activo": true },
+        { "id": "MEDIO", "nombre": "Almacén D", "principal": false, "activo": true, "lat": 20.1 },
+        { "id": "VIVO", "nombre": "Zona franca", "principal": false, "activo": true, "lat": 20.06, "lng": -75.9 }
+      ],
+      "elegido": "VIVO"
+    }
+  ]
+}

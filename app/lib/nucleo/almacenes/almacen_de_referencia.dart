@@ -21,6 +21,19 @@
 // consulta. Las dos se comparan en
 // `test/pantallas/tablero/las_tres_pantallas_contestan_igual_test.dart`, que es
 // lo que de verdad las ata: un comentario no falla.
+//
+// Y HAY UN CUARTO CONSUMIDOR, QUE NO ES DE AQUI: el servidor
+// (`api/internal/cotizar/almacen.go`, `ElegirAlmacen`), que es quien resuelve
+// «Armar la ruta de esta zona» cuando se pulsa en la WEB. Hasta el 24/09/2026
+// elegia distinto —no filtraba `activo` y desempataba por el orden de la lista
+// en vez de por el nombre—, asi que el mismo boton daba dos kilometrajes segun
+// se pulsara en el navegador o en el telefono, y de esos km sale el cobro.
+// Jose: «no puede dar distinto, debe dar igual. ¿Como que distinto si es la
+// misma API los dos? No tienen que elegir distinto, eso debe dar igual en todos
+// los datos. Es un lugar distinto pero ya mas nada.» Lo que ata los dos
+// lenguajes es `docs/almacen-de-origen.casos.json`, el MISMO fichero que leen
+// `test/nucleo/almacenes/almacen_de_origen_casos_compartidos_test.dart` y
+// `api/internal/cotizar/almacen_casos_compartidos_test.go`.
 library;
 
 import 'package:drift/drift.dart';
@@ -42,17 +55,19 @@ import '../base/base.dart';
 ///    que parece bueno y no lo es, y con esas mismas coordenadas se le cobra el
 ///    domicilio al cliente.
 ///  * **Activo.** Es la regla del aparato y la comparten el paso 2 del asistente
-///    de rutas y el paso a paso del Panel. (El servidor, en `internal/cotizar`,
-///    NO filtra por activo a proposito; cuando eso se unifique se unifica aqui,
-///    en un sitio.)
+///    de rutas y el paso a paso del Panel. **Y desde el 24/09/2026 tambien el
+///    servidor**: `internal/cotizar` no filtraba por activo a proposito y era el
+///    unico de los cuatro que no lo hacia. Un almacen dado de baja con
+///    coordenadas BUENAS es el caso mas caro que hay: la cuenta sale, el numero
+///    es creible y ninguna pantalla lo desmiente.
 ///
 /// ## Cual de los que sirven
 ///
 /// La misma regla que `/api/quote/home-delivery` y que `GET /api/customers`:
 ///
-///  1. el primero con `principal` **y** punto;
-///  2. si no hay, el primero con punto, principal o no;
-///  3. si no hay ninguno, **no hay desde donde medir** — y eso se dice, no se
+///  1. de los que sirven, el `principal`;
+///  2. si hay varios o ninguno, el primero por **nombre ascendente**;
+///  3. si no sirve ninguno, **no hay desde donde medir** — y eso se dice, no se
 ///     aproxima.
 class AlmacenDeReferencia {
   const AlmacenDeReferencia._();
@@ -80,12 +95,25 @@ class AlmacenDeReferencia {
 
   /// El elegido de una lista ya filtrada por sucursal. `null` = no hay ninguno
   /// del que salir.
+  ///
+  /// EL DESEMPATE VA AQUI DENTRO, no en quien llama. Antes esto devolvia «el
+  /// primero de la lista» cuando ninguno era principal, y el orden se lo daba
+  /// el `ORDER BY` de [de]. El servidor recibe su lista de Accesos por HTTP y
+  /// no tiene ese `ORDER BY`, asi que los dos lados podian elegir almacenes
+  /// distintos de los mismos datos sin que nada fallara — lo mismo que pasaba
+  /// con el `activo`. Con el desempate dentro, la respuesta sale de los datos y
+  /// no de quien sirvio la lista. El `nombre` desempata al `principal` y el
+  /// `id` al `nombre`, que es lo unico que queda cuando dos almacenes se llaman
+  /// igual.
   static Almacen? elegir(Iterable<Almacen> almacenes) {
-    final sirven = almacenes.where(_sirve).toList(growable: false);
+    final sirven = almacenes.where(_sirve).toList();
     if (sirven.isEmpty) return null;
-    for (final a in sirven) {
-      if (a.principal) return a;
-    }
+    sirven.sort((a, b) {
+      if (a.principal != b.principal) return a.principal ? -1 : 1;
+      final porNombre = a.nombre.compareTo(b.nombre);
+      if (porNombre != 0) return porNombre;
+      return a.id.compareTo(b.id);
+    });
     return sirven.first;
   }
 
@@ -98,16 +126,18 @@ class AlmacenDeReferencia {
 
   /// El almacen de referencia de la sucursal cuyo CODIGO es [codigo].
   ///
-  /// El orden del desempate —`principal` primero y luego el nombre— va en la
-  /// consulta y no en Dart para que dos lecturas seguidas den siempre el mismo,
-  /// que es lo que impide que los kilometros de una tarjeta bailen solos.
+  /// El desempate —`principal` primero y luego el nombre— lo pone la consulta y
+  /// lo vuelve a poner [elegir], que es quien manda: dos lecturas seguidas
+  /// tienen que dar siempre el mismo o los kilometros de la misma tarjeta
+  /// bailan solos. El `ORDER BY` de aqui es el mismo criterio escrito en SQL.
   ///
-  /// Aviso para quien venga a mutar esto: el `principal DESC` de aqui y el
-  /// bucle de [elegir] **se tapan el uno al otro**, asi que quitar cualquiera
-  /// de los dos por separado sale en verde y no es un fallo de las pruebas: es
-  /// que la respuesta sigue siendo la buena. Lo que se caza por separado es el
-  /// bucle (con una lista dada en el orden malo) y el `nombre ASC` (con dos que
-  /// no son principal, sembrados al reves del alfabeto), y las dos estan en
+  /// Aviso para quien venga a mutar esto: el `ORDER BY` de aqui y el orden de
+  /// [elegir] **se tapan el uno al otro**, asi que quitar cualquiera de los dos
+  /// por separado sale en verde y no es un fallo de las pruebas: es que la
+  /// respuesta sigue siendo la buena. El `ORDER BY` se queda porque una lista
+  /// que ya llega ordenada se lee igual en un volcado que en la pantalla; el
+  /// que decide es [elegir], y lo que lo caza —con las listas dadas al reves a
+  /// proposito— esta en `docs/almacen-de-origen.casos.json` y en
   /// `test/pantallas/tablero/las_tres_pantallas_contestan_igual_test.dart`.
   static Future<Almacen?> de(BaseLocal base, String? codigo) async {
     if (codigo == null || codigo.isEmpty) return null;

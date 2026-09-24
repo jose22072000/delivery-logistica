@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"procovar/reparto-api/internal/alcance"
+	"procovar/reparto-api/internal/cotizar"
 	"procovar/reparto-api/internal/httpx"
 	"procovar/reparto-api/internal/store/sqlc"
 )
@@ -289,8 +290,22 @@ func facetasDeClientes(r *http.Request, a *alcance.Acotado) (facetasClientes, er
 	return f, nil
 }
 
-// almacenDeReferencia elige desde dónde se mide, con la regla del contrato: el principal
-// CON coordenadas; si no hay, el primero con coordenadas.
+// almacenDeReferencia elige desde dónde se mide, con la MISMA función que la cotización y
+// que el tablero: `cotizar.ElegirAlmacen`.
+//
+// AQUÍ HABÍA UNA COPIA DE LA REGLA, escrita a mano — 24/09/2026. Un bucle propio que
+// miraba sólo las coordenadas: sin `activo`, sin descartar el (0,0) y desempatando por el
+// orden en que Accesos sirviera la lista. Era la CUARTA escritura de la misma regla y
+// nadie la comparaba con ninguna otra. Con ella, la columna de km y el filtro «Hasta N km»
+// de la lista de Clientes de la WEB medían desde un almacén dado de baja mientras la ficha
+// de Clientes de la APK medía desde el activo: el mismo cliente, dos distancias, y de esas
+// distancias sale el domicilio que se cobra. Es el caso que Jose zanjó el mismo día — «no
+// puede dar distinto, debe dar igual […] eso debe dar igual en todos los datos» — y el
+// porqué entero está en `internal/cotizar/almacen.go`.
+//
+// La función y no «la misma regla escrita otra vez»: dos copias de una regla se separan, y
+// ésta decide desde dónde se mide lo que se le cobra al cliente. Lo que ata a Go con el
+// aparato es `docs/almacen-de-origen.casos.json`.
 //
 // Si Accesos no contesta NO se corta la petición: la lista de clientes sale igual, sin
 // medir y con `almacenDeReferencia: null`. Que el buscador de clientes dependa de que
@@ -303,22 +318,11 @@ func (s *Servidor) almacenDeReferencia(r *http.Request, codigo string) *PuntoDel
 			"sucursal", codigo, "err", err)
 		return nil
 	}
-	var primero *Almacen
-	for i := range lista {
-		if lista[i].Latitud == nil || lista[i].Longitud == nil {
-			continue
-		}
-		if lista[i].Principal {
-			return &PuntoDelAlmacen{Latitud: *lista[i].Latitud, Longitud: *lista[i].Longitud}
-		}
-		if primero == nil {
-			primero = &lista[i]
-		}
+	elegido := cotizar.ElegirAlmacen(almacenesConPunto(lista))
+	if elegido == nil {
+		return nil
 	}
-	if primero != nil {
-		return &PuntoDelAlmacen{Latitud: *primero.Latitud, Longitud: *primero.Longitud}
-	}
-	return nil
+	return &PuntoDelAlmacen{Latitud: *elegido.Latitud, Longitud: *elegido.Longitud}
 }
 
 // kmHaversine: distancia en línea recta, la misma fórmula y la misma constante que usan

@@ -434,11 +434,15 @@ func TestClientesLaFormaDeLaRespuestaEsLaDelContrato(t *testing.T) {
 func TestClientesElFiltroPorKilometrosMideDesdeElAlmacen(t *testing.T) {
 	anterior := Accesos
 	t.Cleanup(func() { Accesos = anterior })
+	// `Activo: true` NO estaba aquí hasta el 24/09/2026, y no era un olvido: era la señal
+	// de que esta pantalla tenía su propia copia de la regla y no miraba `activo`. Hoy
+	// elige con `cotizar.ElegirAlmacen`, como el tablero y la cotización, y un almacén sin
+	// `activo` es un almacén de baja.
 	Accesos = &accesosFalso{sucursales: []SucursalConAlmacenes{{
 		Codigo: "STG", Nombre: "Santiago",
 		Almacenes: []Almacen{
-			{Nombre: "Patio viejo", Latitud: flotante(21.5), Longitud: flotante(-75.8)},
-			{Nombre: "Principal", Principal: true, Latitud: flotante(20.0), Longitud: flotante(-75.8)},
+			{Nombre: "Patio viejo", Activo: true, Latitud: flotante(21.5), Longitud: flotante(-75.8)},
+			{Nombre: "Principal", Principal: true, Activo: true, Latitud: flotante(20.0), Longitud: flotante(-75.8)},
 		},
 	}}}
 
@@ -468,6 +472,44 @@ func TestClientesElFiltroPorKilometrosMideDesdeElAlmacen(t *testing.T) {
 	// `count`: la caja deja pasar las esquinas del cuadrado.
 	if salida.Count > int(salida.Total) {
 		t.Fatalf("count (%d) no puede ser mayor que total (%d)", salida.Count, salida.Total)
+	}
+}
+
+// CLIENTES MIDE DESDE EL MISMO ALMACÉN QUE TODOS LOS DEMÁS — 24/09/2026.
+//
+// Esta pantalla tenía su propia copia de la regla: un bucle a mano que sólo miraba las
+// coordenadas, sin `activo` y sin descartar el (0,0). Con ella, la columna de km y el
+// filtro «Hasta N km» de la WEB medían desde un almacén dado de baja mientras la ficha de
+// Clientes de la APK medía desde el activo — el mismo cliente, dos distancias, y de ahí
+// sale el domicilio que se cobra. Hoy elige con `cotizar.ElegirAlmacen`.
+//
+// EL DE BAJA ES EL PRINCIPAL Y VA EL PRIMERO a propósito: quien vuelva a coger «el primer
+// principal con coordenadas» pasa las demás pruebas y falla ésta.
+func TestClientesNoMideDesdeUnAlmacenDeBaja(t *testing.T) {
+	anterior := Accesos
+	t.Cleanup(func() { Accesos = anterior })
+	Accesos = &accesosFalso{sucursales: []SucursalConAlmacenes{{
+		Codigo: "STG", Nombre: "Santiago",
+		Almacenes: []Almacen{
+			{Nombre: "Almacén viejo", Principal: true, Activo: false,
+				Latitud: flotante(21.5), Longitud: flotante(-75.8)},
+			{Nombre: "Zona franca", Activo: true,
+				Latitud: flotante(20.0), Longitud: flotante(-75.8)},
+		},
+	}}}
+
+	h := montarDeDatos(t, datosDePrueba())
+	w := pedirDeDatos(t, h, http.MethodGet, "/api/customers?kmMax=5", operadorDeSantiago(t), "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	var salida ClientesSalida
+	leerJSONDeDatos(t, w, &salida)
+
+	if salida.AlmacenDeReferencia == nil || salida.AlmacenDeReferencia.Latitud != 20.0 {
+		t.Fatalf("midió desde el almacén dado de baja: %+v. La APK mide desde el activo, "+
+			"así que el mismo cliente sale a dos distancias y el domicilio se cobra por "+
+			"la que toque pulsar", salida.AlmacenDeReferencia)
 	}
 }
 

@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -129,6 +130,37 @@ func conAccesos(t *testing.T, c ClienteAccesos) *accesosFalso {
 	Accesos = c
 	f, _ := c.(*accesosFalso)
 	return f
+}
+
+// `activo` AUSENTE ES `true`, y el aparato lo lee igual.
+//
+// El contrato lo da por opcional y Accesos lo guarda con `@default(true)`. Un `bool` pelado
+// de Go entendería lo contrario, y desde que `activo` filtra en `cotizar.ElegirAlmacen` eso
+// es el 409 «no tiene ningún almacén con coordenadas» en las ocho sucursales a la vez,
+// mientras el teléfono sigue armando rutas — porque `app/lib/nucleo/sincro/bajada.dart` lee
+// `a['activo'] != false`, o sea ausente = activo.
+//
+// LO QUE ESTA PRUEBA NO ATA, y hay que saberlo: el lado de Dart. Si alguien cambia ese
+// `!= false` por `== true`, esto sigue verde. Lo que sí está atado es la REGLA de selección
+// (`docs/almacen-de-origen.casos.json`); esto es sólo cómo se lee el campo.
+func TestActivoAusenteEsActivo(t *testing.T) {
+	var a Almacen
+	if err := json.Unmarshal([]byte(`{"nombre":"Central","latitud":20.0,"longitud":-75.8}`), &a); err != nil {
+		t.Fatalf("no se entendió: %v", err)
+	}
+	if !a.Activo {
+		t.Fatal("un almacén sin `activo` en el JSON salió de baja. El aparato lo lee como " +
+			"ACTIVO (bajada.dart), así que la web contestaría 409 sobre las sucursales a " +
+			"las que el teléfono sí les arma la ruta")
+	}
+
+	// Y un `false` explícito sigue siendo `false`: el defecto no puede comerse el dato.
+	if err := json.Unmarshal([]byte(`{"nombre":"Viejo","activo":false}`), &a); err != nil {
+		t.Fatalf("no se entendió: %v", err)
+	}
+	if a.Activo {
+		t.Fatal("un almacén dado de baja a mano salió activo: el defecto se comió el dato")
+	}
 }
 
 func almacenesDePrueba() *accesosFalso {
