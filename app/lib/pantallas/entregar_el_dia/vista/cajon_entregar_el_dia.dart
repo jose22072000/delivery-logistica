@@ -13,6 +13,7 @@ import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
 import '../../../nucleo/sincro/ciclo.dart';
+import '../../../nucleo/sincro/huerfanos.dart';
 import '../../../nucleo/sincro/sucursal_del_aparato.dart';
 import '../../rutas/estado/proveedores_rutas.dart';
 import '../../sincronizacion/vista/fila_de_rechazo.dart';
@@ -64,6 +65,8 @@ class _CajonDeEntregarElDiaState extends ConsumerState<_CajonDeEntregarElDia> {
     final entrego = ref.watch(entregarElDiaProvider);
     final pendientes = ref.watch(sinSubirProvider).value ?? 0;
     final rechazados = ref.watch(rechazadosProvider).value ?? const <Apunte>[];
+    final huerfano =
+        ref.watch(trabajoHuerfanoProvider).value ?? const <TrabajoHuerfano>[];
 
     return Cajon(
       titulo: TextosDeEntregarElDia.titulo,
@@ -86,6 +89,16 @@ class _CajonDeEntregarElDiaState extends ConsumerState<_CajonDeEntregarElDia> {
             _ComoQuedo(entrego: entrego)
           else
             _EnCalma(pendientes: pendientes),
+          // LO QUE NO VA A SUBIR SOLO, JUSTO DEBAJO DEL RESULTADO.
+          //
+          // Va aqui y no al final porque contradice a lo de arriba: «Todo
+          // entregado» en verde sobre una ruta que solo existe en este aparato
+          // es, palabra por palabra, la pantalla del 16/09/2026. Cuando no hay
+          // nada colgado no ocupa un pixel.
+          if (huerfano.hayAlguno) ...[
+            const SizedBox(height: Aire.md),
+            _SoloEnEsteAparato(huerfano: huerfano),
+          ],
           const SizedBox(height: Aire.xl),
           // LA BANDEJA, SIEMPRE. Tambien con cero dentro: que se vea vacia es lo
           // que ensena que existe, y el dia que aparezca algo alguien ya sabra
@@ -453,6 +466,70 @@ class _EnCalma extends StatelessWidget {
                     style: tema.textTheme.bodyMedium,
                   ),
                 ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// TRABAJO QUE ESTA AQUI, NO ESTA ARRIBA Y NO LO VA A SUBIR NADIE.
+///
+/// La cola no compara los dos lados: reenvia apuntes. En cuanto un apunte
+/// desaparece —descartado a mano desde la bandeja de abajo, o perdido— la fila
+/// local se queda sin nadie que la suba, y hasta hoy eso no salia en ninguna
+/// pantalla: ni en el «sin subir» de arriba, porque no le queda apunte; ni en la
+/// bandeja,
+/// porque nadie la rechazo. Ver `nucleo/sincro/huerfanos.dart`.
+class _SoloEnEsteAparato extends StatelessWidget {
+  const _SoloEnEsteAparato({required this.huerfano});
+
+  final List<TrabajoHuerfano> huerfano;
+
+  @override
+  Widget build(BuildContext context) {
+    final tema = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(Aire.lg),
+      decoration: BoxDecoration(
+        color: Colores.ambarFondo,
+        borderRadius: BorderRadius.circular(Radios.lg),
+        border: Border.all(color: Colores.ambar.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.report_problem_outlined, size: 22, color: Colores.ambar),
+          const SizedBox(width: Aire.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  TextosDeEntregarElDia.soloAqui(huerfano.texto),
+                  style: Tipos.texto(
+                    tamano: 17,
+                    peso: FontWeight.w700,
+                    color: Colores.ambar,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  TextosDeEntregarElDia.soloAquiDetalle,
+                  style: tema.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: Aire.sm),
+                // QUE HACER. Sin esto el aviso es una queja.
+                Text(
+                  TextosDeEntregarElDia.soloAquiQueHacer,
+                  style: Tipos.texto(
+                    tamano: 13,
+                    peso: FontWeight.w600,
+                    color: Colores.ambar,
+                  ),
+                ),
               ],
             ),
           ),

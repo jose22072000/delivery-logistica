@@ -42,6 +42,17 @@ abstract final class TextosDeTraerElDia {
       'La sesión caducó, así que no se trajo nada. Entra otra vez y vuelve a '
       'darle.';
 
+  /// EL SERVIDOR CORTO LA BAJADA Y NO SE PUDO SEGUIR.
+  ///
+  /// No es «falta una coleccion»: las colecciones estan, con la mitad de las
+  /// filas. `Faltas.de` no lo ve —cuenta las que quedaron a cero— y por eso
+  /// hace falta decirlo aparte.
+  static const seCortoTitulo = 'El servidor no mandó todo';
+
+  static String seCortoDetalle(String quedoPor) =>
+      'La bajada se quedó a medias: $quedoPor. Lo que hay en el aparato está '
+      'incompleto aunque las cifras de abajo parezcan normales.';
+
   static const nuncaSeBajo =
       'Este aparato no ha bajado nada todavía. Dale al botón donde haya señal.';
 
@@ -193,6 +204,7 @@ abstract final class TextosDeTraerElDia {
     if (trajo.sinSenal) return sinSenalTitulo;
     if (trajo.sinSesion) return sinSesionTitulo;
     if (trajo.faltan.isNotEmpty) return faltaTitulo(trajo.faltan);
+    if (trajo.quedoPor != null) return seCortoTitulo;
     if (trajo.fallo != null) return 'No se pudo traer el día entero';
     return yaLoTienes;
   }

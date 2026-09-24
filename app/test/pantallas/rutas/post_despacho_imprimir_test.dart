@@ -14,7 +14,7 @@ import 'package:reparto/impresion/vista_previa.dart';
 import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/pantallas/rutas/vista/cierre_de_ruta.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 import '../pedidos/sembrar.dart';

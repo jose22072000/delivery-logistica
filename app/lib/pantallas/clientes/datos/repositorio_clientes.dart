@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:drift/drift.dart';
+import 'package:reparto/nucleo/almacenes/almacen_de_referencia.dart';
 import 'package:reparto/nucleo/base/base.dart';
 
 import 'geo.dart';
@@ -169,27 +170,20 @@ class RepositorioClientes {
     return sucursal?.externalId;
   }
 
-  /// El almacen desde el que se mide: el **principal** con coordenadas, y si no
-  /// hay, el primero con coordenadas (`contratos-api.md`, `GET /api/customers`).
-  Future<Almacen?> almacenDeReferencia(String? codigo) async {
-    if (codigo == null) return null;
-    final lista =
-        await (_base.select(_base.warehouses)
-              ..where(
-                (w) =>
-                    w.sucursalCodigo.equals(codigo) &
-                    w.lat.isNotNull() &
-                    w.lng.isNotNull(),
-              )
-              // `principal` primero: en SQLite es 1/0, asi que descendente.
-              ..orderBy([
-                (w) => OrderingTerm.desc(w.principal),
-                (w) => OrderingTerm.asc(w.nombre),
-              ])
-              ..limit(1))
-            .get();
-    return lista.isEmpty ? null : lista.first;
-  }
+  /// El almacen desde el que se mide. **La regla no se escribe aqui**: vive en
+  /// [AlmacenDeReferencia], que es de donde tambien la sacan el Panel y el
+  /// Tablero.
+  ///
+  /// Esto tuvo su propia consulta hasta el 24/09/2026 y era un §3-bis de
+  /// manual: filtraba por sucursal y por que las dos coordenadas estuvieran
+  /// puestas, **y nada mas**. No descartaba el almacen dado de baja ni la
+  /// pareja (0,0). De una sucursal asi el Panel decia «falta el almacen», el
+  /// Tablero se negaba a pintarse y Clientes **no ensenaba su aviso**: rellenaba
+  /// la columna de kilometros —con el (0,0), 8.600 km, el golfo de Guinea; con
+  /// el de baja, un numero creible— y el filtro «Hasta N km» contestaba con
+  /// otros clientes. **De esos kilometros sale lo que se le cobra al cliente.**
+  Future<Almacen?> almacenDeReferencia(String? codigo) =>
+      AlmacenDeReferencia.de(_base, codigo);
 
   Expression<bool> _alcance($CustomersTable c, String? codigo) => codigo == null
       ? const Constant(true)

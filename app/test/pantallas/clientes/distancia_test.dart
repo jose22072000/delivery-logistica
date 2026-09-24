@@ -101,6 +101,65 @@ void main() {
     await otra.close();
   });
 
+  // ── LA PAREJA: la sucursal sana mide; la del almacén DE BAJA no, y lo dice ──
+  //
+  // Hasta el 24/09/2026 Clientes tenía su propia consulta y sólo miraba que las
+  // coordenadas estuvieran puestas, así que de una sucursal con el almacén dado
+  // de baja rellenaba la columna de km igual. Con el (0,0) el disparate se ve
+  // (8.600 km); con el de baja sale un número creíble, y de esos km sale lo que
+  // se le cobra al cliente.
+
+  test(
+    'la sucursal SANA mide, y `Hasta 10 km` deja fuera a los lejanos',
+    () async {
+      final pagina = await repositorio.consultar(
+        const FiltrosClientes(kmMax: 10),
+        sucursalId: 'b-stg',
+      );
+      expect(pagina.almacenDeReferencia, isNotNull);
+      expect(pagina.clientes.map((c) => c.km), [0.0, 2.81, 7.51]);
+    },
+  );
+
+  test('con el almacén DE BAJA no se mide, y la ficha lo dice', () async {
+    final otra = baseDePrueba();
+    await sembrarSucursal(otra, activo: false);
+    await marcarBajada(otra, DateTime(2026, 9, 14, 7, 42));
+    for (final (id, lat, lng, _) in puntos) {
+      await sembrarCliente(
+        otra,
+        id: id,
+        nombre: 'Cliente $id',
+        lat: lat,
+        lng: lng,
+      );
+    }
+
+    final pagina = await RepositorioClientes(otra)
+        .consultar(const FiltrosClientes(kmMax: 10), sucursalId: 'b-stg');
+
+    // `almacenDeReferencia == null` es lo que enciende el aviso de la ficha
+    // («Esta sucursal no tiene ningún almacén con coordenadas»), en
+    // `pantalla_clientes.dart`. Si aquí viene el almacén de baja, el aviso NO
+    // sale y los km se pintan como si fueran buenos.
+    expect(
+      pagina.almacenDeReferencia,
+      isNull,
+      reason: 'un almacén dado de baja no es un sitio desde el que medir',
+    );
+    expect(
+      pagina.clientes.map((c) => c.km),
+      everyElement(isNull),
+      reason:
+          'no se sabe la distancia; cero o un número medido desde un '
+          'almacén de baja se leen igual de bien y los dos están mal',
+    );
+    // Y el filtro no se calla los que deja fuera: sin origen no hay caja, así
+    // que salen los cinco. Lo que no puede pasar es que devuelva OTROS tres.
+    expect(pagina.clientes.length, 5);
+    await otra.close();
+  });
+
   test('la cuenta de Geo redondea una sola vez', () {
     // 2,813232 km: a dos decimales es 2,81. Redondear antes y despues mueve el
     // limite de `Hasta 5 km` en los casos justos.

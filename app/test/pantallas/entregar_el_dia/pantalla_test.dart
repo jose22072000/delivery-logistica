@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -258,6 +259,70 @@ void main() {
       find.textContaining('lo que no subió sigue entero'),
       findsOneWidget,
       reason: 'y se dice que hacer y que nada se ha perdido',
+    );
+    await desmontar(tester);
+  });
+
+  testWidgets('LO QUE NO VA A SUBIR SOLO sale en el cajón, con su nombre y con '
+      'qué hacer', (tester) async {
+    // Una ruta armada sin señal que se quedó sin su apunte. No sale en «N sin
+    // subir» —no le queda apunte—, ni en la bandeja —nadie la rechazó—, y el
+    // desatasco de `huerfanos.dart` sólo sabe rehacer el tablero: **no la sube
+    // nadie**. Hasta el 24/09/2026 tampoco la nombraba nadie, y el cajón podía
+    // decir «Todo entregado» en verde encima.
+    await base
+        .into(base.routes)
+        .insert(
+          RoutesCompanion.insert(
+            id: 'local-9f3a2b7c',
+            status: const Value('planned'),
+          ),
+        );
+    await encolar(1);
+    await montar(tester, responder: servidorQueAcepta());
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Enviar datos (1)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await dejarCorrer(tester);
+
+    expect(
+      find.text('Sólo en este aparato: 1 ruta'),
+      // DOS: la franja de arriba y el cajón. Los dos sitios donde se mira lo
+      // que queda por entregar, que es la misma pregunta.
+      findsNWidgets(2),
+      reason:
+          'se NOMBRA lo que es. Sin esto, el cajón dice «Todo entregado» en '
+          'verde con una ruta entera que no existe en el servidor',
+    );
+    expect(
+      find.textContaining('entregar el día no se lo lleva'),
+      findsOneWidget,
+      reason: 'y se dice por qué: no le queda ningún apunte que lo suba',
+    );
+    expect(
+      find.textContaining('hay que volver a hacerlo con conexión'),
+      findsOneWidget,
+      reason: 'qué hacer. Sin esto el aviso es una queja',
+    );
+    await desmontar(tester);
+  });
+
+  testWidgets('y SIN nada colgado el cajón no lo nombra: un aviso que sale '
+      'siempre deja de leerse', (tester) async {
+    await encolar(1);
+    await montar(tester, responder: servidorQueAcepta());
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Enviar datos (1)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await dejarCorrer(tester);
+
+    expect(find.textContaining('Sólo en este aparato'), findsNothing);
+    expect(
+      find.text('Todo entregado'),
+      findsWidgets,
+      reason: 'lo normal: subió, y no hay nada colgado que contradiga el verde',
     );
     await desmontar(tester);
   });

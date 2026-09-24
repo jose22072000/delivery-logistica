@@ -325,4 +325,13 @@ void main() {
       expect(await Huerfanos(virgen).volverAEncolar(ColaDeSalida(virgen)), 0);
     });
   });
+
+  test('sin nada colgado, el texto es VACÍO y no revienta', () {
+    // `partes.sublist(0, -1)` con la lista vacía lanza un `RangeError`, y esto
+    // se pinta justo donde lo normal es que no haya nada: la franja de estado y
+    // el cajón de entregar el día, en las siete pantallas.
+    expect(const <TrabajoHuerfano>[].texto, isEmpty);
+    expect(const <TrabajoHuerfano>[].hayAlguno, isFalse);
+    expect(const <TrabajoHuerfano>[].total, 0);
+  });
 }

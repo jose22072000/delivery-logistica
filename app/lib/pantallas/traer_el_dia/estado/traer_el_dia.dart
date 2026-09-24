@@ -20,6 +20,7 @@ class LoQueSeTrajo {
     this.fallo,
     this.sinSesion = false,
     this.sinSenal = false,
+    this.quedoPor,
   });
 
   /// Cuando acabo el gesto, con el reloj del aparato.
@@ -43,16 +44,33 @@ class LoQueSeTrajo {
   /// es que no se llego a salir.
   final bool sinSenal;
 
+  /// POR QUE LA BAJADA SE QUEDO A MEDIAS, con las palabras de `bajada.dart`.
+  /// `null` cuando el servidor no dejo nada atras.
+  ///
+  /// **Esto no lo miraba nadie, y era el §3 entero.** `Faltas.de` cuenta una
+  /// coleccion que bajo y quedo a CERO; una que bajo 2.000 clientes de 8.034 no
+  /// esta vacia, asi que no salia en `faltan`, y el gesto pintaba «Ya lo tienes»
+  /// en verde encima de un aparato al que le falta un cuarto del padron. Un
+  /// numero creible y equivocado, que es lo peor que puede pasar aqui.
+  final String? quedoPor;
+
   /// LA GUARDA. Verde solo si se trajo TODO.
   ///
-  /// Las cuatro condiciones estan aqui y no repartidas por la pantalla a
+  /// Las cinco condiciones estan aqui y no repartidas por la pantalla a
   /// proposito: el dia que alguien pinte un tic verde, lo va a pintar mirando
   /// esto. Si `faltan` saliera de esta cuenta, un aparato sin catalogo de
   /// productos diria «ya lo tienes» y se iria al almacen a cargar un camion con
   /// los pesos a cero — que es exactamente el fallo que este boton existe para
   /// evitar.
   bool get completo =>
-      !sinSenal && !sinSesion && fallo == null && faltan.isEmpty;
+      !sinSenal &&
+      !sinSesion &&
+      fallo == null &&
+      faltan.isEmpty &&
+      // LA QUINTA, desde el 24/09/2026. Sin ella el verde tapaba exactamente el
+      // truncamiento en silencio que el `CLAUDE.md` §3 llama «el fallo que mas
+      // caro sale aqui, porque no se ve».
+      quedoPor == null;
 
   /// Se trajo algo, pero no todo. Es el estado del que hay que hablar.
   bool get aMedias => !completo && !sinSenal && !sinSesion;
@@ -60,7 +78,7 @@ class LoQueSeTrajo {
   @override
   String toString() =>
       'LoQueSeTrajo(hora: $hora, faltan: $faltan, fallo: $fallo, '
-      'sinSesion: $sinSesion, sinSenal: $sinSenal)';
+      'sinSesion: $sinSesion, sinSenal: $sinSenal, quedoPor: $quedoPor)';
 }
 
 /// EL GESTO: «cojo el día y me lo llevo».
@@ -126,6 +144,10 @@ class TraerElDia extends Notifier<LoQueSeTrajo?> {
       subidos: resumen.subidos,
       fallo: resumen.fallo,
       sinSesion: resumen.sinSesion,
+      // EL MOTIVO LITERAL de que la bajada se cortara, tal cual sale de
+      // `bajada.dart`. Se pasa entero: «el servidor dijo que quedaba mas y no
+      // avanzo ni la marca» dice donde mirar; «no se pudo» no dice nada.
+      quedoPor: resumen.bajada.quedoPor,
     );
 
     Registro.info('traer el dia: $trajo');

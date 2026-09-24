@@ -325,8 +325,52 @@ class BaseLocal extends _$BaseLocal {
     );
   }
 
-  /// ¿Queda trabajo sin subir? Es lo que hay que preguntar ANTES de cerrar
-  /// sesion.
+  /// TRABAJO QUE NO ESTA ARRIBA, contando **tambien los rechazados**.
+  ///
+  /// `cuantosPendientes()` contesta «¿queda algo EN LA COLA esperando a subir?»,
+  /// y hay sitios donde esa es justo la pregunta (cuanto falta de un lote, que
+  /// numero pintar en «N sin subir»). Pero **antes de borrar algo** la pregunta
+  /// es otra: «¿hay aqui trabajo que no ha llegado al servidor?». Y un apunte
+  /// rechazado es exactamente eso — el servidor dijo que no, se quedo con su
+  /// motivo esperando a que una persona decida, y **es lo unico que queda de un
+  /// cierre que nunca llego**.
+  ///
+  /// Es el mismo agujero que el tablero cerro el 16/09/2026 con la zona «Vista»
+  /// (`pantallas/tablero/datos/servicio.dart`): preguntar por la cola no es
+  /// preguntar por lo que no esta arriba. Aqui se separan las dos preguntas en
+  /// vez de ensanchar la de siempre, porque las dos hacen falta y confundirlas
+  /// fue el fallo.
+  ///
+  /// **Lo huerfano no cabe aqui** y por eso no esta: no vive en `apuntes`, vive
+  /// en las tablas de dominio, y quien lo cuenta es `Huerfanos.mirar()`. Quien
+  /// vaya a borrar tiene que preguntar por las dos cosas
+  /// (`nucleo/base/personas.dart`).
+  Future<int> cuantosSinSubir() async {
+    final cuenta = apuntes.orden.count();
+    final fila =
+        await (selectOnly(apuntes)
+              ..addColumns([cuenta])
+              ..where(
+                apuntes.estado.equalsValue(EstadoApunte.pendiente) |
+                    apuntes.estado.equalsValue(EstadoApunte.rechazado),
+              ))
+            .getSingle();
+    return fila.read(cuenta) ?? 0;
+  }
+
+  /// Los que el servidor rechazo y siguen esperando a que alguien decida.
+  Future<int> cuantosRechazados() async {
+    final cuenta = apuntes.orden.count();
+    final fila =
+        await (selectOnly(apuntes)
+              ..addColumns([cuenta])
+              ..where(apuntes.estado.equalsValue(EstadoApunte.rechazado)))
+            .getSingle();
+    return fila.read(cuenta) ?? 0;
+  }
+
+  /// ¿Queda algo EN LA COLA esperando a subir? **No cuenta los rechazados**: ver
+  /// [cuantosSinSubir], que es la que hay que usar antes de borrar nada.
   Future<int> cuantosPendientes() async {
     final cuenta = apuntes.orden.count();
     final fila =

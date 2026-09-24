@@ -5,6 +5,7 @@ import '../diseno/colores.dart';
 import '../diseno/tema.dart';
 import '../nucleo/frescura/reloj_de_datos.dart';
 import '../nucleo/proveedores.dart';
+import '../nucleo/sincro/huerfanos.dart';
 import '../nucleo/sincro/que_se_puede.dart';
 // La UNICA cosa que `navegacion/` importa de `pantallas/`, y con motivo: la
 // franja es la pieza del armazon que esta en las siete pantallas, asi que es la
@@ -48,6 +49,17 @@ class FranjaDeEstado extends ConsumerWidget {
     // franja es la pieza que habla del estado de los datos—, con la hora al
     // lado, que es lo que hace falta saber.
     final actualizando = ref.watch(actualizandoProvider);
+    // LO QUE ESTA AQUI Y NO ARRIBA, Y NO LO VA A SUBIR NADIE.
+    //
+    // Es el caso que no revienta: una ruta armada sin señal cuyo apunte se
+    // perdio no sale en «<n> sin subir» —no le queda apunte—, ni en la bandeja
+    // —no la rechazo nadie—, ni en el Panel. Se veia en su pantalla y punto.
+    // Aqui se dice, al lado de lo que si esta sin subir, que es donde ya se
+    // mira. Ver `nucleo/sincro/huerfanos.dart`.
+    final huerfano =
+        ref.watch(trabajoHuerfanoProvider).value ?? const <TrabajoHuerfano>[];
+    // Y LA BAJADA QUE VOLVIO A MEDIAS, con el motivo del servidor tal cual.
+    final aMedias = ref.watch(bajadaAMediasProvider);
 
     // Mientras la consulta de frescura no ha contestado NO se dice «sin
     // descargar»: seria acusar de vacio a algo que aun no se ha mirado. Se
@@ -75,10 +87,15 @@ class FranjaDeEstado extends ConsumerWidget {
           estado: estado,
           pendientes: pendientes,
           // Sin conexion la franja se pone en ambar aunque los datos sean de
-          // hace un minuto: lo que hay que mirar entonces no es la hora.
-          enAmbar: enAmbar || sinConexion,
+          // hace un minuto: lo que hay que mirar entonces no es la hora. Con
+          // trabajo huerfano o con una bajada a medias, igual: los dos son
+          // «mira esto», y los dos pueden pasar con la hora en verde.
+          enAmbar:
+              enAmbar || sinConexion || huerfano.hayAlguno || aMedias != null,
           sinConexion: sinConexion,
           actualizando: actualizando,
+          huerfano: huerfano,
+          aMedias: aMedias,
           // Que se puede hacer ahora mismo. Las reglas viven en
           // `sincro/que_se_puede.dart`, no aqui: son de negocio y las mira
           // tambien la tarjeta del Panel.
@@ -98,6 +115,8 @@ class FranjaDeEstado extends ConsumerWidget {
     required bool enAmbar,
     required bool sinConexion,
     required bool actualizando,
+    required List<TrabajoHuerfano> huerfano,
+    required String? aMedias,
     required QueSePuede puede,
   }) {
     return Container(
@@ -164,15 +183,26 @@ class FranjaDeEstado extends ConsumerWidget {
             ),
             Text('  ·  ', style: Tipos.texto(tamano: 12, color: Colores.ambar)),
           ],
+          // LA COLUMNA: la hora arriba y, DEBAJO, lo que no puede compartir
+          // renglon con ella.
+          //
+          // Los dos avisos de abajo son raros y graves, y ninguno cabe en la
+          // misma linea que la hora en un telefono de 390 px: encogidos por el
+          // `FittedBox` se quedarian en letra de seis puntos, que es no
+          // decirlos. Cuando no hay ninguno **no ocupan un pixel**, asi que la
+          // franja sigue siendo una franja, que es la regla del caso S8.
           Expanded(
-            child: estado == null
-                ? const SizedBox.shrink()
-                // `FittedBox` y no un recorte: en un telefono estrecho, con la
-                // hora y «<n> sin subir` a la vez, el texto no cabe — y aqui no
-                // se puede cortar nada, porque las dos mitades son el aviso. Se
-                // encoge la letra, que sigue leyendose, en vez de perder media
-                // franja por la derecha.
-                : FittedBox(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (estado != null)
+                  // `FittedBox` y no un recorte: en un telefono estrecho, con la
+                  // hora y «<n> sin subir` a la vez, el texto no cabe — y aqui no
+                  // se puede cortar nada, porque las dos mitades son el aviso. Se
+                  // encoge la letra, que sigue leyendose, en vez de perder media
+                  // franja por la derecha.
+                  FittedBox(
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
                     child: RelojDeDatos(
@@ -188,6 +218,27 @@ class FranjaDeEstado extends ConsumerWidget {
                           () => abrirCajonDeEntregarElDia(context),
                     ),
                   ),
+                // TRABAJO QUE NO VA A SUBIR SOLO. Se NOMBRA lo que es —«1
+                // ruta», «2 vehículos»— porque «3 cosas» no le dice a nadie
+                // donde mirar, y lleva al mismo cajon que «<n> sin subir»: es
+                // la misma pregunta, «¿que me queda por entregar?», y alli
+                // esta la explicacion entera.
+                if (huerfano.hayAlguno)
+                  _Linea(
+                    texto: 'Sólo en este aparato: ${huerfano.texto}',
+                    alPulsar:
+                        alPulsarPendientes ??
+                        () => abrirCajonDeEntregarElDia(context),
+                  ),
+                // LA BAJADA QUE SE QUEDO A MEDIAS, con su motivo literal. Lleva
+                // al gesto que la arregla, que es traer el dia otra vez.
+                if (aMedias != null)
+                  _Linea(
+                    texto: 'Faltan datos por bajar: $aMedias',
+                    alPulsar: () => abrirCajonDeTraerElDia(context),
+                  ),
+              ],
+            ),
           ),
           // LOS DOS GESTOS, A LA VISTA Y SEPARADOS.
           //
@@ -231,6 +282,39 @@ class FranjaDeEstado extends ConsumerWidget {
                 : null,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// UNA LINEA DE AVISO debajo de la hora: ambar, pulsable y entera.
+///
+/// `maxLines: 2` y `ellipsis` y no un `FittedBox`: estos textos llevan dentro el
+/// motivo literal del servidor —«se llego al tope de 20 tandas y el servidor
+/// seguia diciendo que queda mas»— y encogerlo hasta que quepa en un renglon es
+/// dejarlo ilegible. Se lee lo que cabe y se abre el cajon, que lo dice entero.
+class _Linea extends StatelessWidget {
+  const _Linea({required this.texto, required this.alPulsar});
+
+  final String texto;
+  final VoidCallback alPulsar;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: alPulsar,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 2, bottom: 1),
+        child: Text(
+          texto,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Tipos.texto(
+            tamano: 12,
+            peso: FontWeight.w600,
+            color: Colores.ambar,
+          ),
+        ),
       ),
     );
   }

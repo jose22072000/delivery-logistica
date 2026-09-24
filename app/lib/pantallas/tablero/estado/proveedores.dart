@@ -1,13 +1,12 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart' show OrderingTerm, TableUpdateQuery;
+import 'package:drift/drift.dart' show TableUpdateQuery;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
 import '../../../nucleo/refresco_en_vivo.dart';
 import '../../../nucleo/red/fallos.dart';
-import '../../../nucleo/plataforma.dart';
 import '../../../nucleo/registro/registro.dart';
 import '../datos/consultas.dart';
 import '../datos/esquema.dart';
@@ -69,65 +68,40 @@ class FiltrosTablero extends Notifier<FiltrosSinColocar> {
   void limpiar() => state = const FiltrosSinColocar();
 }
 
-/// LO QUE LA WEB INTENTO GUARDAR Y EL SERVIDOR RECHAZO.
-///
-/// ## Por que existe
-///
-/// En la APK un gesto se escribe aqui, se encola y sube cuando hay señal. Si
-/// tarda no pasa nada: para eso esta la cola, y el reloj de arriba dice «N sin
-/// subir», y ademas hay una bandeja de rechazos. En la web ese reloj se quito
-/// —hablarle de trabajo sin conexion a quien esta en un navegador es mentirle,
-/// regla 1— y quitarlo sin poner nada deja algo peor: la tarjeta se mueve, el
-/// servidor dice que no, y **no se entera nadie** hasta que alguien recarga y
-/// la ve volver a su sitio.
-///
-/// ## Las dos formas en que ya me equivoque aqui, para no repetirlas
-///
-/// 1. **Esperar al ciclo despues de cada gesto y mirar si la cola quedaba
-///    vacia.** Salta en CADA movimiento, porque un apunte esta legitimamente
-///    pendiente el instante que va del gesto a la subida. Un aviso que sale
-///    siempre deja de leerse. Lo unico inequivoco es un apunte **rechazado**:
-///    ahi el servidor contesto que no.
-/// 2. **Calcularlo dentro del notifier, al bajar la foto.** Parecia bien y no
-///    salia NUNCA en el caso real: bajar la foto ocurre al cambiar de sucursal
-///    y con un aviso del canal, y el rechazo llega despues, con la pantalla ya
-///    abierta y sin que nadie vuelva a preguntar. Lo cazo el auditor
-///    ejecutandolo en el orden de la vida real — y mi prueba no lo cazaba
-///    porque sembraba el rechazo ANTES de montar, que es justo la forma que el
-///    `CLAUDE.md` §3-ter prohibe.
-///
-/// Por eso esto es un **stream sobre la tabla**: se entera pase lo que pase y
-/// cuando pase, sin depender de que alguien se acuerde de preguntar.
-///
-/// El motivo va LITERAL, el del servidor: «Ese pedido ya va en otra ruta» le
-/// dice a alguien que hacer; «no se pudo guardar» no le dice nada.
-final loQueElServidorRechazoProvider = StreamProvider<String?>((ref) {
-  // En el aparato esto no sale: alli hay bandeja de rechazos y reloj arriba, y
-  // este seria el tercero diciendo lo mismo.
-  if (Destino.trabajaSinConexion) return Stream<String?>.value(null);
-
-  final base = ref.watch(baseProvider);
-  // La consulta TIPADA y no SQL a mano: `estado` es texto con conversor, no un
-  // numero. Escrito a mano con el indice del enum no casaba ninguna fila y el
-  // aviso no salia nunca — en verde y sin avisar de nada, que es el peor de los
-  // dos fallos posibles aqui.
-  return (base.select(base.apuntes)
-        ..where((a) => a.estado.equalsValue(EstadoApunte.rechazado))
-        ..orderBy([(a) => OrderingTerm.desc(a.orden)])
-        ..limit(1))
-      .watchSingleOrNull()
-      .map((fila) {
-        if (fila == null) return null;
-        final motivo = fila.motivo;
-        return motivo == null || motivo.isEmpty
-            ? 'El servidor no aceptó el último cambio.'
-            : 'El servidor no aceptó el último cambio: $motivo';
-      })
-      .handleError((Object e) {
-        // Que no se pueda leer la bandeja no puede tumbar el tablero.
-        Registro.aviso('tablero: no se pudo mirar si algo fue rechazado: $e');
-      });
-});
+// AQUI VIVIA `loQueElServidorRechazoProvider`, Y SE QUITO EL 24/09/2026.
+//
+// Leia la tabla `apuntes` buscando un `rechazado` y solo corria en la web (en el
+// aparato devolvia `null` a la primera linea). El problema es que **en un
+// navegador esa tabla no se llena nunca**: desde que las escrituras van por
+// `EscrituraEnVivo`, los seis sitios que escriben mandan al servidor y esperan
+// su respuesta, y el unico que marca `rechazado` es `nucleo/cola/cola_salida.
+// dart`, que alli no lo llama nadie. Comprobado: todos los `_cola.encolar` de
+// `lib/` estan en la rama `enVivo == null`.
+//
+// O sea, la franja no podia salir jamas. Y sus dos pruebas —
+// `la_franja_avisa_del_rechazo_test.dart` y `la_web_avisa_si_no_subio_test.
+// dart`— fabricaban el apunte a mano con `ColaDeSalida.encolar` + `resolver`,
+// asi que vigilaban un camino que ya no se ejecuta: verdes, y sin poder fallar
+// por el motivo bueno. Una red de seguridad que la gente creeria puesta es peor
+// que no tenerla, porque nadie va a buscar la de verdad.
+//
+// **Hoy no se pierde nada, y por eso se quita entera en vez de reapuntarla**
+// (§4, «quitar algo es quitarlo ENTERO»: el provider, su `case` de
+// `vista/pantalla_tablero.dart` y las dos pruebas). El «no» del servidor sale en
+// el acto y **con su motivo literal** en el mismo gesto que lo provoco, que es
+// donde de verdad sirve: la tarjeta ni se mueve, porque el envio va dentro de la
+// misma transaccion que la escritura local y el rechazo la deshace entera.
+//
+// LO QUE LO VIGILA, y son guardas que SI pueden fallar:
+//
+//  * `test/pantallas/tablero/la_web_coloca_de_verdad_test.dart` — por cada gesto
+//    del tablero: el motivo literal llega a quien llamo, la fila no se escribe y
+//    `apuntes` se queda a CERO.
+//  * `test/pantallas/rutas/la_web_escribe_de_verdad_test.dart` — lo mismo para
+//    las cinco acciones de rutas y el cierre.
+//
+// Si algun dia la web vuelve a encolar algo, el aviso hace falta otra vez — pero
+// entonces el fallo es que la web esta encolando (§1), y eso se arregla antes.
 
 final filtrosTableroProvider =
     NotifierProvider<FiltrosTablero, FiltrosSinColocar>(FiltrosTablero.new);

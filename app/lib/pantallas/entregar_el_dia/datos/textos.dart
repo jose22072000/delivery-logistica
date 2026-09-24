@@ -40,6 +40,28 @@ abstract final class TextosDeEntregarElDia {
       'La sesión caducó, así que no se subió nada. Entra otra vez y vuelve a '
       'darle: la cola sigue entera.';
 
+  /// LO QUE ESTA AQUI Y NO ARRIBA, Y NO LO VA A SUBIR NADIE.
+  ///
+  /// No es lo mismo que «sin subir» y por eso no comparte texto con ello: un
+  /// apunte pendiente va a subir en cuanto haya señal, y esto **no va a subir
+  /// nunca solo**, porque no le queda ningun apunte detras. Es el estado en el
+  /// que se quedo la zona «Vista» el 16/09/2026, con tres pantallas diciendo
+  /// «Todo al dia» encima.
+  ///
+  /// Se NOMBRA lo que es —«1 ruta», «2 vehículos»— por lo mismo que se nombra
+  /// en el registro: «3 cosas colgadas» no le dice a nadie donde mirar.
+  static String soloAqui(String que) => 'Sólo en este aparato: $que';
+
+  static const soloAquiDetalle =
+      'Está hecho aquí y en el servidor no está, y no le queda ningún apunte '
+      'que lo suba: entregar el día no se lo lleva. Mientras siga saliendo '
+      'aquí, para los demás no existe.';
+
+  static const soloAquiQueHacer =
+      'Con señal, el sincronizador vuelve a encolar solo lo que sabe rehacer. '
+      'Lo que siga saliendo aquí después de subir hay que volver a hacerlo con '
+      'conexión.';
+
   static const bandejaTitulo = 'Rechazados, esperando a una persona';
 
   static const bandejaExplicacion =

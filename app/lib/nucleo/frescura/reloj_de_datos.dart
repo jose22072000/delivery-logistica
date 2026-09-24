@@ -12,12 +12,47 @@ import 'package:intl/intl.dart';
 sealed class EstadoFrescura {
   const EstadoFrescura();
 
+  /// CUANTO PUEDE IR EL RELOJ DEL APARATO POR DETRAS DE LA MARCA sin que eso
+  /// signifique nada.
+  ///
+  /// La marca de la bajada la pone **el servidor** y la hora la pone **el
+  /// aparato**: que no cuadren al segundo es lo normal, no una averia. Cinco
+  /// minutos dejan sitio de sobra para el desfase de dos relojes que nadie
+  /// sincroniza, y siguen siendo mucho menos que cualquier salto de verdad —los
+  /// que pasan son de horas o de años, no de minutos.
+  ///
+  /// **Vive aqui porque aqui es donde se decide.** El Panel tiene el mismo
+  /// numero en `pantallas/panel/datos/textos_del_dia.dart`, y los dos estan
+  /// atados por una prueba y no por un comentario (§3-bis): dos copias que se
+  /// separen dan un Panel en ambar sobre una franja en gris, o al reves.
+  static const margenDelReloj = Duration(minutes: 5);
+
   /// El tramo que toca, con el reloj del aparato.
   ///
   /// [bajadaAt] a `null` **no es** «hace mucho»: es que no se bajo NUNCA, y es
   /// un estado distinto que hay que decir con otras palabras.
   factory EstadoFrescura.de(DateTime? bajadaAt, {required DateTime ahora}) {
     if (bajadaAt == null) return const SinDescargar();
+    // EL RELOJ DEL APARATO POR DETRAS DE SUS PROPIOS DATOS — 24/09/2026.
+    //
+    // Al repartidor se le apaga el telefono en la calle y vuelve con el reloj de
+    // fabrica; o alguien le cambia la hora; o se queda una mañana sin hora de
+    // red. A partir de ahi `ahora` es ANTERIOR a la marca de la ultima bajada,
+    // que la pone el servidor.
+    //
+    // Sin esta rama, `desde` sale NEGATIVO — y un negativo es menor que una
+    // hora, asi que contestaba [DatosRecientes]: «Datos de las 16:40», una hora
+    // que todavia no ha pasado, en gris y con `enAmbar` a `false`. El Panel arma
+    // `hayQueTraer` con ese mismo `enAmbar`, asi que decia «todo al dia» **y no
+    // ofrecia el boton de Traer el dia**: con los pedidos de anteayer dentro y
+    // el gesto que lo arregla quitado de en medio.
+    //
+    // Una diferencia negativa no es «reciente»: es que el reloj de este aparato
+    // no cuadra, y eso es un estado propio que hay que nombrar y pintar en
+    // ambar.
+    if (bajadaAt.difference(ahora) > margenDelReloj) {
+      return RelojQueNoCuadra(bajadaAt);
+    }
     final desde = ahora.difference(bajadaAt);
     if (desde < const Duration(hours: 1)) return DatosRecientes(bajadaAt);
     if (desde < const Duration(hours: 24)) return DatosDeHoras(desde.inHours);
@@ -48,6 +83,30 @@ class SinDescargar extends EstadoFrescura {
   /// fallo, no un dato (caso S7).
   static const textoDeLaPantallaVacia =
       'Esta pantalla no se ha descargado todavía. Con conexión baja sola.';
+}
+
+/// EL RELOJ DEL APARATO VA POR DETRAS DE LA MARCA DE SU PROPIA BAJADA. **Ambar.**
+///
+/// No se dice la hora, y es a proposito: la hora es justo lo que no vale. Decir
+/// «Datos de las 16:40» cuando son las 14:00 es escribir una hora del futuro con
+/// cara de dato.
+///
+/// Lo que se dice es lo unico cierto y lo unico con lo que se puede hacer algo:
+/// **este aparato no sabe que hora es**, asi que de cuando son los datos no lo
+/// sabe nadie — y por eso va en ambar, que es lo que enciende el gesto de traer
+/// el dia.
+class RelojQueNoCuadra extends EstadoFrescura {
+  const RelojQueNoCuadra(this.bajadaAt);
+
+  /// La marca que dejo la bajada. No se pinta: se guarda para poder decirlo en
+  /// el registro y para que quien quiera comparar tenga con que.
+  final DateTime bajadaAt;
+
+  @override
+  String get texto => 'El reloj de este aparato no cuadra';
+
+  @override
+  bool get enAmbar => true;
 }
 
 /// Menos de una hora. Gris. Se dice la hora porque a esa distancia es util.

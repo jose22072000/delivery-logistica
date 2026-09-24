@@ -28,7 +28,7 @@ import 'package:reparto/pantallas/rutas/datos/importe_de_la_ruta.dart';
 import 'package:reparto/pantallas/rutas/datos/repositorio_rutas.dart';
 import 'package:reparto/pantallas/rutas/vista/detalle_ruta.dart';
 import 'package:reparto/pantallas/rutas/vista/lista_rutas.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 import '../pedidos/sembrar.dart';

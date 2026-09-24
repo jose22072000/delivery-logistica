@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value, Variable;
 import 'package:drift/native.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/cola/cola_salida.dart';
@@ -11,6 +12,7 @@ import 'package:reparto/nucleo/frescura/frescura.dart';
 import 'package:reparto/nucleo/identidad/almacen_sesion.dart';
 import 'package:reparto/nucleo/identidad/renovador.dart';
 import 'package:reparto/nucleo/identidad/sesion.dart';
+import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/nucleo/red/cliente_api.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 import 'package:reparto/nucleo/sincro/bajada.dart';
@@ -663,25 +665,27 @@ void main() {
       );
     });
 
-    test('HALLAZGO · una RUTA armada sin señal y sin apunte se cuenta, pero no '
-        'la sube nadie y nadie la nombra', () async {
-      // ESTA PRUEBA RECLAMA UNA GUARDA QUE HOY NO EXISTE, y por eso está
-      // escrita como está: lo que comprueba es exactamente hasta dónde llega
-      // el desatasco de huérfanos, para que el día que se amplíe se entere
-      // alguien.
+    test('una RUTA armada sin señal y sin apunte no la sube nadie, PERO SE '
+        'DICE', () async {
+      // ESTA PRUEBA ERA EL `HALLAZGO ·`, y afirmaba el comportamiento de
+      // entonces: la ruta ni subía ni salía en ningún sitio. Se le dio la
+      // vuelta el 24/09/2026, que es lo que pedía.
       //
-      // `Huerfanos` mira cuatro sitios —`board_columns`, `routes`, `vehicles`
-      // y `warehouses`— pero `volverAEncolar` sólo sabe reconstruir el
-      // tablero. Una ruta armada sin señal cuyo apunte se descartó queda,
-      // palabra por palabra, en el estado de la zona «Vista» del 16/09/2026:
-      // existe en el teléfono, no existe arriba, y **nada la va a volver a
-      // intentar nunca**.
+      // Lo que NO ha cambiado: `Huerfanos` mira cuatro sitios —`board_columns`,
+      // `routes`, `vehicles` y `warehouses`— pero `volverAEncolar` sólo sabe
+      // reconstruir el tablero, así que una ruta huérfana **sigue sin subir**.
+      // Eso está bien y es deliberado: es mejor un aviso que nombra lo que hay
+      // que mirar que un apunte inventado a medias.
       //
-      // El comentario de `huerfanos.dart` dice que «los demás se cuentan y se
-      // dicen», y contar sí se cuenta. Decirse NO se dice: `huerfanosProvider`
-      // sólo lo usa el ciclo para llamar a `volverAEncolar`, y `mirar()` no
-      // lo pinta ninguna pantalla. Así que hoy esa ruta ni sube ni sale en
-      // ningún sitio, que es el caso que el fichero entero venía a cerrar.
+      // Lo que SÍ ha cambiado es la otra mitad, la que decía el comentario de
+      // `huerfanos.dart` —«los demás se cuentan y **se dicen**»— y que no
+      // estaba: contar se contaba y decirse no se decía, porque `mirar()` no lo
+      // llamaba nadie en `lib/`. Ahora lo lee `trabajoHuerfanoProvider` y lo
+      // pintan la franja de estado y el cajón de «Entregar el día»
+      // (`test/navegacion/la_franja_dice_lo_que_no_sube_test.dart`).
+      //
+      // El día que el desatasco sepa rehacer una ruta, la mitad de «no sube»
+      // se pondrá roja y hay que cambiarla por la de arriba, no borrarla.
       servidor.hayRed = true;
       final a = await abrirElAparato();
       addTearDown(a.cerrar);
@@ -714,7 +718,30 @@ void main() {
       expect(
         (await Huerfanos(a.base).mirar()).texto,
         '1 ruta',
-        reason: 'sigue colgada vuelta tras vuelta, y nadie lo dice en pantalla',
+        reason: 'sigue colgada vuelta tras vuelta',
+      );
+
+      // ---- Y AHORA LA MITAD QUE FALTABA: **se dice**. ---------------------
+      //
+      // Es lo que mira la pantalla, no `Huerfanos` a pelo: entre las dos cosas
+      // estaba el agujero. El provider es el cable, y sin él la ruta seguía
+      // existiendo sólo en el teléfono de alguien que la daba por hecha.
+      final contenedor = ProviderContainer.test(
+        overrides: [baseProvider.overrideWith((ref) => a.base)],
+      );
+      addTearDown(contenedor.dispose);
+      // Suscrito ANTES de preguntar: un `StreamProvider` que nadie escucha se
+      // queda en «cargando» y `.future` no se resuelve nunca.
+      final quita = contenedor.listen(trabajoHuerfanoProvider, (_, _) {});
+      addTearDown(quita.close);
+      expect(
+        (await contenedor.read(trabajoHuerfanoProvider.future)).texto,
+        '1 ruta',
+        reason:
+            'se NOMBRA lo que es. Si esto vuelve a salir vacío, la ruta está '
+            'en el aparato, no está arriba, no la sube nadie y **no sale en '
+            'ninguna pantalla**: el caso que este fichero entero venía a '
+            'cerrar',
       );
     });
 

@@ -51,16 +51,33 @@ bool haySesionParaSincronizar(EstadoDeAcceso estado) =>
 
 /// POR DÓNDE VA la configuración inicial, o por qué no se pudo.
 class ConfiguracionInicial {
-  const ConfiguracionInicial.enMarcha() : fallo = null, faltoAlgo = false;
+  const ConfiguracionInicial.enMarcha()
+    : fallo = null,
+      faltoAlgo = false,
+      quedoPor = null;
 
-  const ConfiguracionInicial.fallo(Object this.fallo) : faltoAlgo = true;
+  const ConfiguracionInicial.fallo(Object this.fallo)
+    : faltoAlgo = true,
+      quedoPor = null;
 
   /// El aparato quedó a medias: bajó algo, pero no todo.
-  const ConfiguracionInicial.aMedias() : fallo = null, faltoAlgo = true;
+  ///
+  /// [quedoPor] es **el motivo literal del servidor**, tal cual lo escribe
+  /// `nucleo/sincro/bajada.dart`: «se llegó al tope de N tandas y el servidor
+  /// seguía diciendo que queda más», «no avanzó ni la marca ni el cursor». Se
+  /// arrastra hasta la pantalla porque un motivo que nombra lo que se quedó
+  /// fuera sirve y «no terminó» no sirve para nada. `null` cuando la bajada vino
+  /// entera y lo que falló fue que el aparato siguió vacío.
+  const ConfiguracionInicial.aMedias(this.quedoPor)
+    : fallo = null,
+      faltoAlgo = true;
 
   /// Lo que lanzó el ciclo, si lanzó algo. `null` cuando va bien, y también
   /// cuando la bajada terminó sin excepción pero dejándose cosas.
   final Object? fallo;
+
+  /// Por qué se quedó a medias la bajada, con las palabras de `bajada.dart`.
+  final String? quedoPor;
 
   /// `true` cuando hay que decir que faltó y ofrecer reintentar. **No se entra
   /// fingiendo que está.**
@@ -260,7 +277,11 @@ class Portero extends ChangeNotifier {
     // encadenarse—, y entrar ahí fingiendo que está es exactamente el patrón
     // que más daño hace en este proyecto (`nucleo/sincro/bajada.dart`).
     if (!resumen.bajada.entera || await _elAparatoEstaVacio()) {
-      _configuracion = const ConfiguracionInicial.aMedias();
+      // CON SU MOTIVO. La pantalla lo pintaba como «El servidor no terminó de
+      // mandar los datos», que es lo mismo que no decir nada: el motivo de
+      // verdad nombra lo que se quedó fuera y es lo único que deja saber si
+      // vale la pena volver a darle o hay que llamar a alguien.
+      _configuracion = ConfiguracionInicial.aMedias(resumen.bajada.quedoPor);
       _poner(EstadoDeAcceso.configurando, forzar: true);
       return;
     }

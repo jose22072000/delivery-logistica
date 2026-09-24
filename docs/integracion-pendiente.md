@@ -143,7 +143,14 @@ porque tocaba fichero de otro. **Ninguna de estas es opcional.**
       Accesos caído es un **502 con su nombre**, no el 409, que acusaría a la sucursal de
       un hueco que no tiene. En el aparato, la regla vive una sola vez en
       `app/lib/nucleo/almacenes/almacen_de_referencia.dart`, compartida con el Panel y
-      Clientes. Lo que lo ata son pruebas con **dos sucursales sembradas**:
+      Clientes. **Lo de «y Clientes» fue mentira hasta el 24/09/2026**: la pantalla tenía
+      su propia consulta, que sólo pedía que las coordenadas estuvieran puestas, así que
+      de una sucursal con el almacén dado de baja o en (0,0) el Panel decía «falta el
+      almacén», el Tablero se negaba a pintarse y la ficha rellenaba los km igual. Tres
+      sitios lo daban por compartido y ninguno fallaba: el §3-bis en una línea. Hoy
+      `RepositorioClientes.almacenDeReferencia` llama a `AlmacenDeReferencia.de` y las
+      tres pantallas entran en el bucle de la prueba, las ocho sucursales incluidas las
+      dos que las separaban. Lo que lo ata son pruebas con **dos sucursales sembradas**:
       `TestCadaSucursalMideDesdeSuAlmacenDeAccesos`,
       `TestElTableroYLaCotizacionEligenElMismoAlmacen`,
       `TestSiAccesosNoContestaElTableroNoAcusaALaSucursal` y

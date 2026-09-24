@@ -21,7 +21,7 @@ import 'package:reparto/nucleo/frescura/frescura.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/pantallas/rutas/datos/repositorio_rutas.dart';
 import 'package:reparto/pantallas/rutas/vista/lista_rutas.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 import '../pedidos/sembrar.dart';

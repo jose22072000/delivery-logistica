@@ -25,24 +25,33 @@ paso() { printf "  %-34s " "$1"; }
 bien() { echo "ok"; }
 mal()  { echo "FALLA"; fallos=$((fallos+1)); }
 
-for m in api sync; do
+raiz="$PWD"
+
+# `herramientas/mapa-cuba` es su OTRO modulo Go, con sus 47 pruebas, y hasta el
+# 24/09/2026 no lo construia ningun Dockerfile ni lo recorria este bucle: «Todo
+# en verde» no decia absolutamente nada de el. De ahi sale `niveles.go`, que
+# `deploy/Dockerfile.app` copia para generar los colores del suelo de la app.
+# No lleva sqlc: no habla con Postgres.
+for m in api sync herramientas/mapa-cuba; do
   echo "== $m =="
-  cd "$m"
+  cd "$raiz/$m"
   paso "gofmt";     [ -z "$(gofmt -l . 2>/dev/null)" ] && bien || mal
   paso "go vet";    go vet ./... >/dev/null 2>&1 && bien || mal
   paso "go test";   go test ./... >/dev/null 2>&1 && bien || mal
   paso "go build";  go build ./... >/dev/null 2>&1 && bien || mal
   # El que caza que el codigo generado se quedo atras respecto al esquema.
-  paso "sqlc diff"; sqlc diff >/dev/null 2>&1 && bien || mal
-  cd ..
+  if [ -f sqlc.yaml ]; then
+    paso "sqlc diff"; sqlc diff >/dev/null 2>&1 && bien || mal
+  fi
+  cd "$raiz"
 done
 
 echo "== app (Flutter) =="
-cd app
+cd "$raiz/app"
 paso "analyze"; flutter analyze >/dev/null 2>&1 && bien || mal
 # Con tope: una prueba colgada se come la sesion entera en vez de fallar. Ya paso.
 paso "test";    timeout 300 flutter test >/dev/null 2>&1 && bien || mal
-cd ..
+cd "$raiz"
 
 echo
 [ "$fallos" -eq 0 ] && echo "Todo en verde." || { echo "$fallos comprobaciones fallan."; exit 1; }

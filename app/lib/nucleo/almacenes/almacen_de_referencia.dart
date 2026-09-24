@@ -68,15 +68,15 @@ class AlmacenDeReferencia {
       'AND w.lat IS NOT NULL AND w.lng IS NOT NULL '
       'AND NOT (w.lat = 0 AND w.lng = 0)';
 
-  /// Las mismas condiciones, para una consulta tipada de Drift.
-  static Expression<bool> sirveParaMedir($WarehousesTable w) =>
-      w.activo.equals(true) &
-      w.lat.isNotNull() &
-      w.lng.isNotNull() &
-      // `isNotValue` no vale: hay que descartar la PAREJA (0,0), no cada
-      // coordenada por su lado. El meridiano de Greenwich pasa por sitios de
-      // verdad y la latitud 0 tambien.
-      (w.lat.equals(0) & w.lng.equals(0)).not();
+  // AQUI HUBO UNA TERCERA FORMA, `sirveParaMedir($WarehousesTable w)`, una
+  // version tipada de Drift de estas mismas condiciones. Se quito el
+  // 24/09/2026 porque **no tenia ni una llamada** en `lib` ni en `test`: el
+  // auditor le quito el `activo` y le hizo aceptar el (0,0) y las dos
+  // mutaciones salieron VERDES. Una regla que nadie ejecuta no es una tercera
+  // forma de la misma cosa, es una cuarta respuesta esperando a separarse de
+  // las otras sin que salte nada — el §3-bis otra vez. Quedan dos, y las dos
+  // estan cazadas. Si algun dia hace falta filtrar en una consulta tipada, se
+  // escribe entonces y con su prueba al lado.
 
   /// El elegido de una lista ya filtrada por sucursal. `null` = no hay ninguno
   /// del que salir.
@@ -101,6 +101,14 @@ class AlmacenDeReferencia {
   /// El orden del desempate —`principal` primero y luego el nombre— va en la
   /// consulta y no en Dart para que dos lecturas seguidas den siempre el mismo,
   /// que es lo que impide que los kilometros de una tarjeta bailen solos.
+  ///
+  /// Aviso para quien venga a mutar esto: el `principal DESC` de aqui y el
+  /// bucle de [elegir] **se tapan el uno al otro**, asi que quitar cualquiera
+  /// de los dos por separado sale en verde y no es un fallo de las pruebas: es
+  /// que la respuesta sigue siendo la buena. Lo que se caza por separado es el
+  /// bucle (con una lista dada en el orden malo) y el `nombre ASC` (con dos que
+  /// no son principal, sembrados al reves del alfabeto), y las dos estan en
+  /// `test/pantallas/tablero/las_tres_pantallas_contestan_igual_test.dart`.
   static Future<Almacen?> de(BaseLocal base, String? codigo) async {
     if (codigo == null || codigo.isEmpty) return null;
     final filas =

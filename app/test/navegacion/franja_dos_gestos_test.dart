@@ -6,6 +6,7 @@ import 'package:reparto/navegacion/franja_de_estado.dart';
 import 'package:reparto/navegacion/estado_navegacion.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/nucleo/red/salud.dart';
+import 'package:reparto/nucleo/sincro/huerfanos.dart';
 
 /// LOS DOS GESTOS DEL DÍA SE VEN, Y SUBIR NO DEPENDE DE QUE HAYA PENDIENTES.
 ///
@@ -32,6 +33,14 @@ void main() {
             ),
           ),
           sinSubirProvider.overrideWith((ref) => Stream<int>.value(pendientes)),
+          // Igual que `sinSubirProvider`: se sustituye el proveedor de hoja
+          // para no abrir una base de verdad en una prueba de widget. Lo que
+          // pinta va en `la_franja_dice_lo_que_no_sube_test.dart`.
+          trabajoHuerfanoProvider.overrideWith(
+            (ref) => Stream<List<TrabajoHuerfano>>.value(
+              const <TrabajoHuerfano>[],
+            ),
+          ),
           if (sinConexion) saludDeLaRedProvider.overrideWith(_SaludMala.new),
         ],
         child: MaterialApp(

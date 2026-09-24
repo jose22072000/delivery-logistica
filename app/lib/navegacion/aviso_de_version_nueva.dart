@@ -394,7 +394,14 @@ class _EstadoDelAviso extends ConsumerState<AvisoDeVersionNueva> {
     // El numero SE LEE DE LA COLA, en vivo, y no del que traia el estado: ese es
     // de cuando se pregunto, y entre medias la persona sube. Un «te quedan 14»
     // encima de una cola de 3 es un numero creible y equivocado.
-    final sinSubir = ref.watch(sinSubirProvider).value ?? 0;
+    //
+    // Y CUENTA TAMBIEN LOS RECHAZADOS — 24/09/2026. `ComprobadorDeActualizacion`
+    // ya pregunta por los dos (`BaseLocal.cuantosSinSubir`), asi que leer aqui
+    // solo los pendientes dejaba el arreglo muerto: un aparato cuyo unico
+    // trabajo sin subir es un cierre rechazado devolvia `PrimeroSube` y esta
+    // guarda lo tiraba al `_ => null`. Instalar encima puede llevarselo, y ese
+    // ademas no se arregla con señal: espera a que alguien decida.
+    final sinSubir = ref.watch(sinSubirDeVerdadProvider).value ?? 0;
 
     return switch (estado) {
       // `AlDia`, `NoAplica`, `NoSeSupo` y el `null` de mientras se pregunta: no

@@ -371,6 +371,10 @@ extension ResumenDeHuerfanos on List<TrabajoHuerfano> {
   /// subir» no le dice a nadie que ir a mirar.
   String get texto {
     final partes = map((h) => h.texto).toList();
+    // VACIO ES VACIO, y hace falta decirlo: sin esta linea, `partes.sublist(0,
+    // -1)` revienta con un `RangeError` en cuanto alguien pinta esto sin mirar
+    // antes si hay algo — y lo normal es que no haya nada.
+    if (partes.isEmpty) return '';
     if (partes.length == 1) return partes.first;
     return '${partes.sublist(0, partes.length - 1).join(', ')} y ${partes.last}';
   }

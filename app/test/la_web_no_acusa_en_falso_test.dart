@@ -51,7 +51,7 @@ import 'package:reparto/pantallas/informes/vista/pantalla_informes.dart';
 import 'package:reparto/pantallas/panel/datos/configuracion_pendiente.dart';
 import 'package:reparto/pantallas/panel/vista/paso_a_paso.dart';
 import 'package:reparto/pantallas/vehiculos/vista/pantalla_vehiculos.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 
 import 'apoyo/base_de_prueba.dart';
 import 'pantallas/almacenes/apoyo_almacenes.dart' as alm;

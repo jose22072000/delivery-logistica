@@ -24,7 +24,7 @@ import 'package:reparto/nucleo/frescura/reloj_de_datos.dart';
 import 'package:reparto/nucleo/plataforma.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/pantallas/rutas/vista/pantalla_rutas.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 
 import '../../apoyo/base_de_prueba.dart';
 import '../pedidos/sembrar.dart';

@@ -31,7 +31,7 @@ import 'package:reparto/pantallas/rutas/datos/mapa_en_vivo.dart';
 import 'package:reparto/pantallas/rutas/datos/repositorio_rutas.dart';
 import 'package:reparto/pantallas/rutas/vista/croquis_de_ruta.dart';
 import 'package:reparto/pantallas/rutas/vista/detalle_ruta.dart';
-import 'package:reparto/textos/textos.dart';
+import 'package:reparto/idioma.dart';
 import 'package:reparto/pantallas/rutas/vista/mapa_de_la_ruta.dart';
 
 import '../../apoyo/base_de_prueba.dart';

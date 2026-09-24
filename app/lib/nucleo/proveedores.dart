@@ -532,6 +532,122 @@ final huerfanosProvider = Provider<Huerfanos>(
   (ref) => Huerfanos(ref.watch(baseProvider)),
 );
 
+/// LO HUERFANO, YA CONTADO Y LISTO PARA PINTARLO. **Esto es la mitad que
+/// faltaba.**
+///
+/// `huerfanos.dart` dice, palabra por palabra, que lo que el desatasco no sabe
+/// rehacer «se cuenta y se dice». Contar se contaba: `Huerfanos.mirar()` estaba
+/// escrito, probado y **no lo llamaba nadie en `lib/`**. El unico que tocaba
+/// `huerfanosProvider` era el ciclo, y solo para `volverAEncolar`, que hoy
+/// unicamente sabe reconstruir las zonas del tablero.
+///
+/// O sea: una RUTA armada sin señal cuyo apunte se perdio existia en el
+/// telefono, no existia arriba, no la subia nadie **y no salia en ninguna
+/// pantalla**. El repartidor la veia en su aparato y la daba por hecha. Es la
+/// zona «Vista» del 16/09/2026 otra vez, con la diferencia de que esta ni
+/// siquiera se desatasca sola.
+///
+/// Lo tenia apuntado el propio repo: la prueba `HALLAZGO ·` de
+/// `test/nucleo/sincro/jornada_entera_sin_senal_test.dart` afirmaba ese
+/// comportamiento y pedia que se le diera la vuelta el dia que se arreglara.
+/// Esto es ese dia.
+///
+/// **Stream y no Future** (§3-ter). Lo huerfano aparece justo cuando nadie esta
+/// preguntando: un apunte se descarta a mano desde la bandeja, o se pierde, y en
+/// ese instante la fila local se queda sin nada que la suba. Un `Future` se leia
+/// al pintar y no se enteraba nunca — que es exactamente el fallo del §4-bis,
+/// «una guarda que solo se recalcula al bajar la foto no se entera de lo que
+/// pasa despues».
+///
+/// Se vigila `apuntes` ademas de las tablas de datos porque **estar huerfano es
+/// una propiedad de la cola**, no de la fila: la fila no cambia, lo que cambia
+/// es que deja de quedarle un apunte vivo detras.
+///
+/// **Se vigilan tambien las dos tablas del Tablero** (24/09/2026). No son de
+/// Drift —las crea la pantalla— asi que van por nombre; sus escrituras si
+/// avisan, con `EsquemaTablero.avisarDeCambio`. Sin ellas, una zona que se
+/// quedaba huerfana no salia hasta el tic siguiente del ciclo.
+///
+/// **En la web sale vacio siempre y no hace falta apagarlo:** alli no se escribe
+/// una fila hasta que el servidor la acepta, los ids son los suyos y
+/// `nacio_aqui` vale 0 (`pantallas/tablero/datos/repositorio.dart`), asi que no
+/// hay nada que pueda quedarse huerfano. Lo vigila
+/// `la_web_coloca_de_verdad_test.dart`.
+/// Las dos tablas del Tablero, por nombre. Ver [trabajoHuerfanoProvider].
+const tablaDeZonasDelTablero = 'board_columns';
+const tablaDeTarjetasDelTablero = 'board_placements';
+
+final trabajoHuerfanoProvider = StreamProvider<List<TrabajoHuerfano>>((ref) {
+  final base = ref.watch(baseProvider);
+  final huerfanos = ref.watch(huerfanosProvider);
+
+  return () async* {
+    yield await huerfanos.mirar();
+    yield* base
+        .tableUpdates(
+          TableUpdateQuery.allOf([
+            // LA COLA PRIMERO: es la que convierte una fila normal en una
+            // huerfana al quedarse sin su apunte.
+            TableUpdateQuery.onTable(base.apuntes),
+            TableUpdateQuery.onTable(base.equivalencias),
+            TableUpdateQuery.onTable(base.routes),
+            TableUpdateQuery.onTable(base.vehicles),
+            TableUpdateQuery.onTable(base.warehouses),
+            // Y LAS DEL TABLERO, QUE NO SON DE DRIFT.
+            //
+            // Las crea la propia pantalla (`pantallas/tablero/datos/
+            // esquema.dart`), asi que aqui no hay objeto que pasar y van por
+            // nombre. Los cambios SI se anuncian —`EsquemaTablero.avisarDeCambio`
+            // hace `notifyUpdates` despues de cada escritura de verdad—, que es
+            // lo que hace que esto funcione; lo que no avisa es un
+            // `customStatement` suelto, y eso pasa en una prueba, no en la
+            // aplicacion.
+            //
+            // Los nombres van escritos porque `nucleo/` no depende de
+            // `pantallas/`. Estan atados a los de `EsquemaTablero` por una
+            // prueba y no por un comentario (§3-bis), igual que los mira
+            // `Huerfanos._dondeMirar`.
+            TableUpdateQuery.onTableName(tablaDeZonasDelTablero),
+            TableUpdateQuery.onTableName(tablaDeTarjetasDelTablero),
+          ]),
+        )
+        .asyncMap((_) => huerfanos.mirar());
+  }();
+});
+
+/// LA ULTIMA BAJADA QUE VOLVIO A MEDIAS, con su motivo LITERAL. `null` = entera.
+///
+/// `ResumenDeBajada.quedoPor` existia y lo leia **un solo sitio**:
+/// `navegacion/portero.dart`, o sea la configuracion inicial. Cualquier ciclo
+/// posterior —el del vigia, el del aviso del canal, el de volver al primer
+/// plano— podia volver con 2.000 clientes de 8.034 y no decirlo en ninguna
+/// pantalla: solo un `Registro.fallo` en un log que nadie abre. Era el §3
+/// cumplido el primer dia y en ningun otro.
+///
+/// El motivo va tal cual viene de `bajada.dart` —«se llego al tope de N tandas y
+/// el servidor seguia diciendo que queda mas»— porque es lo unico que dice que
+/// pasó. «No se pudo traer todo» no le sirve a nadie.
+class LaBajadaAMedias extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void anotar(ResumenDelCiclo resumen) {
+    // UNA VUELTA QUE NI LLEGO A BAJAR NO BORRA EL AVISO ANTERIOR.
+    //
+    // Si el ciclo muere antes de bajar —sin red, sesion caida— viene con
+    // `ResumeDeBajada.nada`, y `nada.quedoPor` es `null`. Creerselo apagaria el
+    // aviso de la bajada truncada de antes, que **sigue siendo verdad**: al
+    // aparato le siguen faltando esos clientes. Que no haya red ya se dice por
+    // su lado.
+    if (resumen.bajada.tandas == 0) return;
+    state = resumen.bajada.quedoPor;
+  }
+}
+
+final bajadaAMediasProvider = NotifierProvider<LaBajadaAMedias, String?>(
+  LaBajadaAMedias.new,
+);
+
 /// EL CICLO: comprobar la diferencia → renovar → subir → bajar. Uno solo en toda la aplicacion, porque el
 /// candado de «un solo ciclo en vuelo» vive dentro: dos instancias son dos
 /// candados, y dos candados no son ninguno.
@@ -573,7 +689,7 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
   ),
 );
 
-/// LO QUE SE ANOTA CUANDO UN CICLO ACABA. **Son dos, y las dos hacen falta.**
+/// LO QUE SE ANOTA CUANDO UN CICLO ACABA. **Son tres, y las tres hacen falta.**
 ///
 /// Va como provider con nombre y no como una lambda dentro de [cicloProvider]
 /// por el mismo motivo que `haySesionParaSincronizar`: escrito a pelo ahi
@@ -588,10 +704,16 @@ final cicloProvider = Provider<CicloDeSincronizacion>(
 ///    (`frescura/primera_bajada.dart`). Sin esto, una bajada que falla de verdad
 ///    dejaria una rueda girando sin fin — que es peor que el mensaje falso que
 ///    todo esto vino a quitar.
+///  * **La bajada a medias** es lo unico que dice, fuera del primer arranque,
+///    que el aparato se quedo con la mitad de los clientes.
 final alAcabarElCicloProvider = Provider<void Function(ResumenDelCiclo)>(
   (ref) => (resumen) {
     ref.read(saludDeLaRedProvider.notifier).anotar(resumen);
     ref.read(primeraBajadaProvider.notifier).anotar(resumen);
+    // **Y LA TERCERA, desde el 24/09/2026.** Una bajada que vuelve a medias lo
+    // decia SOLO la configuracion inicial; los ciclos de despues —que son casi
+    // todos— se lo callaban. Ver [bajadaAMediasProvider].
+    ref.read(bajadaAMediasProvider.notifier).anotar(resumen);
   },
 );
 
@@ -732,10 +854,30 @@ final vigiaProvider = Provider<VigiaDeSincronizacion>((ref) {
   return vigia;
 });
 
-/// Cuantos apuntes quedan sin subir. Lo pinta el `RelojDeDatos`.
+/// Cuantos apuntes quedan EN LA COLA esperando a subir. Lo pinta el
+/// `RelojDeDatos`, y ahi ese es el numero bueno: es el que baja a cero cuando
+/// uno entrega el dia. **No cuenta los rechazados**, que tienen su propia
+/// bandeja y no se arreglan con señal.
 final sinSubirProvider = StreamProvider<int>(
   (ref) => ref.watch(colaProvider).pendientes().map((lista) => lista.length),
 );
+
+/// TRABAJO QUE NO ESTA ARRIBA, contando **tambien los rechazados**.
+///
+/// No es lo mismo que [sinSubirProvider] y la diferencia importa justo antes de
+/// hacer algo irreversible: instalar una version nueva encima, o borrar una
+/// copia. Un apunte rechazado es trabajo que **no llego al servidor** —es lo
+/// unico que queda de un cierre que no entro— y con la pregunta estrecha contaba
+/// cero. Ver `BaseLocal.cuantosSinSubir`.
+final sinSubirDeVerdadProvider = StreamProvider<int>((ref) {
+  final base = ref.watch(baseProvider);
+  return () async* {
+    yield await base.cuantosSinSubir();
+    yield* base
+        .tableUpdates(TableUpdateQuery.onTable(base.apuntes))
+        .asyncMap((_) => base.cuantosSinSubir());
+  }();
+});
 
 /// El cliente con el que se mira la versión, aparte del de las pantallas.
 ///

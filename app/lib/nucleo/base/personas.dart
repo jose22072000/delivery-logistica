@@ -2,15 +2,38 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../proveedores.dart';
 import '../registro/registro.dart';
+import '../sincro/huerfanos.dart';
 import 'base.dart';
 import 'conexion/conexion.dart';
 
 /// QUIEN TIENE DATOS EN ESTE APARATO, y cuánto trabajo sin subir le queda.
+///
+/// ## Son TRES cosas, no una — 24/09/2026
+///
+/// Esto preguntaba sólo por [pendientes], o sea por las filas de `apuntes` en
+/// estado `pendiente`. Y ésa es **la única pregunta que se hace antes de borrar
+/// la copia de alguien**, así que lo que no entraba en ella se borraba en
+/// silencio:
+///
+///  * **Un rechazado.** Por regla de la casa se queda a la vista con su motivo
+///    hasta que una persona decida, y es lo único que queda de un cierre que
+///    nunca llegó al servidor. No es `pendiente`, así que contaba cero.
+///  * **Trabajo huérfano.** Una ruta armada sin señal cuyo apunte se perdió: no
+///    le queda ningún apunte, así que para la cola no existe — y en cambio la
+///    fila sigue ahí, y nadie la va a subir nunca
+///    (`nucleo/sincro/huerfanos.dart`).
+///
+/// Es, palabra por palabra, el agujero que el tablero cerró el 16/09/2026 con
+/// la zona «Vista»: su guarda preguntaba por la cola y el `DELETE` se llevó lo
+/// que la cola no veía. `pantallas/tablero/datos/servicio.dart` lo dice entero.
+/// Aquí seguía sin cerrar, y con la diferencia de que esto **borra el fichero**.
 class PersonaEnElAparato {
   const PersonaEnElAparato({
     required this.sub,
     required this.nombre,
     required this.pendientes,
+    this.rechazados = 0,
+    this.colgado = const <TrabajoHuerfano>[],
   });
 
   /// El `sub` de su token. Es lo que nombra su copia.
@@ -22,17 +45,52 @@ class PersonaEnElAparato {
   /// esto se guardara.
   final String nombre;
 
-  /// Apuntes suyos **sin subir**. Es lo que hay que decir ANTES de olvidarla.
+  /// Apuntes suyos **en la cola**, esperando a subir.
   final int pendientes;
+
+  /// Apuntes suyos que el servidor **rechazó** y siguen esperando a que alguien
+  /// decida. Borrarlos es borrar la única constancia de lo que no llegó.
+  final int rechazados;
+
+  /// Lo que está en su copia, no está arriba y **no lo va a subir nadie**: una
+  /// ruta armada sin señal que se quedó sin su apunte, por ejemplo.
+  final List<TrabajoHuerfano> colgado;
 
   String get nombreParaVer =>
       nombre.isNotEmpty ? nombre : 'Una cuenta anterior';
 
-  bool get tieneTrabajoSinSubir => pendientes > 0;
+  bool get tieneTrabajoSinSubir =>
+      pendientes > 0 || rechazados > 0 || colgado.hayAlguno;
+
+  /// **QUÉ SE PIERDE SI SE BORRA ESTA COPIA**, nombrado cosa por cosa.
+  ///
+  /// Vive aquí y no en la pantalla a propósito: es lo que hay que poner delante
+  /// de alguien ANTES de borrar, y escrito en la pantalla se olvida la mitad —
+  /// que es exactamente lo que pasó. Vacío cuando no se pierde nada.
+  ///
+  /// Se nombra CADA cosa porque no son la misma: «3 apuntes sin subir» se
+  /// arregla con señal, «1 rechazado» hace falta que alguien decida, y «1 ruta
+  /// que sólo existe aquí» no se arregla sola de ninguna manera. «4 cosas» no
+  /// le dice a nadie cuál de las tres tiene delante.
+  String get queSePierde {
+    final partes = <String>[
+      if (pendientes > 0)
+        '$pendientes ${pendientes == 1 ? 'apunte' : 'apuntes'} sin subir',
+      if (rechazados > 0)
+        '$rechazados ${rechazados == 1 ? 'rechazado esperando a que alguien '
+                  'decida' : 'rechazados esperando a que alguien decida'}',
+      if (colgado.hayAlguno) '${colgado.texto} que sólo existe en este aparato',
+    ];
+    if (partes.isEmpty) return '';
+    if (partes.length == 1) return partes.first;
+    final ultimo = partes.removeLast();
+    return '${partes.join(', ')} y $ultimo';
+  }
 
   @override
   String toString() =>
-      'PersonaEnElAparato($nombreParaVer, pendientes: $pendientes)';
+      'PersonaEnElAparato($nombreParaVer, pendientes: $pendientes, '
+      'rechazados: $rechazados, colgado: ${colgado.hayAlguno ? colgado.texto : "nada"})';
 }
 
 /// LAS COPIAS DEL APARATO: listarlas y **olvidar** una.
@@ -73,25 +131,50 @@ class Personas {
   /// Borra la copia de [sub]: su dominio, **su cola** y su fichero.
   ///
   /// No pregunta nada: quien llama ya preguntó, con [listar] en la mano y con
-  /// `tieneTrabajoSinSubir` delante. Esto es el gesto, no la decisión.
+  /// `tieneTrabajoSinSubir` y [PersonaEnElAparato.queSePierde] delante — ése es
+  /// el texto que hay que enseñar, y nombra cada cosa. Esto es el gesto, no la
+  /// decisión.
   Future<void> olvidar(String sub) async {
     final base = BaseLocal(dueno: sub);
     try {
-      final quedaban = await base.cuantosPendientes();
+      // SE MIRA ANTES DE BORRAR, y las tres cosas. Después no hay forma de
+      // saberlo: el fichero ya no está.
+      final queSePierde = await _queHayDentro(base);
       await base.olvidar();
-      if (quedaban > 0) {
-        // Queda dicho aunque la persona lo haya aceptado: si mañana alguien
-        // pregunta por qué no llegó el cierre de una ruta, esto es lo único que
-        // lo explica.
-        Registro.aviso(
-          'olvidada la copia de $sub con $quedaban apuntes sin subir',
-        );
-      }
+      // **SE ANOTA SIEMPRE**, haya o no haya algo. Antes la línea sólo se
+      // escribía `if (quedaban > 0)`, con `quedaban` contando únicamente los
+      // pendientes: un cierre rechazado y una ruta huérfana se iban sin dejar
+      // ni una línea, y al día siguiente no había forma de saber qué se llevó
+      // por delante. Un borrado que no deja rastro es lo contrario de «nada se
+      // descarta en silencio» (§4).
+      Registro.aviso(
+        queSePierde.isEmpty
+            ? 'olvidada la copia de $sub: no le quedaba trabajo sin subir'
+            : 'olvidada la copia de $sub CON TRABAJO SIN SUBIR: $queSePierde',
+      );
     } finally {
       await _cerrarSinRuido(base);
     }
     await borrarLaCopia(sub);
     Registro.info('copia olvidada: $sub');
+  }
+
+  /// Lo que se va a llevar por delante, ya escrito. Vacío = no se pierde nada.
+  Future<String> _queHayDentro(BaseLocal base) async {
+    try {
+      return PersonaEnElAparato(
+        sub: '',
+        nombre: '',
+        pendientes: await base.cuantosPendientes(),
+        rechazados: await base.cuantosRechazados(),
+        colgado: await Huerfanos(base).mirar(),
+      ).queSePierde;
+    } on Object catch (e) {
+      // Que no se pueda contar NO puede impedir el gesto, pero tampoco puede
+      // pasar callando: se anota que se borró sin saber qué había.
+      Registro.aviso('no se pudo contar lo que llevaba la copia: $e');
+      return 'no se pudo contar qué llevaba dentro';
+    }
   }
 
   /// Abre una copia sólo para preguntarle quién es y qué le queda.
@@ -106,6 +189,11 @@ class Personas {
         sub: sub,
         nombre: await base.nombreDelDueno() ?? '',
         pendientes: await base.cuantosPendientes(),
+        // Las otras dos, que son las que no contaba nadie. Sin ellas, la
+        // pantalla que ofrece el gesto enseña «no le queda nada» encima de un
+        // cierre rechazado.
+        rechazados: await base.cuantosRechazados(),
+        colgado: await Huerfanos(base).mirar(),
       );
     } on Object catch (e) {
       Registro.aviso('no se pudo mirar la copia $fichero: $e');

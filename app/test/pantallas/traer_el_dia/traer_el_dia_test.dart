@@ -530,4 +530,69 @@ void main() {
       );
     });
   });
+
+  // ---------------------------------------------------------------------------
+  group('la bajada se corta a medias', () {
+    /// El servidor dice «queda más» y no manda por dónde seguir. `bajada.dart`
+    /// para ahí y lo escribe en `quedoPor`. **Las colecciones bajan igual**, con
+    /// parte de sus filas: no hay ninguna vacía, así que `Faltas.de` no ve nada.
+    Future<RespuestaFalsa?> servidorQueCorta(PeticionVista p) async {
+      if (!p.ruta.contains('/cambios')) return servidorQueTraeElDia(p);
+      final datos = Map<String, Object?>.from(cambiosCompletos())
+        ..['truncado'] = true
+        ..remove('hasta');
+      return RespuestaFalsa(200, datos);
+    }
+
+    test('NO se pone verde, y se dice POR QUÉ con las palabras del servidor',
+        () async {
+      final caja = montar(servidorQueCorta);
+
+      final trajo = await caja.read(traerElDiaProvider.notifier).ahora();
+
+      expect(
+        trajo.faltan,
+        isEmpty,
+        reason:
+            'ninguna colección quedó a cero: ESTE es el caso que se colaba, '
+            'porque `Faltas.de` sólo ve las vacías',
+      );
+      expect(
+        trajo.completo,
+        isFalse,
+        reason:
+            'con 2.000 clientes de 8.034 dentro, «Ya lo tienes» es un número '
+            'creíble y equivocado — el fallo del `CLAUDE.md` §3',
+      );
+      expect(
+        trajo.quedoPor,
+        contains('no mando la marca'),
+        reason: 'el motivo LITERAL, el que escribe `bajada.dart`',
+      );
+      expect(
+        TextosDeTraerElDia.comoQuedo(trajo),
+        TextosDeTraerElDia.seCortoTitulo,
+      );
+      expect(
+        TextosDeTraerElDia.seCortoDetalle(trajo.quedoPor!),
+        contains('aunque las cifras de abajo parezcan normales'),
+      );
+    });
+
+    test('y una bajada ENTERA no dice que se cortó nada', () async {
+      final caja = montar(servidorQueTraeElDia);
+
+      final trajo = await caja.read(traerElDiaProvider.notifier).ahora();
+
+      expect(trajo.quedoPor, isNull);
+      expect(trajo.completo, isTrue);
+      expect(
+        TextosDeTraerElDia.comoQuedo(trajo),
+        'Ya lo tienes',
+        reason:
+            'el caso de todos los días: inventar un corte que no hubo es un '
+            'aviso que sale siempre, y uno que sale siempre deja de leerse',
+      );
+    });
+  });
 }

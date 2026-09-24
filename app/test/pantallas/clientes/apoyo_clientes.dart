@@ -12,6 +12,7 @@ Future<void> sembrarSucursal(
   String id = 'b-stg',
   String codigo = 'STG',
   bool conAlmacen = true,
+  bool activo = true,
   double lat = almacenLat,
   double lng = almacenLng,
 }) async {
@@ -37,6 +38,7 @@ Future<void> sembrarSucursal(
           lat: Value(lat),
           lng: Value(lng),
           principal: const Value(true),
+          activo: Value(activo),
         ),
       );
 }

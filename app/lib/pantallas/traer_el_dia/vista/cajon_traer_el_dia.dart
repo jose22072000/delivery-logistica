@@ -334,6 +334,19 @@ class _ComoQuedo extends StatelessWidget {
               ),
           ],
 
+          // LA BAJADA SE CORTO Y EL SERVIDOR DIJO POR QUE. Va con las faltas y
+          // no con los fallos: no reventó nada, lo que pasa es que el aparato
+          // se quedó con parte de los datos y las cifras de arriba parecen
+          // normales. Sin esta línea esto era un `Registro.fallo` en un log y
+          // un tic verde en la pantalla (`CLAUDE.md` §3).
+          if (trajo.quedoPor case final quedoPor?) ...[
+            const SizedBox(height: Aire.md),
+            Text(
+              TextosDeTraerElDia.seCortoDetalle(quedoPor),
+              style: tema.textTheme.bodyMedium,
+            ),
+          ],
+
           if (trajo.fallo case final fallo?) ...[
             const SizedBox(height: Aire.sm),
             Text(

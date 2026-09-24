@@ -219,6 +219,24 @@ class _Falto extends StatelessWidget {
 
   final ConfiguracionInicial configuracion;
 
+  /// El motivo, en el orden en que importa: el del ciclo, el de la bajada
+  /// cortada, y —cuando no hay ninguno— el único caso que queda.
+  static String _elMotivo(ConfiguracionInicial configuracion) {
+    if (configuracion.fallo != null) {
+      return 'Comprueba la señal y vuelve a probar. Lo que ya se trajo se '
+          'queda: no hay que empezar de cero.';
+    }
+    if (configuracion.quedoPor case final quedoPor?) {
+      return 'La bajada se cortó: $quedoPor. Vuelve a probar; lo que ya se '
+          'trajo se queda.';
+    }
+    // Sin fallo y sin corte sólo queda el otro motivo del portero: la bajada
+    // terminó entera y el aparato sigue sin nada. Decir aquí «el servidor no
+    // terminó de mandar los datos» sería falso.
+    return 'La bajada terminó y el aparato sigue vacío. Vuelve a probar; si '
+        'sigue igual, esta sucursal no tiene datos que traer.';
+  }
+
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(Aire.md),
@@ -248,11 +266,13 @@ class _Falto extends StatelessWidget {
               Text(
                 // Lo que faltó, no «hubo un error». Es lo único que le dice a
                 // alguien si puede irse al almacén o no.
-                configuracion.fallo != null
-                    ? 'Comprueba la señal y vuelve a probar. Lo que ya se trajo '
-                          'se queda: no hay que empezar de cero.'
-                    : 'El servidor no terminó de mandar los datos. Vuelve a '
-                          'probar; lo que ya se trajo se queda.',
+                //
+                // Y EL MOTIVO VA LITERAL, el que escribe `bajada.dart`. Aquí
+                // se tiraba: llegaba «se llegó al tope de 20 tandas y el
+                // servidor seguía diciendo que queda más» y se pintaba «El
+                // servidor no terminó de mandar los datos», que no nombra nada
+                // y con lo que no se puede hacer nada (`CLAUDE.md` §3).
+                _elMotivo(configuracion),
                 style: Tipos.texto(tamano: 12, color: Colores.tintaSuave),
               ),
             ],

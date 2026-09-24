@@ -106,7 +106,11 @@ class ComprobadorDeActualizacion {
     // REGLA 1, y va la ÚLTIMA a propósito: sólo se mira la cola cuando de verdad
     // hay algo que instalar. Decirle a alguien «sube primero» cuando no hay
     // ninguna versión nueva es mandarle a buscar red sin ningún motivo.
-    final pendientes = await _base.cuantosPendientes();
+    // `cuantosSinSubir` y no `cuantosPendientes` — 24/09/2026. Un apunte
+    // RECHAZADO es trabajo que no esta arriba, y actualizar encima puede
+    // llevarselo igual que si estuviera esperando en la cola: la diferencia es
+    // que ese ademas no se arregla solo, esta esperando a que alguien decida.
+    final pendientes = await _base.cuantosSinSubir();
     if (pendientes > 0) {
       return PrimeroSube(publicada: publicada, pendientes: pendientes);
     }

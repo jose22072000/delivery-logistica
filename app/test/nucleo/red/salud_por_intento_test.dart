@@ -1,7 +1,8 @@
 import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/nucleo/red/cliente_api.dart';
-import 'package:reparto/nucleo/red/salud.dart';
 
 /// LA SALUD DE LA RED SE CUENTA POR INTENTO, NO POR CICLO.
 ///
@@ -17,18 +18,58 @@ import 'package:reparto/nucleo/red/salud.dart';
 ///
 /// El motivo de que sean tres y no uno sigue en pie: un aviso que parpadea con
 /// cada paquete perdido deja de leerse.
+///
+/// ## Y LA PRUEBA SE ENGANCHA A `LaSalud.anotarIntento` — 24/09/2026
+///
+/// Esta prueba comprobaba el interceptor y despues **reimplementaba la
+/// transicion de estado en su propio cuerpo** (`salud = llego ? … : …`). O sea,
+/// copiaba el codigo que venia a probar, que es la trampa del `CLAUDE.md` §5:
+/// el auditor puso `anotarIntento` a contar SIEMPRE como caida de red y las
+/// 1.520 pruebas salieron verdes, con la franja diciendo «sin conexión» a la
+/// cuarta peticion aunque las cuatro contestaran 200.
+///
+/// Ahora el cable esta entero y es el de produccion: la peticion llama a
+/// `alIntentar`, `alIntentar` llama a `anotarIntento`, y lo que se mira es
+/// `saludDeLaRedProvider`. Nadie repite la cuenta a mano.
 void main() {
   late List<bool> avisos;
+  late ProviderContainer contenedor;
+
+  /// El contenedor con la salud de verdad, sin tocar el sistema.
+  ///
+  /// Las dos pistas del aparato se sustituyen porque `connectivity_plus` no
+  /// existe en una prueba: si dijeran «no hay ni interfaz», `vaMal` saldria
+  /// `true` sin haber contado un solo intento y esto no probaria nada.
+  ProviderContainer laSalud() {
+    final c = ProviderContainer.test(
+      overrides: [
+        pistaDeRedProvider.overrideWithValue(() async => true),
+        avisosDeRedProvider.overrideWithValue(() => const Stream<bool>.empty()),
+      ],
+    );
+    // Se arranca el notifier ANTES de la primera peticion: asi la pista de red
+    // ya paso y lo que se cuente despues son intentos, no el nacimiento.
+    expect(c.read(saludDeLaRedProvider).vaMal, isFalse);
+    return c;
+  }
 
   ClienteApi clienteQue(Future<Response<Object?>> Function() responde) {
     avisos = [];
+    contenedor = laSalud();
+    addTearDown(contenedor.dispose);
     final dio = Dio();
     dio.httpClientAdapter = _AdaptadorFalso(responde);
     return ClienteApi(
       dio: dio,
       esperas: const [Duration.zero, Duration.zero, Duration.zero],
       esperar: (_) async {},
-      alIntentar: ({required bool llego}) => avisos.add(llego),
+      // EL CABLE DE PRODUCCION, tal cual lo monta `nucleo/proveedores.dart`.
+      alIntentar: ({required bool llego}) {
+        avisos.add(llego);
+        contenedor.read(saludDeLaRedProvider.notifier).anotarIntento(
+          llego: llego,
+        );
+      },
     );
   }
 
@@ -51,15 +92,42 @@ void main() {
     );
     expect(avisos.every((llego) => !llego), isTrue);
 
-    // Y con esos cuatro, la salud ya da la red por mala.
-    var salud = SaludDeLaRed.bienDeSalida;
-    for (final llego in avisos) {
-      salud = llego ? salud.conUnaBuena(DateTime.now()) : salud.conUnaMala();
-    }
+    // Y con esos cuatro, la salud ya da la red por mala. **Se le pregunta a
+    // `anotarIntento`**, que es quien lo decide en la aplicación: repetir aquí
+    // la cuenta a mano era copiar el código que se estaba probando.
     expect(
-      salud.vaMal,
+      contenedor.read(saludDeLaRedProvider).vaMal,
       isTrue,
       reason: 'sin esto habría que esperar a tres CICLOS, o sea minutos',
+    );
+  });
+
+  test('CUATRO peticiones que contestan 200 NO dicen «sin conexión»', () async {
+    // LA OTRA MITAD DE LA PAREJA, y la que faltaba entera.
+    //
+    // `anotarIntento` puesto a contar siempre como caída de red deja la suite
+    // verde y pone la franja en «Sin conexión» a la cuarta petición con la red
+    // perfecta. Un aviso que sale siempre deja de leerse (§3-quinquies), y
+    // entonces tampoco se lee el día que de verdad no hay señal.
+    final cliente = clienteQue(
+      () async => Response<Object?>(
+        requestOptions: RequestOptions(),
+        statusCode: 200,
+        data: const <String, Object?>{},
+      ),
+    );
+
+    for (var i = 0; i < 4; i++) {
+      await cliente.pedir<Object?>('/loquesea');
+    }
+
+    expect(avisos, [true, true, true, true]);
+    expect(
+      contenedor.read(saludDeLaRedProvider).vaMal,
+      isFalse,
+      reason:
+          'cuatro respuestas del servidor son cuatro pruebas de que la red '
+          'va: decir «sin conexión» aquí manda a mirar donde no es',
     );
   });
 
@@ -81,7 +149,10 @@ void main() {
           'que el servidor conteste «no existe» significa que contestó: la '
           'red está bien y decir lo contrario manda a mirar donde no es',
     );
+    expect(contenedor.read(saludDeLaRedProvider).vaMal, isFalse);
   });
+
+  _elInterceptor();
 
   test('una que llega da la red por sana al momento', () async {
     final cliente = clienteQue(
@@ -92,17 +163,109 @@ void main() {
       ),
     );
 
+    // Nueve caídas seguidas: la franja lleva rato diciendo «Sin conexión».
+    final salud = contenedor.read(saludDeLaRedProvider.notifier);
+    for (var i = 0; i < 9; i++) {
+      salud.anotarIntento(llego: false);
+    }
+    expect(contenedor.read(saludDeLaRedProvider).vaMal, isTrue);
+
     await cliente.pedir<Object?>('/loquesea');
 
     expect(avisos, [true]);
     expect(
-      const SaludDeLaRed(fallosSeguidos: 9).conUnaBuena(DateTime.now()).vaMal,
+      contenedor.read(saludDeLaRedProvider).vaMal,
       isFalse,
       reason:
           'basta UNA buena: dejar el aviso puesto delante de alguien que ya '
           'tiene señal es mentir en la otra dirección',
     );
   });
+}
+
+/// EL OTRO CONTADOR, el del Dio crudo de auth. Tampoco lo nombraba nadie.
+///
+/// `InterceptorDeSalud` es el que cuenta la peticion de RENOVAR, que es el
+/// primer paso del ciclo: sin conexion el ciclo muere ahi y las peticiones de
+/// `ClienteApi` —las unicas que contaban— no se llegan a hacer nunca.
+void _elInterceptor() {
+  group('InterceptorDeSalud, el del cliente de auth', () {
+    late List<bool> avisos;
+
+    /// Un Dio con el interceptor puesto, como lo monta `dioAuthProvider`.
+    ///
+    /// Se prueba POR EL CLIENTE y no llamando a `onError` a pelo: un handler
+    /// suelto no tiene a quien seguirle y revienta por detrás, y además esto es
+    /// el camino de verdad — el de renovar, que es el primer paso del ciclo.
+    Dio authQue(Future<ResponseBody> Function() responde) {
+      avisos = [];
+      return Dio()
+        ..httpClientAdapter = _AdaptadorCrudo(responde)
+        ..interceptors.add(
+          InterceptorDeSalud(
+            alIntentar: ({required bool llego}) => avisos.add(llego),
+          ),
+        );
+    }
+
+    test('una respuesta cuenta como que la red va', () async {
+      final dio = authQue(() async => ResponseBody.fromString('{}', 200));
+      await dio.get<Object?>('https://auth.prueba/refresh');
+      expect(avisos, [true]);
+    });
+
+    test('un 401 TAMBIEN: el servidor contestó', () async {
+      final dio = authQue(() async => ResponseBody.fromString('{}', 401));
+      await expectLater(
+        dio.get<Object?>('https://auth.prueba/refresh'),
+        throwsA(anything),
+      );
+      expect(
+        avisos,
+        [true],
+        reason:
+            'una sesión muerta no es una red muerta; contarla como caída '
+            'mandaría a mirar el wifi por un problema de la puerta',
+      );
+    });
+
+    test('sin respuesta, la petición no salió', () async {
+      final dio = authQue(
+        () => throw DioException.connectionError(
+          requestOptions: RequestOptions(),
+          reason: 'sin red',
+        ),
+      );
+      await expectLater(
+        dio.get<Object?>('https://auth.prueba/refresh'),
+        throwsA(anything),
+      );
+      expect(
+        avisos,
+        [false],
+        reason:
+            'renovar es el PRIMER paso del ciclo: sin esto, sin conexión el '
+            'ciclo muere aquí y no se cuenta un solo intento',
+      );
+    });
+  });
+}
+
+/// Un adaptador crudo, para el Dio de auth: contesta lo que se le diga.
+class _AdaptadorCrudo implements HttpClientAdapter {
+  _AdaptadorCrudo(this.responde);
+
+  final Future<ResponseBody> Function() responde;
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) => responde();
 }
 
 /// Un adaptador que contesta lo que se le diga, sin tocar la red.

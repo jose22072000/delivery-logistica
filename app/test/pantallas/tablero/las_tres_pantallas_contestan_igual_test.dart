@@ -225,14 +225,19 @@ void main() {
       await almacen('a3', 'GTO', lat: null, lng: null); // sin punto
       await sucursal('b4', 'HOL', 'Holguín'); // sin almacén ninguno
       await sucursal('b5', 'HAB', 'La Habana');
+      // EL NOMBRE DEL PRINCIPAL IMPORTA, y por eso es «Zona franca» y no
+      // «Almacén Habana», que es como estaba: contra «Patio» ganaba también
+      // por orden alfabético, así que la preferencia por `principal` no se
+      // ejercitaba y quitarla salía verde. Ahora el alfabético dice «Patio» y
+      // el principal dice «Zona franca»: sólo uno de los dos puede tener razón.
       await almacen('a5a', 'HAB', principal: false, nombre: 'Patio');
-      await almacen('a5b', 'HAB', nombre: 'Almacén Habana'); // el principal
+      await almacen('a5b', 'HAB', nombre: 'Zona franca'); // el principal
     }
 
     Future<bool> elPanelDice(String sucursalId) async {
-      final pasos = await ConfiguracionPendiente(
-        base,
-      ).mirar(sucursalId: sucursalId).first;
+      final pasos = await ConfiguracionPendiente(base)
+          .mirar(sucursalId: sucursalId)
+          .first;
       return pasos.paso(ClaveDePaso.almacen).como == ComoVa.hecho;
     }
 
@@ -284,9 +289,8 @@ void main() {
       await lasOchoComoEstanDeVerdad();
 
       final origen = await tablero.almacenDe('b5');
-      final deClientes = await RepositorioClientes(
-        base,
-      ).almacenDeReferencia('HAB');
+      final deClientes = await RepositorioClientes(base)
+          .almacenDeReferencia('HAB');
       expect(
         origen.id,
         deClientes?.id,
@@ -294,15 +298,75 @@ void main() {
             'dos medidas distintas de «cuán lejos está este cliente» es peor '
             'que una aproximada: con ésta se le cobra el domicilio',
       );
-      expect(origen.nombre, 'Almacén Habana', reason: 'gana el principal');
+      expect(
+        origen.nombre,
+        'Zona franca',
+        reason:
+            'gana el principal, no el primero por orden alfabético («Patio»)',
+      );
     });
 
-    /// LOS DOS CASOS QUE SEPARABAN AL PANEL DEL TABLERO.
+    /// LA PREFERENCIA POR `principal`, SIN EL ORDER BY QUE LA TAPA.
     ///
-    /// Clientes queda fuera **a propósito y está apuntado**: su consulta vive en
-    /// `pantallas/clientes/`, que lleva otro, y todavía no descarta ni el
-    /// inactivo ni el (0,0). Mientras no lo haga, de esa sucursal la ficha
-    /// mediría desde el golfo de Guinea.
+    /// `de(...)` pide `ORDER BY principal DESC, nombre ASC`, así que le llega a
+    /// [AlmacenDeReferencia.elegir] una lista que YA trae el principal delante:
+    /// por ahí, quitar el bucle que lo prefiere sale verde igual. Quien tiene
+    /// las filas en la mano no las trae siempre así, y entonces el bucle es lo
+    /// único que hay. Esta prueba se las da en el orden malo a propósito.
+    test('elegir prefiere el principal aunque llegue el último', () async {
+      await lasOchoComoEstanDeVerdad();
+
+      final porNombre =
+          await (base.select(base.warehouses)
+                ..where((w) => w.sucursalCodigo.equals('HAB'))
+                ..orderBy([(w) => OrderingTerm.asc(w.nombre)]))
+              .get();
+      expect(
+        porNombre.first.nombre,
+        'Patio',
+        reason:
+            'la lista tiene que llegar con el principal detrás, o no prueba '
+            'nada',
+      );
+
+      expect(
+        AlmacenDeReferencia.elegir(porNombre)?.nombre,
+        'Zona franca',
+        reason:
+            'se midió desde «Patio» teniendo principal: dos lecturas del mismo '
+            'cliente dan dos distancias, y con ésa se le cobra el domicilio',
+      );
+    });
+
+    /// Y EL DESEMPATE ENTRE DOS QUE NO SON PRINCIPAL, que es donde el orden
+    /// de la consulta es lo ÚNICO que hay: `elegir` devuelve el primero de la
+    /// lista tal y como se la den. Se siembran al revés del alfabeto a
+    /// propósito, porque sin `ORDER BY` SQLite los devuelve en el orden en que
+    /// entraron y entonces la prueba no probaría nada.
+    test(
+      'sin principal manda el nombre, y no el orden en que entraron',
+      () async {
+        await yaBajaronLasCuatro();
+        await sucursal('b9', 'CMG', 'Ciego');
+        await almacen('a9b', 'CMG', principal: false, nombre: 'Zona sur');
+        await almacen('a9a', 'CMG', principal: false, nombre: 'Almacén norte');
+
+        final elegido = await AlmacenDeReferencia.de(base, 'CMG');
+        expect(
+          elegido?.nombre,
+          'Almacén norte',
+          reason:
+              'sin un desempate estable, dos lecturas seguidas miden desde dos '
+              'almacenes distintos y los km de la misma tarjeta bailan solos',
+        );
+      },
+    );
+
+    /// LOS DOS CASOS QUE SEPARABAN AL PANEL DEL TABLERO — y que hasta el
+    /// 24/09/2026 también separaban a Clientes, que tenía su propia consulta y
+    /// sólo miraba que las coordenadas estuvieran puestas. Las TRES entran aquí:
+    /// son justo las dos sucursales donde una ficha mediría desde un almacén de
+    /// baja (un número creíble) o desde el golfo de Guinea (8.600 km).
     test('un almacén inactivo y uno en (0,0) no cuentan en NINGUNA', () async {
       await yaBajaronLasCuatro();
       await sucursal('b6', 'TUN', 'Las Tunas');
@@ -323,6 +387,15 @@ void main() {
           await elTableroDice(id),
           isFalse,
           reason: '$nombre: el Tablero lo da por bueno y no lo es',
+        );
+        expect(
+          await clientesDice(id),
+          isFalse,
+          reason:
+              '$nombre: Clientes lo da por bueno y no lo es. Con eso la ficha '
+              'rellena la columna de km desde ese almacén y el filtro «Hasta N '
+              'km» contesta con otros clientes — y de esos km sale lo que se le '
+              'cobra al cliente.',
         );
       }
     });
