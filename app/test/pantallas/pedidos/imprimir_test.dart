@@ -1,10 +1,20 @@
-// Los dos botones `Ver e imprimir` de Pedidos.
+// Los dos caminos al papel del almacen desde Pedidos: lo MARCADO a mano y lo
+// FILTRADO.
 //
 // No falta ninguna funcion: el PDF del pre-despacho existe y esta probado
 // (`test/impresion/pdf_test.dart`). Lo que faltaba era el boton que lo llama, y
 // sin el no hay papel con el que bajar al almacen. Por eso esto se comprueba
 // **hasta los bytes**: que el boton salga no vale de nada si lo que abre no es
 // una hoja de verdad.
+//
+// ## El camino cambio el 22/09/2026, la comprobacion no
+//
+// Antes el pre-despacho era un bloque en la pagina —uno plegable para lo
+// filtrado y una franja para lo marcado— con su tabla dentro y su
+// `Ver e imprimir` al lado del titulo. Ahora es **un boton que abre la vista**,
+// igual que el post-despacho del cierre de ruta, y el `Ver e imprimir` vive en
+// el pie de ese cajon. Son dos cajones apilados: la VISTA (`Pre-despacho`) y,
+// encima, la HOJA (`Hoja de pre-despacho`).
 
 import 'dart:convert';
 
@@ -18,7 +28,9 @@ import 'package:reparto/nucleo/frescura/frescura.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 import 'package:reparto/pantallas/pedidos/datos/filtros_pedidos.dart';
 import 'package:reparto/pantallas/pedidos/datos/repositorio_pedidos.dart';
+import 'package:reparto/pantallas/pedidos/vista/kit.dart';
 import 'package:reparto/pantallas/pedidos/vista/pantalla_pedidos.dart';
+import 'package:reparto/pantallas/pedidos/vista/vista_pre_despacho.dart';
 import 'package:reparto/textos/textos.dart';
 
 import '../../apoyo/base_de_prueba.dart';
@@ -86,28 +98,45 @@ void main() {
   }
 
   testWidgets(
-    'marcando un pedido sale `Ver e imprimir` y abre la hoja del almacen',
+    'marcando un pedido sale su pre-despacho y de ahi sale la hoja del almacen',
     (tester) async {
       await pintar(tester);
 
-      // Sin nada marcado no hay tarjeta de lo elegido: el unico
-      // `Ver e imprimir` que hay es el del bloque de lo filtrado.
-      expect(find.text('Ver e imprimir'), findsOneWidget);
+      // Sin nada marcado no hay franja de lo elegido: el unico boton de
+      // pre-despacho que hay es el de lo filtrado.
+      expect(
+        find.byKey(PreDespacho.claveDelBotonDeLoFiltrado),
+        findsOneWidget,
+      );
+      expect(find.byKey(PreDespacho.claveDelBotonDeLoElegido), findsNothing);
+      // Y el `Ver e imprimir` NO esta en la pagina: vive dentro de la vista.
+      expect(find.text(PreDespacho.verEImprimir), findsNothing);
 
       // La casilla de la cabecera marca toda la pagina: 8 pedidos, que con el
       // arranque acotado es lo que puede subir a un camion.
       await tester.tap(find.byType(Checkbox).first);
       await asentar(tester);
 
-      // Ahora hay dos, como en la de Next: lo marcado y lo filtrado.
-      expect(find.text('Ver e imprimir'), findsNWidgets(2));
+      expect(find.byKey(PreDespacho.claveDelBotonDeLoElegido), findsOneWidget);
       expect(find.textContaining('8 pedido(s) elegidos'), findsOneWidget);
 
-      await tester.tap(find.text('Ver e imprimir').first);
+      await tester.tap(find.byKey(PreDespacho.claveDelBotonDeLoElegido));
       await asentar(tester);
 
-      // Y lo que abre es la vista previa de un PDF, en un cajon.
-      expect(find.text('Pre-despacho'), findsOneWidget);
+      // Se abre LA VISTA, con su titulo. `find.text` a secas no vale aqui:
+      // detras del cajon sigue el boton de lo filtrado, que dice exactamente
+      // `Pre-despacho` mientras no ha sumado nada.
+      expect(
+        find.widgetWithText(Cajon, PreDespacho.titulo),
+        findsOneWidget,
+      );
+      expect(find.byType(VistaPreDespacho), findsOneWidget);
+
+      // Y de ahi, la hoja: otro cajon encima, con su propio titulo.
+      await tester.tap(find.text(PreDespacho.verEImprimir));
+      await asentar(tester);
+
+      expect(find.text(PreDespacho.tituloDeLaHoja), findsOneWidget);
       expect(find.byType(VistaPreviaPdf), findsOneWidget);
 
       // La prueba de que llama al PDF que ya existe: se le pide la hoja a la
@@ -125,18 +154,24 @@ void main() {
   ) async {
     await pintar(tester);
 
-    // Cerrado no se ha sumado nada todavia: el boton esta, pero apagado. Una
-    // hoja en blanco no es una hoja.
-    final boton = find.widgetWithText(TextButton, 'Ver e imprimir');
-    expect(tester.widget<TextButton>(boton).onPressed, isNull);
+    // Sin abrir la vista no se ha sumado nada todavia, y por eso el rotulo no
+    // inventa un numero: es pulsarlo lo que dispara la suma (§7.2 del PLAN:
+    // sumar doce mil pedidos al pintar la pantalla es trabajo que nadie mira).
+    final abrir = find.byKey(PreDespacho.claveDelBotonDeLoFiltrado);
+    expect(find.text(PreDespacho.rotulo), findsOneWidget);
 
-    await tester.tap(find.text('Pre-despacho de lo filtrado'));
+    await tester.tap(abrir);
     await asentar(tester);
 
-    expect(tester.widget<TextButton>(boton).onPressed, isNotNull);
-    await tester.tap(boton);
+    // Con la suma dentro, `Ver e imprimir` se enciende. Una hoja en blanco no
+    // es una hoja, asi que antes de tenerla el boton esta apagado.
+    final imprimir = find.widgetWithText(FilledButton, PreDespacho.verEImprimir);
+    expect(tester.widget<FilledButton>(imprimir).onPressed, isNotNull);
+
+    await tester.tap(imprimir);
     await asentar(tester);
 
+    expect(find.text(PreDespacho.tituloDeLaHoja), findsOneWidget);
     expect(find.byType(VistaPreviaPdf), findsOneWidget);
     await desmontar(tester);
   });

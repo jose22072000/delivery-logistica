@@ -57,6 +57,10 @@ class HojaPreDespacho {
   final String? dia;
 
   final int pedidos;
+
+  /// El peso **de los pedidos**, tal como viene en cada pedido. NO es la suma
+  /// de los pesos por producto de [lineas], que sale del catálogo y es otra
+  /// cuenta: ver la separación escrita en [TotalesPreDespacho].
   final num pesoKg;
 
   /// Ya vienen ordenadas de mas a menos empaques; esta hoja no las reordena.
@@ -158,20 +162,47 @@ class HojaPostDespacho {
 
 /// Los totales del pie de cada tabla, apartados del dibujo para poder probarlos
 /// sin abrir un PDF: es la fila con la que se cuadra el camion.
+///
+/// ## LOS DOS PESOS SON DOS CUENTAS Y VAN SEPARADOS — 23/09/2026
+///
+/// **Aquí nos separamos de la hoja de Next a propósito** (`CLAUDE.md` §2: la
+/// cuarta separación escrita). Lo que hacía Next, y lo que aquí se copiaba:
+/// cada línea imprimía su peso **por producto** —el del catálogo— y el renglón
+/// `Total` imprimía `d.pesoKg`, el peso **de los pedidos**. Misma columna,
+/// misma unidad, dos cuentas distintas, y nada en el papel que lo dijera.
+///
+/// El caso concreto, medido en los datos de prueba de `test/impresion`: las
+/// líneas suman **300** y el renglón `Total` imprimía **412,5**. En producción
+/// se vieron **diez guiones** en la columna `kg` encima de un total de
+/// **29.835,4**: un total debajo de diez rayas se lee como la suma de esas
+/// rayas. Y quien cuadra el camión **resta esas dos cifras a ojo**.
+///
+/// Que Next lo haga no lo arregla: **la de Next también está mal**. Y desde el
+/// 22/09/2026 la PANTALLA ya los separa en dos renglones rotulados
+/// (`TotalesDelPreDespacho`, en `pantallas/pedidos/vista/vista_pre_despacho`),
+/// así que copiar a Next dejaba al papel diciendo una cosa y a la pantalla otra
+/// —que es peor que cuando los dos mentían igual—. Por eso aquí son **dos
+/// campos con dos nombres**, y el papel los imprime en dos renglones con los
+/// mismos rótulos que la pantalla.
 class TotalesPreDespacho {
   const TotalesPreDespacho({
     required this.formatos,
     required this.unidades,
-    required this.pesoKg,
+    required this.pesoDeLosProductos,
+    required this.pesoDeLosPedidos,
+    required this.productos,
+    required this.sinPeso,
   });
 
-  /// El peso NO se suma de las lineas: la hoja de Next imprime `d.pesoKg`, el
-  /// del conjunto de pedidos, que no tiene por que coincidir con la suma de los
-  /// pesos por producto. Se copia ese criterio para que las dos hojas cuadren.
   factory TotalesPreDespacho.de(HojaPreDespacho h) => TotalesPreDespacho(
     formatos: h.lineas.fold<num>(0, (t, l) => t + l.formatos),
     unidades: _sumaCompleta(h.lineas.map((l) => l.unidades)),
-    pesoKg: h.pesoKg,
+    pesoDeLosProductos: _sumaCompleta(
+      h.lineas.map((l) => sePuedeSumarElPeso(l.pesoKg) ? l.pesoKg : null),
+    ),
+    pesoDeLosPedidos: h.pesoKg,
+    productos: h.lineas.length,
+    sinPeso: h.lineas.where((l) => !sePuedeSumarElPeso(l.pesoKg)).length,
   );
 
   final num formatos;
@@ -181,10 +212,41 @@ class TotalesPreDespacho {
   /// (`TotalesPreDespacho._sumaCompleta`).
   final num? unidades;
 
-  /// El peso del CONJUNTO de pedidos, que no se suma de las líneas: es lo que
-  /// imprime la hoja de Next y por eso nunca es nulo.
-  final num pesoKg;
+  /// La suma de la columna `kg`, que es el peso **por producto** del catálogo.
+  /// `null` en cuanto una línea no lo sepa, por lo mismo que [unidades]: en la
+  /// hoja del almacén un total corto se carga de menos y no se descubre hasta
+  /// que el camión ya se fue.
+  final num? pesoDeLosProductos;
+
+  /// El peso del CONJUNTO de pedidos, que **no** se suma de las líneas: viene
+  /// en cada pedido. Nunca es nulo, y por eso es el que siempre se ha impreso —
+  /// en la columna equivocada.
+  final num pesoDeLosPedidos;
+
+  /// Cuántas líneas tiene la hoja y cuántas no traen peso. Están para poder
+  /// decir **cuántos productos faltan por emparejar** en vez de una raya muda,
+  /// igual que la pantalla: un `—` no se puede arreglar, «1 de 3 productos sin
+  /// peso» sí.
+  final int productos;
+  final int sinPeso;
 }
+
+/// Si el peso de una línea entra en el total de la columna `kg`.
+///
+/// El cero **no** entra, y no es un capricho: el papel ya imprime `—` para un
+/// peso cero (`pesoDeFila`, que copia el `l.pesoKg ? … : '—'` de Next, donde el
+/// cero es falso), así que si el cero entrara en la suma el total sería la suma
+/// de celdas que en el papel no dicen ningún número. **El total de la columna
+/// es el total de lo que la columna imprime.**
+///
+/// Y hace falta de verdad: el asistente de rutas construye la hoja con
+/// `pesoKg: linea.pesoKg ?? 0` (`rutas/vista/asistente_nueva_ruta.dart`), así
+/// que por ese camino un peso que no se sabe llega como cero. Sumarlo daría un
+/// total corto con pinta de completo — el cero creíble de siempre.
+///
+/// Está atado a `pesoDeFila` con una prueba, no con este comentario:
+/// `test/impresion/los_dos_pesos_del_pre_despacho_test.dart`.
+bool sePuedeSumarElPeso(num? kg) => kg != null && kg != 0;
 
 /// El pie del post-despacho suma **las filas mostradas**, no todas: si sumara
 /// todas, el total no cuadraria con lo que se ve encima.

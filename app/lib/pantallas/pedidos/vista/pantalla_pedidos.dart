@@ -8,12 +8,13 @@
 // orden de la pagina, la ficha, la seleccion y los dos pre-despachos—; lo unico
 // que cambia es lo que dice el reloj de datos de arriba.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../diseno/anchos.dart';
 import '../../../diseno/caja_de_busqueda.dart';
-import '../../../diseno/cargando.dart';
 import '../../../diseno/rango_de_fechas.dart';
 import '../../../diseno/tabla_ancha.dart';
 import '../../../diseno/tema.dart';
@@ -32,6 +33,7 @@ import 'cajon_detalle_pedido.dart';
 import 'cajon_mandar_al_tablero.dart';
 import 'kit.dart';
 import 'tabla_pedidos.dart';
+import 'vista_pre_despacho.dart';
 
 class PantallaPedidos extends ConsumerWidget {
   const PantallaPedidos({super.key});
@@ -327,7 +329,10 @@ void verEImprimirPreDespacho(
   abrirCajon<void>(
     context,
     (contexto) => Cajon(
-      titulo: 'Pre-despacho',
+      // `Hoja de pre-despacho`, no `Pre-despacho`: la vista previa del PDF se
+      // abre ENCIMA de la vista, y con los dos cajones apilados y el mismo
+      // título no había forma de saber cuál se estaba mirando.
+      titulo: PreDespacho.tituloDeLaHoja,
       subtitulo:
           '${totales.pedidos} pedido(s) · '
           '${totales.pesoDeLosPedidos.toStringAsFixed(1)} kg',
@@ -399,6 +404,16 @@ class _Cuerpo extends ConsumerWidget {
   }
 }
 
+/// EL PRE-DESPACHO DE LO MARCADO A MANO.
+///
+/// La franja de lo elegido ya no lleva la tabla dentro: lleva **el botón que
+/// abre la vista**, igual que el cierre de ruta lleva el del post-despacho. Lo
+/// que había aquí era una tabla de escritorio metida entre los filtros y la
+/// lista, y en un teléfono eso es una hoja de almacén sin las cantidades.
+///
+/// Y los tres gestos van en un `Wrap`, no en un `Row`: a 390 px tres botones
+/// seguidos no caben en una línea, y un `Row` no los baja — los aprieta hasta
+/// partir sus palabras letra a letra.
 class _PreDespachoDeLoElegido extends ConsumerWidget {
   const _PreDespachoDeLoElegido();
 
@@ -416,23 +431,32 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
         borderRadius: BorderRadius.circular(Radios.xl),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(Aire.lg),
+        padding: const EdgeInsets.all(Aire.md),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Text(
+              '${seleccion.length} pedido(s) elegidos',
+              style: Tipos.texto(
+                tamano: 14,
+                peso: FontWeight.w600,
+                color: Colores.tinta,
+              ),
+            ),
+            const SizedBox(height: Aire.sm),
+            Wrap(
+              spacing: Aire.sm,
+              runSpacing: Aire.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Expanded(
-                  child: Text(
-                    '${seleccion.length} pedido(s) elegidos'
-                    '${totales == null ? '' : ' · ${totales.productos} producto(s)'
-                              ' · ${cantidad(totales.empaques)} empaques'
-                              ' · ${_pesoDeLaFranja(totales)}'}',
-                    style: Tipos.texto(
-                      tamano: 14,
-                      peso: FontWeight.w600,
-                      color: Colores.tinta,
-                    ),
+                // Sin esto no hay papel para el almacen: el PDF existia y
+                // estaba probado, y no habia ningun boton que lo llamara.
+                BotonDelPreDespacho(
+                  key: PreDespacho.claveDelBotonDeLoElegido,
+                  totales: totales,
+                  alAbrir: () => abrirVistaDePreDespacho(
+                    context,
+                    fuente: preDespachoElegidoProvider,
                   ),
                 ),
                 // EL GESTO QUE CERRABA EL FLUJO Y NO ESTABA.
@@ -446,20 +470,6 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
                   onPressed: () => abrirCajonMandarAlTablero(context),
                   child: const Text(PantallaPedidos.mandarAUnaZona),
                 ),
-                // Sin esto no hay papel para el almacen: el PDF existia y
-                // estaba probado, y no habia ningun boton que lo llamara.
-                TextButton(
-                  onPressed: totales == null || totales.lineas.isEmpty
-                      ? null
-                      : () => verEImprimirPreDespacho(
-                          context,
-                          totales: totales,
-                          sucursal:
-                              ref.watch(sucursalDeLaHojaProvider).value ?? '',
-                          dia: diaDeLaHoja(ref.watch(filtrosPedidosProvider)),
-                        ),
-                  child: const Text('Ver e imprimir'),
-                ),
                 TextButton(
                   onPressed: () => ref
                       .read(seleccionPedidosProvider.notifier)
@@ -468,7 +478,6 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
                 ),
               ],
             ),
-            if (totales != null) _TablaPreDespacho(totales: totales),
           ],
         ),
       ),
@@ -476,6 +485,21 @@ class _PreDespachoDeLoElegido extends ConsumerWidget {
   }
 }
 
+/// EL PRE-DESPACHO DE LO FILTRADO: un botón, no un desplegable — 22/09/2026.
+///
+/// Era un `ExpansionTile` que se abría entre los filtros y la lista y dejaba
+/// una tabla apretada en medio de la página. Jose: «mejora la vista del
+/// predespacho ese q no sea asi con un dropdown anormal ese de pedido no sirve
+/// mejora eso ahi para q tenga su propiavista como el post».
+///
+/// ## La suma sigue siendo perezosa, y eso NO cambia
+///
+/// En el aparato no hay tope de 5000 (`PLAN.md` §7.2), pero sumar doce mil
+/// pedidos al pintar la pantalla es trabajo que casi nadie mira. Antes lo que
+/// disparaba la suma era abrir el desplegable; ahora es **pulsar el botón**, y
+/// por eso el rótulo dice sólo «Pre-despacho» hasta que hay algo contado y
+/// «Pre-despacho · 24 productos» a partir de entonces. `preDespachoFiltradoProvider`
+/// no es `autoDispose`, así que al cerrar el cajón el número se queda puesto.
 class _PreDespachoDeLoFiltrado extends ConsumerStatefulWidget {
   const _PreDespachoDeLoFiltrado();
 
@@ -486,147 +510,62 @@ class _PreDespachoDeLoFiltrado extends ConsumerStatefulWidget {
 
 class _PreDespachoDeLoFiltradoState
     extends ConsumerState<_PreDespachoDeLoFiltrado> {
-  bool _abierto = false;
+  bool _pedido = false;
 
   @override
   Widget build(BuildContext context) {
-    // Se suma **sólo al abrir**: en el aparato no hay tope de 5000 (PLAN.md §7.2)
-    // pero sumar doce mil pedidos al pintar la pantalla es trabajo que casi nadie
-    // mira.
-    final totales = _abierto
+    final totales = _pedido
         ? ref.watch(preDespachoFiltradoProvider).value
         : null;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: Aire.sm),
-      decoration: BoxDecoration(
-        color: Colores.blanco,
-        border: Border.all(color: Colores.linea),
-        borderRadius: BorderRadius.circular(Radios.xl),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: ExpansionTile(
-        // Sin el tinte ni la linea gruesa que Material le pone al abrirse: aqui
-        // la caja ya tiene su borde fino y su radio.
-        shape: const Border(),
-        collapsedShape: const Border(),
-        backgroundColor: Colores.blanco,
-        collapsedBackgroundColor: Colores.blanco,
-        iconColor: Colores.tintaSuave,
-        collapsedIconColor: Colores.tintaSuave,
-        tilePadding: const EdgeInsets.symmetric(horizontal: Aire.lg),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Pre-despacho de lo filtrado'
-                '${totales == null ? '' : ' · ${totales.productos} producto(s)'
-                          ' · ${cantidad(totales.empaques)} empaques'
-                          ' · ${_pesoDeLaFranja(totales)}'}',
-                style: Tipos.texto(tamano: 14, peso: FontWeight.w600),
-              ),
-            ),
-            // Deshabilitado mientras no haya suma: cerrado no se ha sumado
-            // nada todavia, y una hoja en blanco no es una hoja.
-            TextButton(
-              onPressed: totales == null || totales.lineas.isEmpty
-                  ? null
-                  : () => verEImprimirPreDespacho(
-                      context,
-                      totales: totales,
-                      sucursal: ref.watch(sucursalDeLaHojaProvider).value ?? '',
-                      dia: diaDeLaHoja(ref.watch(filtrosPedidosProvider)),
-                    ),
-              child: const Text('Ver e imprimir'),
-            ),
-          ],
+    return Padding(
+      padding: const EdgeInsets.only(top: Aire.sm),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: BotonDelPreDespacho(
+          key: PreDespacho.claveDelBotonDeLoFiltrado,
+          totales: totales,
+          alAbrir: () {
+            setState(() => _pedido = true);
+            abrirVistaDePreDespacho(
+              context,
+              fuente: preDespachoFiltradoProvider,
+            );
+          },
         ),
-        onExpansionChanged: (abierto) => setState(() => _abierto = abierto),
-        children: [
-          Divider(height: 1, thickness: 1, color: Colores.linea),
-          if (totales == null)
-            const Cargando('Cargando...')
-          else
-            _TablaPreDespacho(totales: totales),
-        ],
       ),
     );
   }
 }
 
-class _TablaPreDespacho extends StatelessWidget {
-  const _TablaPreDespacho({required this.totales});
-
-  final TotalesPreDespacho totales;
-
-  @override
-  Widget build(BuildContext context) {
-    if (totales.lineas.isEmpty) {
-      return const EstadoVacio('Sin productos');
-    }
-    // Su propio desplazamiento horizontal: sin el, esta tabla empuja la pagina
-    // entera de lado en el telefono (§11 del pliego).
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Theme(
-        data: Theme.of(context).copyWith(dataTableTheme: temaDeTabla(context)),
-        child: DataTable(
-          columns: [
-            DataColumn(label: cabecera('Producto')),
-            DataColumn(label: cabecera('Empaques'), numeric: true),
-            DataColumn(label: cabecera('Unidades'), numeric: true),
-            DataColumn(label: cabecera('kg'), numeric: true),
-          ],
-          rows: [
-            for (final linea in totales.lineas)
-              DataRow(
-                cells: [
-                  DataCell(Text(linea.producto)),
-                  DataCell(_cifra(cantidad(linea.empaques))),
-                  // Sin unidades por empaque en el catálogo se pinta `—`, no
-                  // un número que contradiga a los empaques de al lado.
-                  DataCell(
-                    _cifra(
-                      linea.unidades == null
-                          ? '—'
-                          : cantidad(linea.unidades!),
-                    ),
+/// Abre la vista del pre-despacho sobre uno de los dos proveedores.
+///
+/// El cajón lleva su propio `Consumer`: la suma puede no estar cuando se abre
+/// —es justo el caso de lo filtrado, que empieza a sumarse al pulsar— y el
+/// cajón tiene que rellenarse solo cuando caiga, sin cerrarlo y reabrirlo.
+void abrirVistaDePreDespacho(
+  BuildContext context, {
+  required FutureProvider<TotalesPreDespacho> fuente,
+}) {
+  unawaited(
+    abrirCajon<void>(
+      context,
+      (contexto) => Consumer(
+        builder: (contexto, ref, _) {
+          final totales = ref.watch(fuente).value;
+          return CajonDePreDespacho(
+            totales: totales,
+            alImprimir: totales == null
+                ? null
+                : () => verEImprimirPreDespacho(
+                    contexto,
+                    totales: totales,
+                    sucursal: ref.watch(sucursalDeLaHojaProvider).value ?? '',
+                    dia: diaDeLaHoja(ref.watch(filtrosPedidosProvider)),
                   ),
-                  // Sin peso resuelto se pinta `—`, nunca un cero.
-                  DataCell(
-                    _cifra(
-                      linea.pesoKg == null
-                          ? '—'
-                          : linea.pesoKg!.toStringAsFixed(1),
-                    ),
-                  ),
-                ],
-              ),
-          ],
-        ),
+          );
+        },
       ),
-    );
-  }
-
-  /// Las cifras de la tabla, en mono y de ancho fijo: se comparan de arriba
-  /// abajo y con la proporcional las unidades bailan de fila a fila.
-  static Widget _cifra(String texto) =>
-      Text(texto, style: Tipos.mono(tamano: 13, color: Colores.tinta));
-}
-
-/// EL PESO DE LA FRANJA, o por qué no dice «0.0 kg» — 22/09/2026.
-///
-/// La franja decía «10 producto(s) · 3185 empaques · **0.0 kg**» mientras la
-/// hoja imprimible del mismo filtro decía «264 pedido(s) · **24891.0 kg**». Los
-/// dos números eran ciertos cada uno en su definición, y juntos sólo pueden
-/// hacer una cosa: que quien carga el camión se crea que no pesa nada.
-///
-/// Cuando falta algún producto por emparejar se dice **cuántos**, que es lo que
-/// convierte un `—` en algo que alguien puede ir a arreglar.
-String _pesoDeLaFranja(TotalesPreDespacho t) {
-  final peso = t.pesoKg;
-  if (peso != null) return '${peso.toStringAsFixed(1)} kg';
-  return t.sinPeso == t.productos
-      ? 'sin peso en el catálogo'
-      : '${t.sinPeso} de ${t.productos} productos sin peso';
+    ),
+  );
 }

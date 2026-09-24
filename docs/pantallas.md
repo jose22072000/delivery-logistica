@@ -862,8 +862,12 @@ Datos de entrada: `sucursal`, `vehiculo`, `dia` (`AAAA-MM-DD`, opcional), `pedid
 1. Cabecera a dos lados.
    - Izquierda: título `Pre-despacho` (20 px, negrita); debajo `<sucursal>` y, si hay
      vehículo, ` · <vehículo>`; debajo, si hay día, `Pedidos del <AAAA-MM-DD>`.
-   - Derecha: `<n> pedido(s)`, `<n.n> kg`, y la fecha y hora de impresión
-     (`toLocaleString('es')`).
+   - Derecha: `<n> pedido(s)`, **`Peso de los pedidos <n.n> kg`** y la fecha y hora
+     de impresión (`toLocaleString('es')`).
+
+     El rótulo de ese kg **es nuestro, no de Next** (23/09/2026): era el último
+     peso sin rótulo de la hoja, y con el pie de la tabla ya corregido habría
+     quedado un `29835.4` arriba contra un `—` abajo sin nada que lo explicara.
 2. Tabla a todo el ancho, cabecera con fondo gris claro, versalitas en mayúsculas:
 
    | `Producto` | `Empaques` | `Unidades` | `kg` | `Sacado` |
@@ -872,8 +876,31 @@ Datos de entrada: `sucursal`, `vehiculo`, `dia` (`AAAA-MM-DD`, opcional), `pedid
 
    Filas con línea inferior fina.
 3. Pie de tabla (negrita, línea superior gruesa): `Total` | suma de empaques | suma de
-   unidades | `pesoKg` total con 1 decimal | vacío.
-4. Firmas, dos huecos con línea superior: `Sacó del almacén` · `Recibió (chofer)`.
+   unidades | **la suma de ESA columna** con 1 decimal | vacío.
+
+   **Aquí nos separamos de Next, y es la separación que más importa de esta hoja**
+   (23/09/2026). La de Next imprime ahí `pesoKg`, que es el peso **de los
+   pedidos**, mientras que cada línea imprime el peso **por producto** del
+   catálogo: misma columna, misma unidad, dos cuentas distintas y nada que lo
+   diga. En producción se vieron **diez guiones encima de un total de 29.835,4**,
+   y quien cuadra el camión resta esas dos cifras a ojo. Ahora el pie suma la
+   columna con la misma regla que las líneas: si una celda imprime `—`, el total
+   imprime `—`. El porqué entero está sobre `TotalesPreDespacho` en
+   `app/lib/impresion/hoja.dart`.
+4. **Los dos pesos, cada uno con su rótulo** — el bloque que la hoja de Next no
+   tiene, palabra por palabra igual que `TotalesDelPreDespacho` de la pantalla:
+
+   ```
+   Peso de los productos    300.0 kg      (o «1 de 3 productos sin peso»)
+   Peso de los pedidos      412.5 kg
+   No son el mismo número: el de arriba lo pone el catálogo producto a producto,
+   y el de abajo viene en cada pedido.
+   ```
+
+   Los tres literales están **atados a los de la pantalla con una prueba**, no con
+   un comentario (`app/test/impresion/los_dos_pesos_del_pre_despacho_test.dart`),
+   que es la regla del §3-bis del `CLAUDE.md`.
+5. Firmas, dos huecos con línea superior: `Sacó del almacén` · `Recibió (chofer)`.
 
 Las líneas vienen ya ordenadas de más a menos empaques. Los caracteres `& < > "` se
 escapan.

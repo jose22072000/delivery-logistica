@@ -43,7 +43,46 @@ abstract final class TextoPreDespacho {
 
   static const String firmaSaco = 'Sacó del almacén';
   static const String firmaRecibio = 'Recibió (chofer)';
+
+  /// LOS DOS RÓTULOS DE LOS PESOS. Son **los mismos que los de la pantalla**
+  /// (`TotalesDelPreDespacho.pesoDeLosProductos` y `.pesoDeLosPedidos`), letra
+  /// por letra y a propósito: quien mira el papel y la pantalla tiene que ver
+  /// lo mismo. Atados con una prueba, no con este comentario
+  /// (`test/impresion/los_dos_pesos_del_pre_despacho_test.dart`).
+  static const String pesoDeLosProductos = 'Peso de los productos';
+  static const String pesoDeLosPedidos = 'Peso de los pedidos';
+
+  /// La frase de debajo, también igual que en la pantalla: es lo único que
+  /// impide restar las dos cifras a ojo.
+  static const String noSonElMismoNumero =
+      'No son el mismo número: el de arriba lo pone el catálogo producto a '
+      'producto, y el de abajo viene en cada pedido.';
+
+  /// Cuando NINGÚN producto trae peso. Si sólo faltan algunos se dice cuántos,
+  /// que es lo que convierte una raya muda en algo que alguien puede ir a
+  /// arreglar.
+  static const String sinPesoEnElCatalogo = 'sin peso en el catálogo';
 }
+
+/// El peso **de los productos** tal como sale en el papel: la suma de la
+/// columna `kg`, o lo que falta para poder darla.
+///
+/// Es el mismo texto que escribe la pantalla en `pesoDelPreDespacho`
+/// (`pantallas/pedidos/vista/vista_pre_despacho.dart`). No se puede compartir
+/// el código porque cada lado tiene su propio tipo de totales —el papel no
+/// depende de la capa de pantallas—, así que se comparan con una prueba.
+String pesoDeLosProductosEnPapel(TotalesPreDespacho t) {
+  final peso = t.pesoDeLosProductos;
+  if (peso != null) return '${pesoTotal(peso)}${TextoPreDespacho.kg}';
+  return t.sinPeso == t.productos
+      ? TextoPreDespacho.sinPesoEnElCatalogo
+      : '${t.sinPeso} de ${t.productos} productos sin peso';
+}
+
+/// El peso **de los pedidos**: éste siempre se sabe, porque viene en el propio
+/// pedido y no del catálogo.
+String pesoDeLosPedidosEnPapel(TotalesPreDespacho t) =>
+    '${pesoTotal(t.pesoDeLosPedidos)}${TextoPreDespacho.kg}';
 
 /// El ancho de la columna que se marca a mano: los 70 px del HTML pasados a
 /// papel (70/96 de pulgada = 18.5 mm). Se fija y no se deja al contenido porque
@@ -90,11 +129,21 @@ Future<Uint8List> pdfPreDespacho(
           ],
           derecha: <pw.Widget>[
             lineaDeCabecera('${h.pedidos}${TextoPreDespacho.pedidos}'),
-            lineaDeCabecera('${pesoTotal(h.pesoKg)}${TextoPreDespacho.kg}'),
+            // Rotulado, y no «412.5 kg» a secas como en la de Next: en esta
+            // hoja hay DOS pesos y el de arriba es el de los pedidos. Una
+            // cifra en kg sin rótulo es justo lo que se resta a ojo con la de
+            // la tabla.
+            lineaDeCabecera(
+              '${TextoPreDespacho.pesoDeLosPedidos} '
+              '${pesoTotal(h.pesoKg)}${TextoPreDespacho.kg}',
+            ),
             lineaDeCabecera(fechaDeImpresion(impresoEn)),
           ],
         ),
         _tabla(h, totales),
+        // Sin líneas no hay ninguna de las dos cuentas que separar, igual que
+        // en la pantalla, que sólo pinta los totales si hay tabla encima.
+        if (h.lineas.isNotEmpty) _losDosPesos(totales),
         firmas(TextoPreDespacho.firmaSaco, TextoPreDespacho.firmaRecibio),
       ],
     ),
@@ -142,9 +191,76 @@ pw.Widget _tabla(HojaPreDespacho h, TotalesPreDespacho t) => pw.Table(
         celda(TextoPreDespacho.total, negrita: true),
         celda(numero(t.formatos), derecha: true, negrita: true),
         celda(cantidadDeFila(t.unidades), derecha: true, negrita: true),
-        celda(pesoTotal(t.pesoKg), derecha: true, negrita: true),
+        // EL TOTAL DE LA COLUMNA `kg` ES EL TOTAL DE ESA COLUMNA, y por eso
+        // ya no es `h.pesoKg`. Aquí se imprimía el peso de los PEDIDOS debajo
+        // de una columna de pesos por PRODUCTO; con diez líneas a `—` encima,
+        // el 29.835,4 del pie se leía como la suma de esas diez rayas. Con la
+        // misma regla que las líneas (`pesoDeFila`): si falta una, raya.
+        celda(pesoDeFila(t.pesoDeLosProductos), derecha: true, negrita: true),
         celdaParaMarcar(),
       ],
     ),
   ],
+);
+
+/// LOS DOS PESOS, EN DOS RENGLONES Y CON SU RÓTULO — 23/09/2026.
+///
+/// El porqué entero está en [TotalesPreDespacho] (`hoja.dart`): son dos cuentas
+/// distintas, y hasta hoy compartían columna sin que nada lo dijera. Esto es lo
+/// mismo que hace la pantalla desde el 22/09/2026 —`TotalesDelPreDespacho`—,
+/// con sus mismos rótulos y su misma frase, para que quien mira las dos vea lo
+/// mismo.
+///
+/// Van en un bloque debajo de la tabla y no en dos filas más del `Table`
+/// porque la tabla tiene cinco columnas —una de ellas la de marcar a mano— y un
+/// rótulo de veintiún caracteres dentro de la celda `Producto` se lee como un
+/// producto más de la lista.
+pw.Widget _losDosPesos(TotalesPreDespacho t) => pw.Padding(
+  padding: const pw.EdgeInsets.only(top: 14 * px),
+  child: pw.Column(
+    crossAxisAlignment: pw.CrossAxisAlignment.start,
+    children: <pw.Widget>[
+      _renglonDePeso(
+        TextoPreDespacho.pesoDeLosProductos,
+        pesoDeLosProductosEnPapel(t),
+      ),
+      _renglonDePeso(
+        TextoPreDespacho.pesoDeLosPedidos,
+        pesoDeLosPedidosEnPapel(t),
+      ),
+      pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 4 * px),
+        child: pw.Text(
+          TextoPreDespacho.noSonElMismoNumero,
+          style: const pw.TextStyle(fontSize: 11 * px, color: Tinta.gris),
+        ),
+      ),
+    ],
+  ),
+);
+
+/// Un rótulo y su cifra, en la MISMA línea y cada uno en la suya.
+///
+/// El rótulo lleva ancho fijo para que las dos cifras queden una debajo de
+/// otra: puestas en dos sitios distintos de la hoja, se vuelven a comparar mal.
+pw.Widget _renglonDePeso(String rotulo, String valor) => pw.Padding(
+  padding: const pw.EdgeInsets.symmetric(vertical: 1.5 * px),
+  child: pw.Row(
+    crossAxisAlignment: pw.CrossAxisAlignment.start,
+    children: <pw.Widget>[
+      pw.SizedBox(
+        width: 150 * px,
+        child: pw.Text(
+          rotulo,
+          style: const pw.TextStyle(color: Tinta.apagado),
+        ),
+      ),
+      pw.Expanded(
+        child: pw.Text(
+          valor,
+          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+        ),
+      ),
+    ],
+  ),
 );

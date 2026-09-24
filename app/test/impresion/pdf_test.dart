@@ -212,14 +212,25 @@ void main() {
       expect(t.unidades, 800); // 360 + 240 + 200
     });
 
-    test('el peso total es el de la hoja, NO la suma de las líneas', () {
-      // La de Next imprime `d.pesoKg`, el del conjunto de pedidos. La suma por
-      // producto da 300 y el del conjunto 412.5: se imprime el segundo, que es
-      // el que cuadra con lo que pesa el camión.
+    // EL PESO DE LOS PRODUCTOS Y EL DE LOS PEDIDOS SON DOS CUENTAS —
+    // 23/09/2026. Aquí se imprimía `d.pesoKg` —el peso de los PEDIDOS— en el
+    // pie de la columna de pesos por PRODUCTO, copiando a la de Next. La suma
+    // por producto da 300 y el de los pedidos 412.5, y nada en el papel lo
+    // decía. El porqué entero está en `TotalesPreDespacho` (`hoja.dart`); que
+    // salgan en dos renglones rotulados lo sujeta
+    // `los_dos_pesos_del_pre_despacho_test.dart`.
+    test('el peso de los productos y el de los pedidos son dos campos', () {
       final h = _pre();
       final suma = h.lineas.fold<num>(0, (t, l) => t + (l.pesoKg ?? 0));
       expect(suma, 300);
-      expect(TotalesPreDespacho.de(h).pesoKg, 412.5);
+
+      final t = TotalesPreDespacho.de(h);
+      expect(t.pesoDeLosPedidos, 412.5);
+      // `Etiquetas` viene a cero, que es lo que la columna imprime como «—»:
+      // con una celda así el total de la columna no se puede dar.
+      expect(t.pesoDeLosProductos, isNull);
+      expect(t.sinPeso, 1);
+      expect(t.productos, 3);
     });
 
     test('un producto sin peso imprime una raya, no un cero', () {
@@ -243,6 +254,60 @@ void main() {
       expect(cantidadDeFila(null), '—');
       expect(cantidadDeFila(0), '0');
       expect(cantidadDeFila(1080), '1080');
+    });
+
+    // UN TOTAL A MEDIAS NO SE DISTINGUE DE UNO COMPLETO — G3 del auditor,
+    // 22/09/2026. Se mutó `_sumaCompleta` para que sumara lo que sabe e
+    // ignorara lo que no, y las 105 pruebas siguieron verdes. Con ESTA hoja
+    // alguien baja al almacén a sacar mercancía: un total corto se carga de
+    // menos y no se descubre hasta que el camión ya se fue.
+    test('con TODAS las unidades sabidas, el total es la suma de las líneas', () {
+      final h = _pre(
+        lineas: const <LineaPreDespacho>[
+          LineaPreDespacho(producto: 'Arroz', formatos: 18, unidades: 360, pesoKg: 180),
+          LineaPreDespacho(producto: 'Azúcar', formatos: 12, unidades: 240, pesoKg: 120),
+          LineaPreDespacho(producto: 'Etiquetas', formatos: 2, unidades: 200, pesoKg: 0),
+        ],
+      );
+      final t = TotalesPreDespacho.de(h);
+      expect(t.unidades, 800); // 360 + 240 + 200
+      expect(cantidadDeFila(t.unidades), '800');
+    });
+
+    test('con UNA sola línea sin saber, el total es null y en el papel sale el guion', () {
+      final h = _pre(
+        lineas: const <LineaPreDespacho>[
+          LineaPreDespacho(producto: 'Arroz', formatos: 18, unidades: 360, pesoKg: 180),
+          LineaPreDespacho(producto: 'Azúcar', formatos: 12, unidades: 240, pesoKg: 120),
+          // Ésta no se sabe: el catálogo no dice cuántas unidades trae la paca.
+          LineaPreDespacho(producto: 'Servilleta paca 24p', formatos: 7, unidades: null, pesoKg: 3),
+        ],
+      );
+      final t = TotalesPreDespacho.de(h);
+
+      expect(
+        t.unidades,
+        isNull,
+        reason:
+            'Con una línea sin unidades el total NO se puede dar: sumar 360 + '
+            '240 e imprimir 600 es un total a medias que se lee como completo.',
+      );
+
+      // Y lo que de verdad importa: lo que sale IMPRESO en el pie de la hoja.
+      final enElPapel = cantidadDeFila(t.unidades);
+      expect(
+        enElPapel,
+        '—',
+        reason:
+            'En el pie de la hoja del almacén salió «$enElPapel» donde tenía '
+            'que salir una raya. Un número ahí se saca del almacén.',
+      );
+      expect(enElPapel, isNot('600'), reason: 'ése es el total PARCIAL');
+      expect(
+        RegExp(r'\d').hasMatch(enElPapel),
+        isFalse,
+        reason: 'el pie no puede llevar ninguna cifra si falta una línea',
+      );
     });
 
     test('los números se escriben como en la de Next: 5, no 5.0', () {

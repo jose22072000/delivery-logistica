@@ -159,10 +159,40 @@ pw.Widget _pildoras(HojaPostDespacho h) => pw.Padding(
   ),
 );
 
+/// LA MANCHA CREMA QUE TAPABA LA HOJA ENTERA — 22/09/2026.
+///
+/// En la web, `border-radius: 999px` no dibuja un radio de 999: CSS lo **recorta
+/// a la mitad de la caja**, y de ahí sale la píldora. **El paquete `pdf` no
+/// recorta nada**: se cree los 999 y traza la curva entera.
+///
+/// Lo que salía, sacado del flujo de dibujo del PDF de verdad: la etiqueta
+/// `SIN MARCAR` mide 57,6 x 11,8 pt y su trazado iba de **-691 a +749 pt**. Una
+/// A4 son 595 x 842 pt, así que ese único relleno crema `#FFF4D6` **cubría la
+/// página entera**, y se pinta DESPUÉS de la cabecera: por eso desaparecían el
+/// código de ruta, la sucursal y el camión. Las curvas grises finas eran lo
+/// mismo en `_pildora`, que sólo traza y por eso manchaba menos.
+///
+/// Encaja con todo lo que se veía: cambiaba con el zoom, una ruta **completada**
+/// salía bien —no tiene paradas «sin marcar», así que no hay etiqueta crema— y
+/// la hoja del **pre-despacho** salía perfecta, porque no lleva ni una píldora.
+///
+/// El arreglo es hacer aquí lo que hace CSS: la mitad del alto de la caja. No es
+/// un número puesto a ojo — sale del tipo y del relleno, así que cambiarlos no
+/// vuelve a romperlo.
+double _radioDePildora({required double fontSize, required double padVertical}) =>
+    (fontSize * _altoDeLinea + 2 * padVertical) / 2;
+
+/// El alto de línea que aplica `pw.Text` por defecto. Comprobado midiendo el PDF
+/// generado: con él, el radio calculado da 7,65 pt para la píldora y 6 pt para
+/// la etiqueta, que es la mitad de sus cajas medidas (15,3 y 11,8 pt).
+const double _altoDeLinea = 1.2;
+
 pw.Widget _pildora(String texto) => pw.Container(
   decoration: pw.BoxDecoration(
     border: pw.Border.all(color: Tinta.bordePildora, width: px),
-    borderRadius: pw.BorderRadius.circular(999 * px),
+    borderRadius: pw.BorderRadius.circular(
+      _radioDePildora(fontSize: 12 * px, padVertical: 3 * px),
+    ),
   ),
   padding: const pw.EdgeInsets.symmetric(vertical: 3 * px, horizontal: 10 * px),
   child: pw.Text(texto, style: const pw.TextStyle(fontSize: 12 * px)),
@@ -297,7 +327,10 @@ pw.Widget _etiqueta(String? resultado) {
   return pw.Container(
     decoration: pw.BoxDecoration(
       color: fondo,
-      borderRadius: pw.BorderRadius.circular(999 * px),
+      // Ver `_radioDePildora`: ésta es la que pintaba la página entera de crema.
+      borderRadius: pw.BorderRadius.circular(
+        _radioDePildora(fontSize: 10 * px, padVertical: 2 * px),
+      ),
     ),
     padding: const pw.EdgeInsets.symmetric(
       vertical: 2 * px,
