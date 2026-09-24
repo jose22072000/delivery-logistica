@@ -257,9 +257,19 @@ func Comprobar(ruta string) (string, error) {
 		return "", fmt.Errorf("los metadatos no llevan la atribución de OpenStreetMap")
 	}
 
+	conMundo := bytes.Contains(metaJSON, []byte(`"mundo":{`))
+	if err := mirarElMundo(conMundo, c, porZoom, muestra); err != nil {
+		return "", err
+	}
+
 	salida := fmt.Sprintf("%s\n  z%d–z%d · %.4f,%.4f → %.4f,%.4f\n  %d entradas · %d contenidos distintos · %d direcciones\n",
 		ruta, c.ZMin, c.ZMax, c.Caja.MinLon, c.Caja.MinLat, c.Caja.MaxLon, c.Caja.MaxLat,
 		c.Entradas, c.Contenidos, c.Direcciones)
+	if conMundo {
+		salida += fmt.Sprintf("  mundo   SÍ · costa de Natural Earth hasta z%d; de ahí para arriba, OSM\n", CorteDelMundo)
+	} else {
+		salida += "  mundo   NO · al alejar se acaba el mar donde se acaba Cuba\n"
+	}
 	for z := c.ZMin; z <= c.ZMax; z++ {
 		if porZoom[z] == 0 {
 			continue
@@ -404,4 +414,45 @@ func unPoligono(p orb.Polygon) (int, error) {
 		}
 	}
 	return len(p) - 1, nil
+}
+
+// mirarElMundo comprueba que lo que dicen los metadatos sobre la costa del
+// mundo es verdad DENTRO del fichero.
+//
+// Por que hace falta: encender el mundo mueve la costa de OSM de z0 a
+// z`CorteDelMundo+1`. Si los rasgos del mundo no llegaran a entrar —un GeoJSON
+// de otra cosa, un filtro mal puesto, el `DelMundo` cortando un zoom antes de
+// la cuenta— el fichero sale igual, se abre igual y pesa MENOS, y lo unico que
+// cambia es que **z0 a z6 se quedan sin una sola linea de costa y sin mar en
+// todo el planeta**. Eso no lo ve nadie hasta que alguien aleja el mapa en un
+// telefono.
+//
+// Las dos cosas que se miran son las dos que no pueden fallar a la vez por
+// casualidad: que haya costa en TODOS los zooms de abajo, y que la caja del
+// fichero sea de verdad la del mundo y no la de Cuba.
+func mirarElMundo(conMundo bool, c *Cabecera, porZoom map[uint8]int, muestra map[uint8]map[string]int) error {
+	if !conMundo {
+		return nil
+	}
+	if c.Caja.MinLon > -179 || c.Caja.MaxLon < 179 {
+		return fmt.Errorf(
+			"los metadatos dicen que lleva la costa del mundo y la caja es %.2f → %.2f: "+
+				"eso no es el mundo, es un extracto. La costa de Natural Earth no entró",
+			c.Caja.MinLon, c.Caja.MaxLon)
+	}
+	for z := uint8(0); z <= CorteDelMundo && z <= c.ZMax; z++ {
+		// UN NIVEL ENTERO SIN TESELAS CUENTA IGUAL QUE UNO SIN COSTA, y es el
+		// caso que de verdad sale cuando Natural Earth no entra: por debajo de
+		// z5 Cuba no tiene NADA que guardar —ni una carretera, ni un núcleo—,
+		// así que esos zooms no existirían y la comprobación se los saltaría
+		// justo cuando hay algo que decir.
+		if porZoom[z] == 0 || muestra[z][capaCosta] == 0 {
+			return fmt.Errorf(
+				"z%d no trae ni un rasgo de costa en las teselas que se abrieron. "+
+					"Con el mundo puesto, la costa de OSM no viaja por debajo de z%d: "+
+					"si la de Natural Earth tampoco está, esos zooms salen SIN MAR",
+				z, CorteDelMundo+1)
+		}
+	}
+	return nil
 }

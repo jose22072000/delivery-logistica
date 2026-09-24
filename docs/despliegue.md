@@ -4,6 +4,11 @@ Cuatro piezas, dos bases y un contenedor que migra y se muere. Este documento di
 es cada una, qué necesita para arrancar, en qué orden se levantan y cómo se comprueba
 que están vivas de verdad — no que el desplegador las haya pintado de verde.
 
+> **Si vienes a desplegar y tienes prisa, lo que buscas es §2.1: el procedimiento de las
+> migraciones.** Va **antes** de pulsar Deploy, se corre a mano, y no está automatizado a
+> propósito (§2.9). Saltárselo no rompe nada desde el 21/09/2026 —los servicios se niegan a
+> arrancar con la base atrasada— pero deja el despliegue sin hacer.
+
 Los ficheros viven en `deploy/` y el de pruebas en la raíz:
 
 ```
@@ -84,7 +89,7 @@ verdad, Redis o Postgres `LISTEN/NOTIFY`), no los manejadores. Hasta entonces: u
 
 ---
 
-## 2. Las migraciones: un contenedor aparte
+## 2. Las migraciones: un contenedor aparte, y se corren A MANO
 
 **Decisión: contenedor de migración aparte** (`deploy/Dockerfile.migraciones`), con
 `goose`, que se ejecuta **antes** de que arranquen los servicios y termina. No se migra
@@ -107,74 +112,436 @@ al arrancar cada servicio. Cuatro motivos:
    sin compilador, sin shell y sin root.
 
 `goose up` es **idempotente**: sobre una base ya migrada no hace nada. Se puede repetir
-sin miedo, y por eso el paso es seguro de automatizar.
+sin miedo, y por eso el paso es seguro de repetir aunque no se sepa si ya se corrió.
 
 **En local** lo encadena `docker-compose.yml`: los tres servicios dependen de
 `migraciones` con `condition: service_completed_successfully`, así que ninguno arranca si
-la migración no terminó bien.
+la migración no terminó bien. En producción **no hay quien lo encadene**, y por eso el
+resto de esta sección es un procedimiento y no una nota.
 
-**En Dokploy** las Applications son procesos largos y reinician lo que termina, así que
-el trabajo de migración **no se despliega como Application**. Se corre a mano en el
-servidor, antes del Deploy:
+---
 
-```bash
-ssh vps
-cd /tmp && git clone --depth 1 -b dev https://github.com/PROCOVAR-DEV/delivery-logistica.git m && cd m
-docker build -f deploy/Dockerfile.migraciones -t reparto-migraciones .
-docker run --rm \
-  --network dokploy-network \
-  -e DATABASE_URL_API='postgres://procovar:LA_PASS@procovar-postgres-nlfols:5432/reparto?sslmode=disable' \
-  -e DATABASE_URL_SYNC='postgres://procovar:LA_PASS@procovar-postgres-nlfols:5432/reparto_sync?sslmode=disable' \
-  reparto-migraciones
+### 2.1 El procedimiento, de una pieza
+
+Esto es lo que hay que hacer, en este orden, **antes** de pulsar Deploy en Dokploy. Lo
+escribe alguien que ya lo hizo para que lo haga alguien que no estuvo.
+
+```
+1. mirar        qué migraciones hay en el árbol y que la conexión al VPS está abierta
+2. subir        los .sql al servidor
+3. status       ACCION=status — no escribe nada, sólo dice qué falta
+4. leer         lo que dijo status; si dice algo que no esperabas, PARAR (§2.7)
+5. up           ACCION=up
+6. comprobar    que las dos series quedaron sin Pending (§2.6)
+7. y AHORA sí   Deploy de reparto-api y reparto-sync en Dokploy
 ```
 
-Imprime el `status` de las dos series al terminar. Si algo falla, **no se pulsa Deploy**.
+Los pasos 3 y 5 son **el mismo `docker run`** cambiando una variable. El 3 no se salta
+nunca: es la única oportunidad de ver lo que va a pasar antes de que pase.
 
-### Y desde el 21/09/2026, los servicios NO ARRANCAN con la base atrasada
+---
 
-Esto dejó de depender de que alguien se acuerde. La API y el sincronizador comparan al
-arrancar las migraciones que llevan incrustadas en el binario con la tabla
-`goose_db_version` de su base, y **si la base va por detrás se mueren ahí mismo**, con un
-mensaje que dice qué ficheros faltan (`api/db/migraciones.go`,
-`sync/db/migraciones.go`).
+### 2.2 Antes de tocar nada
 
-Por qué esto y no un aviso: el 17/09/2026 la 00006 pasó un día entero sin aplicar con el
-código que la necesitaba ya desplegado, y el fallo tiene una forma que engaña —**la bajada
-por diferencias contesta 500 pero la carga inicial contesta 200**—. O sea que una
-instalación nueva funciona, la web funciona (su base nace vacía en cada carga y siempre
-pide carga inicial), y **todo aparato que ya estaba en la calle se queda congelado**. Todo
-verde en el navegador con la flota parada. Un contenedor que no levanta, en cambio, se ve
-en el minuto uno y lo ve quien está desplegando.
-
-Al revés no: una base **más adelantada** que el binario deja arrancar. Es lo que pasa al
-volver a una imagen anterior, y ahí lo que hace falta es que el servicio levante.
-
-O sea que el orden ya no es una recomendación, es lo único que funciona:
-
-1. `docker run … reparto-migraciones` (arriba), con `ACCION=status` primero.
-2. Y **después** el Deploy de `reparto-api` y `reparto-sync`.
-
-Si se pulsa Deploy antes, el contenedor nuevo no levanta y Dokploy deja el anterior
-sirviendo. No se rompe nada: no se despliega, que es lo que se quería.
-
-Antes de la primera vez hay que crear las dos bases dentro del Postgres que ya existe
-(`docs/DOKPLOY-NUEVO-PROYECTO.md`, Parte 4) y añadirlas a la lista `BASES` de
-`/usr/local/bin/procovar-backup-db`:
+**Una sola conexión SSH.** Cada `ssh` nuevo le manda un correo a Jose
+(`procovar/CLAUDE.md` §2). Se comprueba que la compartida está viva y todo lo demás viaja
+por ella:
 
 ```bash
-C=$(docker ps -qf name=procovar-postgres-nlfols)
-docker exec $C psql -U procovar -d postgres -c 'CREATE DATABASE "reparto" OWNER procovar;'
-docker exec $C psql -U procovar -d postgres -c 'CREATE DATABASE "reparto_sync" OWNER procovar;'
+ssh -O check vps        # tiene que decir: Master running
 ```
 
-Otras acciones del mismo contenedor, con `ACCION`:
+**Qué hay en el árbol.** Lo que se va a aplicar es lo que hay aquí, no lo que uno recuerde:
 
 ```bash
-docker run --rm ... -e ACCION=status reparto-migraciones   # sólo mirar, no escribe
+ls api/db/migrations/ sync/db/migrations/
 ```
 
-`ACCION=down` existe porque goose lo tiene. **En producción no se usa**: deshacer una
-migración sobre datos reales se decide mirando, no con una variable de entorno.
+Apunta el número más alto de cada carpeta. Al terminar, `status` tiene que decir
+exactamente ése. Hoy (23/09/2026) son `00006_bajas_de_la_bajada.sql` en la serie del
+reparto y `00001_sync.sql` en la del sincronizador.
+
+**Que la imagen está en el servidor.** Se construyó allí y se queda:
+
+```bash
+ssh vps 'docker images reparto-migraciones'
+```
+
+Si no está, se construye —tarda unos minutos porque baja goose— y para eso hace falta el
+repositorio en el servidor:
+
+```bash
+ssh vps 'cd /tmp && rm -rf m && git clone --depth 1 -b main \
+  https://github.com/jose22072000/delivery-logistica.git m && cd m && \
+  docker build -f deploy/Dockerfile.migraciones -t reparto-migraciones .'
+```
+
+**Cómo se llaman las dos bases.** Son `procovar_reparto` y `procovar_reparto_sync`
+(`docs/montar-en-dokploy.md`, comprobado el 22/09/2026). Cuesta una línea confirmarlo y
+evita migrar la base de otro:
+
+```bash
+ssh vps 'C=$(docker ps -qf name=procovar-postgres-nlfols | head -1); \
+         docker exec "$C" psql -U procovar -lqt | cut -d"|" -f1 | grep reparto'
+```
+
+**Y nadie desplegando a la vez.** No se despliega con agentes vivos escribiendo el árbol
+(`CLAUDE.md` §4-bis). Aquí importa más que en ningún sitio: los `.sql` que se suben son
+los del árbol de ese instante.
+
+---
+
+### 2.3 Subir los `.sql`
+
+**La imagen lleva los `.sql` horneados dentro** (`COPY api/db/migrations/ /migraciones/api/`).
+O sea que la imagen que ya está en el servidor trae los del día en que se construyó, y
+una migración nueva **no está ahí**. Hay dos salidas y aquí se usa la segunda:
+
+- reconstruir la imagen entera en cada migración nueva — correcto, y tarda minutos;
+- **subir los `.sql` y montarlos encima** — instantáneo, y es lo que se hizo. La imagen no
+  es más que goose y `migrar.sh`; lo que cambia de una vez a otra son los `.sql`.
+
+Con la conexión ya abierta, `scp` no dispara ningún correo nuevo:
+
+```bash
+ssh vps 'mkdir -p /root/reparto-migraciones/api /root/reparto-migraciones/sync'
+scp api/db/migrations/*.sql  vps:/root/reparto-migraciones/api/
+scp sync/db/migrations/*.sql vps:/root/reparto-migraciones/sync/
+ssh vps 'ls -1 /root/reparto-migraciones/api /root/reparto-migraciones/sync'
+```
+
+Ese último `ls` no es celo: si el montaje del paso siguiente apunta a una carpeta vacía,
+goose dice **«no migrations found»** y no «te falta la 00006». Un directorio vacío se lee
+como «no hay nada que hacer».
+
+---
+
+### 2.4 `ACCION=status` PRIMERO — no escribe nada
+
+Todo en **una sola orden remota**, que es como manda `procovar/CLAUDE.md`: las claves se
+leen dentro del servidor y no salen de allí ni pasan por este PC.
+
+```bash
+ssh vps '
+set -eu
+C=$(docker ps -qf name=procovar-postgres-nlfols | head -1)
+U=$(docker exec "$C" printenv POSTGRES_USER)
+P=$(docker exec "$C" printenv POSTGRES_PASSWORD)
+H=procovar-postgres-nlfols:5432
+Q="sslmode=disable&lock_timeout=5s"
+docker run --rm --network dokploy-network \
+  -v /root/reparto-migraciones/api:/migraciones/api:ro \
+  -v /root/reparto-migraciones/sync:/migraciones/sync:ro \
+  -e ACCION=status \
+  -e DATABASE_URL_API="postgres://$U:$P@$H/procovar_reparto?$Q" \
+  -e DATABASE_URL_SYNC="postgres://$U:$P@$H/procovar_reparto_sync?$Q" \
+  reparto-migraciones:latest
+'
+```
+
+Lo que se lee:
+
+```
+--- migraciones de reparto (/migraciones/api) ---
+    Applied At                  Migration
+    =======================================
+    Mon Sep 15 09:12:03 2026 -- 00001_init.sql
+    ...
+    Pending                  -- 00006_bajas_de_la_bajada.sql
+```
+
+Lo normal es esto: una fecha en todas las viejas y `Pending` **sólo en las nuevas del
+final**, que son justo las que se subieron en §2.3. Eso es la señal de que hace falta el
+paso siguiente, y de que hace falta **exactamente eso** y nada más. **Cualquier otra cosa
+se mira antes de escribir** — §2.7.
+
+`migrar.sh` imprime el `status` **dos veces** por serie (una es la acción pedida y otra el
+`status` final que hace siempre). Con `ACCION=status` sale repetido y no pasa nada.
+
+#### `lock_timeout=5s`, y va en la URL
+
+No es adorno, y no se quita. La 00006 crea **siete triggers, uno por tabla** —`routes`,
+`vehicles`, `branches`, `products`, `customers`, `board_columns`, `board_placements`— y
+un `CREATE TRIGGER` pide un candado **ACCESS EXCLUSIVE** sobre su tabla: mientras lo tiene,
+nadie lee ni escribe ahí.
+
+Y las migraciones de goose van **en una sola transacción** (ninguna de las dos series usa
+`-- +goose NO TRANSACTION`). O sea que los candados que ya cogió **no los suelta** hasta el
+final. Si una sola transacción abierta de la api tiene tomada la sexta tabla, sin
+`lock_timeout` la migración **se queda esperando indefinidamente con cinco tablas
+bloqueadas**, y detrás de ella se encola todo el que quiera leerlas: el reparto se para
+entero y desde fuera parece que la base se cayó.
+
+Con `lock_timeout=5s` eso se convierte en un error a los cinco segundos, la transacción se
+deshace, se sueltan los candados y **no se aplicó nada**. Se vuelve a intentar y ya está.
+Fallar rápido es barato; esperar es lo caro.
+
+Lo que **no** se pone es `statement_timeout`: una migración puede tardar legítimamente, y
+cortarla por larga sí rompería cosas. `lock_timeout` sólo limita **la espera por un
+candado**, no el trabajo.
+
+Va en la URL y no en el `.sql` a propósito: así vale para las dos series y para las
+migraciones que todavía no están escritas, sin que nadie tenga que acordarse de ponerlo.
+Llega al servidor como parámetro de arranque de la conexión, igual que `sslmode`. Si
+alguna vez `status` contestara que no reconoce ese parámetro, se saca de la URL y se pone
+como `options=-c%20lock_timeout%3D5000`, que es la forma larga de lo mismo — pero **no se
+quita**.
+
+---
+
+### 2.5 `ACCION=up`
+
+La misma orden con `ACCION=up`. No hay ningún otro cambio:
+
+```bash
+ssh vps '
+set -eu
+C=$(docker ps -qf name=procovar-postgres-nlfols | head -1)
+U=$(docker exec "$C" printenv POSTGRES_USER)
+P=$(docker exec "$C" printenv POSTGRES_PASSWORD)
+H=procovar-postgres-nlfols:5432
+Q="sslmode=disable&lock_timeout=5s"
+docker run --rm --network dokploy-network \
+  -v /root/reparto-migraciones/api:/migraciones/api:ro \
+  -v /root/reparto-migraciones/sync:/migraciones/sync:ro \
+  -e ACCION=up \
+  -e DATABASE_URL_API="postgres://$U:$P@$H/procovar_reparto?$Q" \
+  -e DATABASE_URL_SYNC="postgres://$U:$P@$H/procovar_reparto_sync?$Q" \
+  reparto-migraciones:latest
+'
+```
+
+Termina imprimiendo `migraciones aplicadas` y el `status` de las dos series. Si sale
+distinto de cero, **no se pulsa Deploy**.
+
+Las dos series van en **una sola pasada y en orden** (primero reparto, después
+sincronizador). Si la primera falla, `set -eu` corta y la segunda ni se intenta: es a
+propósito, porque lo que hay que arreglar es lo primero que se rompió.
+
+---
+
+### 2.6 Qué se mira DESPUÉS para saber que fue bien
+
+Tres cosas, y las tres:
+
+1. **Las dos series sin un solo `Pending`**, y el número más alto de cada una igual al que
+   se apuntó en §2.2. Lo imprime el propio `up` al terminar; si se quiere volver a ver, se
+   repite §2.4 con `ACCION=status`.
+2. **La tabla de goose lo confirma en la base**, que es donde lo va a leer la api al
+   arrancar:
+
+   ```bash
+   ssh vps 'C=$(docker ps -qf name=procovar-postgres-nlfols | head -1); \
+     docker exec "$C" psql -U procovar -d procovar_reparto -c \
+     "SELECT max(version_id) FROM goose_db_version WHERE is_applied;"'
+   ```
+
+   Tiene que dar **6**. El `WHERE is_applied` importa: goose apunta también las vueltas
+   atrás, con `is_applied = false`, y contarlas daría por aplicada una migración que se
+   deshizo (`api/internal/store/migraciones.go`).
+3. **Y la prueba de verdad: que la api arranca.** Desde el 21/09/2026 la api y el
+   sincronizador se niegan a arrancar con la base atrasada (§2-ter), así que un
+   `reparto-api` que levanta **es** la comprobación de que la migración entró. Al revés no
+   vale: mirar el registro del despliegue y confirmar que arrancó el contenedor nuevo, que
+   un build fallido deja el anterior sirviendo (§5).
+
+---
+
+### 2.7 Si `status` dice algo raro
+
+Esta es la parte que no se puede improvisar a las siete de la mañana. Por orden de
+frecuencia:
+
+| Lo que sale | Lo que es de verdad | Qué se hace |
+|---|---|---|
+| `la base de reparto no contestó en 60 s: no se migra nada` | **Casi nunca es que Postgres esté caído.** `migrar.sh` sondea con un `goose status` y ese sondeo falla igual por usuario malo, clave mala, nombre de base que no existe o red equivocada — y los cuatro se ven idénticos. | Comprobar los cuatro: el contenedor de Postgres corriendo, el nombre de las dos bases (§2.2), que el `docker run` lleva `--network dokploy-network`, y que la clave no trae caracteres que rompan la URL (abajo). |
+| Una clave con `@`, `/`, `:`, `?` o `#` | La URL se parte por donde no es, y el error que llega es «no contestó» — el mismo de arriba con otra cara. | Hay que **codificarla** antes de meterla en la URL, con lo que haya en el servidor: `P=$(printf %s "$P" \| jq -sRr @uri)` o `P=$(python3 -c 'import sys,urllib.parse as u; print(u.quote(sys.argv[1], safe=""))' "$P")`. Comprobar que la clave real no lleva ninguno de esos caracteres es más rápido que depurarlo. |
+| `goose: no migrations found` | La carpeta montada está vacía o el montaje apunta a otro sitio. **No** quiere decir «no falta nada». | Volver a §2.3 y mirar el `ls`. |
+| Una `Pending` **más vieja** que otras ya aplicadas | Alguien aplicó fuera de orden, o un fichero llegó al árbol después de haberse migrado por encima. | **No correr `up`.** Mirar qué fichero es y de cuándo, y decidirlo con quien lo escribió. `up` la aplicaría ahora, sobre un esquema que ya no es el que ella daba por supuesto. |
+| La base va por un número **más alto** que el fichero más nuevo del árbol | El servidor está por delante del árbol: se desplegó desde otra rama o desde otro portátil. | **No correr `up`** y no volver atrás. Averiguar qué se aplicó antes de tocar nada. Para arrancar servicios no estorba: una base adelantada deja levantar a propósito (§2-ter). |
+| `ERROR: canceling statement due to lock timeout` | Saltó el `lock_timeout` de §2.4. **No se aplicó nada**: la transacción se deshizo entera. | Buscar quién tiene el candado y volver a lanzarlo. **No se sube el `lock_timeout`**: eso no arregla el candado, sólo alarga el rato en que el reparto está parado. |
+| `relation "goose_db_version" does not exist` al mirar a mano | La base no se migró **nunca**. Es un 0, no un error. | Correr `up`: lo aplica todo desde la 00001. |
+
+Para el candado:
+
+```bash
+ssh vps bash -s <<'SQL'
+C=$(docker ps -qf name=procovar-postgres-nlfols | head -1)
+docker exec "$C" psql -U procovar -d procovar_reparto -c "
+  SELECT pid, state, wait_event_type, xact_start, left(query, 80) AS consulta
+    FROM pg_stat_activity
+   WHERE datname = current_database()
+     AND state <> 'idle'
+   ORDER BY xact_start;"
+SQL
+```
+
+(El heredoc con `'SQL'` entre comillas es a propósito: así nada se expande en este PC y las
+comillas simples del SQL llegan enteras al servidor.)
+
+Lo que bloquea casi siempre es una transacción **`idle in transaction`**: alguien abrió una
+transacción y se fue. La más vieja por `xact_start` es la culpable. Se mira de dónde sale
+antes de matarla.
+
+**`ACCION=down` existe porque goose lo tiene. En producción no se usa**: deshacer una
+migración sobre datos reales se decide mirando, no con una variable de entorno. La 00006,
+por ejemplo, tira siete triggers, dos funciones, una tabla y dos tipos.
+
+---
+
+### 2.8 Qué pasa si se salta este paso
+
+Desde el 21/09/2026, lo que pasa es **que no se despliega**: el contenedor nuevo de la api
+no levanta, Dokploy deja el anterior sirviendo y no se rompe nada. Eso es lo que se
+quería, y por eso este procedimiento hoy es incómodo y no peligroso.
+
+Lo que pasaba **antes de esa guarda** es por lo que existe todo esto, y hay que tenerlo
+delante para no tener la tentación de quitarla: el 17/09/2026 la 00006 pasó **un día
+entero** sin aplicarse con el código que la necesitaba ya escrito y desplegándose. La forma
+del fallo es la peor posible:
+
+- **la bajada por diferencias contesta 500, pero la carga inicial contesta 200**;
+- así que **una instalación nueva funciona** —quien pruebe con un teléfono recién instalado
+  lo ve todo bien—;
+- **y la web también**, porque su base nace vacía en cada carga y siempre pide carga
+  inicial;
+- mientras **todo aparato que ya estaba en la calle se queda congelado para siempre**.
+
+Todo verde justo donde se mira, y la flota parada. El detalle entero, en la cabecera de
+`api/db/migraciones.go`.
+
+#### La guarda que lo convirtió en algo que no se despliega
+
+Desde el 21/09/2026 esto dejó de depender de que alguien se acuerde. La api y el
+sincronizador comparan al arrancar las migraciones que llevan **incrustadas en el binario**
+con la tabla `goose_db_version` de su base, y **si la base va por detrás se mueren ahí
+mismo** diciendo qué ficheros faltan (`api/db/migraciones.go`, `sync/db/migraciones.go`,
+la cuenta en `api/internal/store/migraciones.go`).
+
+Lo que se compara no es «qué `.sql` hay en el disco del servidor» —ahí puede no haber
+nada, porque la imagen de la api no lleva la carpeta de migraciones— sino **qué esquema da
+por supuesto el código que se acaba de desplegar**.
+
+El mensaje que sale lo lee quien está desplegando, con prisa, y dice las tres cosas:
+
+```
+la base está ATRASADA: le faltan 1 migración(es) que este código da por aplicadas:
+  00006_bajas_de_la_bajada.sql
+la base va por la 5.
+...
+Aplica las migraciones ANTES de desplegar la API — el paso está en docs/despliegue.md.
+```
+
+Un contenedor que no levanta se ve en el minuto uno y lo ve quien está desplegando. Un 500
+en la bajada de un teléfono que está a 400 km no lo ve nadie.
+
+**Al revés no**: una base **más adelantada** que el binario deja arrancar. Es lo que pasa
+al volver a una imagen anterior, y ahí lo que hace falta es que el servicio levante, no
+que se muera dos veces.
+
+O sea que el orden ya no es una recomendación: es lo único que funciona. Si se pulsa Deploy
+antes de migrar, el contenedor nuevo no levanta y Dokploy deja el anterior sirviendo. No se
+rompe nada: no se despliega, que es lo que se quería.
+
+---
+
+
+### 2.9 Qué hace Dokploy con esto — la decisión, y por qué
+
+Esta pregunta llevaba abierta desde el 17/09/2026 y por eso el paso seguía siendo manual
+sin que nadie hubiera escrito por qué. **La respuesta es que Dokploy no tiene dónde meter
+esto, y el paso se queda a mano con el procedimiento de §2.1.** Lo que sigue es el porqué,
+para no tener que volver a investigarlo.
+
+Lo primero, el hecho que decide todo: **una Application de Dokploy es un servicio de
+Docker Swarm**, no un `docker run`. El panel expone la spec entera del servicio —Restart
+Policy, Update Config, Placement— en «Swarm Settings», dentro de Advanced. Un servicio de
+Swarm se espera vivo: el contenedor de migraciones arranca, migra y **sale con código 0**,
+que para un servicio es «se cayó». Swarm lo relevanta, goose no encuentra nada que hacer,
+vuelve a salir con 0, y queda un contenedor reiniciándose en bucle que desde el panel se
+lee como «las migraciones se estrellan». Es exactamente el mismo bucle que `--once`
+produciría en el espejo (§2-bis), por el mismo motivo.
+
+Se miraron las cuatro cosas que Dokploy ofrece de verdad. Ninguna sirve:
+
+| Lo que ofrece Dokploy | Qué es en realidad | Por qué no sirve aquí |
+|---|---|---|
+| **Schedule Jobs** (desde v0.22.0) a nivel Application o Compose | Un cron que hace **`docker exec` sobre un contenedor YA CORRIENDO**. No levanta ningún contenedor nuevo. | No puede correr la imagen `reparto-migraciones`: no existe esa forma. Y dentro de los contenedores que sí corren no hay nada que ejecutar — las tres imágenes de Go son `distroless:nonroot`: **sin shell, sin goose y sin los `.sql`**. Un `docker exec` ahí no tiene ni con qué empezar. |
+| **Run Command**, en Advanced | Otro `docker exec`, esta vez a mano y **después** de que la aplicación esté construida y corriendo. | Lo mismo: contenedor distroless, nada que ejecutar. Y aunque lo hubiera, corre **después** del arranque, y el arranque es justo lo que hay que proteger. |
+| **Hooks de pre-deploy / post-deploy** | No existen. No están en la documentación de Dokploy, y el propio mantenedor, preguntado por este caso exacto («correr la migración antes de que arranque el servicio»), contesta que se use otro contenedor con `depends_on`. | No hay dónde colgarlo. |
+| **Swarm Settings → Restart Policy → Condition** puesto a que no reinicie | Es la salida que el mantenedor da a quien tiene justo este problema, y funciona: el contenedor termina y no se relevanta. | **Es la que más cerca está, y aun así rompe lo que importa.** Un servicio que terminó bien y uno que terminó con un `ALTER TABLE` roto quedan los dos igual de «parados» en el panel. Se pierde entero el punto 3 de arriba: *una migración que falla tiene que parar el despliegue, a la vista*. Y encima correría **en cada Deploy**, incluida una vuelta atrás a una imagen anterior, que es exactamente cuando NO se quiere migrar. |
+
+Y la que no es de Dokploy sino de Compose, que conviene nombrar porque es la que el
+mantenedor recomienda: **un despliegue de tipo Compose** con `migraciones` como servicio
+con `restart: "no"` y los demás con `depends_on: condition: service_completed_successfully`.
+Eso es literalmente lo que ya hace `docker-compose.yml` en local, y es la forma correcta
+del problema. Pero llevarlo a producción significa **convertir las cuatro Applications en
+una sola pila de Compose**, con sus dominios, sus variables y sus despliegues por
+separado perdidos en el camino. Es un cambio grande, y no se hace de paso para ahorrar un
+`docker run`. Queda apuntado como lo que se haría si algún día se rehace el montaje, no
+como lo de ahora.
+
+**Conclusión, y es la que se sigue:** el paso se corre a mano, con §2.1. No se crea ninguna
+Application para las migraciones. Que sea manual no es el problema que había: el problema
+era que **no estaba escrito**, y por eso vivía en la cabeza de quien lo hizo y se saltó un
+día entero. Ya está escrito.
+
+#### Lo único que queda por mirar, y sólo se puede mirar entrando al panel
+
+Hay una variante que **podría** valer y que no se puede confirmar desde aquí sin romper la
+regla de no tocar el VPS. Queda como pregunta abierta, y hasta que alguien la conteste y lo
+escriba aquí, **el paso es el de §2.1**:
+
+> Los Schedule Jobs tienen, además de los tipos «application» y «compose», un tipo
+> **«server»**, que no hace `docker exec` sino que **corre un script de bash en el host**. Un
+> job de ese tipo sí podría llevar dentro el `docker run` de §2.5, y la API de Dokploy tiene
+> `schedule.runManually`, o sea que se podría **lanzar a mano desde el panel** en vez de por
+> SSH — el orden lo seguiría poniendo una persona, que es lo correcto.
+>
+> Las tres cosas que habría que comprobar en el panel antes de montarlo, y las tres son
+> eliminatorias:
+>
+> 1. **Que el tipo «server» exista y sea usable en este montaje**, donde el VPS es el propio
+>    anfitrión de Dokploy y no un servidor remoto añadido al panel.
+> 2. **Que se vea la salida del job y su código de salida.** Si un `up` que falló se ve
+>    igual que uno que fue bien, esto es peor que el SSH: convierte un fallo ruidoso en uno
+>    callado, que es la avería que este repositorio lleva entera en su `CLAUDE.md`.
+> 3. **Que se pueda lanzar a mano sin dejar un cron vivo.** Una migración no se aplica «a
+>    las 3:00 porque toca»: se aplica pegada al despliegue del código que la necesita. Un
+>    cron que migrara por su cuenta aplicaría la 00007 la madrugada anterior a desplegar el
+>    código que la usa — el mismo desajuste del 17/09 con el signo cambiado.
+>
+> Si las tres salen bien, se monta y se escribe aquí. Si alguna falla, esta sección se queda
+> como está y se anota qué falló.
+
+Lo que **no cambia pase lo que pase**, y no se negocia aunque aparezca esa función:
+
+- **la migración va ANTES del Deploy**, nunca dentro ni después;
+- **una migración que falla tiene que dejar el despliegue sin hacer, y a la vista**;
+- **`ACCION=status` antes de `ACCION=up`**, siempre.
+
+---
+
+### 2.10 La primera vez, y sólo la primera: crear las dos bases
+
+Las bases no las crea goose. Antes del primer `up` hay que crearlas dentro del Postgres que
+ya existe —**uno solo para toda la casa**, regla 1 de `procovar/CLAUDE.md`; no se levanta
+otro— siguiendo `procovar/docs/DOKPLOY-NUEVO-PROYECTO.md`, Parte 4:
+
+```bash
+ssh vps '
+C=$(docker ps -qf name=procovar-postgres-nlfols | head -1)
+docker exec "$C" psql -U procovar -d postgres -c "CREATE DATABASE \"procovar_reparto\"      OWNER procovar;"
+docker exec "$C" psql -U procovar -d postgres -c "CREATE DATABASE \"procovar_reparto_sync\" OWNER procovar;"
+'
+```
+
+Y hay un paso que se olvida y no avisa: **añadir las dos a la lista `BASES` de
+`/usr/local/bin/procovar-backup-db`**. Una base que no está en esa lista no se respalda, y
+eso no se descubre hasta el día en que hace falta el respaldo.
+
+Las dos ya estaban creadas y migradas el 22/09/2026 (`docs/montar-en-dokploy.md`): 16
+tablas en la del reparto y 5 en la del sincronizador.
 
 ---
 
@@ -492,7 +859,12 @@ Las tres URL las ve **el navegador**, no el contenedor: son las públicas, nunca
 | `DATABASE_URL_API` | — obligatoria | La base del reparto. |
 | `DATABASE_URL_SYNC` | — obligatoria | La base del sincronizador. |
 | `INTENTOS` | `30` | Cuántas veces espera a que Postgres conteste, 2 s cada una. |
-| `ACCION` | `up` | `up` \| `status` \| `up-by-one` \| `down`. |
+| `ACCION` | `up` | `up` \| `status` \| `up-by-one` \| `down`. **`status` primero, siempre** (§2.4). `down` no se usa en producción. |
+
+Y lo que no es una variable pero decide lo que se aplica: **los `.sql` van horneados en la
+imagen** (`COPY api/db/migrations/ /migraciones/api/`), así que una imagen construida hace
+días trae las migraciones de hace días. Por eso el procedimiento monta encima las del árbol
+de hoy con `-v … :/migraciones/api:ro` — §2.3.
 
 ---
 
@@ -523,8 +895,9 @@ Postgres; no hace falta hacer nada a mano:
 docker compose up --build        # levanta todo en ese orden
 ```
 
-En Dokploy no hay `depends_on`: **el orden lo pone quien despliega**. Migraciones a mano
-(§2), luego Deploy de la api, luego los otros tres.
+En Dokploy no hay `depends_on` y **no hay nada que encadene esto**: el orden lo pone quien
+despliega, a mano. Migraciones con el procedimiento de **§2.1**, luego Deploy de la api,
+luego los otros tres. Por qué no se puede automatizar con lo que Dokploy ofrece, en §2.9.
 
 ---
 
@@ -666,20 +1039,99 @@ Eso sólo dice que nginx sirve. Lo que hay que comprobar de verdad, en el navega
 
 ## 6. Dokploy
 
-Cuatro Applications en el proyecto **Procovar**, todas con Build Type **Dockerfile**,
-Provider Git, rama **`dev`**, y **Docker Context Path `.`** (el contexto es la raíz).
+Cuatro Applications en el proyecto **Procovar-dev** (`Fpt1-2Miy6SpzwoGDBEVB`), entorno
+`production` (`hgKnOJXZWZU8el7I7T4tR`), todas con Build Type **Dockerfile**, Provider Git,
+rama **`main`**, y **Docker Context Path `.`** (el contexto es la raíz).
 
-| Application | Dockerfile Path | Container Port | Dominio |
-|---|---|---|---|
-| `reparto-api` | `deploy/Dockerfile.api` | 8080 | `reparto.procovar.cloud` path `/api` |
-| `reparto-espejo` | `deploy/Dockerfile.espejo` | — | **ninguno** |
-| `reparto-sync` | `deploy/Dockerfile.sync` | 8081 | `reparto.procovar.cloud` path `/sync` |
-| `reparto-app` | `deploy/Dockerfile.app` | 8080 | `reparto.procovar.cloud` path `/` |
+> El nombre del proyecto engaña: **`Procovar-dev` ES producción**
+> (`procovar/docs/VPS-179.198.107.1.md`). Ahí viven pedidos, auth, delivery y rutas con sus
+> dominios públicos.
 
-**`reparto-espejo` es una Application como las otras** —da vueltas, no termina— pero sin
-Container Port, sin dominio, sin sondeo de salud y **sin `--once` en el Command**: con esa
-bandera termina cada pasada y Dokploy la convierte en un bucle de reinicios. El porqué y
-lo que se rompe cuando se para, en §2-bis.
+| Application | `applicationId` | Dockerfile Path | Container Port | Dominio |
+|---|---|---|---|---|
+| `reparto-api` | `0iQ8gLv5ZIHD1n_DRlzOa` | `deploy/Dockerfile.api` | 8080 | `reparto.procovar.cloud` path `/api` |
+| `reparto-espejo` | `X0mtoCkFtThgp15BOYqpn` | `deploy/Dockerfile.espejo` | — | **ninguno** |
+| `reparto-sync` | `cL2fUM3oqIbQ0wEsMk4rz` | `deploy/Dockerfile.sync` | 8081 | `reparto.procovar.cloud` path `/sync` |
+| `reparto-web` | `LNwUtx-ck325iAEB-rKyZ` | `deploy/Dockerfile.app` | 8080 | `reparto.procovar.cloud` path `/` |
+
+**Y no hay una quinta para las migraciones**, que es la pregunta que siempre vuelve: el
+porqué entero está en §2.9.
+
+### 6-bis. La Application del espejo, paso a paso
+
+Es la única de las cuatro que no se parece a nada de lo que ya hay montado, y por eso está
+escrita entera. **Sí es una Application** —el espejo da vueltas y no termina, §2-bis— pero
+es la que más fácil se configura mal, porque todo lo que en las otras se rellena, aquí se
+deja vacío.
+
+Antes de crearla, **mirar si ya está**. Crear una segunda deja **dos espejos barriendo a
+PEDIDO a la vez**, y eso no da ningún error: da el doble de carga sobre PEDIDO y dos
+procesos escribiendo las mismas filas.
+
+```bash
+ssh vps 'K=<la clave de .secretos/vps-nuevo>; curl -s -H "x-api-key: $K" \
+  "http://127.0.0.1:3000/api/application.one?applicationId=X0mtoCkFtThgp15BOYqpn" | head -c 400'
+```
+
+Los valores, uno por uno:
+
+| Campo de Dokploy | Valor | Por qué |
+|---|---|---|
+| Proyecto / entorno | `Procovar-dev` / `production` | Donde están las otras tres. |
+| Name | `reparto-espejo` | Dokploy le añade su sufijo (`reparto-espejo-isgzxg`); ése es el nombre por el que lo llaman los demás. |
+| Build Type | **Dockerfile** | No Nixpacks. |
+| Provider | Git · `github.com/jose22072000/delivery-logistica` · rama **`main`** | La misma que las otras tres. |
+| **Dockerfile Path** | `deploy/Dockerfile.espejo` | |
+| **Docker Context Path** | **`.`** | **No se deja vacío.** El Dockerfile vive en `deploy/` pero hace `COPY api/`, así que el contexto es la raíz del repositorio. Con el campo vacío Dokploy usa la carpeta del Dockerfile y el build muere con `"/api": not found`. |
+| **Command** | **vacío** | Ver abajo: aquí es donde se rompe. |
+| **Container Port** | **ninguno** | No escucha en nada. Si algún día aparece un puerto aquí, es que algo se torció. |
+| **Dominio** | **ninguno** | No es un servidor. |
+| Sondeo de salud | **ninguno** | No hay `/health` al que llamar, y «el proceso vive» no dice nada: un espejo girando contra un 401 lleva dos horas sano. |
+| Réplicas | **1** | Dos espejos barren lo mismo dos veces. |
+
+**El Command se deja VACÍO, y en particular NADA de `--once`.** Con esa bandera el espejo
+hace una pasada, sale con 0, Dokploy lo relevanta, y queda un bucle de reinicios que desde
+el panel se lee como «el espejo se estrella» — y que además **machaca a PEDIDO con la
+pasada entera cada vez**. El ciclo ya lo lleva el proceso dentro, cada minuto
+(`SYNC_POLL_MS`). `--once` sirve para dos cosas y sólo dos: probar a mano (§5) y un
+`docker run` suelto desde el servidor.
+
+**Las cinco variables, y son CINCO** (la lista completa con sus topes, en §3.2):
+
+```
+DATABASE_URL=postgres://<usuario>:<clave>@procovar-postgres-nlfols:5432/procovar_reparto
+SERVICE_API_KEY=<LA MISMA que reparto-api>
+PEDIDO_API_URL=http://pedido-api-zcuspu:<puerto>
+DELIVERY_URL=http://reparto-api-xzlmhw:8080
+ENTORNO=produccion
+```
+
+Las tres trampas de esas cinco, y las tres ya pasaron:
+
+- **`SERVICE_API_KEY` distinta de la de la api**: el espejo arranca, le pide los pedidos a
+  PEDIDO y **se come un 401 al meterlos**. Los trae y no los guarda, sin que nadie lo vea.
+- **`DELIVERY_URL` vacía**: «vacía = a mí mismo» es una regla de la api, y **esto no es la
+  api**. Y va con el **appName completo**, con su sufijo: `reparto-api` a secas no
+  resuelve.
+- **`ENTORNO` olvidada**: es la que faltó durante cuatro días (22/09/2026). No rompe nada,
+  pero el registro sale en texto plano en vez de JSON, y el registro es **el único sitio
+  donde se mira si el espejo va**. Lo que hay que llevarse de ahí no es la variable: es que
+  **una Application que lleva días en `done` puede estar incompleta**. Al tomar una que ya
+  existe se cotejan sus variables con esta lista antes de dar nada por bueno.
+
+**Y no se da por creada hasta comprobar que TRAE DATOS**, que no es lo mismo que que el
+contenedor corra. Se hace como dice §5: la consulta de la marca de agua, **dos veces con
+unos minutos de diferencia**. Así se comprobó el 22/09/2026 — 13:52:40 leído a las 13:54Z y
+13:59:38 a las 14:01Z, con los pedidos subiendo de 4.069 a 4.071. El contenedor corriendo
+no habría demostrado nada.
+
+> **Estado al 23/09/2026.** `docs/montar-en-dokploy.md` da esta Application por **creada y
+> corriendo** desde el 22/09/2026, con estos mismos valores y ya redesplegada con
+> `ENTORNO=produccion`. Si eso es así, aquí no hay nada que crear: lo que queda es **cotejar
+> sus cinco variables contra la lista de arriba** y volver a hacer la comprobación de la
+> marca de agua. Esta sección se escribe igual porque es la que hace falta el día que haya
+> que rehacerla, y porque hasta hoy esos valores sólo estaban en la cabeza de quien la
+> montó.
 
 Los tres dominios son el mismo host con rutas distintas; los de la api y el sincronizador
 van **antes** que el de la web, y **Strip Path en `no`** en los dos: las rutas de la api
@@ -739,8 +1191,10 @@ que no se arreglan desde los ficheros de despliegue:
    `app/lib/diseno/` (11), `app/lib/textos/` (6), `app/assets/` (2) y `app/l10n.yaml` (1),
    según `git ls-files`. Queda escrito porque era el punto de la Parte 0 de
    `DOKPLOY-NUEVO-PROYECTO.md` y lo que hay que saber es que ese ya no frena el clone.
-2. **El repositorio no tiene remoto** (`git remote -v` está vacío) y la rama es `master`,
-   no `dev`. Dokploy tira de un remoto y de una rama.
+2. ~~**El repositorio no tiene remoto** y la rama es `master`.~~ — **ya no (23/09/2026).**
+   El remoto es `github.com/jose22072000/delivery-logistica` y la rama es **`main`**, que es
+   de la que tiran las cuatro Applications. Queda escrito porque el resto del documento
+   decía `dev` y el proyecto `PROCOVAR-DEV`, y las dos cosas eran falsas.
 3. **`app/android/build/` está seguido en git** y no debería: son artefactos. `.gitignore`
    ignora `/app/build/` pero no ése.
 4. **`GET /api/sync/cambios` todavía no existe en la api.** Es lo que le pide la bajada
@@ -795,8 +1249,16 @@ Lo que sí se comprobó, y con qué:
 2. **Que el `.dockerignore` no deje fuera nada que el build necesite.**
 3. **Que el binario arranque dentro de `distroless:nonroot`** — que compile estático no
    dice que `/app/api` corra como `nonroot`.
-4. **Que las migraciones se apliquen contra un Postgres de verdad**: aquí no hay ninguno
-   levantado.
+4. ~~**Que las migraciones se apliquen contra un Postgres de verdad**: aquí no hay ninguno
+   levantado.~~ — **en este PC sigue sin poder comprobarse, pero ya no hace falta: están
+   aplicadas en producción.** Las dos series corrieron contra el Postgres del VPS y
+   dejaron 16 tablas en la base del reparto y 5 en la del sincronizador
+   (`docs/montar-en-dokploy.md`, 22/09/2026). El procedimiento con el que se hace, en §2.1.
+
+**Y una advertencia que vale para toda esta sección §8: lo que no se ha comprobado *aquí*
+no es lo mismo que lo que no se ha comprobado.** Las cinco imágenes construyen —lo hacen en
+el servidor en cada Deploy— y los cuatro servicios están corriendo. Lo que sigue sin
+poderse hacer es construirlas **en este portátil**, por lo del grupo `docker`.
 
 Un matiz del de Flutter: el build de aquí salió con **Flutter 3.47.4**, que es el de este
 portátil, y el `Dockerfile.app` pincha **3.44.0**. Prueba que el código compila para web;

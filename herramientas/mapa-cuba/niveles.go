@@ -182,17 +182,39 @@ type Nivel struct {
 	// Cienaga de Zapata es una decision de tamano, y una decision no se toma
 	// con una estimacion. No se usa para generar lo que se cuelga.
 	SinRelaciones bool
+
+	// ConMundo dice que este paquete lleva la costa del mundo de Natural Earth
+	// hasta `CorteDelMundo` (mundo.go). NO se pone a mano: lo pone
+	// `ConLaCostaDelMundo`, que es la misma llamada que carga los rasgos, para
+	// que no pueda quedar encendido sin ellos.
+	ConMundo bool
 }
 
-// aguaDesde y costaDesde son iguales en todos los niveles y por eso no estan en
-// `Nivel`: **la costa es lo que hace que Cuba se reconozca** —es una isla— y el
-// agua interior es lo que explica por que una carretera da un rodeo. Ninguna de
-// las dos es negociable por tamano; las dos juntas son una fraccion del
-// fichero.
-const (
-	costaDesde = uint8(0)
-	aguaDesde  = uint8(7)
-)
+// costaDesde dice DESDE QUE ZOOM viaja la costa de OpenStreetMap.
+//
+// Es el otro lado de `CorteDelMundo` y por eso sale de aqui y no de una
+// constante suelta: con el mundo puesto, la costa de OSM empieza justo donde se
+// acaba la del mundo. Ni un zoom antes —serian dos orillas casi iguales en la
+// misma tesela, y el pintor cose los trozos por sus extremos EXACTOS: dos que no
+// casan son dos cabos sueltos y se queda sin mar— ni un zoom despues, que
+// dejaria un nivel entero sin una sola linea de costa.
+//
+// Sin mundo se queda como estaba desde el principio: **la costa es lo que hace
+// que Cuba se reconozca** y viaja desde el z0.
+func (n Nivel) costaDesde() uint8 {
+	if n.ConMundo {
+		return CorteDelMundo + 1
+	}
+	return 0
+}
+
+// aguaDesde es igual en todos los niveles y por eso no esta en `Nivel`: el agua
+// interior es lo que explica por que una carretera da un rodeo, y no es
+// negociable por tamano.
+//
+// La costa tenia aqui su gemela `costaDesde` y se la llevo la costa del mundo:
+// ahora depende de si el paquete la lleva, asi que es un metodo de `Nivel`.
+const aguaDesde = uint8(7)
 
 // Niveles, en el orden en que se le ofrecen a la persona: de menos a mas.
 var Niveles = []Nivel{
@@ -337,4 +359,46 @@ func tolerancia(z uint8) float64 {
 	default:
 		return 1.5
 	}
+}
+
+// toleranciaDelMundo es lo que se simplifica la costa de Natural Earth, que
+// viaja sola en la capa `costa` por debajo de z`CorteDelMundo+1`.
+//
+// SE SIMPLIFICA MAS QUE TODO LO DEMAS, y esto es una decision de tamano MEDIDA,
+// no una preferencia. Cada fila es un fichero que se genero y se peso, sobre el
+// `.pbf` de Cuba del 22/09/2026 y `ne_10m_land` de esa misma fecha. Lo que anade
+// al `basico`, que sin mundo son 5.996.612 bytes:
+//
+//	tolerancia  8 (la de las demas capas)  10.863.851   +4,87 MB
+//	tolerancia 16                           9.452.410   +3,46 MB
+//	tolerancia 24 (esta)                    8.783.791   +2,79 MB
+//	tolerancia 48                           7.837.583   +1,84 MB
+//
+// Los otros dos niveles pagan lo MISMO en bytes —el mundo solo esta en z0–z6 y
+// es identico en los tres—, asi que el que decide es el `basico`, que es el que
+// se baja quien tiene la conexion justa.
+//
+// Y lo que se pierde a cambio se puede decir en pixeles, que es lo que se ve:
+// la tolerancia va en unidades de tesela y una tesela de 4.096 unidades se
+// dibuja en 256 pixeles, asi que **24 unidades son 1,5 pixeles de pantalla, en
+// cualquier zoom**. Una orilla movida pixel y medio a z6, donde la pantalla
+// entera son ~2.500 km. Lo que esta capa tiene que contestar es «donde cae Cuba
+// en el Caribe» y «hasta donde llega el mar»; por donde entra un camion lo
+// contesta la costa de OSM, que empieza en el zoom siguiente y no se toca.
+//
+// La comparacion honesta no es contra OSM: es contra el papel en blanco que
+// habia antes.
+const toleranciaDelMundo = 24.0
+
+// toleranciaDe escoge cuanto se simplifica CADA capa en ese zoom.
+//
+// Solo hay un caso especial y es la costa del mundo. Se reconoce por donde esta
+// —la capa `costa` por debajo de `CorteDelMundo+1`, donde la de OSM no viaja
+// (`Nivel.costaDesde`)— y no por una marca en la capa, porque en el formato una
+// capa no lleva mas que su nombre.
+func toleranciaDe(z uint8, capa string, n Nivel) float64 {
+	if n.ConMundo && capa == capaCosta && z <= CorteDelMundo {
+		return toleranciaDelMundo
+	}
+	return tolerancia(z)
 }

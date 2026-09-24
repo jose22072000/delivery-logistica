@@ -444,6 +444,138 @@ void main() {
       expect(saltosParaElMar, 4);
     });
   });
+
+  // ── EL MAR NO SE PUEDE PINTAR TIERRA ADENTRO ──────────────────────────────
+  //
+  // Éste es el agujero que faltaba, y es el que se ve: todas las pruebas de
+  // arriba le dan a `marDeLaCosta` una tesela con la costa DENTRO del cuadro.
+  // La que se pinta mal de verdad es la otra — la que no tiene ni un metro de
+  // costa dentro y hay que decidirla ENTERA por el sentido de la costa que pasa
+  // fuera (la rama de `cadenas.isEmpty`, que resuelve `esAgua`).
+  //
+  // Si ese sentido se invierte, o si se contesta «mar» cuando no se sabe,
+  // **Camagüey se pinta de azul** y no lo desmiente nadie: el repartidor ve agua
+  // donde hay carretera, y este mapa es el que se usa SIN CONEXIÓN, que es justo
+  // cuando no hay con qué contrastarlo.
+  //
+  // Las dos teselas de abajo son la MISMA geometría con el sentido al revés, a
+  // propósito: así ninguna de las dos puede salir verde por casualidad.
+  group('sin costa dentro, la tesela se decide por el sentido de la de fuera', () {
+    // LA COSTA NORTE DE CUBA, escrita como la escribe OpenStreetMap: la tierra a
+    // la izquierda según se camina. Mirando al OESTE, el sur —la isla— queda a
+    // mano izquierda, así que la costa norte se camina de este a oeste. Cruza el
+    // cuadro entero a lo ancho y se queda fuera por arriba o por abajo, según
+    // [y].
+    List<Offset> costaNorte(double y) => [u(400, y), u(-140, y)];
+
+    // Y LA COSTA SUR, la misma regla y por eso al revés: mirando al ESTE, el
+    // norte —la isla— queda a mano izquierda.
+    List<Offset> costaSur(double y) => [u(-140, y), u(400, y)];
+
+    test('CAMAGÜEY (21,3808 N · 77,9169 O) NO puede salir como mar', () {
+      // Camagüey ciudad está a unos 60 km de la costa norte y a unos 80 de la
+      // del sur: su tesela no lleva ni un metro de costa dentro. Las dos costas
+      // quedan fuera del cuadro —la del norte por encima, la del sur por
+      // debajo— y las dos contestan lo mismo: aquí es TIERRA.
+      final mar = marDeLaCosta([
+        _capaDeCosta([costaNorte(-30), costaSur(316)]),
+      ], lado: lado);
+
+      expect(
+        mar,
+        isNull,
+        reason:
+            'Camagüey (21,3808 N · 77,9169 O) va entre las dos costas, a 60 km '
+            'de la de arriba y a 80 de la de abajo, y salió con mar: '
+            '${_comoSalio(mar)}. Tierra adentro el papel es la respuesta buena; '
+            'el azul aquí es el mapa mintiendo, y sin conexión no hay con qué '
+            'desmentirlo',
+      );
+    });
+
+    test('y con UNA sola costa fuera, tampoco', () {
+      // La misma tesela vista sólo con la costa del norte. Va aparte porque el
+      // desempate de `esAgua` coge el trozo de costa MÁS CERCANO: con dos, una
+      // de las dos podría estar tapando a la otra.
+      for (final (nombre, capa) in <(String, List<Offset>)>[
+        ('sólo la costa norte, por encima', costaNorte(-30)),
+        ('sólo la costa sur, por debajo', costaSur(316)),
+      ]) {
+        expect(
+          marDeLaCosta([
+            _capaDeCosta([capa]),
+          ], lado: lado),
+          isNull,
+          reason:
+              'con $nombre, Camagüey salió como mar: '
+              '${_comoSalio(marDeLaCosta([
+                _capaDeCosta([capa]),
+              ], lado: lado))}',
+        );
+      }
+    });
+
+    test('EL CARIBE al sur de Cuba (19,50 N · 77,50 O) SÍ es mar', () {
+      // Mar abierto entre Cuba y Jamaica, a unos 200 km de la costa sur. Lo
+      // único que se ve de costa es esa, muy por encima del cuadro: **la misma
+      // línea y el mismo sitio que en la prueba de Camagüey**, y lo único que
+      // cambia es hacia dónde se camina. De ahí sale de qué lado está la tierra,
+      // y es toda la decisión.
+      final mar = marDeLaCosta([
+        _capaDeCosta([costaSur(-30)]),
+      ], lado: lado);
+
+      expect(
+        mar,
+        isNotNull,
+        reason:
+            'el Caribe (19,50 N · 77,50 O) se quedó sin mar: la costa sur pasa '
+            'por encima con la tierra a su izquierda, así que todo lo de debajo '
+            'es agua. En papel, eso es el Caribe pintado de tierra',
+      );
+      expect(
+        esMar(mar, const Offset(128, 128)),
+        isTrue,
+        reason:
+            'salió ${_comoSalio(mar)} y el centro de la tesela no cae dentro',
+      );
+      expect(
+        _areaDe(mar!).abs(),
+        closeTo(lado * lado, 1),
+        reason: 'mar abierto: la tesela entera, ni más ni menos',
+      );
+    });
+
+    test('contra el paquete de verdad: Camagüey es tierra a z6', () async {
+      // Y lo mismo con datos de OSM, no dibujados a mano. La z6/18/28 es la que
+      // contiene Camagüey (21,3808 N · 77,9169 O) y también el Caribe de
+      // enfrente (19,50 N · 77,50 O), así que la pareja entera cabe en una
+      // tesela de la muestra.
+      final paquete = await PaqueteDeTeselas.abrir(
+        RangosEnMemoria(
+          await File('test/mapa/muestra/cuba-muestra.pmtiles').readAsBytes(),
+        ),
+      );
+      final crudo = await paquete.tesela(6, 18, 28);
+      expect(crudo, isNotNull, reason: 'la muestra tiene que traer la z6/18/28');
+      final mar = marDeLaCosta(leerTeselaVectorial(crudo!), lado: lado);
+
+      expect(
+        esMar(mar, _enLaTesela(-77.9169, 21.3808, 6, 18, 28)),
+        isFalse,
+        reason:
+            'Camagüey ciudad (21,3808 N · 77,9169 O) salió pintada de agua '
+            'sobre el paquete de verdad; salió ${_comoSalio(mar)}',
+      );
+      expect(
+        esMar(mar, _enLaTesela(-77.50, 19.50, 6, 18, 28)),
+        isTrue,
+        reason:
+            'y el Caribe de enfrente (19,50 N · 77,50 O) salió de papel; salió '
+            '${_comoSalio(mar)}',
+      );
+    });
+  });
 }
 
 bool _enElBorde(Offset p) =>
@@ -489,3 +621,14 @@ bool _esEsteColor(Uint8List bytes, int i, ui.Color color) =>
     bytes[i] == (color.r * 255).round() &&
     bytes[i + 1] == (color.g * 255).round() &&
     bytes[i + 2] == (color.b * 255).round();
+
+/// Cómo se cuenta en un mensaje de fallo lo que salió de `marDeLaCosta`.
+///
+/// Un `null` a secas no dice nada cuando la prueba se pone roja: hace falta
+/// saber **cuánta tesela** se pintó de agua, que es lo que se ve en el teléfono.
+String _comoSalio(List<List<Offset>>? mar) {
+  if (mar == null) return 'nada (null), o sea «aquí no se pinta agua»';
+  final tapado = _areaDe(mar).abs() / (lado * lado) * 100;
+  return '${mar.length} anillo(s) de agua que tapan el '
+      '${tapado.toStringAsFixed(1)} % de la tesela';
+}

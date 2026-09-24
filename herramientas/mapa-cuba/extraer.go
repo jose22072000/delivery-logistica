@@ -52,6 +52,17 @@ type Rasgo struct {
 	Nombre string
 	Desde  uint8
 	Caja   orb.Bound
+
+	// DelMundo marca la costa que viene de Natural Earth (mundo.go) y no del
+	// `.pbf`. Es lo UNICO que se para en seco arriba: viaja de z0 a
+	// `CorteDelMundo` y ni una tesela mas, porque de ahi para arriba manda la
+	// costa de OSM y las dos juntas serian la misma orilla dibujada dos veces.
+	//
+	// Es un booleano y no un «hasta que zoom» por una razon concreta: el valor
+	// que sale de no escribir nada tiene que ser **lo de siempre** —un rasgo de
+	// OSM, sin tope—, y un numero a cero significaria «solo en el z0», que es
+	// perder el rasgo entero sin un solo error.
+	DelMundo bool
 }
 
 // Extraido es lo que sale de una pasada por el fichero.
@@ -261,7 +272,7 @@ func enQueCapaCae(t osm.Tags, nivel Nivel, descartes map[string]int) (capa, clas
 	nombre = t.Find("name")
 
 	if t.Find("natural") == "coastline" {
-		return capaCosta, "costa", costaDesde, "", true
+		return capaCosta, "costa", nivel.costaDesde(), "", true
 	}
 	if esAgua(t) {
 		return capaAgua, "agua", aguaDesde, nombre, true

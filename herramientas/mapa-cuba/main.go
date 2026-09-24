@@ -50,6 +50,11 @@ func main() {
 	// multipoligonos (los bosques grandes, los humedales y la Cienaga de
 	// Zapata). Se genera con ellos y sin ellos y se restan los bytes.
 	sinRelaciones := flag.Bool("sin-relaciones", false, "dejar fuera los multipolígonos (sólo para medir el tamaño)")
+	// La costa del MUNDO, para que alejar el mapa no se acabe en papel blanco
+	// (mundo.go). Es `ne_10m_land.geojson` de Natural Earth, dominio publico.
+	// **Va en todo lo que se cuelgue**: sin el, el fichero sale con
+	// `-sin-mundo` en el nombre para que no se confunda nunca con uno bueno.
+	mundo := flag.String("mundo", "", "ne_10m_land.geojson de Natural Earth: la costa del mundo hasta z"+fmt.Sprint(CorteDelMundo))
 	flag.Parse()
 
 	if *comprobar != "" {
@@ -91,20 +96,28 @@ func main() {
 			nivel.SinRelaciones = true
 			nivel.Clave += "-sin-relaciones"
 		}
+		if *mundo == "" {
+			// SE DICE, Y SE DICE EN EL NOMBRE DEL FICHERO. Un paquete sin la
+			// costa del mundo se abre igual, pesa un poco menos y sale bien en
+			// `-comprobar`: lo unico que cambia es que al alejar vuelve el
+			// papel en blanco, y eso no se ve hasta el telefono de un
+			// repartidor. Es la misma regla que `-sin` y `-sin-relaciones`.
+			nivel.Clave += "-sin-mundo"
+		}
 		if *sin != "" {
 			nivel = nivel.SinCapas(strings.Split(*sin, ","))
 			// El nombre del fichero lo dice, porque un `.pmtiles` medido no es
 			// uno que se cuelgue y los dos acaban en la misma carpeta.
 			nivel.Clave += "-sin-" + strings.ReplaceAll(*sin, ",", "-")
 		}
-		if err := generar(*pbf, nivel, *salida); err != nil {
+		if err := generar(*pbf, *mundo, nivel, *salida); err != nil {
 			fmt.Fprintf(os.Stderr, "nivel %s: %v\n", nivel.Clave, err)
 			os.Exit(1)
 		}
 	}
 }
 
-func generar(pbf string, nivel Nivel, carpeta string) error {
+func generar(pbf, mundo string, nivel Nivel, carpeta string) error {
 	arranque := time.Now()
 	fmt.Printf("\n══ %s — %s (hasta z%d)\n", nivel.Clave, nivel.Titulo, nivel.ZoomMax)
 
@@ -114,10 +127,40 @@ func generar(pbf string, nivel Nivel, carpeta string) error {
 	}
 	defer f.Close()
 
+	// LA COSTA DEL MUNDO SE LEE ANTES QUE EL `.pbf`, y no es por gusto: encender
+	// el mundo mueve la costa de OSM de z0 a z7, asi que el nivel tiene que
+	// llegar ya ajustado a `Extraer`. Las dos cosas salen de la MISMA llamada
+	// para que no puedan quedar a medias (ver `ConLaCostaDelMundo`).
+	descartesDelMundo := map[string]int{}
+	var crudoDelMundo []byte
+	if mundo != "" {
+		crudoDelMundo, err = os.ReadFile(mundo)
+		if err != nil {
+			return fmt.Errorf("leyendo la costa del mundo: %w", err)
+		}
+	}
+	nivel, rasgosDelMundo, err := ConLaCostaDelMundo(crudoDelMundo, nivel, descartesDelMundo)
+	if err != nil {
+		return err
+	}
+	if nivel.ConMundo {
+		fmt.Printf("  mundo · %d anillos de costa de Natural Earth, z0–z%d\n",
+			len(rasgosDelMundo), CorteDelMundo)
+	} else {
+		fmt.Println("  mundo · NO (al alejar se acaba el mar donde se acaba Cuba) — falta -mundo")
+	}
+
 	extraido, err := Extraer(f, nivel)
 	if err != nil {
 		return err
 	}
+	for motivo, cuantos := range descartesDelMundo {
+		extraido.Descartes[motivo] += cuantos
+	}
+	for _, r := range rasgosDelMundo {
+		extraido.Caja = extraido.Caja.Union(r.Caja)
+	}
+	extraido.Rasgos = append(extraido.Rasgos, rasgosDelMundo...)
 	fmt.Printf("  %d rasgos · recuadro %.4f,%.4f → %.4f,%.4f\n",
 		len(extraido.Rasgos),
 		extraido.Caja.Min[0], extraido.Caja.Min[1], extraido.Caja.Max[0], extraido.Caja.Max[1])
@@ -213,10 +256,22 @@ func metadatos(n Nivel) []byte {
 		}
 	}
 	capas = vivas
+	// LA ATRIBUCION DE LOS DOS ORIGENES. La de OSM es obligatoria (ODbL) y la
+	// de Natural Earth no lo es —es dominio publico— pero se pone igual: un
+	// paquete que no dice de donde salen sus datos no se puede auditar desde
+	// fuera. Y `mundo` no es adorno: es lo que permite ver desde el propio
+	// fichero si al alejar habra mar o papel.
+	atribucion := LaAtribucion
+	mundo := any(false)
+	if n.ConMundo {
+		atribucion += " · " + AtribucionDelMundo
+		mundo = map[string]any{"origen": AtribucionDelMundo, "hasta_zoom": CorteDelMundo}
+	}
 	b, _ := json.Marshal(map[string]any{
 		"name":          "Cuba — " + n.Titulo,
 		"description":   n.Explicacion,
-		"attribution":   LaAtribucion,
+		"attribution":   atribucion,
+		"mundo":         mundo,
 		"type":          "baselayer",
 		"format":        "pbf",
 		"nivel":         n.Clave,

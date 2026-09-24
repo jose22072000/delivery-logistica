@@ -56,6 +56,14 @@ func Teselar(dentro *Escritor, rasgos []Rasgo, nivel Nivel, aviso func(string)) 
 			if rasgos[i].Desde > z {
 				continue
 			}
+			// LA COSTA DEL MUNDO SE PARA EN SECO EN `CorteDelMundo`. De ahi
+			// para arriba manda la de OSM, que empieza exactamente en el zoom
+			// siguiente (`Nivel.costaDesde`). Dejarla seguir seria la misma
+			// orilla dos veces, con dos geometrias parecidas y no iguales, y el
+			// pintor cose por extremos exactos: lo que no casa lo deja sin mar.
+			if rasgos[i].DelMundo && z > CorteDelMundo {
+				continue
+			}
 			c := rasgos[i].Caja
 			x0 := int64(math.Floor(aX(c.Min[0], z)))
 			x1 := int64(math.Floor(aX(c.Max[0], z)))
@@ -132,7 +140,7 @@ func unaTesela(rasgos []Rasgo, indices []int, nivel Nivel, z uint8, x, y uint32)
 	// costaba no distinguirlo, en `recorteDe`.
 	for _, capa := range l {
 		capa.Clip(recorteDe(capa.Name))
-		capa.Simplify(simplify.DouglasPeucker(tolerancia(z)))
+		capa.Simplify(simplify.DouglasPeucker(toleranciaDe(z, capa.Name, nivel)))
 		capa.RemoveEmpty(1, 1)
 	}
 

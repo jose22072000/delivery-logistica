@@ -26,6 +26,24 @@ RUN apk add --no-cache git
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 
+# SQLC, PARA PODER COMPROBAR QUE EL CÓDIGO GENERADO ES EL DE LAS CONSULTAS — 22/09/2026
+#
+# Va aquí arriba a propósito: es su propia capa y sólo se rehace al cambiar de versión de
+# Go o de sqlc, así que no cuesta nada en los despliegues del día a día.
+#
+# Sin esto la imagen tenía un agujero exacto, encontrado rompiéndolo: las guardas de
+# `internal/store/guardas_del_reparto_test.go` leen los ficheros `.sql` —el ORIGEN— y
+# comprueban que la cuenta de pedidos de un vehículo pasa por `routes`. Pero lo que se
+# compila y se despliega es `internal/store/sqlc/vehicles.sql.go`, que está GENERADO. Se
+# puede editar a mano ese fichero, devolver la cuenta mala, y `go vet`, `go test` y
+# `go build` salen los tres en verde: las guardas siguen leyendo un `.sql` que ya no es lo
+# que corre. Eso es el 16/09 otra vez, con otra cara.
+#
+# `comprobar.sh` sí hace `sqlc diff`, pero `comprobar.sh` no corre en el servidor. Y un
+# push a GitHub reconstruye la imagen sin preguntarle a esta máquina nada.
+ARG SQLC_VERSION=v1.31.1
+RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}
+
 # Las dependencias primero: así una capa cacheada sobrevive a cualquier cambio de código.
 COPY api/go.mod api/go.sum ./
 RUN go mod download
@@ -74,6 +92,11 @@ COPY app/lib/nucleo/refresco_en_vivo.dart /app/lib/nucleo/refresco_en_vivo.dart
 # La ruta es la que espera la prueba: desde `/src/internal/api`, `../../../docs/...` cae
 # en `/docs/...`.
 COPY docs/orden-de-paradas.casos.json /docs/orden-de-paradas.casos.json
+
+# EL CÓDIGO GENERADO TIENE QUE SER EL DE LAS CONSULTAS. Si alguien editó a mano un
+# `.sql.go`, `sqlc diff` lo dice y ESTA IMAGEN NO CONSTRUYE. Es lo único que ata lo que se
+# despliega con lo que las guardas vigilan.
+RUN sqlc diff
 
 RUN go vet ./... && go test ./...
 

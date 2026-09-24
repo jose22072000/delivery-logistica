@@ -13,6 +13,7 @@ Lo que hay montado:
 
 ```
 herramientas/mapa-cuba/            el generador: del .osm.pbf al .pmtiles
+herramientas/mapa-cuba/mundo.go    la costa del MUNDO (Natural Earth), para poder alejar
 api/internal/config/mapa.go        de dónde sale el anuncio (MAPA_*)
 api/internal/api/mapa.go           GET /api/mapa: qué hay colgado y de dónde se baja
 app/lib/mapa/                      el lector, la descarga y el dibujo
@@ -81,7 +82,7 @@ Lo que necesita un mapa de reparto:
 | Capa | Qué es | Por qué |
 |---|---|---|
 | `carretera` | vías con su **clase** y su **nombre** | por donde pasa el camión |
-| `costa` | la línea del mar | **Cuba es una isla: sin costa el mapa no se reconoce** |
+| `costa` | la línea del mar | **Cuba es una isla: sin costa el mapa no se reconoce.** Desde el 22/09/2026 son **dos fuentes**: Natural Earth hasta z6 y OpenStreetMap de z7 para arriba (§3-ter) |
 | `agua` | embalses, lagunas, ríos anchos | explica por qué una carretera da un rodeo |
 | `poblacion` | núcleos con su nombre | sin ellos el mapa es una telaraña sin un sitio reconocible |
 | `suelo` | parques, vegetación, zona urbana, industrial y portuaria | sin esto es **papel en blanco entre calles** |
@@ -217,6 +218,129 @@ pinta nada, ocupa, y sobre todo **no se puede enderezar** —no gira ni para un 
 otro—, así que dejarlas hacía que el fichero no se pudiera comprobar de verdad. Lo encontró
 `-comprobar`, que ahora exige que **todo agujero que quede, gire**.
 
+## 3-ter. LA COSTA DEL MUNDO, para que alejar no se acabe en papel blanco
+
+> «se puede traer otra parte de osm para tener el mundo completo asi podemos alejar el
+> mapa mas aun y tener la costa pero solo detallado tener cuba entiendes»
+> — Jose, 22/09/2026
+
+### El problema, medido
+
+**El océano no es un polígono en OpenStreetMap, ni aquí ni en ningún sitio.** Lo único que
+hay es `natural=coastline`, una LÍNEA. Por eso el paquete nunca trajo el mar y el pintor lo
+deduce de la costa dentro de cada tesela (`marDeLaCosta`, §9). Eso funciona y tiene el
+límite que tenía que tener: **donde se acaba la costa cubana, se acaba el mar**. El extracto
+de Geofabrik es Cuba, así que al alejar volvía el papel a unos cientos de kilómetros de Cabo
+San Antonio.
+
+### Qué se eligió, y por qué
+
+**Natural Earth `ne_10m_land`** — los polígonos de tierra del mundo a 1:10.000.000. La otra
+vía razonable era `osmcoastline` sobre un extracto de OSM, y se descartó midiendo las dos
+puntas de la cuenta: para tener «el mundo» hace falta el planeta entero (~80 GB) o coserlo
+de veinte extractos continentales, más un binario de C++ con libosmium que aquí no está; y
+todo eso **para un dato que a z0–z6 no se distingue del de Natural Earth**, porque a ese
+tamaño la simplificación de este generador ya tira todo lo que mida menos de ~1,2 km.
+
+**Las licencias, que son parte de la decisión:**
+
+- **Natural Earth es DOMINIO PÚBLICO.** Sus propias palabras: «no permission is needed», y
+  ni siquiera exige atribución. Se pone igual dentro de los metadatos del `.pmtiles`
+  (`attribution` lleva las dos), porque un paquete que no dice de dónde salen sus datos no
+  se puede auditar desde fuera.
+- **OpenStreetMap es ODbL** y eso sí obliga. La atribución de OSM no se toca: sigue dentro
+  del fichero y sigue saliendo en la pantalla.
+- Mezclarlas no plantea ningún problema: son dos capas que no se derivan la una de la otra.
+  El mundo es de Natural Earth **hasta z6** y Cuba es de OSM **de z7 para arriba**. No hay
+  ni un byte de OSM dentro de lo que sale de Natural Earth.
+
+### Y por qué los POLÍGONOS de tierra y no `ne_10m_coastline`
+
+Natural Earth publica también la costa como líneas, que parece lo obvio porque nuestra capa
+es de líneas. **No se usa, y ésta es la decisión más importante de todo esto.**
+
+El pintor no dibuja una raya: deduce el mar de **qué lado queda la tierra**, y eso lo saca
+del SENTIDO en que está escrita la línea. La regla de OSM —tierra a la izquierda— es una
+regla del proyecto con validadores que la vigilan. **Natural Earth no promete nada parecido
+para su capa de líneas**, y una línea escrita al revés no da ningún error, no cambia el
+tamaño del fichero y no se ve en `-comprobar`: lo único que hace es pintar **el Atlántico
+del color de la tierra y Florida del color del agua**.
+
+De un polígono el sentido sí se sabe: el anillo de fuera encierra tierra. Así que se toma
+`ne_10m_land`, se le miden los anillos y se escriben con el sentido que hace falta
+(`enderezarAlMar`, en `mundo.go`), sin fiarse de cómo vinieran.
+
+**El sentido bueno está MEDIDO, no supuesto.** Cosiendo los trozos de `natural=coastline`
+del `.pbf` de Cuba del 22/09/2026 salen **4.406 anillos cerrados y los 4.406 giran CCW en
+lon/lat**; el mayor es la isla (103.153 puntos, caja −84,95/19,83 → −74,13/23,21). Ésa es la
+referencia. Lo atan dos pruebas de distinta altura: `TestLaCostaDelMundoGiraComoLaDeOsm`
+compara contra ese número, y `TestLasDosCostasLleganALaTeselaGirandoIgual` mete la misma
+isla por los dos caminos —la de OSM tal cual, la del mundo escrita AL REVÉS a propósito— y
+exige que salgan de la tesela girando igual, que es donde de verdad se vería si una se diera
+la vuelta (proyectar a la tesela invierte el eje Y y con él el signo del área).
+
+Comprobado además sobre los ficheros de verdad: en la tesela z4 4/6 y z5 8/13, el mayor
+anillo cerrado sale con área **negativa (CW en coordenadas de tesela) en los dos paquetes**,
+el nuevo con Natural Earth y el de referencia con OSM.
+
+### El relevo: z0–z6 el mundo, z7 para arriba Cuba
+
+**Por debajo de z7 la costa de OSM NO viaja** (`Nivel.costaDesde`, en `niveles.go`) y por
+encima de z6 no viaja la del mundo (`Rasgo.DelMundo`, filtrado en `teselar.go`). Los dos
+números salen de la misma constante, `CorteDelMundo`.
+
+Las dos costas a la vez en la misma tesela **no son «un poco más de peso»: dejan la tesela
+sin mar**. Serían la misma orilla dibujada dos veces con geometrías parecidas y no iguales,
+y el pintor cose los trozos por sus extremos EXACTOS: dos cadenas que no casan son dos cabos
+sueltos en mitad del cuadro, que es justo el caso en el que se rinde. Y un hueco entre las
+dos —que ninguna viajara en un zoom— deja ese zoom **sin una sola línea de costa y sin mar
+en todo el planeta**. Por eso hay tres pruebas sobre esto y no una:
+`TestLasDosCostasSeRelevanSinHuecoNiSolape` (los números), `TestLaCostaDelMundoNoPasaDeSuCorte`
+y `TestConMundoLaCostaDeOsmEmpiezaJustoDespuesDelCorte` (sobre el fichero, que es donde se
+ve si el teselador mira el número o no).
+
+**Por qué z6 y no otro:** por abajo no hay elección, z0 es el mundo entero. Por arriba manda
+el detalle: a z6 la tesela son 620 km y la simplificación ya tira todo lo de menos de 1,2 km,
+que es justo la resolución de Natural Earth 1:10M — por debajo de z7 **no se le nota que no
+es OSM**. De z7 para arriba sí se le notaría, y ahí es donde empieza Cuba.
+
+**Cuba no pierde nada.** Comprobado tesela a tesela contra el paquete anterior: en z5 8/13 y
+z6 17/27 el número de carreteras (778 y 2.367) y de núcleos (13 y 13) es **idéntico**. Lo
+único que cambia en esos zooms es de quién es la costa.
+
+### Hasta dónde llega el mar ahora
+
+El paquete lleva teselas **de todo el planeta en z0–z6** y sólo de Cuba de z7 para arriba.
+Comprobado abriendo el índice del `basico`:
+
+| | z0–z6 | z7 | z8–z11 |
+|---|---|---|---|
+| Madrid, Miami | hay tesela | no | no |
+| Cancún | hay tesela | hay tesela | no |
+| La Habana | hay tesela | hay tesela | hay tesela |
+| Tokio, Ciudad del Cabo, Buenos Aires | hay tesela (z2, z4 y z6) | *no mirado* | *no mirado* |
+| medio Atlántico (−40, 25) | z2 y z4 sí, z6 no: mar abierto sin nada que guardar | no | no |
+
+Y ahí entra el mecanismo que ya existía: cuando una tesela no está, el pintor sube hasta
+**cuatro** niveles buscando un antepasado que sí tenga costa y dibuja sólo el mar
+(`saltosParaElMar`, en `fondo_del_paquete.dart`). Con el mundo hasta z6, un z10 en mitad del
+Índico encuentra su antepasado z6. O sea:
+
+- **z0 a z6**: mar y costa de todo el planeta, dibujados del dato.
+- **z7 a z10**: toda tesela que no exista —que es todo lo que no es Cuba— saca su mar del
+  antepasado z6. **El mar llega a todo el planeta.**
+- **z11 y por encima**: como antes, sólo el alcance que da la costa de Cuba.
+
+### Lo que esto NO arregla, y hay que saberlo
+
+De z7 para arriba, una tesela que **sí** existe porque lleva costa de Cuba se deduce el mar
+sólo con esa costa, así que **la tierra de al lado que no sea Cuba se pinta de azul**. El
+caso concreto, calculado: la tesela **z7 34/55 contiene La Habana y Cayo Hueso**, y Cayo
+Hueso sale de color de mar. **Esto ya pasaba antes de todo esto y no es una regresión** —
+antes pasaba en todos los zooms, incluidos los de alejar; ahora sólo de z7 para arriba, que
+es donde uno está mirando Cuba. Taparlo pediría meter la costa del mundo también arriba
+dejando fuera los anillos que tocan el extracto, y eso es otra tarea.
+
 ## 4. Los niveles de detalle, con su peso MEDIDO
 
 Generados el **21/09/2026** desde
@@ -278,6 +402,43 @@ restan los bytes. **Ninguna de estas cifras es una estimación.**
 
 **El `detallado` se queda en 101,7 MB, por debajo del techo de ~110 MB. No hizo falta recortar
 por zoom**, y eso se lo debe entero a lo de abajo.
+
+### Lo que cuesta la costa del mundo, GENERANDO CON ELLA Y SIN ELLA — 22/09/2026
+
+Lo mismo y por lo mismo: se genera con `-mundo` y sin él y se restan los bytes. Todo sobre el
+extracto del 22/09/2026 y `ne_10m_land` de ese día.
+
+| | `basico` | `completo` | `detallado` |
+|---|---|---|---|
+| sin la costa del mundo | 5.996.612 | 49.204.814 | 101.663.628 |
+| **con la costa del mundo** | **8.783.791** | **51.994.301** | **104.456.696** |
+| lo que cuesta | **+2,79 MB** (+46,5 %) | **+2,79 MB** (+5,7 %) | **+2,79 MB** (+2,7 %) |
+
+**Los tres pagan lo mismo en bytes**, y eso no es casualidad: el mundo vive sólo en z0–z6 y
+es idéntico en los tres paquetes. Así que **el que decide es el `basico`**, que es justo el
+que se baja quien tiene la conexión justa: pasa de 6,0 a 8,8 MB.
+
+Lo que se puede apretar si hiciera falta es un solo número, `toleranciaDelMundo` en
+`niveles.go`, y su tabla también está medida fichero a fichero sobre el `basico`:
+
+| tolerancia | `basico` | lo que añade | error en pantalla |
+|---|---|---|---|
+| 8 (la de las demás capas) | 10.863.851 | +4,87 MB | 0,5 px |
+| 16 | 9.452.410 | +3,46 MB | 1 px |
+| **24 (la puesta)** | **8.783.791** | **+2,79 MB** | **1,5 px** |
+| 48 | 7.837.583 | +1,84 MB | 3 px |
+
+El error en pantalla no depende del zoom: la tolerancia va en unidades de tesela y una tesela
+de 4.096 unidades se dibuja en 256 píxeles, así que 24 unidades son 1,5 px **en cualquier
+zoom**. Una orilla movida píxel y medio a z6, donde la pantalla entera son ~2.500 km.
+
+> **El generador NO es determinista y conviene saberlo antes de comparar dos ficheros.** El
+> mismo `.pbf` y el mismo código dan ficheros que se diferencian en ~1 kB de una ejecución a
+> otra (medido: 5.995.505 y 5.996.484 en dos pasadas seguidas del `basico`), porque el orden
+> de las capas dentro de la tesela sale de recorrer un `map` de Go. El contenido es idéntico
+> —mismas teselas, mismos rasgos por capa— pero **el `sha256` cambia**. Por eso la huella que
+> se anuncia es siempre la que imprimió la pasada que generó el fichero que se cuelga, y por
+> eso las diferencias de menos de un par de kB entre dos medidas no significan nada.
 
 ### El recorte por capa: 21 MB que no pintaba nadie
 
@@ -376,15 +537,33 @@ ls -l cuba-latest.osm.pbf          # ~62 MB
 Geofabrik lo regenera **a diario**. Una vez al mes es más que suficiente: el mapa de Cuba de
 hace un mes sigue siendo un mapa de Cuba.
 
+Y la costa del mundo, que se baja **una vez y ya** —Natural Earth saca versión un par de
+veces al año y a 1:10M la costa del mundo no se mueve—:
+
+```bash
+curl -L -o ne_10m_land.geojson \
+  https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_land.geojson
+ls -l ne_10m_land.geojson         # ~10 MB
+```
+
+**Dominio público**, así que no hay nada que firmar ni que pedir (§3-ter).
+
 ### 5.2 Generar los tres niveles
 
 ```bash
 cd ~/Work/procovar/delivery-logistica/herramientas/mapa-cuba
-go run . -pbf /tmp/mapa/cuba-latest.osm.pbf -salida /tmp/mapa
+go run . -pbf /tmp/mapa/cuba-latest.osm.pbf -mundo /tmp/mapa/ne_10m_land.geojson -salida /tmp/mapa
 ```
 
-Tarda **poco más de minuto y medio los tres** en este portátil (4 s el `basico`, 25 s el
-`completo`, 68 s el `detallado`) y necesita ~3 GB de RAM (guarda las coordenadas de los ~7
+**`-mundo` va SIEMPRE en lo que se cuelgue.** Sin él el paquete sale igual, se abre igual,
+pesa 2,79 MB menos y pasa `-comprobar`: lo único que cambia es que al alejar vuelve el papel
+en blanco, y eso no se ve hasta el teléfono de un repartidor. Por eso el fichero que sale sin
+él se llama `cuba-<nivel>-sin-mundo.pmtiles`, con el nombre puesto para que no se pueda
+confundir nunca con uno bueno — la misma regla que `-sin` y `-sin-relaciones`.
+
+Tarda **unos cuatro minutos los tres** en este portátil con la costa del mundo puesta (23 s
+el `basico`, 1 m 4 s el `completo`, 2 m 20 s el `detallado`; sin `-mundo` eran 4 s, 25 s y
+68 s) y necesita ~3 GB de RAM (guarda las coordenadas de los ~7
 millones de nodos y, para el `detallado`, 891.152 rasgos). Al terminar imprime, por nivel,
 **los bytes y el `sha256`** —que es exactamente lo que hay que ponerle a la api— y **la lista
 de lo que se quedó fuera con su motivo y su número**, que es lo que explica un fichero que
@@ -409,6 +588,9 @@ go run . -pbf /tmp/mapa/cuba-latest.osm.pbf -nivel completo -sin edificio
 
 go run . -pbf /tmp/mapa/cuba-latest.osm.pbf -nivel completo -sin-relaciones
 # lo mismo para los multipolígonos: deja cuba-completo-sin-relaciones.pmtiles
+
+go run . -pbf /tmp/mapa/cuba-latest.osm.pbf -nivel completo
+# y para la costa del mundo, quitar el -mundo: deja cuba-completo-sin-mundo.pmtiles
 ```
 
 ### 5.3 Comprobar el fichero ANTES de colgarlo
@@ -422,6 +604,21 @@ nivel de zoom**, comprueba que la atribución de OpenStreetMap está dentro y, d
 21/09/2026 por la tarde, **que el sentido de giro de cada anillo es el que pide la
 especificación** (§3-bis). Si algo no cuadra dice qué y sale con código 1. Un fichero que no
 pase esto no se cuelga.
+
+Y desde el 22/09/2026 dice además **si lleva la costa del mundo**, y lo comprueba en vez de
+creérselo:
+
+```
+  mundo   SÍ · costa de Natural Earth hasta z6; de ahí para arriba, OSM
+```
+
+Ese renglón sale de los metadatos, pero si dicen que sí y no es verdad **no se imprime: se
+falla**. Se miran las dos cosas que no pueden fallar a la vez por casualidad: que la caja del
+fichero sea de verdad la del mundo (−180 → 180) y que **haya costa en todos los zooms de 0 a
+6**. Hace falta porque encender el mundo mueve la costa de OSM a z7: si los anillos de Natural
+Earth no llegaran a entrar, el fichero saldría igual, se abriría igual y pesaría MENOS, y lo
+único que cambiaría es que esos siete zooms quedan sin una sola línea de costa y **sin mar en
+todo el planeta**.
 
 Y saca, por nivel, **qué capas trae, con cuántos rasgos y cuántos de ellos tienen agujero**,
 que es lo que hace falta para comparar un paquete nuevo con el que está colgado:
@@ -598,6 +795,12 @@ hay una lista cerrada en el código, así que colgar un cuarto nivel no obliga a
 El precio de eso, y está asumido: una errata (`MAPA_COMPLTO_URL`) crea un nivel llamado
 «complto» que **sale en la pantalla del logístico**. Es feo y **se ve**, que es mejor que un
 nivel que falta y no se ve.
+
+> **Lo colgado hoy NO lleva la costa del mundo.** Los tres `.pmtiles` de abajo se generaron
+> antes del §3-ter. Los que sí la llevan están generados y medidos, pero **no se han colgado
+> ni se han regenerado los de producción**: cuando se cuelguen hay que cambiar `MAPA_VERSION`
+> —traen una capa que los de antes no tienen, y es exactamente el caso del aviso del final de
+> esta sección— y volver a poner `BYTES` y `SHA256` de los nuevos, que ahora sí cambian.
 
 **Lo que está puesto hoy, 22/09/2026** — y esto ya no es un ejemplo: es lo que contesta
 `/api/mapa`, copiado de las variables de la api. Son los tres paquetes **con los
@@ -803,6 +1006,26 @@ agujeros** sin que salte nada: la laguna se pintaría de verde.
 **El orden de las fuentes es paquete → red**, no al revés: el paquete es instantáneo, no gasta
 datos y es lo único que hay en el patio de un almacén.
 
+### EL MAR SE SIGUE DEDUCIENDO, también donde ahora hay costa del mundo
+
+La pregunta obvia al meter Natural Earth era si convenía traerse su polígono de océano
+(`ne_10m_ocean`) y acabar con la deducción. **No, y por tres razones concretas:**
+
+1. **Sería una capa nueva**, y una capa que el pintor no conoce no se dibuja: habría que
+   tocar `fondo_del_paquete.dart` y `ColoresDelMapa`. Tal como está, la costa del mundo entra
+   por la capa `costa` que ya existe y **el aparato no necesita ni una línea de cambio**.
+2. **Habría dos mares distintos en el mismo mapa** —el polígono de Natural Earth hasta z6 y
+   el deducido de la costa de OSM de z7 para arriba— y tendrían que casar exactamente en el
+   salto. No casarían: son dos geometrías de dos fuentes. Sería la misma raya recta en mitad
+   del agua que ya se cazó con el Golfo de Batabanó, pero ahora saliendo y entrando al hacer
+   zoom.
+3. **Un polígono de océano pesa mucho más que su orilla**, y a z0–z6 el océano es casi toda
+   la tesela.
+
+Lo que cambia con el §3-ter no es el mecanismo: es que **ahora la deducción tiene respuesta
+en todo el planeta** hasta z6, y por el antepasado, hasta z10. Antes, más allá de Cuba, la
+pregunta «¿esto es mar?» no tenía con qué contestarse y quedaba el papel.
+
 **Por encima del zoom del paquete se amplía**, no se deja hueco: el paquete llega a z11/z14/z15
 y el mapa de una ruta apretada pide hasta z19. Se coge la tesela más profunda que haya y se
 dibuja el trocito que toca. Se ve más gordo, y se ve.
@@ -845,7 +1068,27 @@ Y tres de más adelante:
       es lo que habría cazado esto el mismo día—, y la sonda de
       `app/test/mapa/sonda_dibujo_test.dart` dibuja la tesela de la Ciénaga de Zapata con el
       paquete de verdad al lado: 33.233 de sus 65.536 píxeles salen del color del humedal.
+- [x] **La costa del mundo** (§3-ter). Hecho el 22/09/2026: Natural Earth `ne_10m_land`,
+      dominio público, de z0 a z6; la de OSM sigue mandando de z7 para arriba y Cuba no pierde
+      ni una carretera. Cuesta **+2,79 MB en cada nivel**, medido generando con y sin ella.
+      **Generado y comprobado, NO colgado.**
+- [ ] **Subir el tope de alejar.** El paquete ya llega al z0 y el tope sigue donde estaba:
+      `acercamientoMinimo = 1 / 16` en `app/lib/pantallas/rutas/vista/croquis_de_ruta.dart:530`.
+      **Lo que se propone es `1 / 64`**, que son dos pulsaciones más del botón de alejar (el
+      paso es `2.0`) y deja el mapa en z6 partiendo del z12 típico de una ruta de ciudad: ahí
+      la pantalla son ~2.500 km y sale Cuba entera con Florida, Yucatán, Jamaica y La
+      Española. Se para en z6 y no más abajo porque z6 es el último zoom donde **todas** las
+      teselas del mundo existen de verdad en el paquete; más abajo también hay dato (z5, z4…),
+      pero la ruta se queda en un punto de dos píxeles y no dice nada.
 - [ ] **Rotular las calles** (§9).
+- [ ] **Que el mar del antepasado suba más de cuatro niveles.** `saltosParaElMar = 4`
+      (`app/lib/mapa/fondo_del_paquete.dart:64`) se puso cuando subir al z0 significaba «lo
+      que no es Cuba es mar», o sea Florida azul. Con la costa del mundo en z0–z6 ese motivo
+      ya no vale para los zooms de abajo, y subirlo llevaría el mar hasta z11 y z12 en todo el
+      planeta. No se toca aquí porque ese fichero es de otra tarea.
+- [ ] **La tierra de al lado a partir de z7** (§3-ter, «lo que esto NO arregla»): la tesela
+      z7 34/55 lleva La Habana y Cayo Hueso, y Cayo Hueso sale de color de mar. Pasaba antes
+      y en todos los zooms; ahora sólo de z7 para arriba.
 - [ ] **Recortar por provincia.** Hoy se baja Cuba entera porque es lo que pidió Jose y porque
       25,8 MB lo aguanta cualquiera. El formato ya permite servir sólo la zona que se mira, sin
       bajarse el fichero: el día que haga falta, no hay que cambiar el aparato.
@@ -854,7 +1097,7 @@ Y tres de más adelante:
 
 ```bash
 # el generador
-cd herramientas/mapa-cuba && go vet ./... && go test ./...
+cd herramientas/mapa-cuba && go build ./... && go vet ./... && timeout 600 go test ./...
 
 # el aparato (timeout 300 SIEMPRE: es lo único que convierte un cuelgue en un fallo)
 cd app && timeout 300 flutter test test/mapa

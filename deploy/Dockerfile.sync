@@ -21,6 +21,18 @@ RUN apk add --no-cache git
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 
+# SQLC, PARA COMPROBAR QUE EL CÓDIGO GENERADO ES EL DE LAS CONSULTAS — 22/09/2026
+#
+# Capa propia y arriba del todo: sólo se rehace al cambiar de versión, no en cada
+# despliegue. Lo que tapa: `internal/store/sqlc/*.sql.go` está GENERADO, y editarlo a mano
+# deja `vet`, `test` y `build` en verde mientras lo que corre ya no es lo que dicen las
+# consultas ni lo que vigilan las guardas, que leen los `.sql`. `comprobar.sh` hace este
+# diff, pero `comprobar.sh` no corre en el servidor y un push reconstruye esta imagen sin
+# preguntarle nada a esta máquina — que es EXACTAMENTE cómo llegó aquí la mutación del
+# 16/09 que se cuenta más abajo.
+ARG SQLC_VERSION=v1.31.1
+RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}
+
 COPY sync/go.mod sync/go.sum ./
 RUN go mod download
 
@@ -36,6 +48,11 @@ ENV CGO_ENABLED=0
 # anulado y la cola del tablero volvía a contestar 401.
 #
 # Las pruebas SÍ la cazaban. Nadie se lo preguntó a nadie. Costaba diez segundos aquí.
+#
+# Y ANTES QUE LAS PRUEBAS, EL DIFF: una prueba que lee el `.sql` no se entera de que el
+# `.sql.go` dice otra cosa. Si no cuadran, esta imagen no construye.
+RUN sqlc diff
+
 RUN go vet ./... && go test ./...
 
 RUN go build -trimpath -ldflags="-s -w" -o /out/sync ./cmd/sync

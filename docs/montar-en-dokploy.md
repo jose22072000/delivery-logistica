@@ -7,7 +7,9 @@ pegar en la interfaz de Dokploy.
 
 - [x] Repositorio: `github.com/jose22072000/delivery-logistica`, rama `main`
 - [x] Bases creadas en el Postgres del VPS: `procovar_reparto` y `procovar_reparto_sync`
-- [x] Migraciones aplicadas: 16 tablas y 5 tablas
+- [x] Migraciones aplicadas: 16 tablas y 5 tablas — **y cada migración nueva hay que
+      aplicarla a mano ANTES del Deploy**: el procedimiento entero está en
+      `docs/despliegue.md` §2.1, y por qué no hay una Application para esto, en §2.9
 - [x] Las cinco imágenes construyen
 - [x] **Los cuatro servicios en Dokploy**, con sus `applicationId` y sus nombres completos:
 
@@ -181,8 +183,10 @@ ese punto del final.
 - **`reparto-api` va en UNA sola réplica.** Su bus de avisos en vivo es en memoria del
   proceso, así que con dos réplicas los avisos dejan de llegar a la mitad de la gente
   **sin dar ningún error**. Está dicho en la cabecera de `internal/api/eventos.go`.
-- **El orden importa**: primero la api, después el sync y el espejo (los dos la
-  necesitan), y la web al final.
+- **El orden importa**: primero **las migraciones** (`docs/despliegue.md` §2.1, a mano y
+  fuera de Dokploy), después la api, después el sync y el espejo (los dos la necesitan), y
+  la web al final. Desde el 21/09/2026 la api y el sync **no arrancan con la base
+  atrasada**, así que ese primer paso ya no es una recomendación.
 
 ## Lo último, y con cuidado
 
