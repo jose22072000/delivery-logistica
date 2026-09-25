@@ -106,11 +106,23 @@ class BarraDeFiltros extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          busqueda,
-          if (filtros.isNotEmpty) ...[
-            SizedBox(height: estrecho ? Aire.sm : Aire.md),
-            if (estrecho) _Rejilla(filtros: filtros) else _Fila(filtros: filtros),
-          ],
+          // EN PANTALLA ANCHA LA CAJA DE BUSCAR VA EN LA MISMA FILA QUE LOS
+          // FILTROS, no en una suya.
+          //
+          // La primera versión la ponía siempre sola y a todo el ancho. En un
+          // teléfono es lo correcto —va sola de verdad—, pero en un monitor
+          // dejaba la caja de lado a lado y los filtros cayendo debajo de uno
+          // en uno, gastando tres líneas para lo que cabe en una. Jose lo vio
+          // enseguida: «el responsive sigue mal, mira, los filtros pasaron
+          // abajo».
+          if (estrecho) ...[
+            busqueda,
+            if (filtros.isNotEmpty) ...[
+              const SizedBox(height: Aire.sm),
+              _Rejilla(filtros: filtros),
+            ],
+          ] else
+            _Fila(filtros: [busqueda, ...filtros]),
           for (final ancho in anchoCompleto) ...[
             SizedBox(height: estrecho ? Aire.sm : Aire.md),
             ancho,

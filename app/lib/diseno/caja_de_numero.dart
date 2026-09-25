@@ -238,10 +238,27 @@ class _CajaDeNumeroState extends State<CajaDeNumero> {
         errorText: _elFallo,
         errorStyle: Tipos.texto(tamano: 12),
       ),
-      // Escribir borra el aviso: quien ya está corrigiendo no necesita que le
-      // sigan diciendo lo que hizo mal.
-      onChanged: (_) {
-        if (_elFallo != null) setState(() => _elFallo = null);
+      // UN NEGATIVO SE CANTA AL ESCRIBIRLO, sin esperar a soltar el campo.
+      //
+      // El resto de avisos esperan a que el campo pierda el foco, y con razón:
+      // un «1.» a medio teclear no es un error, es alguien escribiendo. Pero el
+      // signo menos no admite dudas —un tope de kilómetros negativo no existe,
+      // escriba lo que escriba detrás—, y esperar al foco no vale en un
+      // teléfono: se teclea, se baja el teclado y el campo NUNCA lo pierde. Lo
+      // vi probando la 1.0.7 en el móvil de Jose —escribí `-5` y ahí se quedó,
+      // sin aviso y sin filtrar— y él lo dijo en cuanto lo vio:
+      //
+      //     «mal, ese foco no dio q ese esta invalido, ese menos, por q los km
+      //      no pueden ser negativos»
+      //
+      // Aquí sólo se ENSEÑA el motivo; no se toca lo tecleado. Devolver el
+      // campo a su valor anterior en mitad de la escritura le quitaría de las
+      // manos lo que está poniendo, y eso es peor que el aviso tardío. La
+      // corrección de verdad sigue en `_aplicar`, al soltar.
+      onChanged: (texto) {
+        final negativo = texto.trimLeft().startsWith('-');
+        final fallo = negativo ? CajaDeNumero.noPuedeSerNegativo : null;
+        if (fallo != _elFallo) setState(() => _elFallo = fallo);
       },
       onSubmitted: (_) => _aplicar(),
     );

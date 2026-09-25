@@ -22,6 +22,7 @@ import '../../../impresion/vista_previa.dart';
 import '../../../diseno/anchos.dart';
 import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/caja_de_numero.dart';
+import '../../../diseno/numeros.dart';
 import '../../../diseno/rango_de_fechas.dart';
 import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
@@ -38,7 +39,6 @@ import '../datos/repositorio_rutas.dart';
 import '../datos/zona_en_el_asistente.dart';
 import '../estado/proveedores_rutas.dart';
 import 'aviso_de_rechazo.dart';
-import 'selector_de_zona.dart';
 
 class AsistenteNuevaRuta extends ConsumerStatefulWidget {
   const AsistenteNuevaRuta({super.key});
@@ -166,7 +166,6 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   /// aplica encima con `soloDeLaZona`. No baja a la consulta a proposito —lo
   /// que esta puesto en una zona lo sabe el tablero, no la tabla de pedidos— y
   /// asi la lista de zonas y la de disponibles no se pueden contradecir.
-  String? _zonaId;
 
   /// ¿El camion del paso 3 lo eligio una PERSONA?
   ///
@@ -245,10 +244,6 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     _salida = null;
     _elegidos.clear();
     _filtros = FiltrosDisponibles(sucursalId: _sucursalId);
-    // Y la zona tampoco: las zonas del tablero son de una sucursal, y dejar
-    // puesta la de la otra acotaria la lista a unos pedidos que ya no existen
-    // aqui —o, peor, la dejaria en blanco sin que se vea por que.
-    _zonaId = null;
     _camionAMano = false;
   });
 
@@ -298,11 +293,15 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     // la lista vuelve a ser la entera. Guardada, seguiria acotando por una zona
     // que ya no existe, y eso son pedidos que no salen sin ninguna razon a la
     // vista.
-    final zona = ref
-        .watch(zonasParaArmarProvider(_sucursalId))
-        .where((z) => z.id == _zonaId)
-        .firstOrNull;
-    final disponibles = soloDeLaZona(lista.value ?? const <Pedido>[], zona);
+    // LAS ZONAS YA NO ACOTAN LA LISTA: LA AGRUPAN.
+    //
+    // Antes, elegir una zona se llevaba por delante todo lo demas —la lista
+    // pasaba a ser «solo lo de esta zona»— y eso chocaba con los otros filtros
+    // sin decirlo. Ahora la lista es la de siempre y las zonas salen DENTRO,
+    // cada una plegable y con su casilla para marcarla entera: lo preparado en
+    // el tablero se ve donde se elige, sin esconder el resto.
+    final zonas = ref.watch(zonasParaArmarProvider(_sucursalId));
+    final disponibles = lista.value ?? const <Pedido>[];
     final peso = _peso;
     final capacidad = _vehiculo?.capacity;
     final sobrepeso = capacidad != null && peso > capacidad;
@@ -452,6 +451,7 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
                   hijo: _pasoPedidos(
                     sucursales: sucursales,
                     disponibles: disponibles,
+                    zonas: zonas,
                     cargando: lista.isLoading,
                     peso: peso,
                     capacidad: capacidad,
@@ -739,44 +739,6 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   /// zonas en un camion, y quitarle a alguien lo que habia marcado porque toco
   /// un filtro es la clase de cosa de la que uno se entera cargando. Lo que
   /// queda elegido y fuera de la lista lo dice la linea de resumen, que ya
-  /// contaba ese caso.
-  void _elegirLaZona(ZonaParaArmar? zona) {
-    if (zona == null) {
-      setState(() => _zonaId = null);
-      return;
-    }
-
-    final camion = camionDeLaZona(
-      zona: zona,
-      elegidoId: _vehiculoId,
-      elegidoNombre: _vehiculo?.name,
-      elegidoAMano: _camionAMano,
-      vehiculosDeLaRuta: vehiculosDeLaSucursal(
-        ref.read(vehiculosProvider).value ?? const <Vehiculo>[],
-        _sucursalId,
-      ),
-    );
-
-    setState(() {
-      _zonaId = zona.id;
-      if (camion.cambia) {
-        _vehiculoId = camion.vehiculoId;
-        // Lo puso la zona, no una persona: la siguiente zona puede pisarlo.
-        _camionAMano = false;
-      }
-    });
-
-    _meterLaZona(
-      zona.nombre,
-      zona.ids,
-      // La lista SIN acotar: acotarla es lo que este mismo gesto acaba de
-      // hacer, y repartir sobre ella dejaria fuera todo lo que trajera la zona
-      // anterior.
-      ref.read(disponiblesProvider(_filtros)).value ?? const <Pedido>[],
-      delCamion: camion.parte,
-      devuelveElCamion: camion.devuelve,
-    );
-  }
 
   /// DESHACER el cambio de camion que trajo la zona.
   ///
@@ -837,22 +799,21 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     final controles = <Widget>[
       // LA ZONA DEL TABLERO, EL PRIMERO DE LOS FILTROS.
       //
-      // Para eso se arma el tablero: el estudio de que va junto con que ya se
-      // hizo alli, con el mapa, los kilometros al almacen y el peso delante.
-      // Volver a elegir los mismos pedidos uno a uno aqui es hacer dos veces el
-      // mismo trabajo, y la segunda vez peor, porque aqui no se ve la cercania.
+      // LAS ZONAS YA NO SON UN FILTRO. Estan DENTRO de la lista de pedidos, cada
+      // una plegable y con su casilla para marcarla entera — ver
+      // `_agruparPorZonas` mas abajo. Jose, 25/09/2026:
       //
-      // Va el primero porque no es un filtro mas: los demas estrechan la lista
-      // y este ademas **la marca entera y trae el camion**. Jose, 16/09/2026:
-      // «no me deja elegir lo q tengo en el tablero q para eso es para yo hacer
-      // el tablero con los pedidos... sin necesidad de estar eligiendolos en
-      // uno a uno y ya se hizo el estudio antes»; y 22/09/2026, «ya selecciono
-      // los pedidos de ese tablero ya tendria el camion preparado».
-      SelectorDeZonaDelTablero(
-        sucursalId: _sucursalId,
-        zonaId: _zonaId,
-        alElegir: _elegirLaZona,
-      ),
+      //     «quitalo de filtro, no lo queria como filtro [...] lo quiero junto
+      //      a los pedidos, como los pedidos, pero q salga un dropdown con las
+      //      zonas y dentro sus pedidos con un checkbox para marcar todos los
+      //      de esa zona: es como tener ya los pedidos preparados»
+      //
+      // Y tenia razon en el fondo, no solo en la forma: como filtro ESCONDIA lo
+      // demas y chocaba con los otros filtros. Con «Solo con domicilio» puesto
+      // —que viene por defecto— elegir una zona de 3 pedidos dejaba la lista en
+      // «No hay pedidos disponibles para rutear», con el selector diciendo «3
+      // pedidos · 61 kg» diez pixeles mas arriba. Dos verdades en la misma
+      // pantalla y ninguna explicando a la otra.
       // EL CALENDARIO DE LA CASA, no `showDatePicker`. El mismo motivo y las
       // mismas reglas que el del paso 3, unos cientos de lineas mas arriba: no
       // hay modales en esta aplicacion, y las cuatro ventanas de fechas que
@@ -950,9 +911,6 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         onPressed: () {
           // La caja de buscar se vacia sola: `limpios()` deja `q: ''` y la
           // pieza compartida se pone al dia con lo que venga de fuera.
-          // La zona es un filtro, y un «Limpiar» que la dejara puesta seria
-          // mentira: la lista seguiria acotada sin nada que lo dijera.
-          setState(() => _zonaId = null);
           // **Vuelve a `domicilio = 1`**, no a «sin nada»: una ruta se arma
           // con lo que hay que llevar a casa, y ese es el arranque del pliego.
           _ponerFiltros(_filtros.limpios());
@@ -980,9 +938,68 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
     );
   }
 
+  /// LA LISTA, EN ORDEN: primero las zonas del tablero con sus pedidos dentro,
+  /// y despues lo que no esta en ninguna.
+  ///
+  /// Devuelve una lista mezclada de [ZonaParaArmar] (cabeceras) y [Pedido]
+  /// (filas) para que el `ListView` siga siendo perezoso: con 295 disponibles,
+  /// construir de golpe las 295 filas para ensenar seis es justo lo que esta
+  /// caja vino a evitar.
+  ///
+  /// Una zona cuyos pedidos NO estan en la lista de ahora —los tapo un filtro,
+  /// o ya van en otra ruta— no sale: una cabecera que dice «3 pedidos» encima
+  /// de cero filas es la contradiccion que teniamos antes, cambiada de sitio.
+  List<Object> _agruparPorZonas(
+    List<ZonaParaArmar> zonas,
+    List<Pedido> disponibles,
+  ) {
+    final enAlgunaZona = <String>{};
+    final filas = <Object>[];
+
+    for (final zona in zonas) {
+      final suyos = [
+        for (final p in disponibles)
+          if (zona.ids.contains(p.id)) p,
+      ];
+      if (suyos.isEmpty) continue;
+      for (final p in suyos) {
+        enAlgunaZona.add(p.id);
+      }
+      filas.add(zona);
+      // SIEMPRE DESPLEGADAS. Se probó con las zonas plegadas y Jose lo cortó en
+      // seco: «las zonas primero, siempre desplegadas y ya». Y tiene razón —
+      // plegada, una zona obliga a un toque más para ver lo que lleva, y lo que
+      // lleva es justo lo que hay que mirar antes de cargarlo en el camión.
+      filas.addAll(suyos);
+    }
+
+    for (final p in disponibles) {
+      if (!enAlgunaZona.contains(p.id)) filas.add(p);
+    }
+    return filas;
+  }
+
+  /// El camion previsto de la zona, si lo tiene y no se eligio otro a mano.
+  void _traerElCamionDeLaZona(ZonaParaArmar zona) {
+    final camion = camionDeLaZona(
+      zona: zona,
+      elegidoId: _vehiculoId,
+      elegidoNombre: _vehiculo?.name,
+      elegidoAMano: _camionAMano,
+      vehiculosDeLaRuta: vehiculosDeLaSucursal(
+        ref.read(vehiculosProvider).value ?? const <Vehiculo>[],
+        _sucursalId,
+      ),
+    );
+    if (camion.vehiculoId != null && camion.vehiculoId != _vehiculoId) {
+      _vehiculoId = camion.vehiculoId;
+    }
+  }
+
   Widget _pasoPedidos({
     required List<Sucursal> sucursales,
     required List<Pedido> disponibles,
+    required List<ZonaParaArmar> zonas,
     required bool cargando,
     required double peso,
     required double? capacidad,
@@ -1013,14 +1030,55 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
       // `ListView` y no una `Column`: con 295 pedidos una `Column` construye
       // las 295 filas para enseñar seis. Y `shrinkWrap` para que con tres
       // pedidos la caja mida lo que miden los tres, no los 320 px del tope.
+      // LO PREPARADO EN EL TABLERO, ARRIBA Y PLEGADO.
+      //
+      // Cada zona es una cabecera con su casilla: marcarla mete TODOS sus
+      // pedidos de una, que es justo lo que el tablero vino a ahorrar. Debajo,
+      // plegados, sus pedidos, por si hay que quitar alguno. Y al final los que
+      // no estan en ninguna zona, que siguen saliendo como siempre.
+      final filas = _agruparPorZonas(zonas, disponibles);
+
       dentroDeLaCaja = ListView.builder(
         controller: _desplazamientoDeLaLista,
         primary: false,
         padding: const EdgeInsets.symmetric(vertical: Aire.xs),
         shrinkWrap: true,
-        itemCount: disponibles.length,
+        itemCount: filas.length,
         itemBuilder: (contexto, i) {
-          final pedido = disponibles[i];
+          final fila = filas[i];
+
+          if (fila is ZonaParaArmar) {
+            final suyos = disponibles
+                .where((p) => fila.ids.contains(p.id))
+                .toList();
+            final marcados = suyos.where((p) => _elegidos.containsKey(p.id));
+            return _CabeceraDeZona(
+              zona: fila,
+              enLaLista: suyos.length,
+              marcados: marcados.length,
+              alMarcarTodos: () {
+                // DESMARCAR es simple: fuera los suyos y ya.
+                if (marcados.length == suyos.length) {
+                  setState(() {
+                    for (final p in suyos) {
+                      _elegidos.remove(p.id);
+                    }
+                  });
+                  return;
+                }
+                // MARCAR pasa por `_meterLaZona`, que es quien sabe lo que NO
+                // puede entrar —lo que ya va en otra ruta, lo que se archivo,
+                // lo que no cabe en el camion— y, sobre todo, quien lo DICE con
+                // su numero y su motivo. Meter nueve de doce en silencio es la
+                // peor version de esto: se cree que va la zona entera y se
+                // descubre en el almacen, cargando.
+                _traerElCamionDeLaZona(fila);
+                _meterLaZona(fila.nombre, fila.ids, disponibles);
+              },
+            );
+          }
+
+          final pedido = fila as Pedido;
           return _FilaDisponible(
             pedido: pedido,
             renglones: renglones[pedido.id] ?? const <RenglonConPeso>[],
@@ -1049,7 +1107,12 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         _BarraDePeso(peso: peso, capacidad: capacidad),
         const SizedBox(height: Aire.md),
         Text(
-          'Pedidos disponibles (${disponibles.length})',
+          // «y zonas» porque la lista ya no es solo pedidos sueltos: arriba van
+          // las zonas del tablero y debajo lo que no esta en ninguna. Cada
+          // pedido sale UNA vez —o dentro de su zona, o en el rabo—, que es lo
+          // que pidio Jose: «ya los disponibles no se pueden repetir, o estan
+          // en una zona o sin asignar; asi vemos todo mas rapido».
+          'Pedidos disponibles y zonas (${disponibles.length})',
           style: Tipos.texto(tamano: 13, peso: FontWeight.w600),
         ),
         const SizedBox(height: Aire.xs),
@@ -1790,6 +1853,96 @@ class _BotonDePreDespacho extends StatelessWidget {
           elegidos == 0
               ? 'Pre-despacho — elige pedidos primero'
               : 'Pre-despacho de los $elegidos elegidos',
+        ),
+      ),
+    );
+  }
+}
+
+/// LA CABECERA DE UNA ZONA DEL TABLERO, dentro de la lista de disponibles.
+///
+/// Es lo que convierte «elegir 12 pedidos uno a uno» en «marcar una zona». El
+/// tablero es la preparación del día —se hace con el mapa delante, los
+/// kilómetros al almacén y el peso— y aquí es donde se cobra ese trabajo.
+/// Jose, 25/09/2026:
+///
+///     «lo quiero junto a los pedidos, como los pedidos, pero q salga un
+///      dropdown con las zonas y dentro sus pedidos con un checkbox para marcar
+///      todos los de esa zona: es como tener ya los pedidos preparados»
+///
+/// La casilla tiene TRES estados y los tres dicen algo distinto: vacía —no hay
+/// nada de esta zona—, llena —va entera— y a medias, que es la que importa:
+/// alguien quitó uno a mano, o uno no cabía en el camión. Una casilla de dos
+/// estados diría «no está entera» y «no hay nada» con el mismo dibujo.
+class _CabeceraDeZona extends StatelessWidget {
+  const _CabeceraDeZona({
+    required this.zona,
+    required this.enLaLista,
+    required this.marcados,
+    required this.alMarcarTodos,
+  });
+
+  final ZonaParaArmar zona;
+
+  /// Cuántos de la zona están en la lista de AHORA. Puede ser menos que
+  /// `zona.pedidos`: alguno pudo entrar en otra ruta desde que se armó el
+  /// tablero, y ése ya no se puede repartir hoy.
+  final int enLaLista;
+  final int marcados;
+  final VoidCallback alMarcarTodos;
+
+  @override
+  Widget build(BuildContext context) {
+    final todos = marcados == enLaLista && enLaLista > 0;
+    final algunos = marcados > 0 && !todos;
+
+    return Material(
+      color: Colores.papel,
+      child: InkWell(
+        onTap: alMarcarTodos,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Aire.sm,
+            vertical: Aire.sm,
+          ),
+          child: Row(
+            children: [
+              Checkbox(
+                value: algunos ? null : todos,
+                tristate: true,
+                onChanged: (_) => alMarcarTodos(),
+              ),
+              const SizedBox(width: Aire.xs),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      zona.nombre,
+                      style: Tipos.texto(tamano: 14, peso: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      // El camión va aquí y no en el nombre: es lo que hace que
+                      // marcar la zona ahorre además el paso 3. Cuando no hay,
+                      // se dice que no hay — un hueco se lee como «no lo sé».
+                      '$enLaLista ${enLaLista == 1 ? 'pedido' : 'pedidos'} · '
+                      '${Numeros.kgRedondeado(zona.pesoKg)} · '
+                      '${zona.vehiculoNombre == null ? 'sin camión previsto' : 'camión: ${zona.vehiculoNombre}'}',
+                      style: Tipos.texto(
+                        tamano: 11,
+                        color: Colores.tintaSuave,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

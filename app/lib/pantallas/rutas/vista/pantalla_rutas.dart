@@ -41,6 +41,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../diseno/anchos.dart';
 import '../../../diseno/barra_de_filtros.dart';
 import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/pestanas.dart';
@@ -126,29 +127,77 @@ class PantallaRutas extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // LA CABECERA: EL TÍTULO A UN LADO Y EL BOTÓN AL OTRO.
+            //
+            // Antes los tres —título, reloj y botón— colgaban del mismo `Wrap`,
+            // así que el botón salía pegado al título en escritorio y, en un
+            // teléfono, caído en una esquina con el ancho de su texto. Jose,
+            // 25/09/2026: «el botón para crear ruta sale al lado en vez de al
+            // otro lado, y en móvil en una esquina y no todo el tamaño que
+            // lleva, le falta width».
+            //
+            // Ahora: en pantalla ancha el botón se va al extremo derecho, que es
+            // donde se busca la acción; en el teléfono baja a su propia línea y
+            // ocupa TODO el ancho, que es lo que lo hace fácil de acertar con el
+            // pulgar y lo que ya hacen los demás botones de la casa.
             Padding(
               padding: const EdgeInsets.all(Aire.lg),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  const Text(
+              child: Builder(
+                builder: (contexto) {
+                  final estrecho =
+                      MediaQuery.sizeOf(contexto).width < Anchos.idioma;
+
+                  const titulo = Text(
                     'Planificador de Rutas',
                     style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                  );
                   // El reloj de datos de las colecciones de esta pantalla. La
-                  // franja del armazon da la frescura global; esta da la de lo que
-                  // se esta mirando.
-                  const BarraDeDatos(colecciones: ColeccionesDePantalla.rutas),
-                  FilledButton(
+                  // franja del armazon da la frescura global; esta da la de lo
+                  // que se esta mirando.
+                  const reloj = BarraDeDatos(
+                    colecciones: ColeccionesDePantalla.rutas,
+                  );
+                  final boton = FilledButton(
                     onPressed: () => abrirCajon<void>(
                       context,
                       (_) => const AsistenteNuevaRuta(),
                     ),
                     child: const Text('+ Nueva Ruta'),
-                  ),
-                ],
+                  );
+
+                  if (estrecho) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [titulo, reloj],
+                        ),
+                        const SizedBox(height: Aire.md),
+                        // `stretch` de la columna: el botón a todo lo ancho.
+                        boton,
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    children: [
+                      const Flexible(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [titulo, reloj],
+                        ),
+                      ),
+                      const SizedBox(width: Aire.md),
+                      const Spacer(),
+                      boton,
+                    ],
+                  );
+                },
               ),
             ),
             // LAS TRES PESTANAS, SEGUN EL SITIO QUE HAYA: carrusel en un

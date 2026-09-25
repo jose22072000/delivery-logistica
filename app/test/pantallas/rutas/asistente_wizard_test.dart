@@ -199,7 +199,7 @@ void main() {
       await pintar(tester, pantalla: const Size(1440, 1100));
       await llegarAlPaso4(tester);
 
-      expect(find.text('Pedidos disponibles (300)'), findsOneWidget);
+      expect(find.text('Pedidos disponibles y zonas (300)'), findsOneWidget);
 
       // LA CAJA NO CRECE CON LA LISTA. Sin el tope, 300 filas son más de 20.000
       // px y todo lo que va debajo se va con ellas.
