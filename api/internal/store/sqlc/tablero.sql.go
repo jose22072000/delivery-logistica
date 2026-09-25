@@ -307,6 +307,21 @@ WHERE
     -- La misma línea que la lista, y en el mismo sitio para que se vean juntas al
     -- compararlas a ojo.
     AND NOT o.archivado
+    -- SIN DOMICILIO NO SE COLOCA: NO HAY NADA QUE LLEVAR A CASA DE NADIE.
+    --
+    -- El tablero es la preparacion de las rutas, y una ruta reparte a domicilio.
+    -- Sin este filtro, con los datos reales del 25/09/2026, Santiago ofrecia 246
+    -- pedidos sin colocar de los cuales **183 no eran de domicilio**: tres de
+    -- cada cuatro. El logistico podia armar una zona entera con ellos —y se
+    -- armo, probandolo—, y despues el asistente de rutas no se la aceptaba,
+    -- porque alli el filtro si estaba. Preparar el dia para que luego no sirva
+    -- es peor que no poder prepararlo. Jose, 25/09/2026: «sin domicilio no los
+    -- pongas, por que eso no lleva domicilio».
+    --
+    -- ` + "`" + `IS TRUE` + "`" + ` y no ` + "`" + `= true` + "`" + ` a proposito: la columna admite NULL —un pedido que
+    -- nadie ha marcado todavia— y ` + "`" + `AND o.requiere_domicilio` + "`" + ` con NULL deja la
+    -- fila fuera igual, pero leyendolo no se sabe. Asi se lee.
+    AND o.requiere_domicilio IS TRUE
     AND NOT EXISTS (SELECT 1 FROM board_placements p WHERE p.order_id = o.id)
     AND o.branch_id = $1::uuid
     AND ($2::uuid IS NULL OR o.branch_id = $2::uuid)
@@ -859,6 +874,21 @@ WHERE
     -- ` + "`" + `archivado` + "`" + ` es el borrado blando de PEDIDO y son la INMENSA MAYORIA del historico
     -- (50.810 de 55.622), asi que olvidarlo no es un detalle: es ofrecer el archivo entero.
     AND NOT o.archivado
+    -- SIN DOMICILIO NO SE COLOCA: NO HAY NADA QUE LLEVAR A CASA DE NADIE.
+    --
+    -- El tablero es la preparacion de las rutas, y una ruta reparte a domicilio.
+    -- Sin este filtro, con los datos reales del 25/09/2026, Santiago ofrecia 246
+    -- pedidos sin colocar de los cuales **183 no eran de domicilio**: tres de
+    -- cada cuatro. El logistico podia armar una zona entera con ellos —y se
+    -- armo, probandolo—, y despues el asistente de rutas no se la aceptaba,
+    -- porque alli el filtro si estaba. Preparar el dia para que luego no sirva
+    -- es peor que no poder prepararlo. Jose, 25/09/2026: «sin domicilio no los
+    -- pongas, por que eso no lleva domicilio».
+    --
+    -- ` + "`" + `IS TRUE` + "`" + ` y no ` + "`" + `= true` + "`" + ` a proposito: la columna admite NULL —un pedido que
+    -- nadie ha marcado todavia— y ` + "`" + `AND o.requiere_domicilio` + "`" + ` con NULL deja la
+    -- fila fuera igual, pero leyendolo no se sabe. Asi se lee.
+    AND o.requiere_domicilio IS TRUE
     AND NOT EXISTS (SELECT 1 FROM board_placements p WHERE p.order_id = o.id)
     -- El ` + "`" + `::uuid` + "`" + ` no es adorno: ` + "`" + `orders.branch_id` + "`" + ` admite NULL, y sin el molde sqlc daría
     -- el parámetro como anulable en Go. Uno vacío dejaría la comparación en NULL y la lista

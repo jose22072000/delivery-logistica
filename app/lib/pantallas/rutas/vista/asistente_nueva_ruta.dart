@@ -946,9 +946,19 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
   /// construir de golpe las 295 filas para ensenar seis es justo lo que esta
   /// caja vino a evitar.
   ///
-  /// Una zona cuyos pedidos NO estan en la lista de ahora —los tapo un filtro,
-  /// o ya van en otra ruta— no sale: una cabecera que dice «3 pedidos» encima
-  /// de cero filas es la contradiccion que teniamos antes, cambiada de sitio.
+  /// UNA ZONA SIN PEDIDOS VISIBLES SALE IGUAL, Y DICE POR QUE.
+  ///
+  /// La primera version la escondia, con el argumento de que una cabecera que
+  /// dice «3 pedidos» encima de cero filas es una contradiccion. El argumento
+  /// era bueno y la conclusion mala: escondida, el trabajo del tablero
+  /// desaparece sin dejar rastro. Probado en el telefono de Jose — preparo la
+  /// zona «Centro» con 3 pedidos, entro a armar la ruta y no habia ninguna
+  /// zona, porque el filtro «Solo con domicilio» que viene puesto por defecto
+  /// se los comia.
+  ///
+  /// Ni esconder ni mentir: la zona sale, con su casilla apagada y con la
+  /// razon escrita —«los 3 estan fuera por los filtros»—. Es la regla de la
+  /// casa: nada se descarta en silencio.
   List<Object> _agruparPorZonas(
     List<ZonaParaArmar> zonas,
     List<Pedido> disponibles,
@@ -961,7 +971,6 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         for (final p in disponibles)
           if (zona.ids.contains(p.id)) p,
       ];
-      if (suyos.isEmpty) continue;
       for (final p in suyos) {
         enAlgunaZona.add(p.id);
       }
@@ -1057,6 +1066,9 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
               enLaLista: suyos.length,
               marcados: marcados.length,
               alMarcarTodos: () {
+                // Sin ninguno a la vista no hay nada que marcar. La cabecera ya
+                // dice por que, y ahi el gesto util es quitar los filtros.
+                if (suyos.isEmpty) return;
                 // DESMARCAR es simple: fuera los suyos y ya.
                 if (marcados.length == suyos.length) {
                   setState(() {
@@ -1928,7 +1940,7 @@ class _CabeceraDeZona extends StatelessWidget {
                       // El camión va aquí y no en el nombre: es lo que hace que
                       // marcar la zona ahorre además el paso 3. Cuando no hay,
                       // se dice que no hay — un hueco se lee como «no lo sé».
-                      '$enLaLista ${enLaLista == 1 ? 'pedido' : 'pedidos'} · '
+                      '${zona.pedidos} ${zona.pedidos == 1 ? 'pedido' : 'pedidos'} · '
                       '${Numeros.kgRedondeado(zona.pesoKg)} · '
                       '${zona.vehiculoNombre == null ? 'sin camión previsto' : 'camión: ${zona.vehiculoNombre}'}',
                       style: Tipos.texto(
@@ -1938,6 +1950,19 @@ class _CabeceraDeZona extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    // LO QUE FALTA, DICHO. Si los filtros de arriba se están
+                    // comiendo pedidos de esta zona, se dice cuántos: sin esta
+                    // línea la zona parecería tener menos de lo que preparó
+                    // quien la armó, y eso es exactamente lo que no puede pasar.
+                    if (enLaLista < zona.pedidos)
+                      Text(
+                        enLaLista == 0
+                            ? 'Los ${zona.pedidos} están fuera por los filtros de arriba'
+                            : '${zona.pedidos - enLaLista} fuera por los filtros de arriba',
+                        style: Tipos.texto(tamano: 11, color: Colores.ambar),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                   ],
                 ),
               ),
