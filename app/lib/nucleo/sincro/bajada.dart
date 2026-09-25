@@ -268,8 +268,21 @@ class Bajada {
     final sucursales = (datos['sucursales'] as List<Object?>?) ?? const [];
 
     var puestos = 0;
+    // LOS QUE VIENEN, para saber después cuáles ya no están.
+    //
+    // AQUÍ HABÍA UN `delete` DE TODA LA TABLA ANTES DE RELLENARLA, y costó una
+    // pantalla en blanco que acusaba en falso. Mientras esa transacción corría,
+    // la tabla estaba vacía, y el Tablero —que pregunta desde qué almacén mide
+    // en cuanto se pinta— leía justo ahí y decía «Camagüey no tiene ningún
+    // almacén con coordenadas» sobre una sucursal que lo tiene. Y no era un
+    // caso raro: **el ciclo entero corre en cada cambio de sucursal**, así que
+    // pasaba cada vez que Jose cambiaba en la barra de arriba (25/09/2026).
+    //
+    // Se reemplaza igual que antes —Accesos no da marca de cambio ni dice qué
+    // borró, así que la lista que llega ES la verdad—, pero sin el hueco: se
+    // ponen todos y **después** se quita lo que no vino.
+    final vistos = <String>[];
     await _base.transaction(() async {
-      await _base.delete(_base.warehouses).go();
       for (final cruda in sucursales.whereType<Map<Object?, Object?>>()) {
         final codigo = _texto(cruda['codigo']) ?? '';
         final lista = (cruda['almacenes'] as List<Object?>?) ?? const [];
@@ -290,8 +303,21 @@ class Bajada {
                   activo: Value(a['activo'] != false),
                 ),
               );
+          vistos.add(id);
           puestos++;
         }
+      }
+      // LO QUE YA NO VIENE SE QUITA, pero sólo si vino algo.
+      //
+      // Una respuesta vacía no es una respuesta buena (`CLAUDE.md` §3): Accesos
+      // caído, un despliegue a medias o un alcance mal resuelto devuelven
+      // `{"sucursales": []}` con un 200 limpio, y con el `delete` de antes eso
+      // borraba los ocho almacenes de un aparato que estaba perfectamente. Sin
+      // almacén no hay desde dónde medir, o sea: sin Tablero.
+      if (vistos.isNotEmpty) {
+        await (_base.delete(
+          _base.warehouses,
+        )..where((w) => w.id.isNotIn(vistos))).go();
       }
       await _marcar(const [Colecciones.almacenes], hasta: null, completa: true);
     });

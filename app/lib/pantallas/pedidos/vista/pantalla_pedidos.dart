@@ -505,15 +505,27 @@ class _Cuerpo extends ConsumerWidget {
     if (filas == null) return const EstadoVacio('Cargando...');
 
     if (filas.isEmpty) {
+      // VACÍA POR UN FILTRO NO ES VACÍA DE VERDAD, Y NO SE DICEN IGUAL.
+      //
+      // Antes salía siempre «Aún no hay pedidos», con filtros puestos o sin
+      // ellos. Con un filtro que no casa eso es mentira: hay 246 pedidos, lo que
+      // no hay es ninguno que cuadre. Quien lo lee se queda pensando que la
+      // bajada falló, cuando lo único que pasa es que escribió mal una búsqueda.
+      // Visto el 25/09/2026 buscando algo que no existe: la lista decía «0
+      // pedidos» arriba y «aún no hay pedidos» en medio.
+      //
+      // El botón de quitar los filtros ya estaba y salvaba la situación; lo que
+      // faltaba era que la frase de arriba no lo contradijera.
+      final porUnFiltro = filtros.hayAlguno;
       return EstadoVacio(
-        'Aún no hay pedidos. Crea una ruta con pedidos.',
-        accion: filtros.hayAlguno
+        porUnFiltro
+            ? 'Ningún pedido cuadra con estos filtros.'
+            : 'Aún no hay pedidos de esta sucursal.',
+        accion: porUnFiltro
             ? OutlinedButton(
                 onPressed: () =>
                     ref.read(filtrosPedidosProvider.notifier).quitarTodos(),
-                child: const Text(
-                  'Ningún pedido cuadra con estos filtros — quitarlos todos',
-                ),
+                child: const Text('Quitar todos los filtros'),
               )
             : null,
       );

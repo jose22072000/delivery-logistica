@@ -514,9 +514,22 @@ class _BarraDeArriba extends ConsumerWidget {
               runSpacing: 4,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text(
-                  '${tablero.sucursalNombre} · desde ${tablero.almacen.nombre}',
-                  style: tema.textTheme.labelMedium,
+                // «Santiago de Cuba · desde Santiago de Cuba» no le dice nada a
+                // nadie, y así salía en SEIS de las ocho: en Accesos el almacén
+                // se llama como el sitio (Camaguey, Guantanamo, Holguin, Las
+                // Tunas, Sancti Spiritus, Santiago de Cuba). Sólo Granma
+                // —«Bayamo (Granma)»— y La Habana —«Almacén Habana»— decían algo.
+                //
+                // Jose, 25/09/2026: «explicame q es esa mierda por q sale ahí».
+                //
+                // El «desde» sirve para una cosa concreta: los kilómetros de
+                // cada tarjeta —y el domicilio que se cobra con ellos— se miden
+                // desde ESE almacén. Eso hay que decirlo cuando la sucursal
+                // tiene más de uno, porque entonces cuál se usa no es evidente.
+                // Cuando tiene uno solo y se llama igual, es ruido.
+                CabeceraDelTablero(
+                  tablero.sucursalNombre,
+                  tablero.almacen.nombre,
                 ),
                 // Un tablero que parece vivo y lleva seis horas congelado es
                 // peor que uno que avisa.
@@ -690,4 +703,53 @@ class _Problema extends StatelessWidget {
       child: Text(texto, textAlign: TextAlign.center),
     ),
   );
+}
+
+/// LO QUE SE LEE ARRIBA DEL TABLERO: la sucursal y, si aporta algo, desde dónde
+/// se mide.
+///
+/// Es un widget con nombre y no una línea suelta dentro del `build` para que su
+/// prueba pase por lo que de verdad se pinta —`la_cabecera_no_se_repite_test`—
+/// y no por una función copiada al lado.
+class CabeceraDelTablero extends StatelessWidget {
+  const CabeceraDelTablero(this.sucursal, this.almacen, {super.key});
+
+  final String sucursal;
+
+  /// El almacén desde el que se mide. Vacío mientras no se sabe cuál es.
+  final String almacen;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    _cabecera(sucursal, almacen),
+    style: Theme.of(context).textTheme.labelMedium,
+  );
+}
+
+/// La sucursal y, si aporta algo, desde dónde se mide.
+///
+/// Se comparan los nombres **sin tildes y sin mayúsculas** porque es justo así
+/// como se parecen: la sucursal es «Camagüey» y su almacén, «Camaguey». Dos
+/// escrituras del mismo sitio no son dos sitios.
+String _cabecera(String sucursal, String almacen) {
+  final a = _llano(almacen);
+  if (a.isEmpty) return sucursal;
+  final s = _llano(sucursal);
+  // Uno dentro del otro también cuenta: «Granma» y «Bayamo (Granma)» sí son
+  // distintos —el almacén nombra la ciudad, que es lo que hacía falta saber—,
+  // pero «Santiago» dentro de «Santiago de Cuba» no aporta nada.
+  if (a == s || s.contains(a)) return sucursal;
+  return '$sucursal · desde $almacen';
+}
+
+/// Sin tildes, sin mayúsculas y sin espacios de sobra.
+String _llano(String texto) {
+  const con = 'áàäâãéèëêíìïîóòöôõúùüûñç';
+  const sin = 'aaaaaeeeeiiiiooooouuuunc';
+  final buf = StringBuffer();
+  for (final letra in texto.trim().toLowerCase().split('')) {
+    final i = con.indexOf(letra);
+    buf.write(i == -1 ? letra : sin[i]);
+  }
+  return buf.toString();
 }

@@ -138,18 +138,11 @@ class ConsultasTablero {
     // `warehouses` guarda la sucursal por CODIGO (`STG`), no por id: viene de
     // Accesos, que es otra base. Si la sucursal no tiene codigo no se adivina
     // nada — se queda sin tablero, que es lo honesto.
-    final elegido = await AlmacenDeReferencia.de(_base, sucursal?.externalId);
+    final codigo = sucursal?.externalId;
+    final elegido = await AlmacenDeReferencia.de(_base, codigo);
     if (elegido == null) {
       final nombre = await nombreDeSucursal(sucursalId);
-      // ¿No hay, o no se ha mirado? Se pregunta SOLO cuando no hay ninguno:
-      // con un almacen delante, lo que diga la bajada no cambia nada.
-      final hayAlgunAlmacen =
-          await (_base.selectOnly(_base.warehouses)
-                ..addColumns([_base.warehouses.id])
-                ..limit(1))
-              .get();
-      if (hayAlgunAlmacen.isEmpty &&
-          !await AlmacenDeReferencia.bajaronLosAlmacenes(_base)) {
+      if (await _noHayConQueAfirmarlo(codigo)) {
         throw SinAlmacenConCoordenadas.todaviaNoHaBajado(nombre);
       }
       throw SinAlmacenConCoordenadas(nombre);
@@ -160,6 +153,48 @@ class ConsultasTablero {
       lat: elegido.lat!,
       lng: elegido.lng!,
     );
+  }
+
+  /// ¿SE PUEDE AFIRMAR que esta sucursal no tiene almacén? `true` = NO se puede.
+  ///
+  /// Decir «Camagüey no tiene ningún almacén con coordenadas» manda a alguien a
+  /// dar de alta lo que ya existe, y deja el Tablero en blanco mientras tanto.
+  /// Eso sólo se dice con la copia delante, nunca a medio rehacer.
+  ///
+  /// LA GUARDA DE ANTES ERA DEMASIADO FLOJA y por eso salía el mensaje falso.
+  /// Pedía que la tabla estuviese vacía **y** que los almacenes no hubiesen
+  /// bajado nunca. Pero `bajadaAt` se pone la primera vez y ya no se quita:
+  /// pasado ese momento, cualquier instante con la tabla vacía caía en la rama
+  /// que acusa. Y la tabla se vaciaba en cada ciclo —o sea, en cada cambio de
+  /// sucursal— porque la bajada borraba antes de rellenar. Jose, 25/09/2026:
+  /// «me sale ahora en tablero q santiago no tiene ninguna sucursal activa por
+  /// q razon me sale eso». Reproducido en la web con Granma, Holguín y
+  /// Camagüey, y contrastado contra Accesos: las tres lo tienen.
+  ///
+  /// Son tres cosas distintas y ninguna es culpa de la sucursal:
+  ///
+  ///  1. **Sin código no se ha podido ni preguntar.** `warehouses` guarda la
+  ///     sucursal por código (`STG`) y el código vive en `branches`. Una
+  ///     sucursal cuya fila todavía no ha llegado entera no se puede juzgar.
+  ///  2. **La tabla está vacía del todo.** Ocho sucursales no pierden su
+  ///     almacén a la vez: una tabla vacía es una copia rehaciéndose —o una que
+  ///     no ha llegado todavía—, jamás un hecho sobre una sucursal. Esto es lo
+  ///     que faltaba, y cubre también el «no ha bajado nunca» sin preguntar por
+  ///     la marca de frescura: sin bajada no hay filas.
+  ///
+  /// Lo que SÍ se afirma, y se sigue afirmando: hay almacenes de otras
+  /// sucursales y de ésta no hay ninguno que sirva. Eso es un hueco de verdad
+  /// —le pasa a Moa y a Palma Soriano— y hay que decirlo.
+  Future<bool> _noHayConQueAfirmarlo(String? codigo) async {
+    if (codigo == null || codigo.isEmpty) return true;
+    final alguno =
+        await (_base.selectOnly(_base.warehouses)
+              ..addColumns([_base.warehouses.id])
+              ..limit(1))
+            .get();
+    // Con una fila delante —de la sucursal que sea— la copia está, y entonces
+    // sí se puede afirmar. Sin ninguna, no.
+    return alguno.isEmpty;
   }
 
   /// Las columnas con sus totales. Los totales salen de la BASE y no de sumar

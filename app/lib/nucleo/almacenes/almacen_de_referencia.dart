@@ -153,21 +153,17 @@ class AlmacenDeReferencia {
     return elegir(filas);
   }
 
-  /// ¿Ha bajado esta coleccion alguna vez a este aparato?
-  ///
-  /// Separa dos cosas que se ven iguales y no se arreglan igual: «esta sucursal
-  /// no tiene almacen» —que se arregla poniendolo— y «los almacenes todavia no
-  /// han llegado aqui» —que no se arregla poniendo nada—. El Panel ya hacia esa
-  /// distincion ([ComoVa.sinSaber]) y el Tablero no, y por eso el Tablero
-  /// acusaba a la sucursal de un hueco que no tenia.
-  static Future<bool> bajaronLosAlmacenes(BaseLocal base) async {
-    final fila =
-        await (base.select(base.frescura)..where(
-              (f) =>
-                  f.coleccion.equals(Colecciones.almacenes) &
-                  f.bajadaAt.isNotNull(),
-            ))
-            .getSingleOrNull();
-    return fila != null;
-  }
+  // AQUI ESTABA `bajaronLosAlmacenes`, que preguntaba a la frescura si esta
+  // coleccion habia bajado alguna vez. Se quito el 25/09/2026 al quedarse sin
+  // una sola llamada, que es la misma razon por la que se fue `sirveParaMedir`
+  // el 24: una regla que nadie ejecuta es una respuesta mas esperando a
+  // separarse de las otras sin que salte nada (`CLAUDE.md` §3-bis).
+  //
+  // Lo que hacia lo hace ahora, mejor, mirar la tabla: **sin bajada no hay
+  // filas**, asi que una tabla vacia ya dice «no se sabe» sin tener que
+  // preguntarselo a nadie. Y de paso cubre el caso que la marca no cubria y que
+  // costo la pantalla en blanco del 25/09: `bajadaAt` se pone la primera vez y
+  // ya no se quita, asi que despues de la primera bajada la marca decia «ya
+  // bajaron» tambien en los instantes en que la copia se estaba rehaciendo.
+  // Ver `pantallas/tablero/datos/consultas.dart`, `_noHayConQueAfirmarlo`.
 }
