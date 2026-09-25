@@ -58,17 +58,22 @@ var (
 // --------------------------------------------------------------------------- el doble
 
 type pedidoDeRutas struct {
-	id         uuid.UUID
-	operacion  *string
-	cliente    string
-	endLat     *float64
-	endLng     *float64
-	peso       float64
-	costo      *float64
-	factura    *sqlc.FacturaEstado
-	sucursal   uuid.UUID
-	externalID *string
-	fuente     *sqlc.Procedencia
+	id        uuid.UUID
+	operacion *string
+	cliente   string
+	endLat    *float64
+	endLng    *float64
+	peso      float64
+	costo     *float64
+	factura   *sqlc.FacturaEstado
+	// LLEVA DOMICILIO O NO, que es lo que decide si el armador avisa de su falta de costo.
+	// No es lo mismo que «no aportó importe al total»: hay pedidos sin domicilio que
+	// tampoco traen costo, y ésos no se avisan pero sí bajan el total. Sin este campo en el
+	// doble, las dos cuentas parecen la misma desde aquí.
+	requiereDomicilio *bool
+	sucursal          uuid.UUID
+	externalID        *string
+	fuente            *sqlc.Procedencia
 	// `archivado` es el borrado blando de PEDIDO y SÍ filtra en `PedidosParaArmarRuta`.
 	// Faltaba en el doble, así que la condición existía en el SQL y no se podía ejercitar
 	// desde aquí — que es como el 409 llegó a decir «ya está en otra ruta» de un archivado.
@@ -102,11 +107,15 @@ type rutaDeRutas struct {
 	km        float64
 	peso      float64
 	precio    float64
-	optimized bool
-	creadoPor *string
-	creada    time.Time
-	salida    *time.Time
-	regreso   *time.Time
+	// Cuántas paradas entraron sin costo. Puntero porque en la base es ANULABLE y el NULL
+	// significa «no consta», que no es lo mismo que «ninguna»: una ruta de antes de 00007
+	// y una ruta con todo cotizado no pueden parecer iguales.
+	sinCotizar *int32
+	optimized  bool
+	creadoPor  *string
+	creada     time.Time
+	salida     *time.Time
+	regreso    *time.Time
 }
 
 type camionDeRutas struct {
@@ -168,7 +177,8 @@ func (d *dobleDeRutas) ListarRutas(_ context.Context, arg sqlc.ListarRutasParams
 			ID: r.id, RouteCode: &r.codigo, Name: r.nombre, Status: r.estado,
 			OriginLat: r.origenLat, OriginLng: r.origenLng,
 			TotalDistance: r.km, TotalWeight: r.peso, TotalPrice: r.precio,
-			VehicleID: pgOpcionalDeRutas(r.vehiculo), BranchID: pgOpcionalDeRutas(r.sucursal),
+			ParadasSinCotizar: r.sinCotizar,
+			VehicleID:         pgOpcionalDeRutas(r.vehiculo), BranchID: pgOpcionalDeRutas(r.sucursal),
 			Optimized: r.optimized, CreadoPor: r.creadoPor,
 			CreatedAt: pgtype.Timestamptz{Time: r.creada, Valid: true},
 		})
@@ -186,7 +196,8 @@ func (d *dobleDeRutas) ObtenerRuta(_ context.Context, arg sqlc.ObtenerRutaParams
 		ID: r.id, RouteCode: &r.codigo, Name: r.nombre, Status: r.estado,
 		OriginLat: r.origenLat, OriginLng: r.origenLng,
 		TotalDistance: r.km, TotalWeight: r.peso, TotalPrice: r.precio,
-		VehicleID: pgOpcionalDeRutas(r.vehiculo), BranchID: pgOpcionalDeRutas(r.sucursal),
+		ParadasSinCotizar: r.sinCotizar,
+		VehicleID:         pgOpcionalDeRutas(r.vehiculo), BranchID: pgOpcionalDeRutas(r.sucursal),
 		Optimized: r.optimized, CreadoPor: r.creadoPor,
 		CreatedAt:  pgtype.Timestamptz{Time: r.creada, Valid: true},
 		StartedAt:  horaOpcionalDeRutas(r.salida),
@@ -283,7 +294,8 @@ func (d *dobleDeRutas) PedidosParaArmarRuta(_ context.Context, arg sqlc.PedidosP
 		salida = append(salida, sqlc.PedidosParaArmarRutaRow{
 			ID: p.id, OperationNumber: p.operacion, CustomerName: p.cliente,
 			EndLat: p.endLat, EndLng: p.endLng, Weight: p.peso, PedidoCosto: p.costo,
-			FacturaEstado: p.factura, BranchID: pgDeRutas(p.sucursal),
+			RequiereDomicilio: p.requiereDomicilio,
+			FacturaEstado:     p.factura, BranchID: pgDeRutas(p.sucursal),
 			ExternalID: p.externalID, Source: p.fuente,
 			// `delivered_at` y `resultado` salen como DATO, no filtran en el `WHERE`:
 			// igual que `factura_estado`, para que el manejador pueda nombrar cuál se
@@ -393,7 +405,15 @@ func (d *dobleDeRutas) FijarTotalesDeRuta(_ context.Context, arg sqlc.FijarTotal
 	// doble que no repite el WHERE ni el SET deja pasar justo el fallo que se busca.
 	r.km, r.peso, r.precio = arg.TotalDistance, arg.TotalWeight, arg.TotalPrice
 	r.optimized = arg.Optimizado == nil || *arg.Optimizado
-	return sqlc.FijarTotalesDeRutaRow{ID: r.id, TotalDistance: r.km, TotalWeight: r.peso, TotalPrice: r.precio, Optimized: r.optimized}, nil
+	// Y `paradas_sin_cotizar` con el MISMO `coalesce` del SQL: quien no lo manda no lo
+	// pisa. Un doble que lo machacara a nil dejaría pasar justo el fallo de que el armador
+	// del tablero borrase el número que puso el armador de rutas.
+	if arg.ParadasSinCotizar != nil {
+		n := *arg.ParadasSinCotizar
+		r.sinCotizar = &n
+	}
+	return sqlc.FijarTotalesDeRutaRow{ID: r.id, TotalDistance: r.km, TotalWeight: r.peso,
+		TotalPrice: r.precio, ParadasSinCotizar: r.sinCotizar, Optimized: r.optimized}, nil
 }
 
 func (d *dobleDeRutas) ActualizarEstadoDeRuta(_ context.Context, arg sqlc.ActualizarEstadoDeRutaParams) (sqlc.ActualizarEstadoDeRutaRow, error) {

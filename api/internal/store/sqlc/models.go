@@ -558,15 +558,16 @@ type Customer struct {
 }
 
 type Order struct {
-	ID                 uuid.UUID          `json:"id"`
-	OperationNumber    *string            `json:"operation_number"`
-	CustomerName       string             `json:"customer_name"`
-	Address            string             `json:"address"`
-	EndAddress         *string            `json:"end_address"`
-	EndLat             *float64           `json:"end_lat"`
-	EndLng             *float64           `json:"end_lng"`
-	Lat                *float64           `json:"lat"`
-	Lng                *float64           `json:"lng"`
+	ID              uuid.UUID `json:"id"`
+	OperationNumber *string   `json:"operation_number"`
+	CustomerName    string    `json:"customer_name"`
+	Address         string    `json:"address"`
+	EndAddress      *string   `json:"end_address"`
+	EndLat          *float64  `json:"end_lat"`
+	EndLng          *float64  `json:"end_lng"`
+	Lat             *float64  `json:"lat"`
+	Lng             *float64  `json:"lng"`
+	// Kilos del pedido. NO sabe decir «no se sabe»: un peso sin resolver entra como 0 y lo anterior al traspaso entra como 1 (el DEFAULT de Prisma). Antes de sumarlo o cobrarlo, mira peso_de_los_pedidos.peso_respaldado.
 	Weight             float64            `json:"weight"`
 	Status             OrderStatus        `json:"status"`
 	TripLeg            TripLeg            `json:"trip_leg"`
@@ -642,6 +643,15 @@ type OrdersFueraDeAlcance struct {
 	SalioAt  pgtype.Timestamptz `json:"salio_at"`
 }
 
+// Si el peso guardado de un pedido está respaldado por sus renglones. true = algún renglón trae peso propio; false = hay constancia y ninguno sabe pesar, el número es inventado; NULL = no consta (pedido sin renglones, o renglones escritos sin origen_peso). NULL no quiere decir que el peso esté bien.
+type PesoDeLosPedido struct {
+	ID                     uuid.UUID `json:"id"`
+	PesoGuardado           float64   `json:"peso_guardado"`
+	Renglones              int64     `json:"renglones"`
+	RenglonesConConstancia int64     `json:"renglones_con_constancia"`
+	PesoRespaldado         bool      `json:"peso_respaldado"`
+}
+
 type Product struct {
 	ID              uuid.UUID          `json:"id"`
 	Name            string             `json:"name"`
@@ -660,25 +670,28 @@ type Product struct {
 }
 
 type Route struct {
-	ID            uuid.UUID          `json:"id"`
-	Name          *string            `json:"name"`
-	RouteCode     *string            `json:"route_code"`
-	Status        RouteStatus        `json:"status"`
-	OriginAddress *string            `json:"origin_address"`
-	OriginLat     *float64           `json:"origin_lat"`
-	OriginLng     *float64           `json:"origin_lng"`
-	TotalDistance float64            `json:"total_distance"`
-	TotalWeight   float64            `json:"total_weight"`
-	TotalPrice    float64            `json:"total_price"`
-	DeliveryDate  pgtype.Timestamptz `json:"delivery_date"`
-	VehicleID     pgtype.UUID        `json:"vehicle_id"`
-	CreadoPor     *string            `json:"creado_por"`
-	BranchID      pgtype.UUID        `json:"branch_id"`
-	StartedAt     pgtype.Timestamptz `json:"started_at"`
-	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
-	Optimized     bool               `json:"optimized"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID            uuid.UUID   `json:"id"`
+	Name          *string     `json:"name"`
+	RouteCode     *string     `json:"route_code"`
+	Status        RouteStatus `json:"status"`
+	OriginAddress *string     `json:"origin_address"`
+	OriginLat     *float64    `json:"origin_lat"`
+	OriginLng     *float64    `json:"origin_lng"`
+	TotalDistance float64     `json:"total_distance"`
+	TotalWeight   float64     `json:"total_weight"`
+	// Suma de lo que SÍ está cotizado, no de la ruta entera: las paradas sin costo suman 0. Sólo es el total de la ruta cuando paradas_sin_cotizar = 0. Un 0 aquí con paradas_sin_cotizar > 0 no dice que el reparto fuera gratis.
+	TotalPrice   float64            `json:"total_price"`
+	DeliveryDate pgtype.Timestamptz `json:"delivery_date"`
+	VehicleID    pgtype.UUID        `json:"vehicle_id"`
+	CreadoPor    *string            `json:"creado_por"`
+	BranchID     pgtype.UUID        `json:"branch_id"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	FinishedAt   pgtype.Timestamptz `json:"finished_at"`
+	Optimized    bool               `json:"optimized"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	// Cuántas paradas entraron en la ruta sin costo de domicilio, contadas al armarla. NULL = no consta (rutas anteriores a esta migración); 0 = estaban todas cotizadas.
+	ParadasSinCotizar *int32 `json:"paradas_sin_cotizar"`
 }
 
 type SavedOrigin struct {

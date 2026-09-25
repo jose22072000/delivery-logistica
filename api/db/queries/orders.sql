@@ -43,8 +43,17 @@ SELECT
     o.address, o.end_address, o.end_lat, o.end_lng, o.weight,
     o.delivery_price, o.delivery_distance_km, o.estado, o.archivado,
     o.requiere_domicilio, o.pedido_costo, o.municipio, o.vendedor,
-    o.branch_id, o.factura_estado, o.sucursal_codigo
+    o.branch_id, o.factura_estado, o.sucursal_codigo,
+    -- ¿ESTE PESO SALE DE ALGO? `weight` no sabe decir «no se sabe» —un peso sin resolver
+    -- entra como 0 y lo anterior al traspaso como 1, que es perfectamente creíble para un
+    -- paquete—, así que la respuesta viaja al lado, sin cambiarle el tipo a nadie.
+    -- Tres estados: false = hay constancia y nada lo respalda, el número es inventado;
+    -- true = algún renglón trae peso propio; NULL = NO CONSTA, que no es «está bien».
+    -- La definición vive en UN sitio (00007_lo_que_no_se_sabe.sql) para que las tres
+    -- consultas no puedan contestar cosas distintas a la misma pregunta.
+    pp.peso_respaldado
 FROM orders o
+LEFT JOIN peso_de_los_pedidos pp ON pp.id = o.id
 WHERE
     o.source = 'pedido'
     AND o.route_id IS NULL
@@ -300,11 +309,15 @@ SELECT
     v.plate         AS vehiculo_matricula,
     b.name          AS sucursal_nombre,
     b.lat           AS sucursal_lat,
-    b.lng           AS sucursal_lng
+    b.lng           AS sucursal_lng,
+    -- ¿Este peso sale de algo? Ver el comentario largo en `ListarPedidosDisponibles`.
+    -- false = inventado, true = algún renglón lo respalda, NULL = no consta.
+    pp.peso_respaldado
 FROM orders o
 LEFT JOIN routes   r ON r.id = o.route_id
 LEFT JOIN vehicles v ON v.id = r.vehicle_id
 LEFT JOIN branches b ON b.id = o.branch_id
+LEFT JOIN peso_de_los_pedidos pp ON pp.id = o.id
 WHERE
     (sqlc.narg('sucursal')::uuid  IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid)
     AND (sqlc.narg('branch_id')::uuid IS NULL OR o.branch_id = sqlc.narg('branch_id')::uuid)
@@ -473,11 +486,15 @@ SELECT
     r.name  AS ruta_nombre,
     v.name  AS vehiculo_nombre,
     v.plate AS vehiculo_matricula,
-    vt.nombre AS vehiculo_tipo
+    vt.nombre AS vehiculo_tipo,
+    -- ¿Este peso sale de algo? Ver el comentario largo en `ListarPedidosDisponibles`.
+    -- false = inventado, true = algún renglón lo respalda, NULL = no consta.
+    pp.peso_respaldado
 FROM orders o
 LEFT JOIN routes        r  ON r.id  = o.route_id
 LEFT JOIN vehicles      v  ON v.id  = o.vehicle_id
 LEFT JOIN vehicle_types vt ON vt.id = v.vehicle_type_id
+LEFT JOIN peso_de_los_pedidos pp ON pp.id = o.id
 WHERE o.id = sqlc.arg('id')
   AND (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid);
 
@@ -758,13 +775,38 @@ RETURNING id, branch_id, external_id, (xmax = 0)::boolean AS es_nuevo;
 -- name: BorrarRenglonesDePedido :exec
 DELETE FROM order_items WHERE order_id = sqlc.arg('pedido_id');
 
+-- LA CONSTANCIA DEL PESO, que estaba dada de alta y no la escribía nadie.
+--
+-- 00004_peso_por_renglon.sql añadió `caso`, `peso_unitario_kg`, `peso_linea_kg` y
+-- `origen_peso` precisamente para no tener que recalcular el peso con el catálogo de hoy
+-- sobre un pedido de hace tres meses. Esta sentencia insertaba sólo
+-- `(order_id, linea, description, quantity, packs, product_id)`, así que desde el traspaso
+-- del 14/09/2026 **esas columnas llegan vacías en todo lo que escribe el espejo** y la
+-- vista `peso_de_los_pedidos` no puede decir nada de los pedidos nuevos: los deja en NULL.
+--
+-- Los valores YA están calculados al llegar aquí, en `cotizar.RenglonPesado`
+-- (`WeightKg`, `UnitWeightKg`, `Matched`, `WhName`, `WeightSource`): no hay que calcular
+-- nada, sólo dejar de tirarlos. Quien los pone es `renglonesParaLaBase`, en
+-- `internal/api/cotizacion.go`.
+--
+-- Todos anulables a propósito: un renglón que no sabe lo que pesa se guarda VACÍO, no en
+-- cero. `origen_peso = 'none'` —`cotizar.PesoDesconocido`— es otra cosa y sí se escribe:
+-- es el renglón confesando que lo intentó y no pudo, que es lo que la vista mira.
 -- name: CrearRenglonDePedido :one
-INSERT INTO order_items (order_id, linea, description, quantity, packs, product_id)
+INSERT INTO order_items (
+    order_id, linea, description, quantity, packs, product_id,
+    nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso
+)
 VALUES (
     sqlc.arg('pedido_id'), sqlc.arg('linea'), sqlc.arg('description'),
-    sqlc.arg('quantity'), sqlc.narg('packs'), sqlc.narg('product_id')
+    sqlc.arg('quantity'), sqlc.narg('packs'), sqlc.narg('product_id'),
+    sqlc.narg('nombre'), sqlc.narg('codigo'), sqlc.narg('almacen_nombre'),
+    sqlc.narg('caso'), sqlc.narg('peso_unitario_kg'), sqlc.narg('peso_linea_kg'),
+    sqlc.narg('origen_peso')
 )
-RETURNING id, order_id, linea, description, quantity, packs, product_id;
+RETURNING id, order_id, linea, description, quantity, packs, product_id,
+          nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg,
+          origen_peso;
 
 -- La marca de agua del espejo: `since` de la próxima bajada.
 --

@@ -211,6 +211,21 @@ type PedidoSalida struct {
 	Municipio          *string         `json:"municipio"`
 	Vendedor           *string         `json:"vendedor"`
 	SucursalCodigo     *string         `json:"sucursalCodigo"`
+	// ¿ESE `weight` SALE DE ALGO? Campo NUEVO, no un tipo cambiado: `weight` sigue siendo
+	// un número y una APK instalada lo lee igual que ayer.
+	//
+	// `weight` no sabe decir «no se sabe» —la columna es `NOT NULL`, un peso sin resolver
+	// entra como 0 y lo anterior al traspaso como **1**, que es perfectamente creíble para
+	// un paquete— y de ahí se suma en la tarjeta «Peso Total», en el Excel que alguien abre
+	// para cobrar y en la barra de capacidad del camión, que decide qué cabe. Así que la
+	// duda viaja al lado del número, que es lo único que no rompe a nadie.
+	//
+	// Tres estados, y el tercero NO es «está bien»:
+	//   false — hay constancia y nada respalda ese peso: el número es inventado.
+	//   true  — algún renglón trae peso propio.
+	//   null  — no consta. Hoy es la inmensa mayoría: el espejo no escribe todavía
+	//           `origen_peso` (ver `CrearRenglonDePedido` en db/queries/orders.sql).
+	PesoRespaldado *bool `json:"pesoRespaldado"`
 	// Cuándo se tocó la fila. La bajada del aparato la necesita para pedir por
 	// diferencias; la pantalla, para saber si lo que enseña es de hace un minuto o de hace
 	// tres días.
@@ -242,6 +257,9 @@ type PedidoDisponibleSalida struct {
 	PedidoCosto        *float64        `json:"pedidoCosto"`
 	Municipio          *string         `json:"municipio"`
 	Vendedor           *string         `json:"vendedor"`
+	// ¿Ese `weight` sale de algo? false = inventado, true = algún renglón lo respalda,
+	// null = no consta (que no es «está bien»). Ver `PedidoSalida.PesoRespaldado`.
+	PesoRespaldado *bool `json:"pesoRespaldado"`
 }
 
 // PedidoDetalleSalida es `GET /api/orders/{id}` y la respuesta del PATCH: el pedido
@@ -297,6 +315,9 @@ type PedidoDetalleSalida struct {
 	Items              []RenglonSalida   `json:"items"`
 	Route              *RutaDePedido     `json:"route"`
 	Vehicle            *VehiculoDePedido `json:"vehicle"`
+	// ¿Ese `weight` sale de algo? false = inventado, true = algún renglón lo respalda,
+	// null = no consta (que no es «está bien»). Ver `PedidoSalida.PesoRespaldado`.
+	PesoRespaldado *bool `json:"pesoRespaldado"`
 }
 
 // VehiculoDePedido es el `vehicle: {id, name, type, plate}` del detalle. `type` es el
@@ -568,7 +589,8 @@ func (s *Servidor) pedidosDisponibles(w http.ResponseWriter, r *http.Request) {
 			OperationNumber: x.OperationNumber, CustomerName: x.CustomerName,
 			Address: x.Address, EndAddress: x.EndAddress,
 			EndLat: x.EndLat, EndLng: x.EndLng, Weight: x.Weight,
-			DeliveryPrice: x.DeliveryPrice, DeliveryDistanceKm: x.DeliveryDistanceKm,
+			PesoRespaldado: x.PesoRespaldado,
+			DeliveryPrice:  x.DeliveryPrice, DeliveryDistanceKm: x.DeliveryDistanceKm,
 			Items: renglones[x.ID], Estado: textoDe(x.Estado), Archivado: x.Archivado,
 			RequiereDomicilio: x.RequiereDomicilio, PedidoCosto: x.PedidoCosto,
 			Municipio: x.Municipio, Vendedor: x.Vendedor,
@@ -708,7 +730,8 @@ func (s *Servidor) detalleDePedido(w http.ResponseWriter, r *http.Request, a *al
 		ID: x.ID, OperationNumber: x.OperationNumber, CustomerName: x.CustomerName,
 		CustomerPhone: x.CustomerPhone, Address: x.Address, EndAddress: x.EndAddress,
 		EndLat: x.EndLat, EndLng: x.EndLng, Lat: x.Lat, Lng: x.Lng, Weight: x.Weight,
-		Status: string(x.Status), TripLeg: string(x.TripLeg), Notes: x.Notes,
+		PesoRespaldado: x.PesoRespaldado,
+		Status:         string(x.Status), TripLeg: string(x.TripLeg), Notes: x.Notes,
 		RouteID: idOpcional(x.RouteID), UltimaRutaID: idOpcional(x.UltimaRutaID),
 		VehicleID: idOpcional(x.VehicleID), Price: x.Price, SegmentKm: x.SegmentKm,
 		DeliveryPrice: x.DeliveryPrice, DeliveryDistanceKm: x.DeliveryDistanceKm,
@@ -1179,7 +1202,8 @@ func dePedido(x sqlc.ListarPedidosRow, items []RenglonSalida) PedidoSalida {
 		ID: x.ID, OperationNumber: x.OperationNumber, CustomerName: x.CustomerName,
 		CustomerPhone: x.CustomerPhone, Address: x.Address, EndAddress: x.EndAddress,
 		EndLat: x.EndLat, EndLng: x.EndLng, Weight: x.Weight, Status: string(x.Status),
-		Notes: x.Notes, RouteID: idOpcional(x.RouteID), DeliveryPrice: x.DeliveryPrice,
+		PesoRespaldado: x.PesoRespaldado,
+		Notes:          x.Notes, RouteID: idOpcional(x.RouteID), DeliveryPrice: x.DeliveryPrice,
 		DeliveryDistanceKm: x.DeliveryDistanceKm,
 		// `price = deliveryPrice ?? null` del contrato. No es un campo propio: es el
 		// mismo precio con el nombre que la pantalla vieja espera.

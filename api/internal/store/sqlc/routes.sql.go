@@ -399,42 +399,55 @@ UPDATE routes SET
     total_distance = $1,
     total_weight   = $2,
     total_price    = $3,
-    optimized      = coalesce($4::boolean, true)
-WHERE id = $5
-  AND ($6::uuid IS NULL OR branch_id = $6::uuid)
+    -- CUÁNTAS DE ESAS PARADAS NO ESTÁN COTIZADAS. ` + "`" + `total_price` + "`" + ` suma sólo lo que sí lo
+    -- está —el que no tiene ` + "`" + `pedido_costo` + "`" + ` entra valiendo cero—, así que sin este número
+    -- al lado el total parece completo y no lo es. Dentro de la aplicación ya se resolvió
+    -- sumando de las paradas; esto es para quien lo consulta por SQL o lo exporta, que
+    -- ve un cero indistinguible de un cero de verdad.
+    --
+    -- Va con ` + "`" + `coalesce` + "`" + ` y no a secas: quien no lo manda NO lo pisa. El armador del tablero
+    -- (` + "`" + `internal/api/tablero.go` + "`" + `) todavía no lo calcula, y machacarlo a NULL desde ahí
+    -- borraría el número que sí puso el armador de rutas.
+    paradas_sin_cotizar = coalesce($4::integer,
+                                   paradas_sin_cotizar),
+    optimized      = coalesce($5::boolean, true)
+WHERE id = $6
+  AND ($7::uuid IS NULL OR branch_id = $7::uuid)
 RETURNING id, name, route_code, status, origin_address, origin_lat, origin_lng,
-          total_distance, total_weight, total_price, delivery_date, vehicle_id,
+          total_distance, total_weight, total_price, paradas_sin_cotizar, delivery_date, vehicle_id,
           branch_id, started_at, finished_at, optimized, created_at, updated_at
 `
 
 type FijarTotalesDeRutaParams struct {
-	TotalDistance float64     `json:"total_distance"`
-	TotalWeight   float64     `json:"total_weight"`
-	TotalPrice    float64     `json:"total_price"`
-	Optimizado    *bool       `json:"optimizado"`
-	ID            uuid.UUID   `json:"id"`
-	Sucursal      pgtype.UUID `json:"sucursal"`
+	TotalDistance     float64     `json:"total_distance"`
+	TotalWeight       float64     `json:"total_weight"`
+	TotalPrice        float64     `json:"total_price"`
+	ParadasSinCotizar *int32      `json:"paradas_sin_cotizar"`
+	Optimizado        *bool       `json:"optimizado"`
+	ID                uuid.UUID   `json:"id"`
+	Sucursal          pgtype.UUID `json:"sucursal"`
 }
 
 type FijarTotalesDeRutaRow struct {
-	ID            uuid.UUID          `json:"id"`
-	Name          *string            `json:"name"`
-	RouteCode     *string            `json:"route_code"`
-	Status        RouteStatus        `json:"status"`
-	OriginAddress *string            `json:"origin_address"`
-	OriginLat     *float64           `json:"origin_lat"`
-	OriginLng     *float64           `json:"origin_lng"`
-	TotalDistance float64            `json:"total_distance"`
-	TotalWeight   float64            `json:"total_weight"`
-	TotalPrice    float64            `json:"total_price"`
-	DeliveryDate  pgtype.Timestamptz `json:"delivery_date"`
-	VehicleID     pgtype.UUID        `json:"vehicle_id"`
-	BranchID      pgtype.UUID        `json:"branch_id"`
-	StartedAt     pgtype.Timestamptz `json:"started_at"`
-	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
-	Optimized     bool               `json:"optimized"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID                uuid.UUID          `json:"id"`
+	Name              *string            `json:"name"`
+	RouteCode         *string            `json:"route_code"`
+	Status            RouteStatus        `json:"status"`
+	OriginAddress     *string            `json:"origin_address"`
+	OriginLat         *float64           `json:"origin_lat"`
+	OriginLng         *float64           `json:"origin_lng"`
+	TotalDistance     float64            `json:"total_distance"`
+	TotalWeight       float64            `json:"total_weight"`
+	TotalPrice        float64            `json:"total_price"`
+	ParadasSinCotizar *int32             `json:"paradas_sin_cotizar"`
+	DeliveryDate      pgtype.Timestamptz `json:"delivery_date"`
+	VehicleID         pgtype.UUID        `json:"vehicle_id"`
+	BranchID          pgtype.UUID        `json:"branch_id"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	FinishedAt        pgtype.Timestamptz `json:"finished_at"`
+	Optimized         bool               `json:"optimized"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 // Los totales, ya con las paradas puestas y el recorrido calculado.
@@ -456,6 +469,7 @@ func (q *Queries) FijarTotalesDeRuta(ctx context.Context, arg FijarTotalesDeRuta
 		arg.TotalDistance,
 		arg.TotalWeight,
 		arg.TotalPrice,
+		arg.ParadasSinCotizar,
 		arg.Optimizado,
 		arg.ID,
 		arg.Sucursal,
@@ -472,6 +486,7 @@ func (q *Queries) FijarTotalesDeRuta(ctx context.Context, arg FijarTotalesDeRuta
 		&i.TotalDistance,
 		&i.TotalWeight,
 		&i.TotalPrice,
+		&i.ParadasSinCotizar,
 		&i.DeliveryDate,
 		&i.VehicleID,
 		&i.BranchID,
@@ -886,6 +901,10 @@ const listarRutas = `-- name: ListarRutas :many
 SELECT
     r.id, r.name, r.route_code, r.status, r.origin_address, r.origin_lat,
     r.origin_lng, r.total_distance, r.total_weight, r.total_price,
+    -- Cuántas paradas entraron sin costo. Va PEGADO a ` + "`" + `total_price` + "`" + ` en las dos consultas
+    -- a propósito: el total sin ese número al lado es el ` + "`" + `$0.00` + "`" + ` de RT-20260921-007, que
+    -- no dice «no hay tarifa», dice que el reparto fue gratis. NULL = no consta.
+    r.paradas_sin_cotizar,
     r.delivery_date, r.vehicle_id, r.branch_id, r.creado_por,
     r.started_at, r.finished_at, r.optimized, r.created_at, r.updated_at,
     b.name        AS sucursal_nombre,
@@ -921,6 +940,7 @@ type ListarRutasRow struct {
 	TotalDistance     float64            `json:"total_distance"`
 	TotalWeight       float64            `json:"total_weight"`
 	TotalPrice        float64            `json:"total_price"`
+	ParadasSinCotizar *int32             `json:"paradas_sin_cotizar"`
 	DeliveryDate      pgtype.Timestamptz `json:"delivery_date"`
 	VehicleID         pgtype.UUID        `json:"vehicle_id"`
 	BranchID          pgtype.UUID        `json:"branch_id"`
@@ -968,6 +988,7 @@ func (q *Queries) ListarRutas(ctx context.Context, arg ListarRutasParams) ([]Lis
 			&i.TotalDistance,
 			&i.TotalWeight,
 			&i.TotalPrice,
+			&i.ParadasSinCotizar,
 			&i.DeliveryDate,
 			&i.VehicleID,
 			&i.BranchID,
@@ -1067,6 +1088,10 @@ const obtenerRuta = `-- name: ObtenerRuta :one
 SELECT
     r.id, r.name, r.route_code, r.status, r.origin_address, r.origin_lat,
     r.origin_lng, r.total_distance, r.total_weight, r.total_price,
+    -- Cuántas paradas entraron sin costo. Va PEGADO a ` + "`" + `total_price` + "`" + ` en las dos consultas
+    -- a propósito: el total sin ese número al lado es el ` + "`" + `$0.00` + "`" + ` de RT-20260921-007, que
+    -- no dice «no hay tarifa», dice que el reparto fue gratis. NULL = no consta.
+    r.paradas_sin_cotizar,
     r.delivery_date, r.vehicle_id, r.branch_id, r.creado_por,
     r.started_at, r.finished_at, r.optimized, r.created_at, r.updated_at,
     b.name        AS sucursal_nombre,
@@ -1100,6 +1125,7 @@ type ObtenerRutaRow struct {
 	TotalDistance     float64            `json:"total_distance"`
 	TotalWeight       float64            `json:"total_weight"`
 	TotalPrice        float64            `json:"total_price"`
+	ParadasSinCotizar *int32             `json:"paradas_sin_cotizar"`
 	DeliveryDate      pgtype.Timestamptz `json:"delivery_date"`
 	VehicleID         pgtype.UUID        `json:"vehicle_id"`
 	BranchID          pgtype.UUID        `json:"branch_id"`
@@ -1137,6 +1163,7 @@ func (q *Queries) ObtenerRuta(ctx context.Context, arg ObtenerRutaParams) (Obten
 		&i.TotalDistance,
 		&i.TotalWeight,
 		&i.TotalPrice,
+		&i.ParadasSinCotizar,
 		&i.DeliveryDate,
 		&i.VehicleID,
 		&i.BranchID,

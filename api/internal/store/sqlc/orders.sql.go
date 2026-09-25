@@ -457,33 +457,72 @@ func (q *Queries) ContarPedidosDisponibles(ctx context.Context, arg ContarPedido
 }
 
 const crearRenglonDePedido = `-- name: CrearRenglonDePedido :one
-INSERT INTO order_items (order_id, linea, description, quantity, packs, product_id)
+INSERT INTO order_items (
+    order_id, linea, description, quantity, packs, product_id,
+    nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso
+)
 VALUES (
     $1, $2, $3,
-    $4, $5, $6
+    $4, $5, $6,
+    $7, $8, $9,
+    $10, $11, $12,
+    $13
 )
-RETURNING id, order_id, linea, description, quantity, packs, product_id
+RETURNING id, order_id, linea, description, quantity, packs, product_id,
+          nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg,
+          origen_peso
 `
 
 type CrearRenglonDePedidoParams struct {
-	PedidoID    uuid.UUID   `json:"pedido_id"`
-	Linea       int32       `json:"linea"`
-	Description string      `json:"description"`
-	Quantity    float64     `json:"quantity"`
-	Packs       *float64    `json:"packs"`
-	ProductID   pgtype.UUID `json:"product_id"`
+	PedidoID       uuid.UUID   `json:"pedido_id"`
+	Linea          int32       `json:"linea"`
+	Description    string      `json:"description"`
+	Quantity       float64     `json:"quantity"`
+	Packs          *float64    `json:"packs"`
+	ProductID      pgtype.UUID `json:"product_id"`
+	Nombre         *string     `json:"nombre"`
+	Codigo         *string     `json:"codigo"`
+	AlmacenNombre  *string     `json:"almacen_nombre"`
+	Caso           *bool       `json:"caso"`
+	PesoUnitarioKg *float64    `json:"peso_unitario_kg"`
+	PesoLineaKg    *float64    `json:"peso_linea_kg"`
+	OrigenPeso     *string     `json:"origen_peso"`
 }
 
 type CrearRenglonDePedidoRow struct {
-	ID          uuid.UUID   `json:"id"`
-	OrderID     uuid.UUID   `json:"order_id"`
-	Linea       int32       `json:"linea"`
-	Description string      `json:"description"`
-	Quantity    float64     `json:"quantity"`
-	Packs       *float64    `json:"packs"`
-	ProductID   pgtype.UUID `json:"product_id"`
+	ID             uuid.UUID   `json:"id"`
+	OrderID        uuid.UUID   `json:"order_id"`
+	Linea          int32       `json:"linea"`
+	Description    string      `json:"description"`
+	Quantity       float64     `json:"quantity"`
+	Packs          *float64    `json:"packs"`
+	ProductID      pgtype.UUID `json:"product_id"`
+	Nombre         *string     `json:"nombre"`
+	Codigo         *string     `json:"codigo"`
+	AlmacenNombre  *string     `json:"almacen_nombre"`
+	Caso           *bool       `json:"caso"`
+	PesoUnitarioKg *float64    `json:"peso_unitario_kg"`
+	PesoLineaKg    *float64    `json:"peso_linea_kg"`
+	OrigenPeso     *string     `json:"origen_peso"`
 }
 
+// LA CONSTANCIA DEL PESO, que estaba dada de alta y no la escribía nadie.
+//
+// 00004_peso_por_renglon.sql añadió `caso`, `peso_unitario_kg`, `peso_linea_kg` y
+// `origen_peso` precisamente para no tener que recalcular el peso con el catálogo de hoy
+// sobre un pedido de hace tres meses. Esta sentencia insertaba sólo
+// `(order_id, linea, description, quantity, packs, product_id)`, así que desde el traspaso
+// del 14/09/2026 **esas columnas llegan vacías en todo lo que escribe el espejo** y la
+// vista `peso_de_los_pedidos` no puede decir nada de los pedidos nuevos: los deja en NULL.
+//
+// Los valores YA están calculados al llegar aquí, en `cotizar.RenglonPesado`
+// (`WeightKg`, `UnitWeightKg`, `Matched`, `WhName`, `WeightSource`): no hay que calcular
+// nada, sólo dejar de tirarlos. Quien los pone es `renglonesParaLaBase`, en
+// `internal/api/cotizacion.go`.
+//
+// Todos anulables a propósito: un renglón que no sabe lo que pesa se guarda VACÍO, no en
+// cero. `origen_peso = 'none'` —`cotizar.PesoDesconocido`— es otra cosa y sí se escribe:
+// es el renglón confesando que lo intentó y no pudo, que es lo que la vista mira.
 func (q *Queries) CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePedidoParams) (CrearRenglonDePedidoRow, error) {
 	row := q.db.QueryRow(ctx, crearRenglonDePedido,
 		arg.PedidoID,
@@ -492,6 +531,13 @@ func (q *Queries) CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePe
 		arg.Quantity,
 		arg.Packs,
 		arg.ProductID,
+		arg.Nombre,
+		arg.Codigo,
+		arg.AlmacenNombre,
+		arg.Caso,
+		arg.PesoUnitarioKg,
+		arg.PesoLineaKg,
+		arg.OrigenPeso,
 	)
 	var i CrearRenglonDePedidoRow
 	err := row.Scan(
@@ -502,6 +548,13 @@ func (q *Queries) CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePe
 		&i.Quantity,
 		&i.Packs,
 		&i.ProductID,
+		&i.Nombre,
+		&i.Codigo,
+		&i.AlmacenNombre,
+		&i.Caso,
+		&i.PesoUnitarioKg,
+		&i.PesoLineaKg,
+		&i.OrigenPeso,
 	)
 	return i, err
 }
@@ -1036,11 +1089,15 @@ SELECT
     v.plate         AS vehiculo_matricula,
     b.name          AS sucursal_nombre,
     b.lat           AS sucursal_lat,
-    b.lng           AS sucursal_lng
+    b.lng           AS sucursal_lng,
+    -- ¿Este peso sale de algo? Ver el comentario largo en ` + "`" + `ListarPedidosDisponibles` + "`" + `.
+    -- false = inventado, true = algún renglón lo respalda, NULL = no consta.
+    pp.peso_respaldado
 FROM orders o
 LEFT JOIN routes   r ON r.id = o.route_id
 LEFT JOIN vehicles v ON v.id = r.vehicle_id
 LEFT JOIN branches b ON b.id = o.branch_id
+LEFT JOIN peso_de_los_pedidos pp ON pp.id = o.id
 WHERE
     ($1::uuid  IS NULL OR o.branch_id = $1::uuid)
     AND ($2::uuid IS NULL OR o.branch_id = $2::uuid)
@@ -1176,6 +1233,7 @@ type ListarPedidosRow struct {
 	SucursalNombre     *string            `json:"sucursal_nombre"`
 	SucursalLat        *float64           `json:"sucursal_lat"`
 	SucursalLng        *float64           `json:"sucursal_lng"`
+	PesoRespaldado     *bool              `json:"peso_respaldado"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1252,6 +1310,7 @@ func (q *Queries) ListarPedidos(ctx context.Context, arg ListarPedidosParams) ([
 			&i.SucursalNombre,
 			&i.SucursalLat,
 			&i.SucursalLng,
+			&i.PesoRespaldado,
 		); err != nil {
 			return nil, err
 		}
@@ -1271,8 +1330,17 @@ SELECT
     o.address, o.end_address, o.end_lat, o.end_lng, o.weight,
     o.delivery_price, o.delivery_distance_km, o.estado, o.archivado,
     o.requiere_domicilio, o.pedido_costo, o.municipio, o.vendedor,
-    o.branch_id, o.factura_estado, o.sucursal_codigo
+    o.branch_id, o.factura_estado, o.sucursal_codigo,
+    -- ¿ESTE PESO SALE DE ALGO? ` + "`" + `weight` + "`" + ` no sabe decir «no se sabe» —un peso sin resolver
+    -- entra como 0 y lo anterior al traspaso como 1, que es perfectamente creíble para un
+    -- paquete—, así que la respuesta viaja al lado, sin cambiarle el tipo a nadie.
+    -- Tres estados: false = hay constancia y nada lo respalda, el número es inventado;
+    -- true = algún renglón trae peso propio; NULL = NO CONSTA, que no es «está bien».
+    -- La definición vive en UN sitio (00007_lo_que_no_se_sabe.sql) para que las tres
+    -- consultas no puedan contestar cosas distintas a la misma pregunta.
+    pp.peso_respaldado
 FROM orders o
+LEFT JOIN peso_de_los_pedidos pp ON pp.id = o.id
 WHERE
     o.source = 'pedido'
     AND o.route_id IS NULL
@@ -1443,6 +1511,7 @@ type ListarPedidosDisponiblesRow struct {
 	BranchID           pgtype.UUID        `json:"branch_id"`
 	FacturaEstado      *FacturaEstado     `json:"factura_estado"`
 	SucursalCodigo     *string            `json:"sucursal_codigo"`
+	PesoRespaldado     *bool              `json:"peso_respaldado"`
 }
 
 // Pedidos: el catálogo, los disponibles para repartir, las facetas y el espejo de PEDIDO.
@@ -1530,6 +1599,7 @@ func (q *Queries) ListarPedidosDisponibles(ctx context.Context, arg ListarPedido
 			&i.BranchID,
 			&i.FacturaEstado,
 			&i.SucursalCodigo,
+			&i.PesoRespaldado,
 		); err != nil {
 			return nil, err
 		}
@@ -1818,11 +1888,15 @@ SELECT
     r.name  AS ruta_nombre,
     v.name  AS vehiculo_nombre,
     v.plate AS vehiculo_matricula,
-    vt.nombre AS vehiculo_tipo
+    vt.nombre AS vehiculo_tipo,
+    -- ¿Este peso sale de algo? Ver el comentario largo en ` + "`" + `ListarPedidosDisponibles` + "`" + `.
+    -- false = inventado, true = algún renglón lo respalda, NULL = no consta.
+    pp.peso_respaldado
 FROM orders o
 LEFT JOIN routes        r  ON r.id  = o.route_id
 LEFT JOIN vehicles      v  ON v.id  = o.vehicle_id
 LEFT JOIN vehicle_types vt ON vt.id = v.vehicle_type_id
+LEFT JOIN peso_de_los_pedidos pp ON pp.id = o.id
 WHERE o.id = $1
   AND ($2::uuid IS NULL OR o.branch_id = $2::uuid)
 `
@@ -1883,6 +1957,7 @@ type ObtenerPedidoRow struct {
 	VehiculoNombre     *string            `json:"vehiculo_nombre"`
 	VehiculoMatricula  *string            `json:"vehiculo_matricula"`
 	VehiculoTipo       *string            `json:"vehiculo_tipo"`
+	PesoRespaldado     *bool              `json:"peso_respaldado"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1942,6 +2017,7 @@ func (q *Queries) ObtenerPedido(ctx context.Context, arg ObtenerPedidoParams) (O
 		&i.VehiculoNombre,
 		&i.VehiculoMatricula,
 		&i.VehiculoTipo,
+		&i.PesoRespaldado,
 	)
 	return i, err
 }

@@ -478,25 +478,37 @@ var avisarCambioDeRutas = func(_ context.Context) {}
 // en cuanto alguien toca una consulta y el cliente deja de encontrar un campo sin que nada
 // falle al compilar.
 type RutaSalida struct {
-	ID            uuid.UUID  `json:"id"`
-	Name          *string    `json:"name"`
-	RouteCode     *string    `json:"routeCode"`
-	Status        string     `json:"status"`
-	OriginAddress *string    `json:"originAddress"`
-	OriginLat     *float64   `json:"originLat"`
-	OriginLng     *float64   `json:"originLng"`
-	TotalDistance float64    `json:"totalDistance"`
-	TotalWeight   float64    `json:"totalWeight"`
-	TotalPrice    float64    `json:"totalPrice"`
-	DeliveryDate  *time.Time `json:"deliveryDate"`
-	VehicleID     *uuid.UUID `json:"vehicleId"`
-	BranchID      *uuid.UUID `json:"branchId"`
-	CreadoPor     *string    `json:"creadoPor"`
-	StartedAt     *time.Time `json:"startedAt"`
-	FinishedAt    *time.Time `json:"finishedAt"`
-	Optimized     bool       `json:"optimized"`
-	CreatedAt     *time.Time `json:"createdAt"`
-	UpdatedAt     *time.Time `json:"updatedAt"`
+	ID            uuid.UUID `json:"id"`
+	Name          *string   `json:"name"`
+	RouteCode     *string   `json:"routeCode"`
+	Status        string    `json:"status"`
+	OriginAddress *string   `json:"originAddress"`
+	OriginLat     *float64  `json:"originLat"`
+	OriginLng     *float64  `json:"originLng"`
+	TotalDistance float64   `json:"totalDistance"`
+	TotalWeight   float64   `json:"totalWeight"`
+	TotalPrice    float64   `json:"totalPrice"`
+	// CUÁNTAS DE ESAS PARADAS NO ESTÁN COTIZADAS. Campo NUEVO, al lado del total y no en
+	// lugar de él: `totalPrice` sigue siendo un número y una APK instalada lo lee igual.
+	//
+	// `totalPrice` suma sólo lo que SÍ está cotizado —la parada sin `pedidoCosto` entra
+	// valiendo cero—, así que un 0 ahí no dice «no hay tarifa», dice que el reparto fue
+	// gratis. Eso es lo que se vio el 22/09/2026 en RT-20260921-007: `$0.00` con sus dos
+	// paradas sin cotizar y el camión a 1,50 USD/km. Dentro de la aplicación ya se
+	// resolvió sumando de las paradas; esto es para quien lo lee por SQL o lo exporta.
+	//
+	// null = no consta (rutas anteriores a 00007, y las que arma el tablero hasta que
+	// `tablero.go` lo mande); 0 = estaban todas cotizadas.
+	ParadasSinCotizar *int32     `json:"paradasSinCotizar"`
+	DeliveryDate      *time.Time `json:"deliveryDate"`
+	VehicleID         *uuid.UUID `json:"vehicleId"`
+	BranchID          *uuid.UUID `json:"branchId"`
+	CreadoPor         *string    `json:"creadoPor"`
+	StartedAt         *time.Time `json:"startedAt"`
+	FinishedAt        *time.Time `json:"finishedAt"`
+	Optimized         bool       `json:"optimized"`
+	CreatedAt         *time.Time `json:"createdAt"`
+	UpdatedAt         *time.Time `json:"updatedAt"`
 	// `branch` no venía en delivery y tuvo que añadirse: el Super Admin veía las rutas de
 	// las ocho sucursales en una lista sin nada que las distinguiera, y dos rutas del
 	// mismo día con el mismo aspecto podían ser de Holguín y de La Habana.
@@ -847,10 +859,24 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 
 	// --- Capacidad por peso ------------------------------------------------
 	var pesoTotal, precioTotal float64
+	// CUÁNTAS PARADAS NO APORTAN IMPORTE, contadas AQUÍ DENTRO y no en otra pasada: el
+	// contador sube exactamente en el `else` de la suma, así que no hay forma de que digan
+	// cosas distintas. Se guarda en `routes.paradas_sin_cotizar` junto al total.
+	//
+	// NO ES `sinCosto`, y la diferencia importa: `sinCosto` cuenta los que LLEVAN DOMICILIO
+	// y no tienen costo, que es de lo que hay que avisar a quien arma. Éste cuenta los que
+	// no sumaron nada al total, lleven domicilio o no, porque es el número que explica ese
+	// total. Es además el mismo criterio que `ImporteDeRuta.deLasParadas` en el aparato
+	// (`app/lib/pantallas/rutas/datos/importe_de_la_ruta.dart`), que cuenta toda parada con
+	// `pedidoCosto == null`: si aquí se contara otra cosa, servidor y aparato dirían dos
+	// números distintos sobre la misma ruta y ninguno de los dos fallaría.
+	sinCotizar := 0
 	for _, p := range pedidos {
 		pesoTotal += p.Weight // un peso sin resolver cuenta 0 kg, como en delivery
 		if p.PedidoCosto != nil {
 			precioTotal += *p.PedidoCosto
+		} else {
+			sinCotizar++
 		}
 		// El que no tiene costo NO suma. Ver `sinCosto` arriba: el total que sale de aquí
 		// es el de lo que sí está costeado, y la respuesta dice cuántos faltan. Un total
@@ -1024,10 +1050,20 @@ func (s *Servidor) crearRuta(w http.ResponseWriter, r *http.Request) {
 		if len(escapados) > 0 {
 			return errPedidosEscapados
 		}
+		// CUÁNTAS ENTRARON SIN COTIZAR, guardado junto al total. `precioTotal` suma sólo
+		// las que tienen `pedido_costo`, así que sin este número al lado el total parece
+		// completo y no lo es — y quien lo lee por SQL o lo exporta no tiene forma de
+		// enterarse, que es justo lo que pasaba con `routes.total_price`.
+		//
+		// Se manda SIEMPRE, también cuando vale 0: es la diferencia entre «estaban todas
+		// cotizadas» y «no consta». Sin mandarlo se quedaría en NULL, que es la otra
+		// respuesta, y entonces una ruta entera bien cotizada diría «no me fío».
+		paradasSinCotizar := int32(sinCotizar)
 		_, err = tx.FijarTotalesDeRuta(r.Context(), sqlc.FijarTotalesDeRutaParams{
-			TotalDistance: distanciaTotal,
-			TotalWeight:   pesoTotal,
-			TotalPrice:    precioTotal,
+			TotalDistance:     distanciaTotal,
+			TotalWeight:       pesoTotal,
+			TotalPrice:        precioTotal,
+			ParadasSinCotizar: &paradasSinCotizar,
 			// LA FIRMA DE QUIÉN ORDENÓ. Se manda SIEMPRE, también cuando vale `true`:
 			// dejarlo a nil aquí lo devolvería al `optimized = true` de la consulta y el
 			// dato volvería a mentir en cuanto alguien armara respetando el orden.
@@ -2237,7 +2273,8 @@ func deFilaDeLista(f sqlc.ListarRutasRow, paradas []ParadaSalida) RutaSalida {
 		ID: f.ID, Name: f.Name, RouteCode: f.RouteCode, Status: string(f.Status),
 		OriginAddress: f.OriginAddress, OriginLat: f.OriginLat, OriginLng: f.OriginLng,
 		TotalDistance: f.TotalDistance, TotalWeight: f.TotalWeight, TotalPrice: f.TotalPrice,
-		DeliveryDate: f.DeliveryDate, VehicleID: f.VehicleID, BranchID: f.BranchID,
+		ParadasSinCotizar: f.ParadasSinCotizar,
+		DeliveryDate:      f.DeliveryDate, VehicleID: f.VehicleID, BranchID: f.BranchID,
 		CreadoPor: f.CreadoPor, StartedAt: f.StartedAt, FinishedAt: f.FinishedAt,
 		Optimized: f.Optimized, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt,
 		SucursalNombre: f.SucursalNombre, SucursalCodigo: f.SucursalCodigo,
@@ -2251,7 +2288,8 @@ func deFilaDeDetalle(f sqlc.ObtenerRutaRow, paradas []ParadaSalida) RutaSalida {
 		ID: f.ID, Name: f.Name, RouteCode: f.RouteCode, Status: string(f.Status),
 		OriginAddress: f.OriginAddress, OriginLat: f.OriginLat, OriginLng: f.OriginLng,
 		TotalDistance: f.TotalDistance, TotalWeight: f.TotalWeight, TotalPrice: f.TotalPrice,
-		DeliveryDate: f.DeliveryDate, VehicleID: f.VehicleID, BranchID: f.BranchID,
+		ParadasSinCotizar: f.ParadasSinCotizar,
+		DeliveryDate:      f.DeliveryDate, VehicleID: f.VehicleID, BranchID: f.BranchID,
 		CreadoPor: f.CreadoPor, StartedAt: f.StartedAt, FinishedAt: f.FinishedAt,
 		Optimized: f.Optimized, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt,
 		SucursalNombre: f.SucursalNombre, SucursalCodigo: f.SucursalCodigo,
@@ -2274,6 +2312,7 @@ type datosDeRuta struct {
 	TotalDistance     float64
 	TotalWeight       float64
 	TotalPrice        float64
+	ParadasSinCotizar *int32
 	DeliveryDate      pgtype.Timestamptz
 	VehicleID         pgtype.UUID
 	BranchID          pgtype.UUID
@@ -2296,7 +2335,8 @@ func armarRuta(d datosDeRuta, paradas []ParadaSalida) RutaSalida {
 		ID: d.ID, Name: d.Name, RouteCode: d.RouteCode, Status: d.Status,
 		OriginAddress: d.OriginAddress, OriginLat: d.OriginLat, OriginLng: d.OriginLng,
 		TotalDistance: d.TotalDistance, TotalWeight: d.TotalWeight, TotalPrice: d.TotalPrice,
-		DeliveryDate: hora(d.DeliveryDate), VehicleID: idOpcional(d.VehicleID),
+		ParadasSinCotizar: d.ParadasSinCotizar,
+		DeliveryDate:      hora(d.DeliveryDate), VehicleID: idOpcional(d.VehicleID),
 		BranchID: idOpcional(d.BranchID), CreadoPor: d.CreadoPor,
 		StartedAt: hora(d.StartedAt), FinishedAt: hora(d.FinishedAt),
 		Optimized: d.Optimized, CreatedAt: hora(d.CreatedAt), UpdatedAt: hora(d.UpdatedAt),

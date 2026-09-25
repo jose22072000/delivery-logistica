@@ -13,6 +13,10 @@
 SELECT
     r.id, r.name, r.route_code, r.status, r.origin_address, r.origin_lat,
     r.origin_lng, r.total_distance, r.total_weight, r.total_price,
+    -- Cuántas paradas entraron sin costo. Va PEGADO a `total_price` en las dos consultas
+    -- a propósito: el total sin ese número al lado es el `$0.00` de RT-20260921-007, que
+    -- no dice «no hay tarifa», dice que el reparto fue gratis. NULL = no consta.
+    r.paradas_sin_cotizar,
     r.delivery_date, r.vehicle_id, r.branch_id, r.creado_por,
     r.started_at, r.finished_at, r.optimized, r.created_at, r.updated_at,
     b.name        AS sucursal_nombre,
@@ -41,6 +45,10 @@ ORDER BY r.created_at DESC;
 SELECT
     r.id, r.name, r.route_code, r.status, r.origin_address, r.origin_lat,
     r.origin_lng, r.total_distance, r.total_weight, r.total_price,
+    -- Cuántas paradas entraron sin costo. Va PEGADO a `total_price` en las dos consultas
+    -- a propósito: el total sin ese número al lado es el `$0.00` de RT-20260921-007, que
+    -- no dice «no hay tarifa», dice que el reparto fue gratis. NULL = no consta.
+    r.paradas_sin_cotizar,
     r.delivery_date, r.vehicle_id, r.branch_id, r.creado_por,
     r.started_at, r.finished_at, r.optimized, r.created_at, r.updated_at,
     b.name        AS sucursal_nombre,
@@ -304,11 +312,22 @@ UPDATE routes SET
     total_distance = sqlc.arg('total_distance'),
     total_weight   = sqlc.arg('total_weight'),
     total_price    = sqlc.arg('total_price'),
+    -- CUÁNTAS DE ESAS PARADAS NO ESTÁN COTIZADAS. `total_price` suma sólo lo que sí lo
+    -- está —el que no tiene `pedido_costo` entra valiendo cero—, así que sin este número
+    -- al lado el total parece completo y no lo es. Dentro de la aplicación ya se resolvió
+    -- sumando de las paradas; esto es para quien lo consulta por SQL o lo exporta, que
+    -- ve un cero indistinguible de un cero de verdad.
+    --
+    -- Va con `coalesce` y no a secas: quien no lo manda NO lo pisa. El armador del tablero
+    -- (`internal/api/tablero.go`) todavía no lo calcula, y machacarlo a NULL desde ahí
+    -- borraría el número que sí puso el armador de rutas.
+    paradas_sin_cotizar = coalesce(sqlc.narg('paradas_sin_cotizar')::integer,
+                                   paradas_sin_cotizar),
     optimized      = coalesce(sqlc.narg('optimizado')::boolean, true)
 WHERE id = sqlc.arg('id')
   AND (sqlc.narg('sucursal')::uuid IS NULL OR branch_id = sqlc.narg('sucursal')::uuid)
 RETURNING id, name, route_code, status, origin_address, origin_lat, origin_lng,
-          total_distance, total_weight, total_price, delivery_date, vehicle_id,
+          total_distance, total_weight, total_price, paradas_sin_cotizar, delivery_date, vehicle_id,
           branch_id, started_at, finished_at, optimized, created_at, updated_at;
 
 -- ---------------------------------------------------------------------------

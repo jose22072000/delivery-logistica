@@ -292,6 +292,23 @@ type Querier interface {
 	// otra sucursal la devolvería, y eso es enseñar lo que no es de uno.
 	CrearColumna(ctx context.Context, arg CrearColumnaParams) (CrearColumnaRow, error)
 	CrearOrigen(ctx context.Context, arg CrearOrigenParams) (SavedOrigin, error)
+	// LA CONSTANCIA DEL PESO, que estaba dada de alta y no la escribía nadie.
+	//
+	// 00004_peso_por_renglon.sql añadió `caso`, `peso_unitario_kg`, `peso_linea_kg` y
+	// `origen_peso` precisamente para no tener que recalcular el peso con el catálogo de hoy
+	// sobre un pedido de hace tres meses. Esta sentencia insertaba sólo
+	// `(order_id, linea, description, quantity, packs, product_id)`, así que desde el traspaso
+	// del 14/09/2026 **esas columnas llegan vacías en todo lo que escribe el espejo** y la
+	// vista `peso_de_los_pedidos` no puede decir nada de los pedidos nuevos: los deja en NULL.
+	//
+	// Los valores YA están calculados al llegar aquí, en `cotizar.RenglonPesado`
+	// (`WeightKg`, `UnitWeightKg`, `Matched`, `WhName`, `WeightSource`): no hay que calcular
+	// nada, sólo dejar de tirarlos. Quien los pone es `renglonesParaLaBase`, en
+	// `internal/api/cotizacion.go`.
+	//
+	// Todos anulables a propósito: un renglón que no sabe lo que pesa se guarda VACÍO, no en
+	// cero. `origen_peso = 'none'` —`cotizar.PesoDesconocido`— es otra cosa y sí se escribe:
+	// es el renglón confesando que lo intentó y no pudo, que es lo que la vista mira.
 	CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePedidoParams) (CrearRenglonDePedidoRow, error)
 	// La ruta nace `planned` y `optimized` en false: los totales y el orden de visita se
 	// calculan después, con las paradas ya enganchadas, y se fijan con `FijarTotalesDeRuta`.

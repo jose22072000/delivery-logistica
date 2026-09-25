@@ -223,6 +223,10 @@ func (d *dobleDePedidos) ObtenerPedido(_ context.Context, arg sqlc.ObtenerPedido
 			ID: p.ID, CustomerName: p.CustomerName, Address: p.Address,
 			Weight: p.Weight, Status: p.Status, BranchID: p.BranchID,
 			RouteID: p.RouteID, RutaNombre: p.RutaNombre,
+			// La duda del peso viaja también en el detalle: si el doble la tirara aquí,
+			// la pantalla que más mira una persona sería la única que no la enseña y
+			// ninguna prueba lo notaría.
+			PesoRespaldado: p.PesoRespaldado,
 		}, nil
 	}
 	return sqlc.ObtenerPedidoRow{}, pgx.ErrNoRows
