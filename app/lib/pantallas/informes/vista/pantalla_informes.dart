@@ -9,6 +9,7 @@ import '../../../diseno/tema.dart';
 import '../../../diseno/estado_vacio.dart';
 import '../../../diseno/insignia.dart';
 import '../../../diseno/numeros.dart';
+import '../../../diseno/rango_de_fechas.dart';
 import '../../../diseno/pestanas.dart';
 import '../../../diseno/selector.dart';
 import '../../../diseno/tabla_ancha.dart';
@@ -394,29 +395,51 @@ class _Fecha extends StatelessWidget {
   final ValueChanged<DateTime?> alElegir;
 
   @override
-  Widget build(BuildContext context) => OutlinedButton.icon(
-    icon: const Icon(Icons.calendar_today_outlined, size: 16),
-    onPressed: () async {
-      final hoy = DateTime.now();
-      final elegida = await showDatePicker(
-        context: context,
-        initialDate: valor ?? hoy,
-        firstDate: DateTime(hoy.year - 5),
-        lastDate: DateTime(hoy.year + 1),
-      );
-      if (elegida != null) alElegir(elegida);
-    },
-    onLongPress: () => alElegir(null),
-    label: Text(
-      valor == null
-          ? etiqueta
-          : '$etiqueta: ${DateFormat('d/M/y', 'es').format(valor!)}',
-    ),
-    style: OutlinedButton.styleFrom(
-      side: BorderSide(color: Colores.borde),
-      foregroundColor: Theme.of(context).colorScheme.onSurface,
-    ),
-  );
+  Widget build(BuildContext context) {
+    // EL CALENDARIO DE LA CASA, no `showDatePicker`.
+    //
+    // `showDatePicker` es una ventana modal centrada, y aquí no hay modales: es
+    // la excepción aprobada del 05/09/2026 y está escrita en
+    // `lib/diseno/rango_de_fechas.dart` («**No se usa `showDatePicker`**»), en
+    // `pantallas.md` §0 y §9.2 y en el §4 del CLAUDE.md del repo. `CampoDeFecha`
+    // saca el calendario en un menú anclado al propio botón, que es el mismo
+    // patrón del `Selector`.
+    //
+    // Y de paso se va la ventana rara: esto abría de `año−5` a `año+1`, cuando
+    // el resto de la aplicación usa 2020 → año+1 (hay pedidos viejos espejados
+    // y fechas comprometidas por delante). Eran cuatro ventanas distintas en la
+    // misma aplicación; ahora es una.
+    final boton = CampoDeFecha(
+      titulo: etiqueta,
+      valor: valor,
+      alElegir: alElegir,
+    );
+
+    if (valor == null) return boton;
+
+    // LA ✕ DE QUITAR LA FECHA, A LA VISTA.
+    //
+    // Antes la única forma de quitarla era dejar el dedo pulsado sobre el botón
+    // (`onLongPress`), sin una sola pista en pantalla de que eso existiera. En
+    // un teléfono eso no lo descubre nadie: se pone una fecha por probar y ya no
+    // hay manera de volver a «todas» salvo recargar la pantalla.
+    //
+    // Se pone la misma ✕ que ya usa el rango de fechas de Pedidos y de Rutas
+    // (`diseno/rango_de_fechas.dart`), y sólo cuando hay algo que quitar, para
+    // no poner un botón que no hace nada.
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(child: boton),
+        IconButton(
+          onPressed: () => alElegir(null),
+          icon: const Icon(Icons.close, size: 18),
+          tooltip: 'Quitar $etiqueta',
+          visualDensity: VisualDensity.compact,
+        ),
+      ],
+    );
+  }
 }
 
 /// LAS TRES PESTANAS DEL REPORTE.

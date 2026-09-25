@@ -41,6 +41,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../diseno/barra_de_filtros.dart';
 import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/pestanas.dart';
 import '../../../diseno/rango_de_fechas.dart';
@@ -327,17 +328,17 @@ class _FiltrosDeLaLista extends ConsumerWidget {
     final notas = ref.read(filtrosRutasProvider.notifier);
     final vehiculos = ref.watch(vehiculosProvider).value ?? const <Vehiculo>[];
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          // Igual que la de Pedidos: busca sola y **se vacia cuando
-          // `Limpiar` vacia los filtros**, en vez de quedarse un texto
-          // filtrando en silencio.
-          CajaDeBusqueda(
+    // La colocación la manda `BarraDeFiltros`, igual que Pedidos, Clientes y
+    // Vehículos. Antes: `Padding` de 12 literal —el título de esta misma
+    // pantalla usa 16, las pestañas 8 y el botón «Limpiar» cero— y un `Wrap`
+    // donde la caja de buscar se llevaba 260 de los 366 útiles del teléfono y
+    // tiraba el selector de vehículo a la línea siguiente.
+    // Ver `lib/diseno/barra_de_filtros.dart`.
+    return BarraDeFiltros(
+      // Igual que la de Pedidos: busca sola y **se vacia cuando
+      // `Limpiar` vacia los filtros**, en vez de quedarse un texto
+      // filtrando en silencio.
+      busqueda: CajaDeBusqueda(
             valor: filtros.q,
             ancho: 260,
             pista: 'Buscar por código, nombre, vehículo...',
@@ -350,6 +351,7 @@ class _FiltrosDeLaLista extends ConsumerWidget {
               ),
             ),
           ),
+      filtros: [
           Selector<String>(
             titulo: 'Rutas de un camión',
             valor: filtros.vehiculoId,
@@ -375,6 +377,10 @@ class _FiltrosDeLaLista extends ConsumerWidget {
           // `filtrarRutas`; lo que faltaba era con que ponerlo. Sin `sólo ese
           // día`: eso es de Pedidos (pliego §2), aqui el pliego (§3) sólo pide
           // `Desde` y `Hasta`.
+      ],
+      // Fila entera: son dos botones de fecha más la ✕, y en media columna se
+      // parten dejando la ✕ colgando sola.
+      anchoCompleto: [
           RangoDeFechas(
             desde: filtros.desde,
             hasta: filtros.hasta,
@@ -391,8 +397,7 @@ class _FiltrosDeLaLista extends ConsumerWidget {
               ),
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 }

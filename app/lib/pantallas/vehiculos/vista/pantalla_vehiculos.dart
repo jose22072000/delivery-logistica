@@ -6,6 +6,8 @@ import 'package:reparto/nucleo/frescura/copia_bajada.dart';
 import 'package:reparto/nucleo/plataforma.dart';
 import 'package:reparto/nucleo/red/fallos.dart';
 
+import '../../../diseno/anchos.dart';
+import '../../../diseno/barra_de_filtros.dart';
 import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/cajon.dart';
 import '../../../diseno/estado_vacio.dart';
@@ -163,7 +165,13 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
     // Ver el contrato en `lib/navegacion/pantalla_registrada.dart`.
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(Aire.xl),
+        // 12 en el teléfono y 24 en pantalla grande, que es la regla de `Aire`
+        // y lo que ya hacían Clientes, Pedidos e Informes. Estaba clavado en 24
+        // y en un móvil de 390 dejaba 342 útiles contra los 366 de Clientes:
+        // dos listas hermanas con márgenes distintos.
+        padding: EdgeInsets.all(
+          MediaQuery.sizeOf(context).width < Anchos.idioma ? Aire.md : Aire.xl,
+        ),
         children: [
           Text('Vehículos', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 4),
@@ -173,23 +181,26 @@ class _PantallaVehiculosState extends ConsumerState<PantallaVehiculos> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),
-          // En movil el grupo buscador + 2 botones ENVUELVE; sin esto se sale
-          // por la derecha y el boton de agregar queda fuera de pantalla.
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              // La caja de la casa. Antes consultaba en CADA letra y no tenia
-              // respiro ninguno: la misma caja en cinco pantallas y cinco
-              // comportamientos distintos.
-              CajaDeBusqueda(
-                valor: ref.watch(busquedaVehiculosProvider),
-                alBuscar: (t) {
-                  ref.read(busquedaVehiculosProvider.notifier).poner(t);
-                  ref.read(paginaVehiculosProvider.notifier).poner(1);
-                },
-              ),
+          // La misma colocación que Pedidos, Clientes y el Tablero: la manda
+          // `BarraDeFiltros`. Antes era un `Wrap` propio de 8/8 —Clientes usaba
+          // 12/12 y Almacenes 12/8— con la caja de buscar clavada en 220 px, y
+          // a 390 el buscador y los dos botones salían en tres escalones
+          // desiguales. Ver `lib/diseno/barra_de_filtros.dart`.
+          BarraDeFiltros(
+            margen: EdgeInsets.zero,
+            // La caja de la casa. Antes consultaba en CADA letra y no tenia
+            // respiro ninguno: la misma caja en cinco pantallas y cinco
+            // comportamientos distintos.
+            busqueda: CajaDeBusqueda(
+              valor: ref.watch(busquedaVehiculosProvider),
+              alBuscar: (t) {
+                ref.read(busquedaVehiculosProvider.notifier).poner(t);
+                ref.read(paginaVehiculosProvider.notifier).poner(1);
+              },
+            ),
+            // Van en `acciones` y no en `filtros` porque no filtran nada: se
+            // colocan igual, pero el nombre no engaña a quien lea esto luego.
+            acciones: [
               OutlinedButton(
                 onPressed: _abrirTipos,
                 child: const Text('Tipos de vehículo'),

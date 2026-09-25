@@ -1451,3 +1451,52 @@ func TestLaCargaInicialBajaElPadronEnteroEncadenandoComoElAparato(t *testing.T) 
 			len(vistos), total)
 	}
 }
+
+// EL LOGÍSTICO SE LLEVA EL PADRÓN DE SU SUCURSAL, Y NADA MÁS.
+//
+// Es la pregunta que hizo Jose el 25/09/2026 antes de dar el proyecto por
+// acabado: «un usuario logístico puede entrar ahora mismo, cargar los datos
+// ÚNICOS DE SU SUCURSAL y irse sin conexión a trabajar».
+//
+// La bajada sirve el padrón con `ventanaDelAlcance` —la ventana SIN la sucursal
+// que se elige arriba en la barra— porque los clientes van por CÓDIGO y no por
+// id, y ese código sale de `Acotado.Codigo()`. Para un SUPER ADMIN es nil y
+// bajan los ocho; para un operador es el suyo y baja el suyo. Eso estaba escrito
+// en un comentario y no lo ataba nada: en producción son 2.689 clientes de
+// Santiago contra 8.578 de las ocho, así que si el acotado se cae, el repartidor
+// se lleva el triple de datos al almacén y ve clientes que no son suyos.
+//
+// Se comprueba con las DOS mitades, que es lo que pide el §3-bis:
+//   - el operador de Santiago NO ve al de Holguín;
+//   - y sí ve a los suyos, para que la prueba no pase por servir cero.
+func TestElLogisticoSoloSeLlevaElPadronDeSuSucursal(t *testing.T) {
+	q := nuevoEspejo()
+	stg := "STG"
+	hol := "HOL"
+
+	deStg := uuid.New()
+	deHol := uuid.New()
+	q.padron = append(q.padron,
+		sqlc.ListarClientesRow{
+			ID: deStg, Name: "Kiosko de Santiago",
+			Lat: 20.0, Lng: -75.8, SucursalCodigo: &stg,
+		},
+		sqlc.ListarClientesRow{
+			ID: deHol, Name: "Kiosko de Holguín",
+			Lat: 20.9, Lng: -76.2, SucursalCodigo: &hol,
+		},
+	)
+
+	h := montarTab(t, q)
+
+	// El operador de Santiago, que es quien se va al almacén.
+	w := pedirTab(t, h, http.MethodGet, "/api/sync/cambios", tokenTab(t, sucStg.String()), "")
+	puestos, _, _ := conjuntoDe(t, leerTab(t, w), "customers")
+
+	if !puestos[deStg.String()] {
+		t.Fatalf("el operador de Santiago NO recibió a su propio cliente: se llevaría un padrón incompleto al almacén")
+	}
+	if puestos[deHol.String()] {
+		t.Fatalf("el operador de Santiago recibió un cliente de HOLGUÍN: el acotado del padrón se cayó")
+	}
+}

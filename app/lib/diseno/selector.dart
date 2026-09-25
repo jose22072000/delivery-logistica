@@ -70,8 +70,51 @@ class _SelectorState<T> extends State<Selector<T>> {
     // sin tener que leer la etiqueta entera.
     final filtrando = elegida != null;
 
-    final boton = OutlinedButton(
-      onPressed: widget.opciones.isEmpty ? null : _abrir,
+    final conBuscador =
+        widget.siempreConBuscador ||
+        widget.opciones.length >= widget.desdeCuantasBusca;
+
+    // EL MENÚ VA ANCLADO AL BOTÓN, Y LO SIGUE.
+    //
+    // Antes esto era `showMenu`, que calcula la posición UNA SOLA VEZ al
+    // abrirse —con el `RenderBox` del botón en ese instante— y deja el menú
+    // clavado en la pantalla, dentro del `Overlay`. En cuanto la página se
+    // desplaza, el botón se va y el menú se queda donde estaba, flotando sobre
+    // cualquier cosa. Jose, 25/09/2026:
+    //
+    //     «los select tambien son modales no se por q se mueven en la vista si
+    //      me muevo con el scrool en ves de quedarse debajo de su input select»
+    //
+    // Y el comentario que había encima decía «anclado al borde del boton», que
+    // era verdad sólo en el instante de abrirlo. `MenuAnchor` sí lo ancla de
+    // verdad: recoloca el menú en cada pasada de trazado, así que se queda
+    // debajo de su botón pase lo que pase. Es además el patrón que ya usaban
+    // `rango_de_fechas.dart` y el selector de Pedidos, que nunca dieron este
+    // problema.
+    return MenuAnchor(
+      style: MenuStyle(
+        backgroundColor: const WidgetStatePropertyAll(Colores.blanco),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radios.lg),
+            side: BorderSide(color: Colores.linea),
+          ),
+        ),
+      ),
+      menuChildren: [
+        _Menu<T>(
+          opciones: widget.opciones,
+          conBuscador: conBuscador,
+          valor: widget.valor,
+          alElegir: (v) => widget.alElegir(v),
+        ),
+      ],
+      builder: (contexto, controlador, _) {
+        final boton = OutlinedButton(
+      onPressed: widget.opciones.isEmpty
+          ? null
+          : () => controlador.isOpen ? controlador.close() : controlador.open(),
       style: OutlinedButton.styleFrom(
         backgroundColor: Colores.blanco,
         foregroundColor: filtrando ? Colores.tinta : Colores.tintaSuave,
@@ -131,53 +174,13 @@ class _SelectorState<T> extends State<Selector<T>> {
       ),
     );
 
-    return widget.tooltip == null
-        ? boton
-        : Tooltip(message: widget.tooltip!, child: boton);
+        return widget.tooltip == null
+            ? boton
+            : Tooltip(message: widget.tooltip!, child: boton);
+      },
+    );
   }
 
-  Future<void> _abrir() async {
-    final caja = context.findRenderObject()! as RenderBox;
-    final overlay =
-        Overlay.of(context).context.findRenderObject()! as RenderBox;
-    // Anclado al borde del boton, no centrado en la pantalla: con dos selectores
-    // seguidos en la barra, uno centrado no deja ver cual se abrio.
-    final posicion = RelativeRect.fromRect(
-      Rect.fromPoints(
-        caja.localToGlobal(
-          caja.size.bottomLeft(Offset.zero),
-          ancestor: overlay,
-        ),
-        caja.localToGlobal(
-          caja.size.bottomRight(Offset.zero),
-          ancestor: overlay,
-        ),
-      ),
-      Offset.zero & overlay.size,
-    );
-
-    final conBuscador =
-        widget.siempreConBuscador ||
-        widget.opciones.length >= widget.desdeCuantasBusca;
-
-    final elegido = await showMenu<T>(
-      context: context,
-      position: posicion,
-      constraints: const BoxConstraints(minWidth: 240, maxWidth: 360),
-      items: [
-        PopupMenuItem<T>(
-          enabled: false,
-          padding: EdgeInsets.zero,
-          child: _Menu<T>(
-            opciones: widget.opciones,
-            conBuscador: conBuscador,
-            valor: widget.valor,
-          ),
-        ),
-      ],
-    );
-    if (elegido != null) widget.alElegir(elegido);
-  }
 }
 
 class _Menu<T> extends StatefulWidget {
@@ -185,11 +188,17 @@ class _Menu<T> extends StatefulWidget {
     required this.opciones,
     required this.conBuscador,
     required this.valor,
+    required this.alElegir,
   });
 
   final List<OpcionSelector<T>> opciones;
   final bool conBuscador;
   final T? valor;
+
+  /// Se avisa por aqui y NO con `Navigator.pop`. El `pop` era de `showMenu`,
+  /// que abria el menu como una ruta; con `MenuAnchor` el menu no es una ruta,
+  /// asi que un `pop` cerraria la PANTALLA de debajo.
+  final ValueChanged<T> alElegir;
 
   @override
   State<_Menu<T>> createState() => _MenuState<T>();
@@ -254,7 +263,17 @@ class _MenuState<T> extends State<_Menu<T>> {
           // su hijo es una caja normal. Y la pereza aqui no compra nada: la
           // lista mas larga es la de vendedores, ciento y pico filas de texto.
           Flexible(
+            // `primary: false`: el desplazamiento de un menu es SUYO y nunca el
+            // principal de la pantalla. Antes daba igual porque `showMenu`
+            // abria el menu como una RUTA aparte; ahora, con `MenuAnchor`, el
+            // menu vive en la misma pantalla y sin esto quedan dos
+            // desplazamientos colgando del mismo `PrimaryScrollController`
+            // —el del cuerpo y el del menu— y Flutter lo corta en seco: «The
+            // PrimaryScrollController is attached to more than one
+            // ScrollPosition». Lo mismo que ya le pasó al menu de Pedidos
+            // (`pedidos/vista/kit.dart`).
             child: SingleChildScrollView(
+              primary: false,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -270,7 +289,11 @@ class _MenuState<T> extends State<_Menu<T>> {
                       ),
                     ),
                   for (final o in visibles)
-                    _Opcion<T>(opcion: o, elegida: o.valor == widget.valor),
+                    _Opcion<T>(
+                      opcion: o,
+                      elegida: o.valor == widget.valor,
+                      alElegir: widget.alElegir,
+                    ),
                 ],
               ),
             ),
@@ -284,14 +307,24 @@ class _MenuState<T> extends State<_Menu<T>> {
 /// Una fila del menu. La elegida va en primario y con la marca a la derecha,
 /// como en `Selector.tsx`; el resto en tinta.
 class _Opcion<T> extends StatelessWidget {
-  const _Opcion({required this.opcion, required this.elegida});
+  const _Opcion({
+    required this.opcion,
+    required this.elegida,
+    required this.alElegir,
+  });
 
   final OpcionSelector<T> opcion;
   final bool elegida;
+  final ValueChanged<T> alElegir;
 
   @override
   Widget build(BuildContext context) => InkWell(
-    onTap: () => Navigator.of(context).pop(opcion.valor),
+    onTap: () {
+      // Primero se avisa y luego se cierra: cerrar antes desmonta este
+      // `State` y el aviso se perderia.
+      alElegir(opcion.valor);
+      MenuController.maybeOf(context)?.close();
+    },
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       child: Row(

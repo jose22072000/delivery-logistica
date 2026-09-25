@@ -293,4 +293,74 @@ void main() {
 
     await desmontar(tester);
   });
+
+  // LAS FECHAS DE INFORMES: SE PONEN, Y SE QUITAN A LA VISTA.
+  //
+  // Dos cosas cambiaron aqui el 25/09/2026 y ninguna la sujetaba nada:
+  //
+  // 1. El calendario dejo de ser `showDatePicker` —una ventana modal, prohibida
+  //    en esta aplicacion desde el 05/09/2026— y paso al `CampoDeFecha` anclado
+  //    de la casa.
+  // 2. La fecha ya NO se quita con `onLongPress`. Antes esa era la unica forma,
+  //    sin una sola pista en pantalla: en un telefono nadie la descubre, se
+  //    pone una fecha por probar y no hay manera de volver a «todas».
+  //
+  // El auditor comprobo el mismo dia que, poniendo `alElegir: (d) {}` en los
+  // cuatro campos de fecha nuevos y quitando las dos ✕, las 1.656 pruebas del
+  // proyecto seguian en verde. O sea: el boton se pinta, el calendario se abre,
+  // se toca un dia y no pasa nada, y nadie se entera.
+  testWidgets('poner una fecha la aplica, y la ✕ la quita', (tester) async {
+    await bajadaEntera(ahora);
+    await montar(tester);
+
+    expect(
+      find.text('Desde'),
+      findsOneWidget,
+      reason: 'no esta el campo «Desde» de los filtros de informes',
+    );
+
+    await tester.tap(find.text('Desde'));
+    await tester.pumpAndSettle();
+
+    // El calendario sale ANCLADO, no en una ventana modal.
+    expect(
+      find.byType(CalendarDatePicker),
+      findsOneWidget,
+      reason:
+          'el calendario no se abrio. Si aparecio un dialogo centrado, es que '
+          'volvio `showDatePicker`, que esta prohibido aqui',
+    );
+
+    // Se elige el 20 de septiembre de 2026 —el reloj de la prueba es el 14—.
+    await tester.tap(find.text('20'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('20/9/2026'),
+      findsOneWidget,
+      reason:
+          'se toco un dia en el calendario y el filtro no se entero: el campo '
+          'sigue sin fecha. Es el cableado de `alElegir`.',
+    );
+    expect(
+      find.text('Desde'),
+      findsNothing,
+      reason: 'el boton sigue diciendo «Desde» con una fecha ya puesta',
+    );
+
+    // Y ahora la ✕, que es la que no existia.
+    await tester.tap(find.byTooltip('Quitar Desde'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Desde'),
+      findsOneWidget,
+      reason:
+          'la ✕ no quito la fecha. Sin ella la unica salida era el '
+          '`onLongPress` invisible del que se venia.',
+    );
+    expect(find.text('20/9/2026'), findsNothing);
+
+    await desmontar(tester);
+  });
 }

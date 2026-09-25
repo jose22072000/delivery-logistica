@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../diseno/anchos.dart';
+import '../../../diseno/barra_de_filtros.dart';
 import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/rango_de_fechas.dart';
 import '../../../diseno/tabla_ancha.dart';
@@ -322,18 +323,25 @@ class _BarraDeFiltros extends ConsumerWidget {
     final notas = ref.read(filtrosPedidosProvider.notifier);
     final facetas = ref.watch(facetasPedidosProvider).value ?? Facetas.vacias;
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        // Busca sola a los 400 ms, y **se vacia cuando se vacian los
-        // filtros**: antes se quedaba el texto puesto filtrando en silencio
-        // debajo de una lista que ya no estaba filtrada.
-        CajaDeBusqueda(
-          valor: filtros.q,
-          alBuscar: (t) => notas.cambiar((f) => f.copiarCon(q: t)),
-        ),
+    // La colocación la decide `BarraDeFiltros` y no esta pantalla: caja de
+    // buscar arriba y a todo el ancho, y los desplegables en rejilla de dos
+    // columnas iguales en el teléfono. Antes era un `Wrap` suelto, y a 390 px
+    // eso dejaba 146 px muertos a la derecha de la caja y partía los siete
+    // controles en escalones desiguales —seis o siete filas de filtros antes de
+    // ver un solo pedido—. Ver `lib/diseno/barra_de_filtros.dart`.
+    //
+    // El margen lo pone la propia pantalla (`padding` del cuerpo), así que aquí
+    // va a cero para no sumarlo dos veces.
+    return BarraDeFiltros(
+      margen: EdgeInsets.zero,
+      // Busca sola a los 400 ms, y **se vacia cuando se vacian los
+      // filtros**: antes se quedaba el texto puesto filtrando en silencio
+      // debajo de una lista que ya no estaba filtrada.
+      busqueda: CajaDeBusqueda(
+        valor: filtros.q,
+        alBuscar: (t) => notas.cambiar((f) => f.copiarCon(q: t)),
+      ),
+      filtros: [
         Selector<RepartoFiltro>(
           titulo: 'Estado de reparto en delivery',
           valor: filtros.reparto,
@@ -379,9 +387,14 @@ class _BarraDeFiltros extends ConsumerWidget {
           ],
           alElegir: (o) => notas.cambiar((f) => f.copiarCon(orden: o)),
         ),
+      ],
+      anchoCompleto: [
         // `Desde` / `Hasta` / `sólo ese día` / ✕. El SQL que acota por fecha
         // ya estaba escrito y la ✕ tambien; lo que no habia era con que PONER
         // las fechas, asi que «el pre-despacho de HOY» era inalcanzable.
+        //
+        // Va a fila entera y no a la rejilla: son dos botones más una ✕, y en
+        // media columna se partían dejando la ✕ colgando sola.
         RangoDeFechas(
           desde: filtros.desde,
           hasta: filtros.hasta,

@@ -22,6 +22,7 @@ import '../../../impresion/vista_previa.dart';
 import '../../../diseno/anchos.dart';
 import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/caja_de_numero.dart';
+import '../../../diseno/rango_de_fechas.dart';
 import '../../../diseno/tema.dart';
 import '../../../nucleo/base/base.dart';
 import '../../../nucleo/proveedores.dart';
@@ -617,29 +618,36 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
           ),
         ),
         const SizedBox(height: 8),
+        // EL CALENDARIO DE LA CASA, no `showDatePicker`.
+        //
+        // Era una ventana modal centrada, y aquí no hay modales: excepción
+        // aprobada el 05/09/2026, escrita en `diseno/rango_de_fechas.dart`, en
+        // `pantallas.md` §0 y §9.2 y en el §4 del CLAUDE.md. `CampoDeFecha`
+        // ancla el calendario al botón, igual que el `Selector`.
+        //
+        // Y con ella se va una ventana que además no cuadraba con ninguna otra:
+        // abría de `hoy−30 días` a `hoy+365`, mientras el filtro del paso 4 de
+        // ESTE MISMO asistente abría a 365 días hacia atrás. Ahora las dos usan
+        // la de la casa: 2020 → año que viene.
+        //
+        // La ✕ se pone aparte porque `CampoDeFecha.alElegir` sólo entrega
+        // fechas de verdad: es opcional y tiene que poder volver a «—».
         Row(
           children: [
             Expanded(
-              child: Text(
-                'Fecha de entrega (opcional): '
-                '${_fechaDeEntrega == null ? '—' : fechaCorta(_fechaDeEntrega)}',
+              child: CampoDeFecha(
+                titulo: 'Fecha de entrega (opcional)',
+                valor: _fechaDeEntrega,
+                alElegir: (d) => setState(() => _fechaDeEntrega = d),
               ),
             ),
-            OutlinedButton(
-              onPressed: () async {
-                final hoy = DateTime.now();
-                final elegida = await showDatePicker(
-                  context: context,
-                  firstDate: hoy.subtract(const Duration(days: 30)),
-                  lastDate: hoy.add(const Duration(days: 365)),
-                  initialDate: hoy,
-                );
-                if (elegida != null) {
-                  setState(() => _fechaDeEntrega = elegida);
-                }
-              },
-              child: const Text('Elegir'),
-            ),
+            if (_fechaDeEntrega != null)
+              IconButton(
+                onPressed: () => setState(() => _fechaDeEntrega = null),
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: 'Quitar la fecha de entrega',
+                visualDensity: VisualDensity.compact,
+              ),
           ],
         ),
         const SizedBox(height: 12),
@@ -845,20 +853,14 @@ class _AsistenteState extends ConsumerState<AsistenteNuevaRuta> {
         zonaId: _zonaId,
         alElegir: _elegirLaZona,
       ),
-      OutlinedButton(
-        onPressed: () async {
-          final hoy = DateTime.now();
-          final dia = await showDatePicker(
-            context: context,
-            firstDate: hoy.subtract(const Duration(days: 365)),
-            lastDate: hoy.add(const Duration(days: 365)),
-            initialDate: _filtros.dia ?? hoy,
-          );
-          if (dia != null) _ponerFiltros(_filtros.copiarCon(dia: dia));
-        },
-        child: Text(
-          'Día de los pedidos: ${_filtros.dia == null ? 'todos' : fechaCorta(_filtros.dia)}',
-        ),
+      // EL CALENDARIO DE LA CASA, no `showDatePicker`. El mismo motivo y las
+      // mismas reglas que el del paso 3, unos cientos de lineas mas arriba: no
+      // hay modales en esta aplicacion, y las cuatro ventanas de fechas que
+      // habia son ahora una sola (2020 → año que viene).
+      CampoDeFecha(
+        titulo: 'Día de los pedidos',
+        valor: _filtros.dia,
+        alElegir: (d) => _ponerFiltros(_filtros.copiarCon(dia: d)),
       ),
       // «Todos los días» es un boton propio y no la opcion vacia del anterior:
       // un selector de fecha no tiene forma de decir «ninguna».

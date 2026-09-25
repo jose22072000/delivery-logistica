@@ -5,6 +5,7 @@ import 'package:reparto/nucleo/frescura/reloj_de_datos.dart';
 import 'package:reparto/nucleo/proveedores.dart';
 
 import '../../../diseno/anchos.dart';
+import '../../../diseno/barra_de_filtros.dart';
 import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/colores.dart';
 import '../../../diseno/tabla_ancha.dart';
@@ -206,17 +207,30 @@ class _Filtros extends StatelessWidget {
     final zonas = datos?.zonas ?? const <Faceta>[];
     final vendedores = datos?.vendedores ?? const <Faceta>[];
 
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      crossAxisAlignment: WrapCrossAlignment.end,
-      children: [
-        CajaDeBusqueda(
-          valor: filtros.q ?? '',
-          ancho: 260,
-          pista: 'Buscar por nombre, dirección o municipio…',
-          alBuscar: alBuscar,
-        ),
+    // La colocación la decide `BarraDeFiltros`, igual que en Pedidos, Tablero y
+    // Rutas. Antes era un `Wrap` propio con 12/12 de separación —Pedidos usaba
+    // 8/8 y Almacenes 12/8—, y los seis filtros se apilaban en escalones
+    // desiguales en el teléfono. Ver `lib/diseno/barra_de_filtros.dart`.
+    //
+    // Los 260 de la caja se quedan: la pista es larga y con los 220 de por
+    // defecto se cortaría. En el teléfono da igual, porque ahí la caja ocupa
+    // todo el ancho pase lo que pase (`caja_de_busqueda.dart`).
+    return BarraDeFiltros(
+      margen: EdgeInsets.zero,
+      busqueda: CajaDeBusqueda(
+        valor: filtros.q ?? '',
+        ancho: 260,
+        pista: 'Buscar por nombre, dirección o municipio…',
+        alBuscar: alBuscar,
+      ),
+      accionFinal: filtros.hayQueQuitar
+          ? TextButton.icon(
+              onPressed: alQuitar,
+              icon: const Icon(Icons.clear, size: 18),
+              label: const Text('Quitar filtros'),
+            )
+          : null,
+      filtros: [
         // Los selectores de la base sólo aparecen si tienen mas de una opcion:
         // un desplegable con una sola opcion no filtra nada y ocupa sitio.
         if (municipios.length > 1)
@@ -312,12 +326,6 @@ class _Filtros extends StatelessWidget {
           ],
           alElegir: (v) => alCambiar(filtros.copiar(origen: v)),
         ),
-        if (filtros.hayQueQuitar)
-          TextButton.icon(
-            onPressed: alQuitar,
-            icon: const Icon(Icons.clear, size: 18),
-            label: const Text('Quitar filtros'),
-          ),
       ],
     );
   }

@@ -27,6 +27,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'anchos.dart';
 import 'tema.dart';
 
 class CajaDeBusqueda extends StatefulWidget {
@@ -180,7 +181,23 @@ class _CajaDeBusquedaState extends State<CajaDeBusqueda> {
       onChanged: _teclearon,
       onSubmitted: _ahora,
     );
+    // EN UN TELÉFONO LA CAJA DE BUSCAR OCUPA TODO EL ANCHO, y el `ancho` que le
+    // pase la pantalla no cuenta.
+    //
+    // Los 220 px son un número de escritorio: ahí la caja convive en una fila
+    // con los desplegables y tiene que dejarles sitio. En un móvil de 390 px no
+    // convive con nadie —va sola en su fila— y esos 220 dejaban un hueco muerto
+    // de 150 px a su derecha. Eso es lo que hacía que Pedidos, Clientes y Rutas
+    // no se parecieran al Tablero, que sí la pinta entera.
+    //
+    // Se decide AQUÍ y no en cada pantalla a propósito: si se deja como algo que
+    // cada una pasa, la próxima pantalla nace otra vez con el hueco.
     final ancho = widget.ancho;
-    return ancho == null ? campo : SizedBox(width: ancho, child: campo);
+    if (ancho == null) return campo;
+
+    final estrecho = MediaQuery.sizeOf(context).width < Anchos.idioma;
+    if (estrecho) return campo;
+
+    return SizedBox(width: ancho, child: campo);
   }
 }

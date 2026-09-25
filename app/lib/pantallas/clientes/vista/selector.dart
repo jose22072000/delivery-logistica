@@ -54,7 +54,36 @@ class SelectorFiltro<T> extends StatelessWidget {
     // cuales de los seis filtros estan puestos.
     final filtrando = elegida != null;
 
-    return Column(
+    // EL MENÚ VA ANCLADO AL BOTÓN, Y LO SIGUE.
+    //
+    // Era `showMenu`, que fija la posición una sola vez al abrirse y deja el
+    // menú clavado en el `Overlay`: al desplazar la lista de clientes el botón
+    // se iba y el menú se quedaba flotando. Jose, 25/09/2026: «los select
+    // también son modales, se mueven en la vista si me muevo con el scroll en
+    // vez de quedarse debajo de su input». El mismo arreglo y el mismo motivo
+    // que en `lib/diseno/selector.dart`, atado allí por
+    // `test/diseno/selector_sigue_al_boton_test.dart`.
+    return MenuAnchor(
+      style: MenuStyle(
+        backgroundColor: const WidgetStatePropertyAll(Colores.blanco),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radios.lg),
+            side: BorderSide(color: Colores.linea),
+          ),
+        ),
+      ),
+      menuChildren: [
+        _Menu<T>(
+          titulo: titulo,
+          textoTodos: textoTodos,
+          opciones: opciones,
+          conBuscador: opciones.length >= desdeCuantasBusca,
+          alElegir: alElegir,
+        ),
+      ],
+      builder: (contexto, controlador, _) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -69,7 +98,8 @@ class SelectorFiltro<T> extends StatelessWidget {
         ),
         const SizedBox(height: 5),
         OutlinedButton(
-          onPressed: () => _abrir(context),
+          onPressed: () =>
+              controlador.isOpen ? controlador.close() : controlador.open(),
           style: OutlinedButton.styleFrom(
             backgroundColor: Colores.blanco,
             foregroundColor: filtrando ? Colores.tinta : Colores.tintaSuave,
@@ -115,46 +145,9 @@ class SelectorFiltro<T> extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-
-  Future<void> _abrir(BuildContext context) async {
-    final caja = context.findRenderObject()! as RenderBox;
-    final pantalla =
-        Overlay.of(context).context.findRenderObject()! as RenderBox;
-    final sitio = RelativeRect.fromRect(
-      Rect.fromPoints(
-        caja.localToGlobal(Offset.zero, ancestor: pantalla),
-        caja.localToGlobal(
-          caja.size.bottomRight(Offset.zero),
-          ancestor: pantalla,
-        ),
       ),
-      Offset.zero & pantalla.size,
     );
-    final elegido = await showMenu<_Eleccion<T>>(
-      context: context,
-      position: sitio,
-      items: [
-        PopupMenuItem<_Eleccion<T>>(
-          enabled: false,
-          padding: EdgeInsets.zero,
-          child: _Menu<T>(
-            titulo: titulo,
-            textoTodos: textoTodos,
-            opciones: opciones,
-            conBuscador: opciones.length >= desdeCuantasBusca,
-          ),
-        ),
-      ],
-    );
-    if (elegido != null) alElegir(elegido.valor);
   }
-}
-
-class _Eleccion<T> {
-  const _Eleccion(this.valor);
-  final T? valor;
 }
 
 class _Menu<T> extends StatefulWidget {
@@ -163,12 +156,18 @@ class _Menu<T> extends StatefulWidget {
     required this.textoTodos,
     required this.opciones,
     required this.conBuscador,
+    required this.alElegir,
   });
 
   final String titulo;
   final String textoTodos;
   final List<OpcionSelector<T>> opciones;
   final bool conBuscador;
+
+  /// Se avisa por aqui y NO con `Navigator.pop`. El `pop` era de `showMenu`,
+  /// que abria el menu como una ruta aparte; con `MenuAnchor` el menu vive en
+  /// la misma pantalla y un `pop` cerraria la pantalla de debajo.
+  final ValueChanged<T?> alElegir;
 
   @override
   State<_Menu<T>> createState() => _MenuState<T>();
@@ -208,9 +207,27 @@ class _MenuState<T> extends State<_Menu<T>> {
             Divider(height: 1, thickness: 1, color: Colores.linea),
           ],
           Flexible(
-            child: ListView(
-              shrinkWrap: true,
-              children: [
+            // NO ES UN `ListView`, Y NO PUEDE SERLO — lo mismo que ya decía
+            // `lib/diseno/selector.dart`, y que aquí costó un reventón.
+            //
+            // `MenuAnchor` pregunta a su contenido cuánto mide de ancho para
+            // decidir el ancho del menú, y un `ListView` no sabe contestar a
+            // eso: «RenderShrinkWrappingViewport does not support returning
+            // intrinsic dimensions». Un `SingleChildScrollView` sobre una
+            // `Column` sí, porque su hijo es una caja normal. Con `showMenu` no
+            // pasaba porque el menú era una ruta con ancho impuesto.
+            //
+            // `primary: false`: el desplazamiento de un menú es SUYO y nunca el
+            // principal de la pantalla. Sin esto quedan dos desplazamientos
+            // colgando del mismo `PrimaryScrollController` —el de la lista de
+            // clientes y el del menú— y Flutter lo corta en seco: «The
+            // PrimaryScrollController is attached to more than one
+            // ScrollPosition».
+            child: SingleChildScrollView(
+              primary: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                 // La opcion «todos» es SIEMPRE la primera y no se filtra con el
                 // buscador: es la salida de vuelta.
                 ListTile(
@@ -219,7 +236,10 @@ class _MenuState<T> extends State<_Menu<T>> {
                     widget.textoTodos,
                     style: Tipos.texto(tamano: 14, color: Colores.tinta),
                   ),
-                  onTap: () => Navigator.pop(context, _Eleccion<T>(null)),
+                  onTap: () {
+                    widget.alElegir(null);
+                    MenuController.maybeOf(context)?.close();
+                  },
                 ),
                 for (final o in filtradas)
                   ListTile(
@@ -237,9 +257,13 @@ class _MenuState<T> extends State<_Menu<T>> {
                               color: Colores.tintaSuave,
                             ),
                           ),
-                    onTap: () => Navigator.pop(context, _Eleccion<T>(o.valor)),
+                    onTap: () {
+                      widget.alElegir(o.valor);
+                      MenuController.maybeOf(context)?.close();
+                    },
                   ),
-              ],
+                ],
+              ),
             ),
           ),
         ],

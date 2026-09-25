@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../../../diseno/caja_de_busqueda.dart';
 import '../../../diseno/caja_de_numero.dart';
+import '../../../diseno/rango_de_fechas.dart';
 import '../../../diseno/tema.dart';
 import '../datos/modelos.dart';
 import '../estado/filtros_en_la_url.dart';
@@ -222,29 +222,38 @@ class _Filtros extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Día del pedido'),
-          subtitle: Text(
-            filtros.dia == null
-                ? 'Todos'
-                : DateFormat('d/M/y').format(filtros.dia!),
-          ),
-          trailing: filtros.dia == null
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => poner(filtros.copiaCon(quitarDia: true)),
-                ),
-          onTap: () async {
-            final elegido = await showDatePicker(
-              context: context,
-              initialDate: filtros.dia ?? DateTime.now(),
-              firstDate: DateTime(2024),
-              lastDate: DateTime.now().add(const Duration(days: 365)),
-            );
-            if (elegido != null) poner(filtros.copiaCon(dia: elegido));
-          },
+        // EL CALENDARIO DE LA CASA, no `showDatePicker`.
+        //
+        // Este era el cuarto modal de fecha de la aplicación, y el que peor
+        // sentaba: el panel de filtros ya es un cajón, así que tocar «Día del
+        // pedido» abría una ventana modal ENCIMA del cajón. Aquí no hay
+        // modales —excepción aprobada el 05/09/2026, escrita en
+        // `diseno/rango_de_fechas.dart`, en `pantallas.md` §0 y §9.2 y en el §4
+        // del CLAUDE.md—, y `CampoDeFecha` ancla el calendario al botón.
+        //
+        // Era además la cuarta ventana distinta: abría desde 2024, mientras
+        // Informes abría desde `año−5` y el asistente desde `hoy−30 días`. Las
+        // cuatro son ahora la de la casa: 2020 → año que viene.
+        //
+        // La ✕ se queda como estaba: `CampoDeFecha` sólo entrega fechas de
+        // verdad, así que volver a «Todos» necesita su propio botón.
+        Row(
+          children: [
+            Expanded(
+              child: CampoDeFecha(
+                titulo: 'Día del pedido',
+                valor: filtros.dia,
+                alElegir: (d) => poner(filtros.copiaCon(dia: d)),
+              ),
+            ),
+            if (filtros.dia != null)
+              IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: 'Quitar el día',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => poner(filtros.copiaCon(quitarDia: true)),
+              ),
+          ],
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
