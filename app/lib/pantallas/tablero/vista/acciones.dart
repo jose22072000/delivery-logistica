@@ -362,7 +362,52 @@ abstract final class AccionesTablero {
     required ColumnaTablero columna,
     required Tablero tablero,
   }) async {
+    // UNA COLUMNA VACÍA TAMBIÉN SE PREGUNTA ANTES DE BORRARLA.
+    //
+    // Antes se borraba en seco: se tocaba «Borrar la columna» y desaparecía sin
+    // una palabra. Con pedidos dentro sí preguntaba —qué hacer con ellos—, o
+    // sea que el aviso existía sólo cuando había algo que perder. Pero una zona
+    // es trabajo: alguien decidió cómo se parte el territorio de su sucursal y
+    // le puso nombre, y ese nombre está en los enlaces, en las rutas armadas
+    // desde ella y en la cabeza de quien reparte. Rehacerla no es gratis.
+    //
+    // Jose, 25/09/2026, viéndolo desaparecer de un toque:
+    //
+    //     «sacame notificaciones emergentes para esto, no me pongas eso asi
+    //      borrar por borrar»
+    //
+    // Se pregunta en un CAJÓN y no en una ventana modal, que es la regla de la
+    // casa desde el 05/09/2026. Y el botón de borrar va en rojo y nombra la
+    // zona: «Sí, borrar X» dice qué se va; «Aceptar» no dice nada.
     if (columna.pedidos == 0) {
+      final seguro = await mostrarCajon<bool>(
+        context: context,
+        titulo: 'Borrar «${columna.nombre}»',
+        contenido: (contexto) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'La zona se va del tablero. No hay ningún pedido dentro, así '
+              'que no se pierde trabajo del día, pero la zona hay que volver '
+              'a crearla a mano con su nombre.',
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              icon: const Icon(Icons.delete_outline),
+              label: Text('Sí, borrar «${columna.nombre}»'),
+              style: FilledButton.styleFrom(backgroundColor: Colores.rojo),
+              onPressed: () => Navigator.of(contexto).pop(true),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.of(contexto).pop(false),
+              child: const Text('No, dejarla'),
+            ),
+          ],
+        ),
+      );
+      if (seguro != true || !context.mounted) return;
       await hacer(
         context,
         ref,

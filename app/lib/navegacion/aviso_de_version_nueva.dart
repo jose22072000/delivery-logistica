@@ -533,8 +533,26 @@ class _EstadoDelAviso extends ConsumerState<AvisoDeVersionNueva> {
         // ve además que ya se pulsó.
         pie: (dentro) => _PieDeLaDescarga(
           alDescargar: () {
+            // SE BAJA LA ÚLTIMA QUE HAYA AHORA, NO LA QUE HABÍA AL ABRIR ESTO.
+            //
+            // El enlace llega por parámetro desde el momento en que se pintó la
+            // franja, y entre eso y el toque puede haber salido otra versión.
+            // Pasó el 25/09/2026: se publicó la 1.0.6, y quince minutos después
+            // la 1.0.7 con los arreglos de lo que Jose acababa de contar. Él
+            // pulsó en los dos momentos y se bajó las dos:
+            //
+            //     «me mando a descargar la 1.06 y la 1.07 [...] te dije q la
+            //      ultima» · «no quiero q actualize todo el tramo»
+            //
+            // Son 78 MB cada una. Al tocar se vuelve a preguntar cuál es la
+            // última AHORA; el `enlace` de antes sólo se usa si en este
+            // instante no hay respuesta —quedarse sin descarga sería peor que
+            // bajar una versión de hace un minuto—.
+            final ahora = ref.read(actualizacionProvider).value;
+            final ultimo = ahora is SePuedeActualizar ? ahora.enlace : enlace;
+
             Navigator.of(dentro).maybePop();
-            unawaited(ref.read(abridorDeLaDescargaProvider)(enlace));
+            unawaited(ref.read(abridorDeLaDescargaProvider)(ultimo));
           },
           alCerrar: () => Navigator.of(dentro).maybePop(),
         ),
