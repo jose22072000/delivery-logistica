@@ -271,7 +271,23 @@ void main() {
       await m.ciclo.ahora(motivo: 'toco el reloj');
       // La segunda vuelta la lanza el ciclo solo, sin temporizador y sin que
       // nadie vuelva a pedirla.
-      for (var i = 0; i < 40 && await base.cuantosPendientes() > 0; i++) {
+      //
+      // SE ESPERA A LAS DOS COSAS QUE SE VAN A AFIRMAR, y con holgura de
+      // sobra. Antes esperaba SOLO a que la cola se vaciara y con un tope de
+      // 40 × 25 ms = **un segundo**: aquí sobraba, pero el 25/09/2026 la imagen
+      // del despliegue —que corre la suite entera dentro de Docker, en un
+      // servidor cargado— no llegaba a tiempo y la prueba salía roja con
+      // «Expected: <2> Actual: <1>», tumbando el despliegue. En local pasaba
+      // cinco veces de cinco: el clásico «una imagen no es esta máquina».
+      //
+      // Esto NO afloja lo que se comprueba: si la segunda vuelta no la lanza
+      // nadie, el bucle agota los 10 s y las afirmaciones de abajo siguen
+      // fallando igual. Lo único que cambia es que deja de depender de lo
+      // rápida que sea la máquina.
+      for (var i = 0; i < 400; i++) {
+        final pendientes = await base.cuantosPendientes();
+        final bajadas = ordenDe(m.servidor).where((p) => p == 'bajar').length;
+        if (pendientes == 0 && bajadas >= 2) break;
         await Future<void>.delayed(const Duration(milliseconds: 25));
       }
 
