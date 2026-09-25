@@ -519,22 +519,24 @@ class _EstadoDelAviso extends ConsumerState<AvisoDeVersionNueva> {
             ),
           ],
         ),
-        pie: (dentro) => Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton(
-              onPressed: () => Navigator.of(dentro).maybePop(),
-              child: const Text('Ahora no'),
-            ),
-            const SizedBox(width: Aire.sm),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(dentro).maybePop();
-                unawaited(ref.read(abridorDeLaDescargaProvider)(enlace));
-              },
-              child: const Text('Descargar'),
-            ),
-          ],
+        // UNA DESCARGA POR TOQUE, NO DOS.
+        //
+        // Jose, 25/09/2026: «cuando le doy a descargar me dispara dos descargas
+        // en ves de una». El botón no tenía nada que impidiera dispararse dos
+        // veces: un doble toque —o un toque con rebote, que en una pantalla
+        // usada con prisa pasa— llamaba dos veces a `launchUrl` y Android
+        // arrancaba dos bajadas del mismo APK. Son 78 MB cada una, y con la
+        // conexión de allá eso no es un detalle: es la mitad de la tarde.
+        //
+        // La guarda va en el propio botón y no en el abridor porque lo que hay
+        // que impedir es el SEGUNDO TOQUE, no la segunda llamada: apagándolo se
+        // ve además que ya se pulsó.
+        pie: (dentro) => _PieDeLaDescarga(
+          alDescargar: () {
+            Navigator.of(dentro).maybePop();
+            unawaited(ref.read(abridorDeLaDescargaProvider)(enlace));
+          },
+          alCerrar: () => Navigator.of(dentro).maybePop(),
         ),
       ),
     );
@@ -628,4 +630,58 @@ class _Franja extends StatelessWidget {
       ),
     );
   }
+}
+
+/// El pie del cajón de la versión nueva: «Ahora no» y «Descargar».
+///
+/// Es un widget con estado por UNA razón concreta: la descarga tiene que
+/// dispararse **una sola vez**, y para eso hace falta recordar que ya se pulsó.
+/// Con una bandera dentro de un `builder` no vale —se reinicia en cada
+/// repintado—, y ése es justo el error que hay que no cometer aquí.
+class _PieDeLaDescarga extends StatefulWidget {
+  const _PieDeLaDescarga({required this.alDescargar, required this.alCerrar});
+
+  final VoidCallback alDescargar;
+  final VoidCallback alCerrar;
+
+  @override
+  State<_PieDeLaDescarga> createState() => _PieDeLaDescargaState();
+}
+
+class _PieDeLaDescargaState extends State<_PieDeLaDescarga> {
+  bool _yaSePulso = false;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.end,
+    children: [
+      TextButton(
+        onPressed: _yaSePulso ? null : widget.alCerrar,
+        child: const Text('Ahora no'),
+      ),
+      const SizedBox(width: Aire.sm),
+      FilledButton(
+        // `null` apaga el botón: el segundo toque ya no llega a ningún sitio.
+        // Son 78 MB por descarga; dos son media tarde de la conexión de allá.
+        // La guarda va DENTRO de la función, no sólo en el ternario de fuera.
+        //
+        // El ternario se evalúa al CONSTRUIR el botón, así que dos toques en el
+        // mismo fotograma —que es justo lo que es un doble toque— ejecutan la
+        // MISMA función dos veces: el widget no ha tenido tiempo de volver a
+        // construirse con el botón ya apagado. El `if` de dentro sí corre en
+        // cada toque, y es el que de verdad impide la segunda descarga.
+        //
+        // El ternario se queda porque es lo que se VE: el botón apagado dice
+        // que ya se pulsó.
+        onPressed: _yaSePulso
+            ? null
+            : () {
+                if (_yaSePulso) return;
+                setState(() => _yaSePulso = true);
+                widget.alDescargar();
+              },
+        child: const Text('Descargar'),
+      ),
+    ],
+  );
 }
