@@ -29,7 +29,6 @@ import 'package:reparto/nucleo/frescura/frescura.dart';
 import 'package:reparto/nucleo/sincro/bajada.dart';
 
 import '../../apoyo/apoyo_sesion.dart';
-import '../../apoyo/base_de_prueba.dart';
 import '../../apoyo/servidor_falso.dart';
 
 void main() {
