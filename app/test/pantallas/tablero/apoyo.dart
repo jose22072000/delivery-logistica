@@ -88,6 +88,12 @@ Future<void> sembrarPedido(
   bool archivado = false,
   String? rutaId,
   String? fuente = Procedencia.pedido,
+
+  /// SI VA A CASA DEL CLIENTE. Por defecto `true` porque es lo unico que el
+  /// tablero ofrece: prepara rutas, y una ruta reparte a domicilio. Se pone a
+  /// `false` —o a `null`, que es «nadie lo ha marcado»— para sembrar los que NO
+  /// tienen que salir en «sin colocar».
+  bool? domicilio = true,
   String sucursal = sucursalStg,
   DateTime? fecha,
   bool conCoordenadas = true,
@@ -110,6 +116,7 @@ Future<void> sembrarPedido(
         archivado: Value(archivado),
         routeId: Value(rutaId),
         source: Value(fuente),
+        requiereDomicilio: Value(domicilio),
         branchId: Value(sucursal),
         orderDate: Value(fecha ?? DateTime(2026, 9, 14, 8)),
         createdAt: Value(fecha ?? DateTime(2026, 9, 14, 8)),

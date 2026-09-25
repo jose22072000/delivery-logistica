@@ -371,7 +371,24 @@ WHERE c.branch_id = ?1''',
             t.facturaEstado.isIn(const [
               EstadoFactura.igual,
               EstadoFactura.cambiado,
-            ]),
+            ]) &
+            // SIN DOMICILIO NO SE COLOCA: NO HAY NADA QUE LLEVAR A CASA.
+            //
+            // El tablero prepara las rutas, y una ruta reparte a domicilio.
+            // Sin esto, con los datos del 25/09/2026, Santiago ofrecia 246
+            // pedidos sin colocar de los que **183 no eran de domicilio**: se
+            // podia armar una zona entera con ellos —y se armo, probandolo— y
+            // despues el asistente no la aceptaba, porque alli el filtro si
+            // estaba. Jose: «sin domicilio no los pongas, por que eso no lleva
+            // domicilio».
+            //
+            // VA AQUI ADEMAS DE EN EL SQL DEL SERVIDOR, y no es duplicar por
+            // gusto: esta pantalla NO le pregunta a la api, se lo pregunta a su
+            // propia base local —que es lo que la hace funcionar sin senal—.
+            // Arreglarlo solo en `db/queries/tablero.sql` dejaba el numero
+            // exactamente igual, y se comprobo desplegando: la api ya filtraba
+            // y la pantalla seguia diciendo 243.
+            t.requiereDomicilio.equals(true),
       );
     if (puestos.isNotEmpty) {
       // «Sin colocar» = no esta en ninguna columna. Del tablero de NADIE: un
