@@ -514,7 +514,11 @@ func (s *Servidor) recomputar(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, r, http.StatusOK, salida)
 }
 
-func (s *Servidor) pedirAlEspejo(ctx context.Context, metodo, url string, cuerpo []byte) ([]byte, int, error) {
+// Las cabeceras extra van en pares `nombre, valor`. Un número impar se ignora entero en vez
+// de mandar media cabecera: media cabecera es una que el otro lado lee como ausente.
+func (s *Servidor) pedirAlEspejo(
+	ctx context.Context, metodo, url string, cuerpo []byte, extras ...string,
+) ([]byte, int, error) {
 	var lector io.Reader
 	if cuerpo != nil {
 		lector = strings.NewReader(string(cuerpo))
@@ -530,6 +534,11 @@ func (s *Servidor) pedirAlEspejo(ctx context.Context, metodo, url string, cuerpo
 	req.Header.Set("Cache-Control", "no-store")
 	if cuerpo != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if len(extras)%2 == 0 {
+		for i := 0; i < len(extras); i += 2 {
+			req.Header.Set(extras[i], extras[i+1])
+		}
 	}
 	res, err := ClienteDelEspejo.Do(req)
 	if err != nil {

@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/google/uuid"
 
@@ -141,4 +144,78 @@ func TestConLaLlaveNoSePuedeAcotarAUnaSucursal(t *testing.T) {
 		t.Errorf("la persona de servicio (%+v) no ve las ocho sucursales: el lote de "+
 			"PEDIDO entra con 403", *usuario)
 	}
+}
+
+// LA PUERTA OBEDECE «ESTA TANDA YA TIENE SU FILA» — y sólo cuando se lo dicen.
+//
+// ES LA OTRA MITAD DE UN CONTRATO DE DOS, y estaba sin atar: la prueba de la puerta del
+// webhook comprueba que la cabecera SE MANDA, y nada comprobaba que SE OBEDECE. Se vio
+// mutando: quitar el `if` de `apuntarLaRecepcion` dejaba toda la suite en verde, y entonces un
+// aviso del webhook deja dos filas y `escritosHoy` cuenta ese pedido dos veces — un número
+// doblado en la única pantalla que existe para mirarlo.
+//
+// Es el §3-bis del `CLAUDE.md` con otra cara: dos sitios que tienen que decir lo mismo se atan
+// con una prueba, no con un comentario. Aquí eran dos LADOS del mismo contrato.
+//
+// VA EN PAREJA A PROPÓSITO: con la cabecera no se apunta, y SIN ella sí. Sólo la primera mitad
+// se cumpliría con una puerta que no apunta nunca, y entonces los lotes del espejo —200 de cada
+// vez, el grueso de lo que entra— desaparecerían del registro sin que nada fallara.
+func TestLaPuertaNoApuntaDosVecesLaMismaTanda(t *testing.T) {
+	casos := []struct {
+		nombre    string
+		cabecera  string
+		quiereFil int
+	}{
+		{"con la cabecera: la fila ya existe, no se repite", YaApuntada, 0},
+		{"sin la cabecera: es un lote de verdad y se apunta", "", 1},
+		{"con un valor cualquiera: no vale, se apunta", "puede-ser", 1},
+	}
+
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			q := &dobleDeConstancia{}
+			h := montarCotizacion(t, q)
+
+			r := httptest.NewRequest(http.MethodPost, "/api/quote/batch",
+				strings.NewReader(`{"orders":[]}`))
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("X-Api-Key", claveDeServicioDePrueba)
+			if c.cabecera != "" {
+				r.Header.Set(CabeceraDeConstancia, c.cabecera)
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("la puerta contestó %d: %s", w.Code, w.Body.String())
+			}
+			if q.filas != c.quiereFil {
+				t.Fatalf("quedaron %d filas y tenían que quedar %d", q.filas, c.quiereFil)
+			}
+		})
+	}
+}
+
+// dobleDeConstancia cuenta las filas de `recepciones_del_webhook`, que es lo único que esta
+// prueba mira.
+type dobleDeConstancia struct {
+	dobleDePanel
+	filas int
+}
+
+// Una sucursal, que es lo que el lote necesita para arrancar. Con cero, el manejador falla
+// antes de llegar a la constancia y las tres filas del caso salen a cero — verde por el motivo
+// equivocado.
+func (d *dobleDeConstancia) ListarSucursales(
+	context.Context, pgtype.UUID,
+) ([]sqlc.ListarSucursalesRow, error) {
+	c := "STG"
+	return []sqlc.ListarSucursalesRow{{ID: stgDeRutas, Name: "Santiago", ExternalID: &c}}, nil
+}
+
+func (d *dobleDeConstancia) ApuntarRecepcionDelWebhook(
+	context.Context, sqlc.ApuntarRecepcionDelWebhookParams,
+) error {
+	d.filas++
+	return nil
 }

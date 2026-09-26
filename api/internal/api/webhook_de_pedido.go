@@ -382,7 +382,15 @@ func (s *Servidor) aplicarElAviso(
 	if destino == "" {
 		destino = "http://127.0.0.1:" + s.cfg.Puerto
 	}
-	cuerpo, estado, err := s.pedirAlEspejo(ctx, http.MethodPost, destino+"/api/quote/batch", lote)
+	// SIN LA FILA DE LA PUERTA, que este aviso ya tiene la suya.
+	//
+	// `/api/quote/batch` apunta su propia recepción, y con razón: es por donde entran los
+	// lotes del espejo. Pero este salto es INTERNO —el mismo aviso pasando al sitio que sabe
+	// repartir la carga—, así que dejaría DOS filas por un solo aviso y `escritosHoy`
+	// contaría el mismo pedido dos veces. Un número doble en la pantalla que existe para
+	// mirar ese número es exactamente el fallo que aquí sale más caro: creíble y equivocado.
+	cuerpo, estado, err := s.pedirAlEspejo(ctx, http.MethodPost, destino+"/api/quote/batch", lote,
+		CabeceraDeConstancia, YaApuntada)
 	if err != nil {
 		reg.Error("la puerta de entrada no contestó", "err", err)
 		return respuestaDelWebhook{Motivos: "la cotización no contesta: " + err.Error()},
@@ -445,7 +453,14 @@ func (s *Servidor) apuntarElAviso(
 	r *http.Request, a *alcance.Acotado, res respuestaDelWebhook, arranque time.Time,
 ) {
 	if err := a.ApuntarRecepcionDelWebhook(r.Context(), sqlc.ApuntarRecepcionDelWebhookParams{
-		Origen:     "pedido",
+		// `webhook` Y NO `pedido`, que es lo que se puso primero y estaba mal.
+		//
+		// `pedido` ya lo usa el LOTE del espejo (`apuntarLaRecepcion`), que entra por
+		// `/api/quote/batch` en tandas de 200. Con el mismo nombre, los avisos del webhook
+		// —de uno en uno— quedaban enterrados entre lotes de doscientos, y la pantalla no
+		// podía contestar «¿está entrando algo POR EL WEBHOOK?», que es justo su pregunta.
+		// Se vio en producción el 26/09/2026, con las dos clases de fila mezcladas.
+		Origen:     OrigenDelWebhook,
 		Traidos:    int32(res.Recibidos),
 		Escritos:   int32(res.Aplicados),
 		Rechazados: int32(res.SinEfecto),
@@ -463,3 +478,24 @@ func (s *Servidor) apuntarElAviso(
 // NO HACE NADA POR DEFECTO a propósito: así las pruebas que montan sólo estas rutas no
 // necesitan un bus levantado, y este fichero no sabe que el bus existe.
 var avisarCambioEnElCanal = func(_ context.Context) {}
+
+// Los nombres del `origen` en `recepciones_del_webhook`. Son TRES y cada uno es una puerta
+// distinta; la pantalla los dice con palabras («por el webhook», «por la cola», «por HTTP»).
+//
+// Que se llamen distinto no es orden por el orden: con dos de ellos compartiendo nombre, la
+// pregunta «¿está entrando algo por el webhook?» no se puede contestar mirando la tabla.
+const (
+	// OrigenDelWebhook: un aviso que entró por `POST /api/webhooks/pedido`, de uno en uno.
+	OrigenDelWebhook = "webhook"
+	// OrigenDelLote: una tanda que entró por `/api/quote/batch` — el espejo, de 200 en 200.
+	OrigenDelLote = "pedido"
+)
+
+// CabeceraDeConstancia dice que la fila de esta tanda YA la escribió quien llama.
+//
+// Sólo la pone este proceso hablando consigo mismo, y `/api/quote/batch` ya exige clave de
+// servicio: nadie de fuera puede usarla para esconder su lote del registro.
+const (
+	CabeceraDeConstancia = "X-Reparto-Constancia"
+	YaApuntada           = "ya-apuntada"
+)

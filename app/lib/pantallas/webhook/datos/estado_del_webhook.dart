@@ -161,9 +161,20 @@ class TandaRecibida {
     cuando: _fecha(j['createdAt']) ?? DateTime.now(),
   );
 
-  /// `stream` = por la cola de avisos; `pedido` = por HTTP. **Los dos en la misma lista**:
-  /// son dos caminos para lo mismo, y tenerlos separados obliga a mirar en dos sitios para
-  /// responder «¿está entrando algo?», que es la primera pregunta cuando algo no llega.
+  /// De qué puerta vino. **SON TRES, y se dicen con palabras distintas**:
+  ///
+  ///  - `webhook` — un aviso de PEDIDO por `POST /api/webhooks/pedido`, de uno en uno.
+  ///  - `stream` — por la cola de Redis, mientras las dos puertas convivan.
+  ///  - `pedido` — una tanda del espejo por `/api/quote/batch`, de 200 en 200.
+  ///
+  /// LOS TRES EN LA MISMA LISTA: son caminos para lo mismo, y tenerlos separados obliga a
+  /// mirar en tres sitios para responder «¿está entrando algo?», que es la primera pregunta
+  /// cuando algo no llega.
+  ///
+  /// PERO CON NOMBRES DISTINTOS, y eso costó una vuelta: `webhook` y `pedido` se llamaban los
+  /// dos `pedido`, así que los avisos —de uno en uno— quedaban enterrados entre lotes de
+  /// doscientos y no se podía contestar «¿entra algo POR EL WEBHOOK?». Se vio en producción el
+  /// 26/09/2026 con las dos clases de fila mezcladas en la tabla.
   final String origen;
 
   final int traidos;
@@ -180,7 +191,14 @@ class TandaRecibida {
   final int duracionMs;
   final DateTime cuando;
 
-  String get comoSeLlama => origen == 'stream' ? 'por la cola' : 'por HTTP';
+  String get comoSeLlama => switch (origen) {
+    'webhook' => 'por el webhook',
+    'stream' => 'por la cola',
+    'pedido' => 'por el lote del espejo',
+    // UN ORIGEN QUE NO SE CONOCE SE DICE TAL CUAL, no se traduce a «por HTTP».
+    // Traducirlo escondería que hay una puerta nueva que nadie sabe que existe.
+    _ => origen,
+  };
 }
 
 /// Un aviso nuestro que no llegó a PEDIDO.

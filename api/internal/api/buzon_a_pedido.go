@@ -90,6 +90,13 @@ func (s *Servidor) encolarAvisos(
 func (s *Servidor) apuntarLaRecepcion(
 	r *http.Request, a *alcance.Acotado, salida loteSalida, tardo time.Duration,
 ) {
+	// QUIEN YA APUNTÓ SU FILA NO LLEVA OTRA. Lo pone este mismo proceso cuando un aviso del
+	// webhook pasa por aquí de camino a guardarse: el aviso ya tiene su constancia, y una
+	// segunda fila haría que `escritosHoy` contara ese pedido dos veces.
+	if r.Header.Get(CabeceraDeConstancia) == YaApuntada {
+		return
+	}
+
 	// `Skipped` son los que llegaron y NO se escribieron —sin coordenadas, sin
 	// referencia—. No es un error de la tanda: es lo que hay que poder contar.
 	motivos := ""
@@ -97,7 +104,7 @@ func (s *Servidor) apuntarLaRecepcion(
 		motivos = fmt.Sprintf("%d sin escribir (ver `results` de la respuesta)", salida.Skipped)
 	}
 	if err := a.ApuntarRecepcionDelWebhook(r.Context(), sqlc.ApuntarRecepcionDelWebhookParams{
-		Origen:     "pedido",
+		Origen:     OrigenDelLote,
 		Traidos:    int32(salida.Total),
 		Escritos:   int32(salida.Persisted),
 		Rechazados: int32(salida.Skipped),

@@ -409,8 +409,9 @@ func TestLaRecepcionSeApuntaTambienCuandoSeRechaza(t *testing.T) {
 			len(q.recepciones))
 	}
 	r := q.recepciones[0]
-	if r.Origen != "pedido" {
-		t.Fatalf("el origen tiene que ser `pedido` —por HTTP—, y fue %q", r.Origen)
+	if r.Origen != OrigenDelWebhook {
+		t.Fatalf("el origen tiene que ser %q —la puerta del webhook, para poder separarla "+
+			"del lote del espejo en la pantalla—, y fue %q", OrigenDelWebhook, r.Origen)
 	}
 	if r.Traidos != 1 || r.Rechazados != 1 || r.Escritos != 0 {
 		t.Fatalf("los números no cuentan lo que pasó: traidos=%d escritos=%d rechazados=%d",
@@ -597,5 +598,57 @@ func TestConLaFirmaMalaNoSeAvisaANadie(t *testing.T) {
 
 	if avisos != 0 {
 		t.Fatalf("avisó %d veces por una petición que no entró", avisos)
+	}
+}
+
+// --------------------------------------------------------------------------- una sola fila
+
+// UN AVISO DEJA UNA FILA, NO DOS — y con su propio `origen`.
+//
+// SE ENCONTRÓ EN PRODUCCIÓN el 26/09/2026, mirando la tabla después del primer POST bueno: el
+// lote del espejo apuntaba con `origen='pedido'` y el webhook también, así que los avisos —de
+// uno en uno— quedaban enterrados entre tandas de doscientos y la pantalla no podía contestar
+// «¿entra algo POR EL WEBHOOK?», que es su única pregunta.
+//
+// Y LO PEOR NO ERA EL NOMBRE: un aviso con pedido dentro pasa por `/api/quote/batch`, que
+// apunta SU fila, así que el mismo pedido dejaba DOS y `escritosHoy` lo contaba dos veces. Un
+// número doblado en la pantalla que existe para mirar ese número es de los caros aquí: es
+// creíble, y ninguna otra pantalla lo desmiente.
+func TestUnAvisoConPedidoDejaUnaSolaFila(t *testing.T) {
+	// La puerta de mentira apunta si le llegó la cabecera que evita la fila doble.
+	var traíaLaCabecera bool
+	puerta := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		traíaLaCabecera = r.Header.Get(CabeceraDeConstancia) == YaApuntada
+		_, _ = w.Write([]byte(`{"total":1,"persisted":1,"results":[{"status":"quoted","persisted":true}]}`))
+	}))
+	defer puerta.Close()
+
+	h, q, _ := montarLaPuerta(t, func(t *testing.T) { t.Setenv("DELIVERY_URL", puerta.URL) })
+	cuerpo := `{"aviso":{"avisoId":"1-0","motivo":"factura","id":"PED-7"},
+	            "pedido":{"id":"PED-7","folio":"X-1","sucursalCodigo":"STG",
+	                      "cliente":{"nombre":"Uno","latitud":20.1,"longitud":-77.2},
+	                      "items":[{"codigo":"A","pesoLineaKg":10,"packs":1}]}}`
+
+	tocarLaPuerta(t, h, claveDePruebas, firmarDePruebas(secretoDePruebas, cuerpo), cuerpo)
+
+	if !traíaLaCabecera {
+		t.Fatal("el salto interno fue SIN la cabecera de constancia: la puerta va a apuntar " +
+			"su propia fila y `escritosHoy` contará este pedido dos veces")
+	}
+	if len(q.recepciones) != 1 {
+		t.Fatalf("quedaron %d filas por UN aviso", len(q.recepciones))
+	}
+	if o := q.recepciones[0].Origen; o != OrigenDelWebhook {
+		t.Fatalf("el origen fue %q: con el mismo nombre que el lote del espejo (%q), los "+
+			"avisos quedan enterrados entre tandas de doscientos", o, OrigenDelLote)
+	}
+}
+
+// Y LOS DOS NOMBRES SON DISTINTOS. Sin esto, «el origen es OrigenDelWebhook» se cumple
+// habiendo puesto las dos constantes al mismo texto, que es exactamente el fallo de partida.
+func TestLosDosOrigenesNoSeLlamanIgual(t *testing.T) {
+	if OrigenDelWebhook == OrigenDelLote {
+		t.Fatalf("las dos puertas se llaman %q: en la pantalla no se pueden separar, y la "+
+			"pregunta «¿entra algo por el webhook?» no tiene respuesta", OrigenDelWebhook)
 	}
 }
