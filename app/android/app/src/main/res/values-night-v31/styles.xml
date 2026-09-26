@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- El splash de Android 12+ en MODO OSCURO. El mismo oro que en claro: es la marca y no
+         depende del modo, y sin este fichero el modo oscuro caeria en
+         `values-night/styles.xml`, que no dice nada del splash y lo dejaria negro con el
+         icono en su circulo. El porque entero, en `values-v31/styles.xml`. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/marca_oro</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/marca_oro</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>

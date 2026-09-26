@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- EL SPLASH DE ANDROID 12+ (26/09/2026).
+
+         Desde Android 12 el sistema pinta SIEMPRE su propio splash al abrir, y no mira
+         `launch_background.xml`: usa el icono de la app en un circulo, sobre el color de
+         `windowSplashScreenBackground`. Sin decirle nada, ese color es el fondo del tema
+         (blanco, o negro en modo oscuro) y el icono era el PNG cuadrado: un cuadrado oro
+         encogido en medio de una pantalla blanca.
+
+         Ahora el fondo es el MISMO oro que el del icono adaptativo
+         (`mipmap-anydpi-v26/ic_launcher.xml`), asi que el circulo del icono no se ve: queda
+         la pantalla entera en oro con el camion en el centro. Hereda del tema de siempre
+         para no cambiar nada mas de la ventana. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/marca_oro</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/marca_oro</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>

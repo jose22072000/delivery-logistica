@@ -39,6 +39,19 @@ for par in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
     -o "android/app/src/main/res/mipmap-$d/ic_launcher.png"
 done
 
+# Android, el ICONO ADAPTATIVO (26/09/2026): primer plano transparente sobre el fondo oro
+# que pone `res/values/colors.xml`. Es lo que usa el lanzador desde Android 8 y, sobre todo,
+# el SPLASH de Android 12+, que dibuja el icono de la app dentro de un circulo: con el PNG
+# cuadrado de arriba salia un cuadrado encogido con hueco alrededor. El lienzo del
+# adaptativo son 108 dp, de ahi estos tamanos; el umbral del monograma es el mismo que el
+# de la maskable, porque el dibujo va igual de encogido.
+primer_plano() { [ "$1" -ge 192 ] && echo "$M/icono-primer-plano.svg" || echo "$M/icono-primer-plano-pequeno.svg"; }
+for par in mdpi:108 hdpi:162 xhdpi:216 xxhdpi:324 xxxhdpi:432; do
+  d="${par%%:*}"; n="${par##*:}"
+  rsvg-convert -w "$n" -h "$n" "$(primer_plano "$n")" \
+    -o "android/app/src/main/res/mipmap-$d/ic_launcher_foreground.png"
+done
+
 # Windows: un .ico con los cuatro tamanos que pide el explorador.
 tmp=$(mktemp -d)
 for n in 16 32 48 256; do rsvg-convert -w "$n" -h "$n" "$(fuente "$n")" -o "$tmp/$n.png"; done

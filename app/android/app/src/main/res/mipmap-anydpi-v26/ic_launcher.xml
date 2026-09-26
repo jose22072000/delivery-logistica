@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- EL ICONO ADAPTATIVO (26/09/2026), Android 8 en adelante.
+
+     Hasta hoy la APK solo tenia `mipmap-*/ic_launcher.png`, un PNG cuadrado. Eso Android lo
+     trata como icono «de antes»: lo encoge y lo mete dentro de su forma. En el lanzador
+     apenas se nota, pero el SPLASH de Android 12+ se construye con este icono, y alli salia
+     un cuadrado oro encogido dentro del circulo con hueco alrededor. Jose: «el splash sale
+     cuadrado y no completa el cuadro... falta fondo por rellenar».
+
+     Con fondo y primer plano separados, Android recorta los dos juntos con la forma que
+     quiera (circulo, gota, cuadrado redondeado) y el oro llega siempre al borde. Los PNG
+     cuadrados se quedan para Android 7 y anteriores, que no leen este fichero.
+
+     El primer plano sale de `marca/icono-primer-plano*.svg` con `marca/generar.sh`. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/marca_oro" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

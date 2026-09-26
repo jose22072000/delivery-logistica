@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+<!-- EL SPLASH DE ANDROID 11 Y ANTERIORES (26/09/2026). Desde Android 12 el splash lo pinta el
+     sistema con `values-v31/styles.xml` y este fichero sale sin que se vea, detras.
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
+     Era la plantilla de Flutter tal cual: una pantalla BLANCA (o del color del tema) y
+     nada mas. Ahora es la misma que en Android 12: el oro de la marca a pantalla completa
+     y el camion en el centro, para que la APK arranque igual en todos los telefonos.
+
+     El camion es el primer plano del icono adaptativo, que ya trae su margen transparente
+     alrededor: centrado sale del tamano del dibujo del icono, sin estirarse. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/marca_oro" />
+    <item>
         <bitmap
             android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+            android:src="@mipmap/ic_launcher_foreground" />
+    </item>
 </layer-list>

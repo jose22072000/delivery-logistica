@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- El oro de la marca, el mismo `#E0A52A` de `marca/icono.svg` y de `Paleta.oro`
+         (lib/diseno/colores.dart). Es el FONDO del icono adaptativo y del splash: el
+         camion va encima, en `ic_launcher_foreground`. -->
+    <color name="marca_oro">#E0A52A</color>
+</resources>

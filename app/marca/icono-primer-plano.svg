@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- EL PRIMER PLANO DEL ICONO ADAPTATIVO DE ANDROID (26/09/2026): la maskable SIN el
+       cuadrado de oro. El oro lo pone Android como FONDO (`@color/marca_oro`), y el
+       lanzador y el splash recortan los dos juntos con su forma. Sin esto la APK solo
+       tenia un PNG cuadrado, y Android 12+ lo metia encogido dentro del circulo del
+       splash: se veia un cuadrado oro con hueco alrededor, el «falta fondo» de Jose.
+       Al 55 % y centrado, no al 60 % de la maskable: Android solo garantiza sin recortar
+       un CIRCULO de 66 dp en el lienzo de 108, y al 60 % la esquina de arriba a la
+       izquierda de la caja quedaba a 34,5 dp del centro, 1,5 dp fuera. Al 55 % esa esquina,
+       que es el punto mas alejado del dibujo, queda a 31,9 dp (medido en la auditoria del
+       26/09/2026). -->
+  <g transform="translate(14.4 14.4) scale(0.55)">
+    <g fill="#17130E">
+      <rect x="4" y="12" width="34" height="27" rx="1.5"/>
+      <path d="M40 22 h9 l9 9 v8 H40 z"/>
+      <circle cx="15" cy="45" r="6"/>
+      <circle cx="48" cy="45" r="6"/>
+    </g>
+    <g fill="#E0A52A" transform="translate(6.45 10.95) scale(0.4545)">
+    <rect x="12" y="10" width="6" height="44"/>
+    <rect x="12" y="48" width="30" height="6"/>
+    <path d="M22 54 L34 10 h7 L29 54 z"/>
+    <path d="M34 54 L44 22 h6 v32 h-6 V34 l-4 20 z"/>
+    <rect x="46" y="10" width="6" height="44"/>
+    <rect x="22" y="10" width="30" height="5"/>
+    </g>
+  </g>
+</svg>
