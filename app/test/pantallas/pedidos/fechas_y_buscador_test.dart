@@ -14,6 +14,7 @@ import 'package:reparto/diseno/rango_de_fechas.dart';
 import 'package:reparto/nucleo/base/base.dart';
 import 'package:reparto/nucleo/frescura/frescura.dart';
 import 'package:reparto/nucleo/proveedores.dart';
+import 'package:reparto/pantallas/pedidos/estado/proveedores_pedidos.dart';
 import 'package:reparto/pantallas/pedidos/vista/pantalla_pedidos.dart';
 import 'package:reparto/idioma.dart';
 
@@ -152,9 +153,11 @@ void main() {
     await asentar(tester);
 
     // Sin resultados, y con el boton de quitarlos todos debajo.
-    final quitar = find.text(
-      'Ningún pedido cuadra con estos filtros — quitarlos todos',
+    expect(
+      find.text('Ningún pedido cuadra con estos filtros.'),
+      findsOneWidget,
     );
+    final quitar = find.text('Quitar todos los filtros');
     expect(quitar, findsOneWidget);
 
     await tester.tap(quitar);
@@ -171,4 +174,53 @@ void main() {
 
     await desmontar(tester);
   });
+
+  // LA DE ARRIBA PASA POR ACCIDENTE, y ésta es la que prueba la guarda.
+  //
+  // Arriba se arranca con el filtro acotado, así que pulsar «Quitar todos» también
+  // quita la franja azul de encima de la lista. Esa franja no lleva `key`, y al
+  // desaparecer corre de sitio todo lo de debajo: Flutter DESMONTA la caja de buscar y
+  // la monta de nuevo, y una caja recién nacida sale vacía por nacer, no porque
+  // `didUpdateWidget` (`diseno/caja_de_busqueda.dart`) la vaciara. Con ese paso roto
+  // la prueba de arriba seguía verde; lo cazó la auditoría del 26/09/2026.
+  //
+  // Aquí se quitan antes los dos del arranque («Ver todos»), la franja no está ni
+  // antes ni después, y la caja es LA MISMA: si no se vacía, es que la guarda no está.
+  testWidgets(
+    '`quitarlos todos` vacía la caja aunque la caja no se vuelva a montar',
+    (tester) async {
+      await pintar(tester);
+      ProviderScope.containerOf(tester.element(find.byType(PantallaPedidos)))
+          .read(filtrosPedidosProvider.notifier)
+          .verTodos();
+      await asentar(tester);
+      expect(find.textContaining('11 pedidos'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'no existe este cliente');
+      await tester.pump(const Duration(milliseconds: 450));
+      await asentar(tester);
+      final antes = tester.state(find.byType(TextField));
+
+      await tester.tap(find.text('Quitar todos los filtros'));
+      await asentar(tester);
+
+      expect(
+        identical(tester.state(find.byType(TextField)), antes),
+        isTrue,
+        reason:
+            'la caja se volvió a montar: esta prueba ya no mira la guarda de '
+            'didUpdateWidget, que es para lo que existe',
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        '',
+        reason:
+            'la caja se quedó con el texto puesto: filtra en silencio debajo de '
+            'una lista que dice no tener filtros',
+      );
+      expect(find.textContaining('11 pedidos'), findsOneWidget);
+
+      await desmontar(tester);
+    },
+  );
 }

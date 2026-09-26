@@ -214,9 +214,10 @@ ruta. Una ruta completada no convierte en «entregado» un pedido devuelto.
 ### Estados vacíos y carga
 
 - Cargando: `Cargando...`
-- Sin resultados: `Aún no hay pedidos. Crea una ruta con pedidos.` y, si hay algún filtro
-  puesto, debajo el botón `Ningún pedido cuadra con estos filtros — quitarlos todos`
-  (limpia **todos**, incluidos los del arranque).
+- Sin resultados: sin filtros, `Aún no hay pedidos de esta sucursal.`; con algún filtro
+  puesto, `Ningún pedido cuadra con estos filtros.` y debajo el botón `Quitar todos los
+  filtros` (limpia **todos**, incluidos los del arranque). Son dos frases distintas a
+  propósito: con un filtro que no casa, «aún no hay pedidos» es mentira (25/09/2026).
 
 ### Paginación
 

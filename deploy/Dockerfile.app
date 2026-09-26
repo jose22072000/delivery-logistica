@@ -114,8 +114,19 @@ COPY docs/almacen-de-origen.casos.json /docs/almacen-de-origen.casos.json
 # `analyze` además de `test` porque son cosas distintas: `analyze` caza el código
 # que no compila en un destino aunque las pruebas no lo toquen.
 #
-# `timeout 600` porque un contenedor sin pantalla es más lento que esta máquina, y
-# una prueba colgada no puede dejar el build corriendo para siempre.
+# SIN `timeout`, Y ESO ES A PROPÓSITO (26/09/2026).
+#
+# Aquí hubo un `timeout 600`, y fue él quien tiró la construcción del 25/09/2026, no
+# una prueba: `990dad8` cambió el texto de la lista vacía de Pedidos y
+# `fechas_y_buscador_test.dart` seguía buscando el viejo. Esa prueba fallaba a los
+# 5 s, pero su proceso tardaba otros ~3 min en soltarse, y con eso la batería (que
+# sola ya tarda ~5 min) pasaba de los 600 s. El `timeout` la mataba a medias y el
+# registro no decía qué prueba había fallado, sólo que el build no terminó.
+#
+# En producción no importa cuánto tarde en construirse (Jose, 26/09/2026): importa
+# que lo que se despliega haya pasado TODAS las pruebas. Un tope que crece menos que
+# la batería acaba tirando builds buenos. Las pruebas colgadas se cazan en local con
+# `timeout 300` (CLAUDE.md §5), que es donde alguien está mirando.
 
 # AQUÍ NO VA `flutter gen-l10n`, Y ESO ES UN CAMBIO A PROPÓSITO.
 #
@@ -131,7 +142,7 @@ COPY docs/almacen-de-origen.casos.json /docs/almacen-de-origen.casos.json
 # aquí fallaría por no encontrar nada que generar. Los tres se fueron juntos, que
 # es como tenían que irse.
 RUN flutter analyze
-RUN timeout 600 flutter test
+RUN flutter test
 
 # Las tres URL. Los valores por defecto son los de producción, los mismos que están
 # escritos en entorno.dart: si alguien construye sin argumentos, sale la de verdad y no
