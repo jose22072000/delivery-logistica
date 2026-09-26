@@ -114,6 +114,28 @@ func (d *dobleDatos) CodigosDeSucursalesVisibles(_ context.Context, sucursal pgt
 	return salida, nil
 }
 
+// ListarSucursales: «A CUÁLES PUEDO LLEGAR», acotada por la sucursal **de la persona** y
+// no por la de la cabecera. Es la que usa `/api/almacenes` desde el 26/09/2026 — ver
+// `TestAlmacenesElSuperAdminMirandoUnaLasSigueViendoTodas`—, y repite aquí el `WHERE` de
+// `branches.sql`: nulo = todas.
+func (d *dobleDatos) ListarSucursales(_ context.Context, persona pgtype.UUID) ([]sqlc.ListarSucursalesRow, error) {
+	stg, hol := "STG", "HOL"
+	todas := []sqlc.ListarSucursalesRow{
+		{ID: datSucHol, Name: "Holguín", ExternalID: &hol},
+		{ID: datSucStg, Name: "Santiago", ExternalID: &stg},
+	}
+	if !persona.Valid {
+		return todas, nil
+	}
+	var salida []sqlc.ListarSucursalesRow
+	for _, v := range todas {
+		if [16]byte(v.ID) == persona.Bytes {
+			salida = append(salida, v)
+		}
+	}
+	return salida, nil
+}
+
 // pasaElAlcanceDeClientes repite el WHERE de `customers.sql`: la sucursal del alcance, con
 // los clientes SIN código dejándose ver siempre.
 func pasaElAlcanceDeClientes(c sqlc.ListarClientesRow, alcanceCod *string) bool {

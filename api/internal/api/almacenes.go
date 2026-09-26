@@ -356,7 +356,27 @@ func (s *Servidor) listarAlmacenes(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	visibles, err := a.CodigosDeSucursalesVisibles(r.Context())
+	// «A CUÁLES PUEDO LLEGAR», no «cuál estoy mirando». Son dos preguntas distintas y
+	// confundirlas dejaba el Tablero en blanco acusando en falso (26/09/2026).
+	//
+	// Esto usaba `CodigosDeSucursalesVisibles`, que se acota por la sucursal del alcance
+	// — y la del alcance, para quien ve las ocho, es **la de la cabecera
+	// `X-Sucursal-Id`**, o sea la que tiene elegida arriba en ese momento. Así que a un
+	// Super Admin mirando Camagüey esta ruta le devolvía SÓLO el almacén de Camagüey, y
+	// el aparato, que reemplaza su copia entera con lo que llega, se quedaba con ese uno.
+	//
+	// Al cambiar a Holguín, el Tablero preguntaba por el almacén de `HOL`, no lo
+	// encontraba —la copia tenía el de `CAM`— y ponía la pantalla en blanco con
+	// «Holguín no tiene ningún almacén con coordenadas», que es mentira: lo tiene. Se
+	// arreglaba solo al minuto, cuando el ciclo volvía a pedir esta ruta ya con la
+	// cabecera nueva. Jose lo vio tres veces: «eso no puede pasar ok».
+	//
+	// `ListarSucursalesVisibles` se acota con `personaPg()` — la sucursal DE LA PERSONA,
+	// ignorando la cabecera—, que es la misma lista con la que se pinta el desplegable de
+	// arriba. Un logístico de Camagüey sigue viendo su almacén y nada más; quien ve las
+	// ocho se lleva los ocho, que es lo que su aparato necesita para no mentir al cambiar.
+	// La regla 1 de la casa se respeta igual: el alcance sale de quién pregunta.
+	visibles, err := a.ListarSucursalesVisibles(r.Context())
 	if err != nil {
 		httpx.ErrorInterno(w, r, err)
 		return

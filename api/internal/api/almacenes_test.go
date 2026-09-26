@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"procovar/reparto-api/internal/alcance"
 	"procovar/reparto-api/internal/store/sqlc"
 )
 
@@ -349,6 +350,57 @@ func TestAlmacenesSeFiltranPorLasSucursalesVisibles(t *testing.T) {
 	leerJSONDeDatos(t, w, &salida)
 	if len(salida.Sucursales) != 2 {
 		t.Fatalf("el Super Admin tenía que verlas todas: %s", w.Body.String())
+	}
+}
+
+// EL SUPER ADMIN MIRANDO UNA SUCURSAL SIGUE VIENDO LOS ALMACENES DE TODAS.
+//
+// Es el fallo del 26/09/2026, y es la diferencia entre «a cuáles puedo llegar» y «cuál
+// estoy mirando». Esta ruta se acotaba con la sucursal del ALCANCE, que para quien ve las
+// ocho sale de la cabecera `X-Sucursal-Id`: mirando Camagüey le volvía sólo el almacén de
+// Camagüey. Y el aparato reemplaza su copia entera con lo que llega, así que se quedaba
+// con ese uno; al cambiar arriba a Holguín el Tablero no encontraba el de `HOL` y ponía
+// la pantalla en blanco diciendo que Holguín no tiene almacén. Lo tiene.
+//
+// LA PRUEBA DE ANTES NO LO CAZABA porque pedía SIN cabecera, que es justo el caso que
+// funcionaba: sin cabecera el alcance ya era «todas». Una prueba que no manda lo que
+// manda la aplicación no prueba lo que la aplicación hace.
+func TestAlmacenesElSuperAdminMirandoUnaLasSigueViendoTodas(t *testing.T) {
+	conAccesos(t, almacenesDePrueba())
+	h := montarDeDatos(t, datosDePrueba())
+
+	w := pedirDeDatos(t, h, http.MethodGet, "/api/almacenes", superAdminDeDatos(t), "",
+		map[string]string{alcance.CabeceraSucursal: datSucHol.String()})
+	if w.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+	var salida struct {
+		Sucursales []SucursalConAlmacenes `json:"sucursales"`
+	}
+	leerJSONDeDatos(t, w, &salida)
+	if len(salida.Sucursales) != 2 {
+		t.Fatalf("mirando Holguín se quedó sin los demás almacenes, y al cambiar de "+
+			"sucursal el Tablero acusaría en falso: %s", w.Body.String())
+	}
+}
+
+// LA OTRA MITAD, y sin ella lo de arriba se «arregla» devolviéndolas siempre todas: quien
+// pertenece a UNA sucursal no puede ver los almacenes de las otras ni poniendo la cabecera
+// a mano. Es la regla 1 de la casa —el alcance sale de quién pregunta— y ya costó dinero:
+// «un operador de Santiago vio los precios de La Habana».
+func TestAlmacenesElDeUnaSucursalNoVeLasOtrasNiConLaCabecera(t *testing.T) {
+	conAccesos(t, almacenesDePrueba())
+	h := montarDeDatos(t, datosDePrueba())
+
+	w := pedirDeDatos(t, h, http.MethodGet, "/api/almacenes", operadorDeSantiago(t), "",
+		map[string]string{alcance.CabeceraSucursal: datSucHol.String()})
+	var salida struct {
+		Sucursales []SucursalConAlmacenes `json:"sucursales"`
+	}
+	leerJSONDeDatos(t, w, &salida)
+	if len(salida.Sucursales) != 1 || salida.Sucursales[0].Codigo != "STG" {
+		t.Fatalf("Santiago se llevó almacenes de otra sucursal pidiéndolos por "+
+			"cabecera: %s", w.Body.String())
 	}
 }
 
