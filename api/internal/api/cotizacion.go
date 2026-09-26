@@ -1225,6 +1225,39 @@ func renglonesParaLaBase(renglones []cotizar.RenglonPesado) []sqlc.CrearRenglonD
 			v := r.Packs.Valor
 			fila.Packs = &v
 		}
+		// LA CONSTANCIA DEL PESO, que estaba dada de alta y no la escribía NADIE.
+		//
+		// `00004_peso_por_renglon.sql` añadió estas columnas precisamente para no tener
+		// que recalcular el peso con el catálogo de HOY sobre un pedido de hace tres
+		// meses: el catálogo cambia —precios, envases, productos que salen— y un peso
+		// recalculado sobre una ruta vieja no es el peso con el que se cargó ese camión.
+		//
+		// Y sin embargo estaban en NULL en los 7.515 renglones de producción, comprobado
+		// el 26/09/2026. El comentario de `orders.sql` decía «quien los pone es
+		// `renglonesParaLaBase`» — y no los ponía. Un comentario no falla.
+		//
+		// No hay que calcular nada: `cotizar.Resolver` ya devolvió todo esto. Sólo había
+		// que dejar de tirarlo.
+		//
+		// TODOS ANULABLES A PROPÓSITO: un renglón que no sabe lo que pesa se guarda VACÍO,
+		// no en cero. Un cero se lee como «este producto no pesa», que es un número
+		// creíble y equivocado. `origen_peso` sí se escribe aunque sea `none`: es el
+		// renglón confesando que lo intentó y no pudo, y es lo que la vista mira.
+		if r.WeightKg > 0 {
+			v := r.WeightKg
+			fila.PesoLineaKg = &v
+		}
+		if r.UnitWeightKg > 0 {
+			v := r.UnitWeightKg
+			fila.PesoUnitarioKg = &v
+		}
+		if origen := string(r.WeightSource); origen != "" {
+			fila.OrigenPeso = &origen
+		}
+		fila.AlmacenNombre = r.WhName
+		emparejado := r.Matched
+		fila.Caso = &emparejado
+
 		// `product_id` se queda vacío y NO es un fallo: el emparejamiento con el catálogo
 		// de Ventra da el peso, no el id de la fila del catálogo, y hay renglones escritos
 		// a mano que no están en Ventra. Se resuelve por nombre cuando hace falta.

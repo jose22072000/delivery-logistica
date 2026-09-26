@@ -176,3 +176,79 @@ func TestUnaLineaSinTextoNoSeEscribeYDejaSuHueco(t *testing.T) {
 		t.Errorf("la última línea conserva su posición (3); salió %d", filas[1].Linea)
 	}
 }
+
+// EL PESO DE CADA RENGLÓN SE GUARDA, QUE PARA ESO ESTÁ LA COLUMNA.
+//
+// `00004_peso_por_renglon.sql` añadió `peso_unitario_kg`, `peso_linea_kg`, `origen_peso`,
+// `almacen_nombre` y `caso` precisamente para no recalcular el peso con el catálogo de HOY
+// sobre un pedido de hace tres meses: el catálogo cambia —precios, envases, productos que
+// salen— y un peso recalculado sobre una ruta vieja no es el peso con el que se cargó ese
+// camión.
+//
+// Y estaban en NULL en los 7.515 renglones de producción, comprobado el 26/09/2026.
+// `renglonesParaLaBase` escribía sólo cuatro campos y tiraba el resto, mientras un
+// comentario de `orders.sql` afirmaba que los ponía. **Un comentario no falla.**
+//
+// No hay nada que calcular aquí: `cotizar.Resolver` ya lo devolvió. Sólo había que dejar
+// de tirarlo, y esta prueba es lo que impide que se vuelva a caer.
+func TestElPesoDeCadaRenglonSeGuarda(t *testing.T) {
+	almacen := "Camagüey"
+	filas := renglonesParaLaBase([]cotizar.RenglonPesado{{
+		Renglon:      cotizar.Renglon{Name: "MALTA GUAJIRA 330 ML BLISTER 6U"},
+		WeightKg:     24.194,
+		UnitWeightKg: 2.4194,
+		Matched:      true,
+		WhName:       &almacen,
+		WeightSource: cotizar.PesoDePedido,
+	}})
+
+	if len(filas) != 1 {
+		t.Fatalf("renglones: %d", len(filas))
+	}
+	f := filas[0]
+	if f.PesoLineaKg == nil || *f.PesoLineaKg != 24.194 {
+		t.Fatalf(
+			"el peso de la línea se tiró: sin él, dentro de tres meses el peso de esta "+
+				"ruta se recalcula con el catálogo de entonces y no es el que se cargó. %v",
+			f.PesoLineaKg,
+		)
+	}
+	if f.PesoUnitarioKg == nil || *f.PesoUnitarioKg != 2.4194 {
+		t.Fatalf("el peso por unidad de venta se tiró: %v", f.PesoUnitarioKg)
+	}
+	if f.OrigenPeso == nil || *f.OrigenPeso != string(cotizar.PesoDePedido) {
+		t.Fatalf("no consta de dónde salió el peso: %v", f.OrigenPeso)
+	}
+	if f.AlmacenNombre == nil || *f.AlmacenNombre != almacen {
+		t.Fatalf("no consta con qué almacén se emparejó: %v", f.AlmacenNombre)
+	}
+	if f.Caso == nil || !*f.Caso {
+		t.Fatalf("no consta que se emparejó: %v", f.Caso)
+	}
+}
+
+// LA OTRA MITAD: un renglón que no sabe lo que pesa se guarda VACÍO, no en cero.
+//
+// Un cero se lee como «este producto no pesa», que es un número creíble y equivocado — y
+// con él se carga un camión. `origen_peso` SÍ se escribe aunque sea `none`: es el renglón
+// confesando que lo intentó y no pudo, y es lo que la vista mira para pintar el «—».
+func TestUnRenglonSinPesoSeGuardaVacioYNoEnCero(t *testing.T) {
+	filas := renglonesParaLaBase([]cotizar.RenglonPesado{{
+		Renglon:      cotizar.Renglon{Name: "PRODUCTO QUE NO ESTÁ EN EL CATÁLOGO"},
+		WeightSource: cotizar.PesoDesconocido,
+	}})
+
+	f := filas[0]
+	if f.PesoLineaKg != nil {
+		t.Fatalf(
+			"se guardó un peso de %v en un renglón que no lo sabe: un cero se lee como "+
+				"«no pesa» y con eso se carga un camión", *f.PesoLineaKg,
+		)
+	}
+	if f.OrigenPeso == nil || *f.OrigenPeso != string(cotizar.PesoDesconocido) {
+		t.Fatalf(
+			"no consta que se intentó y no se pudo: la vista necesita eso para pintar "+
+				"el «—» en vez de un hueco. %v", f.OrigenPeso,
+		)
+	}
+}
