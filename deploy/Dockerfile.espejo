@@ -70,6 +70,27 @@ COPY app/lib/nucleo/refresco_en_vivo.dart /app/lib/nucleo/refresco_en_vivo.dart
 # en `/docs/...`.
 COPY docs/orden-de-paradas.casos.json /docs/orden-de-paradas.casos.json
 
+# Y LOS OTROS DOS FICHEROS QUE LAS MISMAS PRUEBAS LEEN — 26/09/2026.
+#
+# EL ESPEJO Y LA API SON EL MISMO MÓDULO DE GO, así que `go test ./...` de aquí corre
+# TODAS las pruebas, también las de `internal/cotizar` y las de `internal/config`. El
+# `Dockerfile.api` copia estos dos y éste no, así que en cuanto esas pruebas entraron en
+# el árbol esta imagen dejó de construir:
+#
+#   almacen_casos_compartidos_test.go: no se pudo leer ../../../docs/almacen-de-origen.casos.json
+#   version_test.go / config_test.go:  no se pudo leer ../../../docker-compose.yml
+#
+# Y NO SE VIO PORQUE EL ESPEJO NO SE DESPLEGABA DESDE EL 22/09. El 26/09, al desplegarlo
+# con la guarda que corta los 98 millones de escrituras de `customers`, Dokploy dijo
+# «error» y **siguió corriendo el contenedor viejo**: las migraciones y la api sí entraron,
+# y el espejo —que es quien escribe los clientes— se quedó con el código de antes. Los
+# contadores no bajaron y parecía que la guarda no servía.
+#
+# Los dos van aquí y no en el `.dockerignore`: se excluye lo que se REGENERA, nunca lo que
+# se NECESITA, y un fichero de `docs/` puede ser código para una prueba.
+COPY docs/almacen-de-origen.casos.json /docs/almacen-de-origen.casos.json
+COPY docker-compose.yml /docker-compose.yml
+
 # LAS PRUEBAS, ANTES DE CONSTRUIR. Los CUATRO Dockerfile lo hacen; éste era el que
 # faltaba, y es el que más pintaba tenerlo.
 #
