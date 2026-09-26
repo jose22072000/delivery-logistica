@@ -43,6 +43,13 @@ type DrenadorDelBuzon struct {
 	srv   *Servidor
 	abrir func(ctx context.Context) (*alcance.Acotado, error)
 	cada  time.Duration
+
+	// vigia es quien avisa POR NOTIFY cuando el canal falla de verdad (ver
+	// `vigia_del_canal.go`). Va aquí y no en su propia gorutina a propósito: ya hay un
+	// trabajador que da una vuelta cada minuto con el alcance abierto, y montar un segundo
+	// temporizador para mirar lo mismo sería otra conexión, otro `Resolver` y dos relojes
+	// que se desincronizan.
+	vigia *VigiaDelCanal
 }
 
 // NuevoDrenadorDelBuzon lo arma. `cada <= 0` usa [CadaCuantoSeDrena].
@@ -54,7 +61,7 @@ func NuevoDrenadorDelBuzon(
 	if cada <= 0 {
 		cada = CadaCuantoSeDrena
 	}
-	return &DrenadorDelBuzon{srv: srv, abrir: abrir, cada: cada}
+	return &DrenadorDelBuzon{srv: srv, abrir: abrir, cada: cada, vigia: NuevoVigiaDelCanal(srv, nil)}
 }
 
 // Correr da una vuelta AL ARRANCAR y luego una cada `cada`.
@@ -90,6 +97,15 @@ func (d *DrenadorDelBuzon) UnaVuelta(ctx context.Context) {
 	if enviados > 0 || quedan > 0 {
 		d.srv.reg.Info("buzón hacia PEDIDO drenado", "enviados", enviados, "quedan", quedan)
 	}
+
+	// Y SE MIRA CÓMO VA EL CANAL, DESPUÉS DE DRENAR Y NO ANTES.
+	//
+	// El orden es la mitad de la guarda: drenar puede haber arreglado justo el atasco por el
+	// que se iba a avisar, y un correo que dice «atascado» sobre un canal que acaba de
+	// vaciarse es un aviso falso — y los avisos falsos son los que enseñan a no leer los
+	// verdaderos. El vigía no devuelve error a propósito: si notify está caído, lo que no
+	// puede pasar es que se caiga con él el drenaje, que es lo que de verdad importa.
+	d.vigia.Mirar(ctx, a)
 }
 
 // DrenarElBuzon manda lo que quedó pendiente. Devuelve cuántos se mandaron y cuántos
@@ -126,19 +142,35 @@ func (s *Servidor) DrenarElBuzon(ctx context.Context, a *alcance.Acotado) (envia
 
 	// LA TANDA, apuntada pase lo que pase. Es lo que deja ver si el webhook respira.
 	motivo := parte.Error
+	var http32 *int32
+	if parte.HTTP > 0 {
+		c := int32(parte.HTTP)
+		http32 = &c
+	}
 	if err := a.ApuntarEnvioDelWebhook(ctx, sqlc.ApuntarEnvioDelWebhookParams{
 		Destino:    "pedido",
 		Mandados:   int32(len(avisos)),
 		Aceptados:  int32(parte.Aplicados),
 		Rechazados: int32(len(avisos) - parte.Aplicados),
 		Motivo:     textoONil(motivo),
+		// EL CÓDIGO HTTP, que hasta el 26/09/2026 se quedaba NULL SIEMPRE. La 00011 creó
+		// esa columna diciendo «un 200 con cero aceptados y un 502 no son lo mismo, y
+		// guardar sólo “falló” los confunde» — y estaban confundidos, porque nadie la
+		// rellenaba. `nil` cuando no se llegó a hablar, que tampoco es lo mismo que un 0.
+		Http:       http32,
 		DuracionMs: tardo,
 	}); err != nil {
 		s.reg.Error("no se pudo apuntar el envío del webhook", "err", err)
 	}
 
 	// NO SE PUDO NI PREGUNTAR: todos siguen pendientes, y eso no es un rechazo.
-	if !parte.Ok {
+	//
+	// `parte.Rechazo` es lo que separa las dos cosas, y antes no existía: `Ok` salía de
+	// `Error == ""`, así que **un rechazo de PEDIDO entraba por aquí**. Consecuencia, viva
+	// hasta hoy: el aviso se quedaba `pendiente` y se reenviaba cada minuto para siempre,
+	// `AvisoAPedidoRechazado` era código muerto, y como el buzón se drena por orden de
+	// llegada esa fila iba en TODAS las tandas y **paraba el canal entero**.
+	if !parte.Ok && !parte.Rechazo {
 		for _, p := range pend {
 			if err := a.AvisoAPedidoSeReintenta(ctx, p.ID, motivo); err != nil {
 				s.reg.Error("no se pudo anotar el reintento", "aviso", p.ID, "err", err)
@@ -154,13 +186,21 @@ func (s *Servidor) DrenarElBuzon(ctx context.Context, a *alcance.Acotado) (envia
 	}
 
 	// PEDIDO CONTESTÓ. Lo que aplicó va a `enviado`; lo que no, a `rechazado` con el
-	// motivo que él mismo dio.
+	// motivo que él mismo dio. **Un rechazo NO se reintenta**: repetirlo da exactamente lo
+	// mismo y se queda a la vista hasta que una persona decida (`CLAUDE.md` §4).
 	//
-	// Se reparte por ORDEN y no por id porque el contrato de PEDIDO devuelve cuántos
-	// aplicó, no cuáles. Repartir por orden puede marcar enviado uno que no lo fue si
-	// PEDIDO reordenara la tanda; lo alternativo —dar todos por enviados— pierde el
-	// rechazo entero, que es peor. El día que su respuesta traiga los ids, esto se ata
-	// por id y se quita este párrafo.
+	// Se reparte por ORDEN y no por id. **Su respuesta SÍ trae los ids** —se comprobó el
+	// 26/09/2026 contra la respuesta de verdad: `aplicados: [{pedidoId, folio, estado}]`—
+	// así que esto se puede y se debe atar por id, y entonces desaparece el riesgo de
+	// marcar enviado uno que no lo fue. **No está hecho**, y mientras no lo esté hay dos
+	// cosas que pueden salir mal y conviene que estén dichas:
+	//
+	//   - `aplicados` es un subconjunto COMPACTADO: cada rechazo hace `continue` y no deja
+	//     hueco, así que `aplicados[i]` deja de corresponder con `tanda[i]` en cuanto hay
+	//     un rechazo delante. No es el caso raro: es cualquier tanda mixta.
+	//   - `sinRepetidos` encoge la tanda DENTRO del canal, y aquí se recorre `pend` entera,
+	//     así que los repetidos del final se marcan rechazados con un motivo que es mentira.
+	//     Y un rechazado no se reintenta nunca.
 	for i, p := range pend {
 		if i < parte.Aplicados {
 			if err := a.AvisoAPedidoEnviado(ctx, p.ID); err != nil {

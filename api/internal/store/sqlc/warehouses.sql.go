@@ -12,6 +12,82 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const almacenesDelPedidoSinMedir = `-- name: AlmacenesDelPedidoSinMedir :many
+
+SELECT sucursal_codigo, motivo, codigo, nombre, pedidos AS cuantos, desde, hasta
+FROM almacenes_del_pedido_sin_medir
+WHERE $1::text[] IS NULL
+   OR sucursal_codigo = ANY($1::text[])
+ORDER BY pedidos DESC, sucursal_codigo ASC, motivo ASC
+LIMIT $2
+`
+
+type AlmacenesDelPedidoSinMedirParams struct {
+	Sucursales []string `json:"sucursales"`
+	Tope       int32    `json:"tope"`
+}
+
+type AlmacenesDelPedidoSinMedirRow struct {
+	SucursalCodigo *string            `json:"sucursal_codigo"`
+	Motivo         *string            `json:"motivo"`
+	Codigo         *string            `json:"codigo"`
+	Nombre         *string            `json:"nombre"`
+	Cuantos        int64              `json:"cuantos"`
+	Desde          pgtype.Timestamptz `json:"desde"`
+	Hasta          pgtype.Timestamptz `json:"hasta"`
+}
+
+// ---------------------------------------------------------------------------
+// Los pedidos que NO se midieron desde su propio almacén
+// ---------------------------------------------------------------------------
+// QUÉ ALMACENES ESTÁN HACIENDO QUE SE MIDA DESDE OTRO SITIO, Y POR QUÉ.
+//
+// Es la mitad visible de la regla «nada se descarta en silencio» (`CLAUDE.md` §4). Un pedido
+// cuyo almacén no se pudo usar no se tira y no se cambia por el principal a escondidas: se
+// guarda su código y su nombre tal cual, se mide desde donde se pudo, y sale AQUÍ con el
+// motivo para que alguien lo arregle.
+//
+// LOS MOTIVOS SE ARREGLAN EN SITIOS DISTINTOS y por eso viajan separados: dar de alta el
+// almacén en Accesos, ponerle el punto, ponerle el código, o que PEDIDO empiece a mandar el
+// campo. Y el peor —`sucursal-sin-almacen-con-punto`— no se midió desde ningún almacén, sino
+// desde el punto de la sucursal.
+//
+// SE ACOTA POR CÓDIGO DE SUCURSAL: `sucursales` NULL es «todas» —el caso de administración—
+// y con una lista sólo salen ésas. Sin esto, unir esta vista a una respuesta de la API le
+// enseñaría Santiago al logístico de Camagüey, que es la regla 1 de la casa y ya pasó una vez
+// en delivery.
+//
+// `pedidos AS cuantos` no es un capricho: cuando el SELECT es exactamente las columnas de la
+// vista y en su orden, sqlc reutiliza el modelo de la vista y lo llama
+// `AlmacenesDelPedidoSinMedirum`. Con un alias emite un `...Row` que se puede leer.
+func (q *Queries) AlmacenesDelPedidoSinMedir(ctx context.Context, arg AlmacenesDelPedidoSinMedirParams) ([]AlmacenesDelPedidoSinMedirRow, error) {
+	rows, err := q.db.Query(ctx, almacenesDelPedidoSinMedir, arg.Sucursales, arg.Tope)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AlmacenesDelPedidoSinMedirRow
+	for rows.Next() {
+		var i AlmacenesDelPedidoSinMedirRow
+		if err := rows.Scan(
+			&i.SucursalCodigo,
+			&i.Motivo,
+			&i.Codigo,
+			&i.Nombre,
+			&i.Cuantos,
+			&i.Desde,
+			&i.Hasta,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const diasConFacturacion = `-- name: DiasConFacturacion :many
 SELECT
     date_trunc('day', vf.fecha)::timestamptz AS dia,

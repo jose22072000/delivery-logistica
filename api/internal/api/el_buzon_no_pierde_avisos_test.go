@@ -147,9 +147,18 @@ func TestLoQuePedidoAplicaSeMarcaEnviado(t *testing.T) {
 // PEDIDO CONTESTA Y DICE QUE NO: rechazado con su motivo, y NO se reintenta.
 func TestLoQuePedidoRechazaSeQuedaConSuMotivo(t *testing.T) {
 	b := &buzonFalso{pendientes: []sqlc.AvisosAPedidoPendientesRow{avisoEnElBuzon("ped-1")}}
+	// SE SIEMBRA COMO SIEMBRA PRODUCCIÓN, y antes no: este doble montaba
+	// `Ok: true` CON `Error` no vacío, un estado que el canal de verdad **no puede
+	// producir** —`parte.Ok = parte.Error == ""`—, así que esta prueba pasaba por una
+	// rama que en producción no se recorre nunca. Es el §3 de la skill del auditor: el
+	// fixture lo escribe la misma mano que pregunta.
+	//
+	// Y lo que tapaba era gordo: con el doble puesto como sí es, esta prueba se caía, y
+	// eso destapó que **`AvisoAPedidoRechazado` era código muerto**. Ver
+	// `ParteAPedido.Rechazo`.
 	s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
-		return ParteAPedido{Ok: true, Enviados: 1, Aplicados: 0,
-			Error: "no existe aquí (¿otra sucursal?)"}
+		return ParteAPedido{Ok: false, Rechazo: true, Enviados: 1, Aplicados: 0,
+			HTTP: 200, Error: "no existe aquí (¿otra sucursal?)"}
 	})
 
 	s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
@@ -332,5 +341,101 @@ func TestElCierreApuntaElAvisoAunquePedidoEsteCaido(t *testing.T) {
 	if !d.avisosEncolados[0].OcurrioAt.Valid {
 		t.Fatalf("el aviso se apuntó sin la hora del suceso: con trabajo sin conexión " +
 			"esa hora y la de la llamada pueden ser tres horas distintas")
+	}
+}
+
+// UN RECHAZO NO PARA EL BUZÓN, Y UN FALLO DE TRANSPORTE NO MATA EL AVISO.
+//
+// Son las dos mitades de lo mismo y hasta el 26/09/2026 se confundían: `ParteAPedido` metía
+// «no se pudo preguntar» y «PEDIDO dijo que no» en el mismo campo `Error`, y `Ok` salía de
+// si ese campo estaba vacío. Así que **un rechazo entraba por la rama del fallo de
+// transporte**: se quedaba `pendiente`, se reenviaba cada minuto para siempre, y como el
+// buzón se drena por orden de llegada con `LIMIT 200`, esa fila iba en todas las tandas y
+// **nada de lo que viniera detrás llegaba a marcarse enviado**. El canal entero parado por
+// un pedido que en PEDIDO no existe.
+func TestUnRechazoNoSeConfundeConUnFalloDeTransporte(t *testing.T) {
+	casos := []struct {
+		nombre           string
+		parte            ParteAPedido
+		quiereRechazados int
+		quiereReintentos int
+	}{
+		{
+			"PEDIDO dijo que no: se marca RECHAZADO y no se reintenta",
+			ParteAPedido{Ok: false, Rechazo: true, Enviados: 1, HTTP: 200,
+				Error: "no existe aquí (¿otra sucursal?)"},
+			1, 0,
+		},
+		{
+			"PEDIDO no contestó: sigue PENDIENTE y se reintenta",
+			ParteAPedido{Ok: false, Enviados: 1, Error: "dial tcp: connection refused"},
+			0, 1,
+		},
+		{
+			"PEDIDO contestó 502: eso pasa solo, se reintenta",
+			ParteAPedido{Ok: false, Enviados: 1, HTTP: 502, Error: "PEDIDO contestó 502"},
+			0, 1,
+		},
+	}
+
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			b := &buzonFalso{pendientes: []sqlc.AvisosAPedidoPendientesRow{avisoEnElBuzon("ped-1")}}
+			parte := c.parte
+			s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
+				return parte
+			})
+
+			s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
+
+			if len(b.rechazados) != c.quiereRechazados {
+				t.Fatalf("rechazados=%d y tenían que ser %d — %v",
+					len(b.rechazados), c.quiereRechazados, b.rechazados)
+			}
+			if len(b.reintentos) != c.quiereReintentos {
+				t.Fatalf("reintentos=%d y tenían que ser %d: un rechazo repetido para el "+
+					"buzón entero, y un fallo de transporte descartado pierde el aviso",
+					len(b.reintentos), c.quiereReintentos)
+			}
+		})
+	}
+}
+
+// Y EL CÓDIGO HTTP QUEDA APUNTADO. La 00011 creó esa columna para distinguir «un 200 con
+// cero aceptados» de «un 502», y **nunca se rellenaba**: estaban confundidos, que es
+// justamente lo que la migración decía que no podía pasar.
+func TestLaTandaApuntaElCodigoHTTP(t *testing.T) {
+	b := &buzonFalso{pendientes: []sqlc.AvisosAPedidoPendientesRow{avisoEnElBuzon("ped-1")}}
+	s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
+		return ParteAPedido{Ok: false, Enviados: 1, HTTP: 502, Error: "PEDIDO contestó 502"}
+	})
+
+	s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
+
+	if len(b.envios) != 1 {
+		t.Fatalf("no quedó constancia de la tanda: %d", len(b.envios))
+	}
+	if b.envios[0].Http == nil || *b.envios[0].Http != 502 {
+		t.Fatalf("el código HTTP no se apuntó: %v. Sin él, un 502 y un 200 con cero "+
+			"aceptados se leen igual en la pantalla", b.envios[0].Http)
+	}
+}
+
+// LA OTRA MITAD: cuando no se llegó a hablar, la columna se queda VACÍA y no en cero.
+// Un 0 se lee como un código, y «no hubo respuesta» no es un código.
+func TestSinRespuestaElCodigoHTTPQuedaVacio(t *testing.T) {
+	b := &buzonFalso{pendientes: []sqlc.AvisosAPedidoPendientesRow{avisoEnElBuzon("ped-1")}}
+	s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
+		return ParteAPedido{Ok: false, Enviados: 1, Error: "dial tcp: connection refused"}
+	})
+
+	s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
+
+	if len(b.envios) != 1 {
+		t.Fatalf("no quedó constancia: %d", len(b.envios))
+	}
+	if b.envios[0].Http != nil {
+		t.Fatalf("se apuntó un código (%d) para una llamada que no llegó a hacerse",
+			*b.envios[0].Http)
 	}
 }

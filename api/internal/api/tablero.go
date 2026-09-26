@@ -334,6 +334,28 @@ func (s *Servidor) tableroDe(w http.ResponseWriter, r *http.Request, a *alcance.
 // `CLAUDE.md` §3-bis. Lo que lo ata ahora es una prueba —`TestElTableroYLaCotizacionMiran
 // ElMismoAlmacen`— y no este comentario.
 //
+// # POR QUÉ ESTO SIGUE SIENDO EL PRINCIPAL DE LA SUCURSAL, Y NO EL ALMACÉN DEL PEDIDO
+//
+// El 26/09/2026 `/api/quote/batch` dejó de medir `delivery_distance_km` desde el punto de la
+// sucursal y pasó a medirlo desde el almacén DE CADA PEDIDO (`cotizar.ElegirOrigenDelPedido`).
+// Aquí NO se hizo, y es una decisión, no un olvido — hay que saberlo antes de «arreglarlo»:
+//
+// De este almacén salen tres cosas, todas escritas en la base: el `origin_lat/lng` de la ruta,
+// el `segment_km` de CADA parada y el `total_distance`. **Una ruta tiene UN origen porque el
+// camión sale de UN sitio**: medir cada parada desde un almacén distinto daría un `segment_km`
+// que no corresponde a ningún recorrido real, y `segment_km` es además el número con el que se
+// repartió la carga hasta hoy, así que cambiarlo descuadra los informes viejos.
+//
+// Y el problema de fondo no se arregla eligiendo mejor aquí: **las columnas del tablero son por
+// ZONA, no por almacén**, así que una ruta de Santiago puede llevar pedidos de AURORA y de
+// PV-STGO a la vez y entonces ningún origen único es correcto para las dos mitades. Lo que hay
+// que decidir es si una zona con dos almacenes son dos rutas o una ruta con dos recogidas, y eso
+// lo decide Jose, no este fichero. Está apuntado en `docs/integracion-pendiente.md`.
+//
+// MIENTRAS TANTO, LO QUE PASA: una ruta armada sólo con pedidos de AURORA se arma desde PV-STGO,
+// así que sus km no cuadran con el `delivery_distance_km` de sus propios pedidos. Los dos números
+// existen y son distintos; lo que NO puede pasar es que nadie lo sepa, y por eso está escrito.
+//
 // # ACCESOS CAÍDO NO ES «NO TIENE ALMACÉN»
 //
 // La cotización trata el fallo de Accesos como lista vacía y acaba en el 409, y ahí es lo
@@ -384,15 +406,7 @@ func almacenesConPunto(crudos []Almacen) []cotizar.Almacen {
 		if *a.Latitud == 0 && *a.Longitud == 0 {
 			continue
 		}
-		id := ""
-		if a.ID != nil {
-			id = *a.ID
-		}
-		salida = append(salida, cotizar.Almacen{
-			ID: id, Nombre: a.Nombre, Direccion: a.Direccion,
-			Latitud: a.Latitud, Longitud: a.Longitud,
-			Principal: a.Principal, Activo: a.Activo,
-		})
+		salida = append(salida, deAlmacenDeAccesos(a))
 	}
 	return salida
 }

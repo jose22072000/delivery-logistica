@@ -192,6 +192,11 @@ type PedidoDelCuerpo struct {
 	// `factura` cuando los renglones son los de la FACTURA, `pedido` cuando son los que
 	// tomo el vendedor. Ver `PedidoCrudo.ItemsOrigen`.
 	ItemsOrigen *string `json:"itemsOrigen"`
+
+	// DE QUÉ ALMACÉN SALE. Se pasa TAL CUAL a la puerta, con la misma forma con la que llegó
+	// de PEDIDO: es de ahí de donde se mide la distancia del domicilio, y de esos kilómetros
+	// sale lo que alguien cobra. Puntero para que «no vino» y «vino vacío» no se confundan.
+	Almacen *AlmacenDelPedido `json:"almacen"`
 }
 
 type RenglonDelLote struct {
@@ -202,6 +207,11 @@ type RenglonDelLote struct {
 	Packs       *float64 `json:"packs"`
 	PesoKg      *float64 `json:"pesoKg"`
 	PesoLineaKg *float64 `json:"pesoLineaKg"`
+
+	// El almacén de ESTE renglón, con los mismos nombres que usa PEDIDO. Un pedido mezclado
+	// sale de dos almacenes y el que despacha necesita saber qué línea va en cada uno.
+	AlmacenCodigo *string `json:"almacenCodigo"`
+	AlmacenNombre *string `json:"almacenNombre"`
 }
 
 // ArmarLote traduce lo que dio PEDIDO a lo que entiende el lote.
@@ -253,6 +263,13 @@ func pedidoAlLote(p PedidoDeFuera) PedidoDelCuerpo {
 		FacturaDomicilio:   p.FacturaDomicilio,
 		FacturaCorregidoAt: textoONada(p.FacturaCorregidoAt),
 		ItemsOrigen:        textoONada(p.ItemsOrigen),
+
+		// EL ALMACÉN VIAJA TAL CUAL Y NO SE LIMPIA AQUÍ. Ni se descarta el que venga sin
+		// código, ni se rellena con el principal, ni se deduce de los renglones: quien decide
+		// qué hacer con un almacén que no se puede usar es la puerta, que es la única que
+		// tiene delante los almacenes de Accesos. Arreglarlo aquí sería decidir dos veces, y
+		// la segunda a ciegas.
+		Almacen: p.Almacen,
 	}
 	return out
 }
@@ -330,6 +347,11 @@ func renglonesAlLote(items []RenglonDeFuera) []RenglonDelLote {
 			Packs:       it.Packs,
 			PesoKg:      it.PesoKg,
 			PesoLineaKg: it.PesoLineaKg,
+			// Vacío se manda como AUSENTE, igual que el resto de los textos: un `""`
+			// guardado se lee en pantalla como un dato que está y no dice nada, y filtrar
+			// «qué se recoge en este almacén» por él devuelve cosas que no son.
+			AlmacenCodigo: textoONada(it.AlmacenCodigo),
+			AlmacenNombre: textoONada(it.AlmacenNombre),
 		}
 		if it.Unidades != nil && *it.Unidades > 0 {
 			r.Quantity = *it.Unidades

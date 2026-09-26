@@ -60,6 +60,12 @@ type Servidor struct {
 
 	// accesos es el cliente del login único (almacenes y tasas), con firma HMAC.
 	accesos ClienteAccesos
+
+	// avisos es por dónde se le cuenta A UNA PERSONA que el canal con PEDIDO se rompió
+	// (ver `canal_notify.go`). Nunca es nil viniendo de `NuevoServidor`: sin configuración
+	// se monta el canal mudo, que no llama a nadie y devuelve error nombrando la variable
+	// que falta — nunca un «ya está mandado».
+	avisos CanalDeAvisos
 }
 
 func NuevoServidor(cfg *config.Config, reg *slog.Logger, p *alcance.Porteria, v *auth.Verificador, salud func(ctx context.Context) error) *Servidor {
@@ -77,6 +83,7 @@ func NuevoServidor(cfg *config.Config, reg *slog.Logger, p *alcance.Porteria, v 
 		// que no está configurado.
 		ventra:  nil,
 		accesos: accesosDelServidor(cfg),
+		avisos:  nuevoCanalDeAvisos(cfg, reg),
 	}
 }
 

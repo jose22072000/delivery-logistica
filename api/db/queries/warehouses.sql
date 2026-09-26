@@ -127,3 +127,35 @@ FROM orders o
 WHERE (sqlc.narg('sucursal')::uuid IS NULL OR o.branch_id = sqlc.narg('sucursal')::uuid)
   AND (sqlc.narg('desde')::timestamptz IS NULL
        OR coalesce(o.order_date, o.created_at) >= sqlc.narg('desde')::timestamptz);
+
+-- ---------------------------------------------------------------------------
+-- Los pedidos que NO se midieron desde su propio almacén
+-- ---------------------------------------------------------------------------
+
+-- QUÉ ALMACENES ESTÁN HACIENDO QUE SE MIDA DESDE OTRO SITIO, Y POR QUÉ.
+--
+-- Es la mitad visible de la regla «nada se descarta en silencio» (`CLAUDE.md` §4). Un pedido
+-- cuyo almacén no se pudo usar no se tira y no se cambia por el principal a escondidas: se
+-- guarda su código y su nombre tal cual, se mide desde donde se pudo, y sale AQUÍ con el
+-- motivo para que alguien lo arregle.
+--
+-- LOS MOTIVOS SE ARREGLAN EN SITIOS DISTINTOS y por eso viajan separados: dar de alta el
+-- almacén en Accesos, ponerle el punto, ponerle el código, o que PEDIDO empiece a mandar el
+-- campo. Y el peor —`sucursal-sin-almacen-con-punto`— no se midió desde ningún almacén, sino
+-- desde el punto de la sucursal.
+--
+-- SE ACOTA POR CÓDIGO DE SUCURSAL: `sucursales` NULL es «todas» —el caso de administración—
+-- y con una lista sólo salen ésas. Sin esto, unir esta vista a una respuesta de la API le
+-- enseñaría Santiago al logístico de Camagüey, que es la regla 1 de la casa y ya pasó una vez
+-- en delivery.
+--
+-- `pedidos AS cuantos` no es un capricho: cuando el SELECT es exactamente las columnas de la
+-- vista y en su orden, sqlc reutiliza el modelo de la vista y lo llama
+-- `AlmacenesDelPedidoSinMedirum`. Con un alias emite un `...Row` que se puede leer.
+-- name: AlmacenesDelPedidoSinMedir :many
+SELECT sucursal_codigo, motivo, codigo, nombre, pedidos AS cuantos, desde, hasta
+FROM almacenes_del_pedido_sin_medir
+WHERE sqlc.narg('sucursales')::text[] IS NULL
+   OR sucursal_codigo = ANY(sqlc.narg('sucursales')::text[])
+ORDER BY pedidos DESC, sucursal_codigo ASC, motivo ASC
+LIMIT sqlc.arg('tope');

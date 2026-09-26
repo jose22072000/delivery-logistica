@@ -455,6 +455,22 @@ func (a *Acotado) CodigosDeSucursalesVisibles(ctx context.Context) ([]sqlc.Codig
 	return a.q.CodigosDeSucursalesVisibles(ctx, a.sucursalPg())
 }
 
+// AlmacenesDelPedidoSinMedir: los pedidos que NO se midieron desde su propio almacén,
+// agrupados por sucursal, motivo y almacén.
+//
+// `sucursales` NULL (nil) es «todas» y una lista acota. NO se acota aquí dentro a propósito:
+// el que llama es la pantalla de administración, que ve las ocho, y la lista se le pasa hecha
+// desde `CodigosDeSucursalesVisibles`. Hacerlo aquí con `a.Codigo()` sería acotarlo por la
+// sucursal ELEGIDA ARRIBA en la cabecera, que es justo el fallo del 26/09/2026 de
+// `/api/almacenes`: a un Super Admin mirando Camagüey le devolvería sólo Camagüey.
+func (a *Acotado) AlmacenesDelPedidoSinMedir(
+	ctx context.Context, sucursales []string, tope int32,
+) ([]sqlc.AlmacenesDelPedidoSinMedirRow, error) {
+	return a.q.AlmacenesDelPedidoSinMedir(ctx, sqlc.AlmacenesDelPedidoSinMedirParams{
+		Sucursales: sucursales, Tope: tope,
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Panel e informes  (/api/dashboard, /api/reports)
 // ---------------------------------------------------------------------------
@@ -704,7 +720,16 @@ func (a *Acotado) renglonesIguales(
 			!mismoBooleano(h.Caso, v.Caso) ||
 			!mismoFlotante(h.PesoUnitarioKg, v.PesoUnitarioKg) ||
 			!mismoFlotante(h.PesoLineaKg, v.PesoLineaKg) ||
-			!mismoTexto(h.OrigenPeso, v.OrigenPeso) {
+			!mismoTexto(h.OrigenPeso, v.OrigenPeso) ||
+			// EL ALMACÉN DEL RENGLÓN ENTRA EN LA COMPARACIÓN (00012). Si no entrara, un pedido
+			// que llega con el mismo peso y el mismo producto pero desde OTRO almacén se
+			// leería como «no cambió nada» y la columna se quedaría con el primer almacén para
+			// siempre. Pasa de verdad: un pedido entra antes de facturarse sin almacén, y
+			// cuando PEDIDO lo cierra contra la factura llega ya con el suyo. Sin esto, las
+			// dos consultas —la que compara y la que escribe— contestarían cosas distintas
+			// sobre lo mismo, que es el §3-bis del `CLAUDE.md`.
+			!mismoTexto(h.AlmacenSalidaCodigo, v.AlmacenSalidaCodigo) ||
+			!mismoTexto(h.AlmacenSalidaNombre, v.AlmacenSalidaNombre) {
 			return false, nil
 		}
 	}

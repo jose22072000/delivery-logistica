@@ -50,6 +50,23 @@ type Opciones struct {
 	// TramoDias: cuántos días por petición al recorrer el histórico.
 	TramoDias int
 	// HistoricoDias: hasta dónde atrás llega el histórico.
+	//
+	// ERA 420 —un año y pico— Y NO SERVÍA PARA NADA. Medido el 26/09/2026 con el espejo
+	// llevando meses corriendo: el reparto tiene **5.480 pedidos y el más viejo es de hace
+	// 27 días**. Nada de lo que el barrido traía de los días 30 a 420 se quedaba, porque
+	// PEDIDO filtra por repartible y la puerta de entrada rechaza lo que no tiene
+	// geolocalización ni factura. **De 101.445 pedidos traídos en un día se quedaron 5.480:
+	// el 95% del trabajo era para tirarlo.**
+	//
+	// Jose, viendo que PEDIDO tiene 67.971 pedidos en total y el espejo se trajo 101.445 en
+	// un día: «cómo que anda buscando, si ya PEDIDO lo notifica… que chequee si están
+	// iguales los espejos, sólo eso, no que ande buscando… no 200 pedidos nuevos». Y
+	// después: «el espejo de sólo lo que necesita reparto, no todos».
+	//
+	// SESENTA DÍAS es el doble de lo que hoy sobrevive, que es el margen para que un cambio
+	// en los filtros de allá no deje un hueco. Si alguna vez hace falta más histórico, se
+	// sube ESTA variable y se dice por qué — pero traer un año «por si acaso» es cargar la
+	// conexión de allá para no encontrar nada.
 	HistoricoDias int
 	// HistoricoPorCiclo: cuánto histórico se recupera POR CICLO.
 	//
@@ -65,9 +82,12 @@ type Opciones struct {
 	// nunca. Un repaso corto de los últimos días lo recoge igual. Cuesta poco y tapa el
 	// único agujero que tiene el sincronizado incremental.
 	RepasoDias int
-	// BarridoCada: cada cuánto toca estirar el histórico. El barrido es lo caro y el ciclo
-	// pasa cada minuto: pedirle a PEDIDO treinta días de histórico cada minuto es cargarlo
-	// por gusto, porque lo viejo no se mueve.
+	// BarridoCada: cada cuánto toca estirar el histórico. El barrido es lo caro y lo viejo
+	// no se mueve, así que tiene su propio freno aparte del ritmo del ciclo.
+	//
+	// **CON AVISOS ENTRANDO SE USA [BarridoConAvisos], que es una vez al día.** Ver ahí el
+	// porqué. Esta variable sigue mandando cuando nadie avisa, que es cuando el barrido
+	// vuelve a ser lo único que caza lo que el `since` se pierde.
 	BarridoCada time.Duration
 
 	// SoloRepartibles: SÓLO LO QUE PUEDE SUBIR A UN CAMIÓN. Encendido por defecto.
@@ -161,6 +181,25 @@ type Opciones struct {
 // que hay. Lo que NO se pierde es nada: el ciclo lo encuentra igual, sólo más tarde.
 const PollConAvisos = 3 * time.Hour
 
+// BarridoConAvisos es cada cuánto se estira el histórico CUANDO a alguien le avisan.
+//
+// UNA VEZ AL DÍA, y antes era en cada ciclo. Con `HistoricoPorCiclo` a 30 días y
+// `HistoricoDias` a 60, eso son **dos barridos para dar la vuelta entera**, o sea que el
+// histórico se repasa completo cada dos días — que es lo que debe hacer una red de
+// seguridad, no un trabajo continuo.
+//
+// LO QUE HABÍA: el barrido corría en cada ciclo y daba la vuelta al año cada dos días. Con
+// el webhook trayendo los cambios en el acto —238 avisos el primer día—, eso era releer el
+// año entero para no encontrar nada.
+//
+// ESTO SIGUE SIENDO UN PARCHE Y CONVIENE QUE ESTÉ ESCRITO: el barrido **trae para
+// comparar**, que es justo lo que Jose no quiere. Lo que lo arregla de verdad es comparar
+// sin traer, y para eso hacen falta dos rutas que PEDIDO no tiene todavía: un resumen por
+// día (cuántos pedidos y cuál fue el último cambio) y la lista pelada de ids de un día.
+// Con eso se comparan 60 filas en vez de bajarse 60 días. Pedidas a su sesión el
+// 26/09/2026; cuando existan, esto se queda sólo como red de última hora.
+const BarridoConAvisos = 24 * time.Hour
+
 // HayRedis: si se puede hablar con la cola. No es lo mismo que leerla — ver EscuchaLosAvisos.
 func (o Opciones) HayRedis() bool {
 	return o.RedisDireccion != "" || len(o.RedisCentinelas) > 0
@@ -186,6 +225,19 @@ func (o Opciones) LeAvisan() bool {
 	return o.EscuchaLosAvisos() || o.TocanLaPuerta
 }
 
+// RitmoDelBarrido es cada cuánto se estira el histórico, ya decidido.
+//
+// Mismo criterio que [Opciones.RitmoDelCiclo] y por la misma razón: si a alguien le avisan,
+// el barrido deja de ser quien se entera y pasa a ser quien comprueba. Si NO avisa nadie,
+// vuelve a ser lo único que caza lo que el `since` se pierde y tiene que ir a su ritmo de
+// siempre.
+func (o Opciones) RitmoDelBarrido() time.Duration {
+	if !o.LeAvisan() {
+		return o.BarridoCada
+	}
+	return BarridoConAvisos
+}
+
 // RitmoDelCiclo es cada cuánto toca dar la vuelta, ya decidido.
 //
 // Si el entorno puso `SYNC_POLL_MS` a mano, manda ése: alguien que lo escribe sabe lo que
@@ -207,7 +259,7 @@ func PorDefecto() Opciones {
 		DeliveryURL:       "http://localhost:3002",
 		Poll:              time.Minute,
 		TramoDias:         3,
-		HistoricoDias:     420,
+		HistoricoDias:     60,
 		HistoricoPorCiclo: 30,
 		RepasoDias:        3,
 		BarridoCada:       10 * time.Minute,

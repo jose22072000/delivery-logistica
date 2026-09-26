@@ -313,7 +313,24 @@ func (s *Servidor) borrarOrigen(w http.ResponseWriter, r *http.Request) {
 // lugar es la costa de Guinea: desde ahí el domicilio de cualquier cliente sale a 8.000 km
 // y el precio que se cobra es absurdo sin que nada falle.
 type Almacen struct {
-	ID        *string  `json:"id,omitempty"`
+	ID *string `json:"id,omitempty"`
+	// Codigo ES LA IDENTIDAD DEL ALMACÉN, junto con la sucursal — y no el nombre.
+	//
+	// Es el `objectCode` de Ventra, el mismo que PEDIDO manda dentro de cada pedido desde el
+	// 26/09/2026. Sin él no se puede emparejar «el almacén del que sale este pedido» con «el
+	// almacén que tiene las coordenadas», y entonces todo se mide desde el principal: en
+	// Santiago, dos de cada tres pedidos salen de AURORA y se medían desde PV-STGO.
+	//
+	// POR QUÉ NO SE EMPAREJA POR NOMBRE, ni como respaldo. Comprobado en Ventra el
+	// 26/09/2026: `Tiendas Parranda` existe en cinco sucursales con cinco ids, `Parranda
+	// Oferta` en cuatro, y **`PV-STGO` está en Santiago Y en Palma Soriano**. Un respaldo por
+	// nombre no falla nunca: sólo mide desde el almacén de otro sitio.
+	//
+	// ES OPCIONAL Y PUEDE LLEGAR VACÍO, y eso NO se trata como un error. El PUT pasa el
+	// cuerpo a Accesos tal cual, así que en cuanto la pantalla de Almacenes lo escriba,
+	// llegará; mientras no lo haga, `cotizar.ElegirOrigenDelPedido` lo dice con su propio
+	// motivo —`accesos-sin-codigos`— en vez de acusar a catorce almacenes de no existir.
+	Codigo    *string  `json:"codigo,omitempty"`
 	Nombre    string   `json:"nombre"`
 	Direccion *string  `json:"direccion"`
 	Latitud   *float64 `json:"latitud"`

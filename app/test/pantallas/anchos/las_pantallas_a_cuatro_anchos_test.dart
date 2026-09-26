@@ -1,0 +1,1214 @@
+// LAS PANTALLAS DEL MENÚ, A 390, 700, 900 Y 1200 px.
+//
+// Jose lo pidió el 25/09/2026 y se hizo el 26: un barrido de las ocho pantallas
+// del menú a los cuatro anchos, buscando desbordes —la franja amarilla y negra
+// del `RenderFlex overflowed`—, texto cortado y cosas que a 390 px no se pueden
+// usar.
+//
+// LO QUE SE ENCONTRÓ, y por eso este fichero existe:
+//
+//  1. **Vehículos a 390 px**, con el cajón «Agregar Vehículo» o «Editar»
+//     abierto: `A RenderFlex overflowed by 39 pixels on the right.` en el
+//     desplegable `Tipo` (`pantallas/vehiculos/vista/ficha_vehiculo.dart`). Lo
+//     que se salía por la derecha era el final del nombre del tipo y su costo
+//     por km — el número del que sale lo que se le cobra al cliente.
+//  2. **Tablero a 390 px**, con el cajón de filtros abierto: `A RenderFlex
+//     overflowed by 20 pixels on the right.` en el desplegable `Vendedor`
+//     (`pantallas/tablero/vista/panel_sin_colocar.dart`). Lo que se salía era
+//     la flecha, o sea la única pista de que eso se puede tocar.
+//
+// Los dos son el mismo fallo de `DropdownButton`: sin `isExpanded` su fila
+// interna va con `mainAxisSize: min` y no acota al hijo, así que el texto pide
+// su ancho natural. El arreglo y el porqué largo están en cada sitio.
+//
+// ## LO QUE HAY QUE TOCAR PARA QUE EL BARRIDO MIDA DE VERDAD
+//
+// Un barrido que sólo monta la pantalla y mira mide la mitad, y las tres
+// mitades que faltaban se añadieron el mismo día:
+//
+//  * **Los cajones abiertos.** Los dos desbordes de arriba sólo salen con el
+//    formulario delante. Un barrido que no abre nada los habría dado por
+//    buenos.
+//  * **Las pestañas avanzadas.** Por debajo de 900 px `PestanasQueCaben`
+//    (`diseno/pestanas.dart`) no pinta la fila de pestañas: pinta un CARRUSEL
+//    con el rótulo de la que se ve y dos flechas. Así que «Reportes a 390 px
+//    está limpio» era un veredicto sobre **una de sus tres pestañas** — y la
+//    tercera, «Detalle de Órdenes», es la que lleva la tabla larga. Se avanzan
+//    con `ClavesDePestanas.adelante` donde hay carrusel y pulsando el rótulo
+//    donde caben.
+//  * **El teclado fuera.** En un teléfono el formulario SIEMPRE se rellena con
+//    el teclado puesto, y eso se come 336 de los 844 px: el cajón pasa a medir
+//    508. `diseno/cajon.dart` aparta el panel entero con
+//    `MediaQuery.viewInsetsOf`, y esa cuenta hay que medirla, no suponerla.
+//    Hasta hoy sólo la medía el cajón de Pedidos
+//    (`pantallas/movil/se_llega_al_final_test.dart`); Vehículos y Almacenes, que
+//    son justo los que se han tocado, no la medía nadie.
+//
+// ## POR QUÉ UN INFORME NO SERVÍA
+//
+// Un informe no falla dentro de seis meses. Esto sí: son las ocho pantallas por
+// los cuatro anchos, montadas con su armazón de verdad, y cada una **rompe** si
+// vuelve el desborde.
+//
+// ## POR QUÉ SE CAZA EL ERROR A MANO Y NO SE DEJA QUE FALLE SOLO
+//
+// Un desborde en un `testWidgets` ya hace fallar la prueba por su cuenta, pero
+// el mensaje que sale es el de Flutter: dice cuántos píxeles y qué widget, y no
+// dice **en qué pantalla ni a qué ancho**, que es la mitad de lo que hace falta
+// para arreglarlo. Aquí se intercepta `FlutterError.onError`, se juntan todos
+// los desbordes de la pasada y se cuentan de golpe con la pantalla y el ancho
+// por delante. Todo lo que no sea un desborde se le pasa al de siempre, así que
+// cualquier otra excepción sigue rompiendo la prueba como debe.
+//
+// Y precisamente porque el cazador es nuestro, **hay una prueba que comprueba
+// que caza** (la primera del fichero). Sin ella, el día que Flutter cambie la
+// forma de reportar un desborde estas 33 pruebas se quedarían verdes para
+// siempre sin vigilar nada, que es peor que no tenerlas.
+//
+// ## CÓMO SE MIDE Y LAS DOS TRAMPAS DE LA CASA
+//
+// El ancho se pone con `tester.view.physicalSize` y `devicePixelRatio = 1`, y
+// **se restaura siempre** con `addTearDown(tester.view.reset)`: sin eso el
+// ancho se le queda pegado a la prueba siguiente y empiezan a fallar cosas que
+// no tienen nada que ver.
+//
+// Las dos trampas del `CLAUDE.md` §5, las dos respetadas aquí:
+//
+//  * Nada de `await` sobre el primer valor de un stream de Drift dentro del
+//    cuerpo: se bombean fotogramas (`asentar`) y no se espera a nadie. Tampoco
+//    `pumpAndSettle`: estas pantallas tienen ruedas girando mientras piden, y
+//    «esperar a que no quede nada por animar» no termina jamás.
+//  * **La base se siembra DENTRO del cuerpo de la prueba**, no en el `setUp`:
+//    el `setUp` corre fuera del reloj falso y lo que Drift deja empezado allí
+//    no avanza dentro. Aquí sólo se ABRE la base en el `setUp`.
+//
+// ## Y UNA PANTALLA EN BLANCO NO PUEDE PASAR
+//
+// Lo que no desborda porque no pinta nada sale verde, y eso convertiría este
+// fichero en adorno. Por eso cada pantalla exige además su seña: un texto que
+// sólo sale si de verdad se pintó con datos dentro.
+
+import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:reparto/app.dart';
+import 'package:reparto/diseno/anchos.dart';
+import 'package:reparto/diseno/pestanas.dart';
+import 'package:reparto/idioma.dart';
+import 'package:reparto/navegacion/estado_navegacion.dart';
+import 'package:reparto/navegacion/rutas.dart';
+import 'package:reparto/nucleo/base/base.dart';
+import 'package:reparto/nucleo/cola/cola_salida.dart';
+import 'package:reparto/nucleo/identidad/almacen_sesion.dart';
+import 'package:reparto/nucleo/identidad/sesion.dart';
+import 'package:reparto/nucleo/proveedores.dart';
+import 'package:reparto/nucleo/red/cliente_api.dart';
+import 'package:reparto/pantallas/rutas/vista/asistente_nueva_ruta.dart';
+import 'package:reparto/pantallas/tablero/datos/repositorio.dart';
+import 'package:reparto/pantallas/webhook/vista/pantalla_webhook.dart';
+
+import '../../apoyo/base_de_prueba.dart';
+import '../../apoyo/servidor_falso.dart';
+import '../pedidos/sembrar.dart';
+
+/// LOS CUATRO ANCHOS, con un alto de aparato de verdad cada uno.
+///
+/// El alto no es de relleno: un desborde vertical sólo sale si la pantalla mide
+/// lo que mide el aparato. 390x844 es un teléfono; 700 y 900 son la ventana a
+/// medias de un escritorio y la tableta, los dos por debajo de los 1024 px en
+/// que la barra lateral se hace fija (`diseno/anchos.dart`); 1200x900 es el
+/// portátil del despacho, con la barra lateral puesta y 944 px para la pantalla.
+const anchosDelBarrido = <Size>[
+  Size(390, 844),
+  Size(700, 1000),
+  Size(900, 1000),
+  Size(1200, 900),
+];
+
+/// Una pantalla del menú: dónde vive, cómo se sabe que se pintó, y qué se le
+/// toca para abrir lo que abre.
+class PantallaDelBarrido {
+  const PantallaDelBarrido({
+    required this.nombre,
+    required this.ruta,
+    required this.sena,
+    this.cajones = const <String>[],
+    this.cajonesPorTexto = const <String>[],
+    this.pestanas = const <String>[],
+    this.alFinalDeLasPestanas,
+  });
+
+  final String nombre;
+  final String ruta;
+
+  /// Un texto que SÓLO sale si la pantalla se pintó con datos dentro. Sin esto,
+  /// una pantalla en blanco pasaría el barrido por no desbordar.
+  final String sena;
+
+  /// Lo que se pulsa por su `tooltip` y tiene que abrir un cajón.
+  final List<String> cajones;
+
+  /// Lo mismo, pero se pulsa por su texto.
+  final List<String> cajonesPorTexto;
+
+  /// Los rótulos de las pestañas que hay que ATRAVESAR, en orden.
+  ///
+  /// Por debajo de 900 px no se pueden pulsar: ahí `PestanasQueCaben` pinta un
+  /// carrusel y se avanza con la flecha. Los rótulos hacen falta igual, para el
+  /// camino de encima de 900, donde la fila sí cabe.
+  final List<String> pestanas;
+
+  /// Un texto que TIENE que estar al llegar a la última pestaña. Es lo que
+  /// demuestra que el paseo llegó, y no que las flechas no hicieran nada.
+  final String? alFinalDeLasPestanas;
+}
+
+/// Las ocho del menú. El asistente de rutas va aparte, al final: no es una
+/// entrada del menú, es lo que abre «+ Nueva Ruta», y se recorre paso a paso.
+const pantallasDelBarrido = <PantallaDelBarrido>[
+  PantallaDelBarrido(
+    nombre: 'Panel',
+    ruta: '/dashboard',
+    sena: 'Pedidos sin ruta',
+  ),
+  PantallaDelBarrido(
+    nombre: 'Tablero',
+    ruta: '/tablero',
+    sena: 'Sin colocar (5)',
+    cajones: ['Filtros'],
+  ),
+  PantallaDelBarrido(
+    nombre: 'Rutas',
+    ruta: '/routes',
+    sena: 'Planificador de Rutas',
+    cajonesPorTexto: ['+ Nueva Ruta'],
+  ),
+  PantallaDelBarrido(
+    nombre: 'Pedidos',
+    ruta: '/orders',
+    sena: 'Pre-despacho',
+    cajonesPorTexto: ['Pre-despacho'],
+  ),
+  PantallaDelBarrido(
+    nombre: 'Clientes',
+    ruta: '/customers',
+    sena: 'Panadería La Esperanza del Reparto número 0',
+    cajonesPorTexto: ['Panadería La Esperanza del Reparto número 0'],
+  ),
+  PantallaDelBarrido(
+    nombre: 'Vehículos',
+    ruta: '/vehicles',
+    sena: 'Camión Sinotruk HOWO de reparto 0',
+    // Los tres cajones de esta pantalla, y los tres hacen falta: el desborde de
+    // 390 px estaba en el formulario, que es el mismo para «Agregar» y para
+    // «Editar», y «Tipos de vehículo» es otro panel distinto.
+    cajonesPorTexto: ['Agregar Vehículo', 'Tipos de vehículo', 'Editar'],
+  ),
+  PantallaDelBarrido(
+    nombre: 'Almacenes',
+    ruta: '/warehouses',
+    sena: 'PV CAMAGUEY',
+    cajonesPorTexto: ['Nuevo almacén', 'PV CAMAGUEY'],
+  ),
+  PantallaDelBarrido(
+    nombre: 'Reportes',
+    ruta: '/reports',
+    sena: 'Peso Total',
+    // Las tres pestañas, y las tres hacen falta: la de «Resumen» son ocho
+    // cifras en tarjetas y las otras dos son TABLAS, que es lo que se sale por
+    // la derecha en un teléfono.
+    pestanas: ['Por Vehículo', 'Detalle de Órdenes'],
+    alFinalDeLasPestanas: 'Totales:',
+  ),
+];
+
+void main() {
+  setUpAll(() => initializeDateFormatting('es'));
+
+  late BaseLocal base;
+  late ServidorFalso servidor;
+
+  // SÓLO SE ABRE LA BASE AQUÍ. Lo que se escriba en ella va dentro del cuerpo
+  // de cada prueba: el `setUp` corre fuera del reloj falso del `tester` y lo
+  // que Drift deje empezado allí no avanza dentro (`CLAUDE.md` §5, trampa 2).
+  setUp(() {
+    base = baseDePrueba();
+    servidor = ServidorFalso(_responder);
+  });
+  tearDown(() => base.close());
+
+  /// Bombea fotogramas sin esperar a que nada se asiente.
+  ///
+  /// `pumpAndSettle` no vale: Vehículos y Almacenes pintan una rueda girando
+  /// mientras piden a la red, y una animación sin fin deja a `pumpAndSettle`
+  /// esperando para siempre — la prueba se cuelga en vez de fallar.
+  Future<void> asentar(WidgetTester tester) async {
+    for (var i = 0; i < 16; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+  }
+
+  /// Desmonta DENTRO del cuerpo de la prueba.
+  ///
+  /// Al desmontarse, los `watch()` de Drift programan un temporizador de cero
+  /// para cerrarse. Si el árbol muere cuando la prueba ya acabó, flutter_test lo
+  /// cuenta como temporizador pendiente y falla sin que haya nada roto.
+  Future<void> desmontar(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(Duration.zero);
+    await tester.pump(Duration.zero);
+  }
+
+  // ---------------------------------------------------------------------------
+  // EL CAZADOR
+  // ---------------------------------------------------------------------------
+
+  /// Deja puesto el ancho y el cazador de desbordes, y devuelve la lista donde
+  /// van cayendo.
+  ///
+  /// La lista es la misma durante toda la prueba: así se puede mirar cuántos
+  /// había antes de un gesto y cuántos después, y decir qué gesto lo trajo.
+  List<String> vigilar(WidgetTester tester, Size pantalla) {
+    tester.view.physicalSize = pantalla;
+    tester.view.devicePixelRatio = 1;
+    // SIN ESTO SE ROMPEN LAS PRUEBAS DE AL LADO. El ancho vive en el `view`, que
+    // es del binding y no de la prueba: sin `reset` la siguiente se monta a 390
+    // px sin haberlo pedido y falla por algo que no está mirando.
+    addTearDown(tester.view.reset);
+
+    final desbordes = <String>[];
+    final anterior = FlutterError.onError;
+    FlutterError.onError = (detalles) {
+      String texto;
+      try {
+        texto = detalles.exceptionAsString();
+      } on Object {
+        texto = '';
+      }
+      if (!texto.contains('overflowed')) {
+        anterior?.call(detalles);
+        return;
+      }
+
+      // SE APUNTA PRIMERO Y SE ADORNA DESPUÉS. ESTE ORDEN ES LA GUARDA.
+      //
+      // 26/09/2026, cazado por el auditor mutando este mismo barrido: aquí se
+      // llamaba a `detalles.toString()` para sacar el `file:///` del widget
+      // culpable. Describir esos detalles **vuelve a entrar en el árbol de
+      // render**, y con el árbol a medio medir eso petardea — `Null check
+      // operator used on a null value` en `RenderParagraph.debugDescribeChildren`.
+      //
+      // Y lo que pasaba entonces es lo peor que puede pasarle a una prueba: el
+      // lanzamiento ocurría DENTRO de `FlutterError.onError`, así que el desborde
+      // **no llegaba nunca a esta lista**, el `expect(desbordes, isEmpty)` del
+      // final PASABA, y lo que ponía la prueba en rojo era la comprobación de
+      // fontanería de flutter_test («A test overrode FlutterError.onError but
+      // either failed to return it to its original state…»). Rojo por accidente:
+      // el mensaje que explica el fallo no salía ni una vez, y el día que
+      // flutter_test se tomara ese lanzamiento de otra manera la prueba habría
+      // salido **verde con el desborde puesto**. Es el «verde sin serlo» del
+      // 17/09.
+      //
+      // Así que la línea del desborde entra en la lista ANTES de intentar
+      // averiguar de dónde viene, y lo de averiguarlo va en un `try`: un cazador
+      // que se cae formateando es un cazador que dice «limpio».
+      final donde = desbordes.length;
+      desbordes.add(texto.split('\n').first);
+      try {
+        final pistas = <String>[
+          ?detalles.library,
+          if (detalles.context?.toString() case final c? when c.isNotEmpty) c,
+        ];
+        // El `file:///` del widget, si se puede sacar sin describir el árbol.
+        for (final nodo in detalles.informationCollector?.call() ?? const []) {
+          final linea = nodo.toString();
+          if (linea.contains(':file:///')) {
+            pistas.add(linea.trim());
+            break;
+          }
+        }
+        if (pistas.isNotEmpty) {
+          desbordes[donde] = '${desbordes[donde]}  en  ${pistas.join(' · ')}';
+        }
+      } on Object catch (_) {
+        // Con la línea del desborde a secas basta para que la prueba falle y
+        // diga qué pantalla y qué ancho. El sitio es un lujo, no la guarda.
+      }
+    };
+    addTearDown(() => FlutterError.onError = anterior);
+    return desbordes;
+  }
+
+  testWidgets('el cazador de desbordes caza: con uno puesto a propósito, lo '
+      'dice', (tester) async {
+    // ESTA PRUEBA NO VIGILA NINGUNA PANTALLA: vigila al vigilante.
+    //
+    // Las 32 de abajo se apoyan en que un `RenderFlex overflowed` llega por
+    // `FlutterError.onError`. El día que eso cambie —otra versión de Flutter,
+    // otro camino de reporte— las 32 se quedarían verdes sin mirar nada. Con
+    // esta, ese día sale un rojo que dice exactamente qué se rompió.
+    final desbordes = vigilar(tester, const Size(390, 844));
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Row(children: [SizedBox(width: 900, height: 20)]),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      desbordes,
+      isNotEmpty,
+      reason:
+          'EL CAZADOR NO CAZA. Se ha pintado a propósito una fila de 900 px '
+          'dentro de una pantalla de 390 y no ha llegado ni un desborde a '
+          '`FlutterError.onError`. Mientras esto esté roto, las 32 pruebas del '
+          'barrido de anchos salen verdes sin vigilar nada: no hay que creerse '
+          'ninguna hasta que esta vuelva a pasar.',
+    );
+    expect(
+      desbordes.first,
+      contains('overflowed'),
+      reason: 'y lo que caza tiene que ser el desborde, no otra excepción',
+    );
+
+    await desmontar(tester);
+  });
+
+  // ---------------------------------------------------------------------------
+  // LO QUE SE SIEMBRA
+  // ---------------------------------------------------------------------------
+
+  /// El día de trabajo con el que se mide: once pedidos, dos sucursales, la
+  /// flota, los clientes y dos zonas del tablero con su camión.
+  ///
+  /// Los nombres y los números son LARGOS a propósito. Un desborde no sale con
+  /// «Ana» y «$10.00»; sale con «Luis Alberto Domínguez Hernández», «Santa Cruz
+  /// del Sur» y un importe en CUP de siete cifras. Un juego de datos cómodo
+  /// mide una pantalla que no existe.
+  Future<void> sembrarElDia() async {
+    await sembrarLosOnce(base);
+
+    // Las dos sucursales, configuradas: con el punto puesto y con tasa. Sin
+    // esto el Panel enseña la lista de «faltan cosas por configurar» en vez del
+    // panel del día, y la mitad de lo que hay que medir no se pinta.
+    await base.customStatement(
+      "UPDATE branches SET origin_configured = 1, cup_rate = 320, "
+      "cup_rate_traido_at = '2026-09-14T08:00:00.000'",
+    );
+    await base.customStatement(
+      "UPDATE branches SET name = 'San Antonio de los Baños' WHERE id = 'B1'",
+    );
+    await base.customStatement(
+      "UPDATE branches SET name = 'Sancti Spíritus del Norte' WHERE id = 'B2'",
+    );
+    // El almacén con coordenadas de verdad: con (0,0) el tablero no tiene desde
+    // dónde medir y contesta «esta sucursal no tiene ningún almacén con
+    // coordenadas» en vez de pintar las zonas.
+    await base.customStatement(
+      'UPDATE warehouses SET lat = 21.38, lng = -77.91',
+    );
+    // Coordenadas de entrega, nombres largos e importes gordos.
+    await base.customStatement(
+      "UPDATE orders SET end_lat = 21.39, end_lng = -77.92, "
+      "customer_name = customer_name || ' Sociedad Cooperativa de Camagüey', "
+      "municipio = 'Santa Cruz del Sur', "
+      "vendedor = 'Luis Alberto Domínguez Hernández', "
+      "pedido_costo = 12345.67, price = 98765.43, weight = 12500, "
+      "operation_number = 'SC06-1257-4812-B'",
+    );
+    await base.customStatement(
+      "UPDATE vehicles SET name = 'Camión Sinotruk HOWO 6x4 de reparto', "
+      "plate = 'CAM-0001-B', capacity = 12500 WHERE id = 'V1'",
+    );
+    // LA SEGUNDA SUCURSAL, TAMBIÉN COMPLETA: su almacén con punto y su camión.
+    //
+    // No es adorno. El paso a paso del Panel dice «hecho» sólo cuando lo está en
+    // TODAS las sucursales que se están mirando, así que con Holguín a medias el
+    // Panel abre enseñando la lista de «faltan cosas por configurar» —cuatro
+    // tarjetas de texto— en vez del panel del día con sus cifras y su tabla. Se
+    // vio aquí mismo el 26/09/2026: el barrido midió cuatro veces una pantalla
+    // que no era la que se quería medir.
+    await base
+        .into(base.warehouses)
+        .insertOnConflictUpdate(
+          WarehousesCompanion.insert(
+            id: 'W2',
+            sucursalCodigo: 'HOL',
+            nombre: 'PV HOLGUIN',
+            lat: const Value(20.88),
+            lng: const Value(-76.26),
+            principal: const Value(true),
+          ),
+        );
+    await base
+        .into(base.vehicles)
+        .insertOnConflictUpdate(
+          VehiclesCompanion.insert(
+            id: 'V2',
+            name: 'Camión Sinotruk HOWO 6x4 de Holguín',
+            capacity: const Value(12500),
+            plate: const Value('HOL-0002-B'),
+            branchId: const Value('B2'),
+          ),
+        );
+    await base.customStatement(
+      "UPDATE routes SET route_code = 'RT-2026-09-14-SANANTONIO-01'",
+    );
+
+    for (final coleccion in Colecciones.todas) {
+      await base
+          .into(base.frescura)
+          .insertOnConflictUpdate(
+            FrescuraCompanion.insert(
+              coleccion: coleccion,
+              bajadaAt: Value(hoy),
+              hasta: Value(hoy.toIso8601String()),
+              completa: const Value(true),
+            ),
+          );
+    }
+
+    for (var i = 0; i < 6; i++) {
+      await base
+          .into(base.customers)
+          .insertOnConflictUpdate(
+            CustomersCompanion.insert(
+              id: 'c$i',
+              name: 'Panadería La Esperanza del Reparto número $i',
+              lat: 21.38 + i * 0.01,
+              lng: -77.91,
+              codigo: Value('CL-000$i'),
+              municipio: const Value('Santa Cruz del Sur'),
+              zona: const Value('Centro histórico'),
+              vendedor: const Value('Luis Alberto Domínguez Hernández'),
+              phone: const Value('+53 32 123456'),
+              address: Value('Calle Independencia esquina a Martí, número $i'),
+              sucursalCodigo: const Value('CAM'),
+              source: const Value('pedido'),
+            ),
+          );
+    }
+
+    // El tablero con zonas de verdad: una con camión puesto y pedidos dentro,
+    // que es donde salen a la vez el nombre largo, el peso y el importe.
+    final repo = RepositorioTablero(base, ColaDeSalida(base));
+    final zona = await repo.crearColumna(
+      sucursalId: 'B1',
+      nombre: 'Centro histórico y Puerto Príncipe',
+    );
+    await repo.crearColumna(sucursalId: 'B1', nombre: 'Vertientes');
+    await repo.elegirCamion(zona, 'V1');
+    await repo.colocar(pedidoId: 'o1', columnaId: zona);
+    await repo.colocar(pedidoId: 'o3', columnaId: zona);
+  }
+
+  /// Monta la aplicación ENTERA en [inicial], con su armazón.
+  ///
+  /// Se monta el armazón y no la pantalla suelta a propósito: la barra superior,
+  /// la barra lateral (fija por encima de 1024 px, cajón por debajo) y la franja
+  /// de estado se llevan sitio de la pantalla y son parte de lo que desborda.
+  /// Medir la pantalla sola es medir un ancho que nadie ve.
+  Future<void> montar(WidgetTester tester, String inicial) async {
+    // DESMONTAR PASE LO QUE PASE, Y ESTO NO ES CEREMONIA — 26/09/2026.
+    //
+    // Cada prueba desmonta al final del cuerpo, pero **una comprobación que
+    // falla no llega al final**, y entonces la pantalla se queda montada con los
+    // `watch()` de Drift vivos y los `Stream` abiertos. Lo que pasa después es lo
+    // peor de todo: el trabajo pendiente de esa pantalla revienta ya FUERA del
+    // cuerpo, el error llega a la zona, y flutter_test contesta
+    //
+    //   '_pendingExceptionDetails != null': A test overrode FlutterError.onError
+    //   but either failed to return it to its original state…
+    //
+    // …que **tapa el fallo de verdad**. Aquí se vio mutando el `isExpanded` del
+    // Tablero: la prueba salía roja, sí, pero el «DESBORDE EN TABLERO A 390 px»
+    // no aparecía ni una vez, y quien lo encontrara en seis meses se pondría a
+    // buscar un problema de fontanería de las pruebas en vez del desplegable que
+    // se sale por la derecha. Y lo mismo, en otras pantallas, deja la prueba
+    // COLGADA en vez de fallar — que es la trampa del `CLAUDE.md` §5.
+    //
+    // La misma línea, por la misma razón, está en
+    // `test/pantallas/pedidos/pantalla_pedidos_test.dart`.
+    addTearDown(() => desmontar(tester));
+
+    final dio = Dio()..httpClientAdapter = servidor;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          baseProvider.overrideWithValue(base),
+          relojProvider.overrideWithValue(() => hoy),
+          // SIN ESPERAS Y CONTRA EL SERVIDOR FALSO. Con el cliente de verdad
+          // estas pantallas llamarían a `Entorno.apiUrl`, que es PRODUCCIÓN, y
+          // reintentarían 1 s, 4 s, 15 s y 60 s: la prueba se colgaría.
+          clienteApiProvider.overrideWithValue(
+            ClienteApi(dio: dio, esperas: const <Duration>[]),
+          ),
+          almacenSesionProvider.overrideWithValue(
+            AlmacenEnMemoria(
+              const Sesion(
+                token: 't',
+                refresh: 'r',
+                sub: 'logistico',
+                sucursalId: 'CAM',
+              ),
+            ),
+          ),
+          // El canal en vivo, en la mano y vacío: sin este override el proveedor
+          // abriría el de verdad contra producción.
+          avisosDelServidorProvider.overrideWithValue(
+            const Stream<String>.empty(),
+          ),
+        ],
+        child: RepartoApp(enrutador: crearEnrutador(inicial: inicial)),
+      ),
+    );
+    await _tipografiasPuestas(tester);
+    await asentar(tester);
+  }
+
+  // ---------------------------------------------------------------------------
+  // EL BARRIDO
+  // ---------------------------------------------------------------------------
+
+  for (final pantalla in pantallasDelBarrido) {
+    for (final ancho in anchosDelBarrido) {
+      final px = ancho.width.toInt();
+      testWidgets('${pantalla.nombre} a $px px: ni un desborde', (tester) async {
+        final desbordes = vigilar(tester, ancho);
+        await sembrarElDia();
+        await montar(tester, pantalla.ruta);
+
+        // 1 · QUE SE HAYA PINTADO. Lo que no pinta nada no desborda, y saldría
+        // verde convirtiendo esta prueba en adorno.
+        expect(
+          find.text(pantalla.sena),
+          findsWidgets,
+          reason:
+              '${pantalla.nombre} no se pintó a $px px: no está «'
+              '${pantalla.sena}». Sin eso, el «ni un desborde» de abajo no '
+              'demuestra nada, porque una pantalla vacía tampoco desborda. O '
+              'la pantalla se rompió, o al juego de datos de `sembrarElDia` le '
+              'falta lo que esta pantalla necesita.',
+        );
+
+        // 2 · Y EN CUP. Los importes se hacen tres veces más largos (320 CUP
+        // por USD) y es la moneda en la que trabaja media oficina. Hay que
+        // elegir una sucursal antes: la tasa es POR SUCURSAL y con «Todas»
+        // puestas no se convierte nada a propósito.
+        final contenedor = ProviderScope.containerOf(
+          tester.element(find.byType(RepartoApp)),
+        );
+        contenedor.read(sucursalMiradaProvider.notifier).mirar('B1');
+        await asentar(tester);
+        contenedor.read(monedaMiradaProvider.notifier).mirar('CUP');
+        await asentar(tester);
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => (t.data ?? '').contains('CUP')),
+          isTrue,
+          reason:
+              'no se llegó a pintar nada en CUP a $px px, así que el barrido '
+              'midió sólo los importes cortos en USD. La tasa es por sucursal: '
+              'si esto falla, mira que `sembrarElDia` deje `cup_rate` y '
+              '`cup_rate_traido_at` puestos y que la sucursal elegida siga '
+              'siendo «B1».',
+        );
+
+        // 3 · Y CON SUS CAJONES ABIERTOS, que es donde estaban los dos
+        // desbordes de verdad. Y con el teclado fuera si esto es un aparato de
+        // mano: un formulario se rellena escribiendo.
+        final conTeclado = ancho.width < Anchos.escritorio;
+        for (final tooltip in pantalla.cajones) {
+          await _abrirYCerrar(
+            tester,
+            asentar,
+            find.byTooltip(tooltip),
+            '$tooltip (por tooltip)',
+            pantalla.nombre,
+            px,
+            ancho,
+            conTeclado: conTeclado,
+          );
+        }
+        for (final texto in pantalla.cajonesPorTexto) {
+          await _abrirYCerrar(
+            tester,
+            asentar,
+            find.text(texto),
+            texto,
+            pantalla.nombre,
+            px,
+            ancho,
+            conTeclado: conTeclado,
+          );
+        }
+
+        // 3-bis · Y CON LAS PESTAÑAS ATRAVESADAS. Por debajo de 900 px no se
+        // pulsan: hay un carrusel y se avanza con la flecha.
+        for (final rotulo in pantalla.pestanas) {
+          await _siguientePestana(
+            tester,
+            asentar,
+            rotulo,
+            pantalla.nombre,
+            px,
+          );
+        }
+        if (pantalla.alFinalDeLasPestanas case final senal?) {
+          expect(
+            find.textContaining(senal),
+            findsWidgets,
+            reason:
+                'en ${pantalla.nombre} a $px px no se llegó a la última '
+                'pestaña: falta «$senal». Sin esto, el veredicto de «ni un '
+                'desborde» sería sólo sobre la primera pestaña — y las que '
+                'llevan tabla son las de detrás. Por debajo de 900 px se avanza '
+                'con `ClavesDePestanas.adelante`, no pulsando el rótulo: ahí '
+                '`PestanasQueCaben` pinta un carrusel.',
+          );
+        }
+
+        // 4 · EL VEREDICTO.
+        expect(
+          desbordes,
+          isEmpty,
+          reason:
+              'DESBORDE EN ${pantalla.nombre.toUpperCase()} A $px px. Es la '
+              'franja amarilla y negra: hay contenido que NO SE VE. En un '
+              'teléfono eso suele ser el final de un nombre, un importe o la '
+              'flecha de un desplegable, y nadie se entera de que falta.\n'
+              'Lo que se cazó, con el sitio:\n  ${desbordes.join('\n  ')}\n'
+              'Los dos que ya pasaron aquí eran `DropdownButton` sin '
+              '`isExpanded` (Vehículos y Tablero, 26/09/2026): si el sitio es '
+              'un desplegable, empieza por ahí.',
+        );
+
+        await desmontar(tester);
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // EL ASISTENTE DE RUTAS, que es el que más se retuerce
+  // ---------------------------------------------------------------------------
+  //
+  // No es una entrada del menú: es lo que abre «+ Nueva Ruta». Va aparte porque
+  // no basta con abrirlo — sus cuatro pasos son cuatro pantallas distintas, y la
+  // que aprieta es la última: la barra de nueve filtros y la lista de pedidos
+  // elegibles, todo dentro de un cajón que en un teléfono mide 390 px.
+  //
+  // Jose ya lo dijo una vez de esta misma pantalla (17/09/2026): «¿y el botón de
+  // empezar, confirmar la ruta planificada, dónde está? […] no me digas que está
+  // abajo del todo». Un fallo de colocación aquí no rompe ninguna consulta: la
+  // aplicación funciona y no se puede usar.
+  for (final ancho in anchosDelBarrido) {
+    final px = ancho.width.toInt();
+    testWidgets('el asistente de rutas a $px px: ni un desborde en sus cuatro '
+        'pasos', (tester) async {
+      final desbordes = vigilar(tester, ancho);
+      // La misma red que en `montar`: si una comprobación falla, el árbol se
+      // desmonta igual y el fallo de verdad llega entero. Ver el comentario de
+      // `montar`.
+      addTearDown(() => desmontar(tester));
+      await sembrarElDia();
+
+      // Se monta suelto y no por «+ Nueva Ruta» a propósito: el barrido de
+      // Rutas ya lo abre, y lo que falta medir es lo de DENTRO. Montarlo aquí
+      // deja recorrer los pasos sin depender de que la lista de rutas se pinte.
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            baseProvider.overrideWithValue(base),
+            relojProvider.overrideWithValue(() => hoy),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: delegacionesDeIdioma,
+            supportedLocales: idiomas,
+            home: const Scaffold(body: AsistenteNuevaRuta()),
+          ),
+        ),
+      );
+      await _tipografiasPuestas(tester);
+      await asentar(tester);
+
+      // Paso 1: la sucursal. Hay dos sembradas, así que toca elegir — con una
+      // sola el asistente abre ya en el 3 y estos pasos no se verían.
+      // «San Antonio de los Baños» y no «Camagüey»: es el nombre que le pone
+      // `sembrarElDia` a B1, y es largo a propósito —una sucursal de nombre
+      // corto no mide nada en un selector de 390 px—.
+      await _elegirEnSelector(
+        tester,
+        asentar,
+        'Elige la sucursal…',
+        'San Antonio de los Baños',
+      );
+      await _siguientePaso(tester, asentar, 1);
+
+      // Paso 2: el punto de partida. Con un solo almacén se resuelve solo.
+      expect(
+        find.byKey(AsistenteNuevaRuta.claveDelPaso(2)),
+        findsOneWidget,
+        reason: 'el asistente tenía que estar en el paso 2 (punto de partida)',
+      );
+      await _siguientePaso(tester, asentar, 2);
+
+      // Paso 3: el vehículo.
+      // Por su nombre largo: es el que tiene en `sembrarElDia`, y es largo a
+      // propósito porque es lo que aprieta el selector a 390 px.
+      await _elegirEnSelector(
+        tester,
+        asentar,
+        'Elige el vehículo…',
+        'Camión Sinotruk HOWO 6x4 de reparto',
+      );
+      await _siguientePaso(tester, asentar, 3);
+
+      // Paso 4: LA BARRA DE NUEVE FILTROS Y LA LISTA. Es el paso que aprieta.
+      expect(
+        find.byKey(AsistenteNuevaRuta.claveDelPaso(4)),
+        findsOneWidget,
+        reason:
+            'el asistente no llegó al paso 4 a $px px, así que lo que aprieta '
+            '—la barra de filtros y la lista de elegibles— no se ha medido. '
+            'Mira si el «Siguiente» del paso 3 sigue habilitándose al elegir '
+            'camión.',
+      );
+      expect(
+        find.textContaining('Pedidos disponibles'),
+        findsWidgets,
+        reason:
+            'el paso 4 está montado pero sin lista: sin pedidos dentro no hay '
+            'nada que pueda desbordar y este ancho saldría verde sin medir',
+      );
+
+      expect(
+        desbordes,
+        isEmpty,
+        reason:
+            'DESBORDE EN EL ASISTENTE DE RUTAS A $px px, recorriendo sus cuatro '
+            'pasos. Es la franja amarilla y negra: hay algo que no se ve. Aquí '
+            'lo que se pierde suele ser un filtro de la barra del paso 4 o el '
+            'peso del camión, y de ese peso sale lo que cabe en la ruta.\n'
+            'Lo que se cazó, con el sitio:\n  ${desbordes.join('\n  ')}',
+      );
+
+      await desmontar(tester);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // LA NOVENA DEL MENÚ: «Canal con PEDIDO»
+  // ---------------------------------------------------------------------------
+  //
+  // Es la más nueva (26/09/2026) y **sólo existe en la web**: su
+  // `registrarWebhook()` devuelve `null` cuando `Destino.trabajaSinConexion` es
+  // `true`, o sea en la APK y en el escritorio. Una prueba de la VM es
+  // escritorio, así que en el barrido de arriba —que monta el enrutador de
+  // verdad— esta pantalla NO se registra y no hay forma de llegar a ella.
+  //
+  // Por eso se monta suelta, y hay que saber lo que eso deja fuera: aquí se mide
+  // la pantalla, **no el armazón alrededor** (barra lateral, barra superior). Es
+  // menos de lo que se mide en las otras ocho, y se dice en vez de darlo por
+  // bueno. Su entrada de menú sólo la ven DESARROLLADOR y SUPER ADMIN, y el
+  // cerrojo de verdad es el 403 del servidor.
+  for (final ancho in anchosDelBarrido) {
+    final px = ancho.width.toInt();
+    testWidgets('Canal con PEDIDO a $px px: ni un desborde', (tester) async {
+      final desbordes = vigilar(tester, ancho);
+      addTearDown(() => desmontar(tester));
+
+      final dio = Dio()..httpClientAdapter = servidor;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            baseProvider.overrideWithValue(base),
+            relojProvider.overrideWithValue(() => hoy),
+            clienteApiProvider.overrideWithValue(
+              ClienteApi(dio: dio, esperas: const <Duration>[]),
+            ),
+            avisosDelServidorProvider.overrideWithValue(
+              const Stream<String>.empty(),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: PantallaWebhook()),
+          ),
+        ),
+      );
+      await _tipografiasPuestas(tester);
+      await asentar(tester);
+
+      expect(
+        find.textContaining('esperando'),
+        findsWidgets,
+        reason:
+            'el Canal con PEDIDO no se pintó a $px px. Si sale «Esta pantalla '
+            'es del desarrollador» es que el servidor falso contestó 403; si '
+            'sale la rueda, que no contestó nada. En los dos casos este ancho '
+            'no ha medido la pantalla.',
+      );
+
+      expect(
+        desbordes,
+        isEmpty,
+        reason:
+            'DESBORDE EN EL CANAL CON PEDIDO A $px px. Lo que se pierde aquí '
+            'son códigos HTTP y motivos literales de rechazo, que es lo único '
+            'que distingue «PEDIDO está caído» de «PEDIDO lo rechazó».\n'
+            'Lo que se cazó, con el sitio:\n  ${desbordes.join('\n  ')}',
+      );
+
+      await desmontar(tester);
+    });
+  }
+}
+
+/// LAS TIPOGRAFÍAS, ANTES DEL PRIMER FOTOGRAMA PINTADO.
+///
+/// La misma línea que ya está en `pantallas/movil/se_llega_al_final_test.dart` y
+/// en las de Informes, y por el mismo motivo: `google_fonts` saca los `.ttf`
+/// embebidos por `rootBundle`, que es asíncrono DE VERDAD, y dentro del reloj
+/// falso de un `testWidgets` esa carga no avanza nunca. Sin esto el primer
+/// fotograma se MIDE con la tipografía de respaldo y se PINTA con la buena, y
+/// Flutter lo caza con `'debugSize == size': is not true`.
+///
+/// Aquí importa el doble: ese fallo NO es un desborde, así que el cazador de
+/// este fichero no lo mira —sólo recoge lo que dice `overflowed`— y llegaría
+/// como un rojo suelto que no tiene nada que ver con el ancho. Salta al avanzar
+/// las pestañas de Reportes a 390 px, en el `FilledButton.icon` de «Exportar a
+/// Excel».
+Future<void> _tipografiasPuestas(WidgetTester tester) =>
+    tester.runAsync(() => Future<void>.delayed(Duration.zero));
+
+/// Elige [opcion] en el selector que ahora mismo dice [pista].
+Future<void> _elegirEnSelector(
+  WidgetTester tester,
+  Future<void> Function(WidgetTester) asentar,
+  String pista,
+  String opcion,
+) async {
+  expect(
+    find.text(pista),
+    findsWidgets,
+    reason: 'no hay ningún selector diciendo «$pista»',
+  );
+  await tester.tap(find.text(pista).last);
+  await asentar(tester);
+  // POR «CONTIENE» Y NO POR TEXTO EXACTO: las opciones del selector de
+  // vehículos se pintan con la placa detrás —«Camión 1 (P-001)»—, así que un
+  // `widgetWithText` con el nombre a secas no encuentra nada y la prueba falla
+  // por el sitio equivocado.
+  final item = find.ancestor(
+    of: find.textContaining(opcion),
+    matching: find.byType(MenuItemButton),
+  );
+  expect(
+    item,
+    findsWidgets,
+    reason: 'el selector se abrió pero «$opcion» no está entre sus opciones',
+  );
+  await tester.tap(item.last);
+  await asentar(tester);
+}
+
+/// Pulsa el «Siguiente» del paso [desde] y comprueba que se movió.
+Future<void> _siguientePaso(
+  WidgetTester tester,
+  Future<void> Function(WidgetTester) asentar,
+  int desde,
+) async {
+  final boton = find.widgetWithText(FilledButton, 'Siguiente');
+  expect(
+    boton,
+    findsWidgets,
+    reason: 'el paso $desde del asistente no tiene «Siguiente»',
+  );
+  await tester.tap(boton.last);
+  await asentar(tester);
+  expect(
+    find.byKey(AsistenteNuevaRuta.claveDelPaso(desde)),
+    findsNothing,
+    reason:
+        'se pulsó «Siguiente» en el paso $desde y el asistente se quedó ahí. O '
+        'falta algo por elegir, o el botón está apagado — y en un teléfono, con '
+        'el pie pegado abajo, un botón que no hace nada se pulsa tres veces '
+        'antes de que alguien sospeche',
+  );
+}
+
+/// Avanza UNA pestaña, por donde se pueda avanzar a este ancho.
+///
+/// Son dos caminos distintos y el ancho decide cuál: por encima de 900 px la
+/// fila de pestañas cabe y el rótulo se pulsa; por debajo, `PestanasQueCaben`
+/// pinta un carrusel con el rótulo de la que se ve y dos flechas, y el rótulo
+/// **no es un botón**. Escribir sólo el primer camino es lo que dejaba a
+/// Reportes medido en una de sus tres pestañas a 390 y a 700 px.
+Future<void> _siguientePestana(
+  WidgetTester tester,
+  Future<void> Function(WidgetTester) asentar,
+  String rotulo,
+  String pantalla,
+  int px,
+) async {
+  final flecha = find.byKey(ClavesDePestanas.adelante);
+  if (flecha.evaluate().isNotEmpty) {
+    await tester.tap(flecha.last);
+    await asentar(tester);
+    return;
+  }
+  final etiqueta = find.text(rotulo);
+  expect(
+    etiqueta,
+    findsWidgets,
+    reason:
+        'en $pantalla a $px px no hay ni flecha de carrusel '
+        '(`ClavesDePestanas.adelante`) ni rótulo «$rotulo» que pulsar: no hay '
+        'forma de llegar a esa pestaña, así que no se ha medido',
+  );
+  await tester.tap(etiqueta.last);
+  await asentar(tester);
+}
+
+/// Abre un cajón, comprueba **la ✕** y lo cierra.
+///
+/// La ✕ se comprueba aquí y no en una prueba aparte porque es la regla de la
+/// casa para TODOS los proyectos de Procovar: en móvil los formularios van en
+/// cajón, y **la ✕ de cerrar nunca puede desaparecer**. En un teléfono con el
+/// teclado fuera es la única salida garantizada; sin ella, alguien se queda
+/// encerrado en el formulario.
+///
+/// [finder] tiene que encontrar algo: un cajón que dejó de abrirse convertiría
+/// esta comprobación en un `continue` silencioso, y entonces el barrido diría
+/// «ni un desborde» sin haber abierto nada.
+Future<void> _abrirYCerrar(
+  WidgetTester tester,
+  Future<void> Function(WidgetTester) asentar,
+  Finder finder,
+  String comoSeLlama,
+  String pantalla,
+  int px,
+  Size ancho, {
+  bool conTeclado = false,
+}) async {
+  expect(
+    finder,
+    findsWidgets,
+    reason:
+        'en $pantalla a $px px no hay con qué abrir «$comoSeLlama». O se '
+        'movió el botón, o la pantalla no llegó a pintarse: en cualquiera de '
+        'los dos casos el barrido de este ancho NO ha medido ese cajón, y '
+        'saldría verde sin haberlo mirado.',
+  );
+  await tester.tap(finder.first, warnIfMissed: false);
+  await asentar(tester);
+
+  expect(
+    find.byTooltip('Cerrar'),
+    findsWidgets,
+    reason:
+        'EL CAJÓN «$comoSeLlama» DE $pantalla A $px px NO TIENE ✕. Es la regla '
+        'de la casa: en móvil el formulario va en cajón y la ✕ de cerrar no '
+        'puede desaparecer nunca. Con el teclado fuera tapando media pantalla, '
+        'esa ✕ es la única salida que queda. Los dos cajones de la casa la '
+        'traen puesta en su cabecera (`diseno/cajon.dart` y '
+        '`pantallas/pedidos/vista/kit.dart`): si aquí no sale, este panel se '
+        'está montando por su cuenta y hay que devolverlo al cajón.',
+  );
+
+  // EL TECLADO FUERA, que es como se rellena un formulario en un teléfono.
+  //
+  // 336 px sobre 844 es lo que ocupa el de Android: el cajón pasa a medir 508.
+  // El cajón se abre con `showGeneralDialog`, o sea que vive en el `Overlay` y
+  // **nadie le quita el alto del teclado** — lo hace a mano
+  // `diseno/cajon.dart:125` con `MediaQuery.viewInsetsOf`. Esa cuenta se mide
+  // aquí, no se supone.
+  //
+  // Con el teclado fuera el sistema deja de reportar la barra de gestos en
+  // `padding` y la pone en `viewInsets`; se imita igual para que la prueba mida
+  // lo que mide el aparato.
+  if (conTeclado) {
+    const alturaDelTeclado = 336.0;
+    final bordeDelTeclado = ancho.height - alturaDelTeclado;
+    tester.view.padding = const FakeViewPadding();
+    tester.view.viewInsets = const FakeViewPadding(bottom: alturaDelTeclado);
+    await asentar(tester);
+
+    final equis = tester.getRect(find.byTooltip('Cerrar').last);
+    expect(
+      equis.bottom,
+      lessThanOrEqualTo(bordeDelTeclado),
+      reason:
+          'LA ✕ DEL CAJÓN «$comoSeLlama» DE $pantalla SE QUEDA DEBAJO DEL '
+          'TECLADO a $px px. Está en y=${equis.bottom.toStringAsFixed(0)} y el '
+          'teclado tapa desde y=$bordeDelTeclado. Ahí no hay salida: el cuerpo '
+          'tampoco ha encogido, así que no se arregla desplazando. Quien tiene '
+          'que apartar el panel es el propio cajón con '
+          '`MediaQuery.viewInsetsOf(context).bottom`, porque vive en el '
+          '`Overlay` y el `Scaffold` no le quita nada.',
+    );
+
+    // Y se devuelve el teclado a su sitio: lo que viene después mide la
+    // pantalla sin él.
+    tester.view.viewInsets = const FakeViewPadding();
+    await asentar(tester);
+  }
+
+  // Se cierran todos los que hubiera: alguno abre otro encima.
+  var vueltas = 0;
+  while (find.byTooltip('Cerrar').evaluate().isNotEmpty && vueltas < 4) {
+    vueltas++;
+    await tester.tap(find.byTooltip('Cerrar').last);
+    await asentar(tester);
+  }
+}
+
+/// El servidor falso: contesta lo que contesta el de verdad para las dos
+/// pantallas que piden a la red en cada visita (Vehículos y Almacenes).
+///
+/// Los nombres son los REALES de Ventra, los que Jose dio de alta en Accesos el
+/// 26/09/2026. No es decoración: seis de los catorce almacenes están sin
+/// coordenadas a propósito —las ponen los logísticos de cada sucursal—, así que
+/// «existe pero le falta la ubicación» es el estado normal de estos días y es lo
+/// que la pantalla tiene que saber pintar.
+Future<RespuestaFalsa?> _responder(PeticionVista peticion) async {
+  if (peticion.ruta.endsWith('/settings')) {
+    return RespuestaFalsa(200, const <String, Object?>{
+      'tiposVehiculo': <Object?>[
+        {
+          'id': 'tv1',
+          // Largo a propósito: es el que desbordaba el desplegable `Tipo` a 390
+          // px, y con «truck» no se ve nada.
+          'nombre': 'Camión rígido de reparto urbano',
+          'costoPorKm': 1.25,
+        },
+      ],
+      'cupRate': 320,
+    });
+  }
+  if (peticion.ruta.endsWith('/vehicles')) {
+    return RespuestaFalsa(200, <Object?>[
+      for (var i = 0; i < 4; i++)
+        {
+          'id': 'v$i',
+          'name': 'Camión Sinotruk HOWO de reparto $i',
+          'type': 'truck',
+          'plate': 'CAM-000$i',
+          'capacity': 12500,
+          'status': 'available',
+          'branchId': 'B1',
+        },
+    ]);
+  }
+  if (peticion.ruta.contains('almacen')) {
+    return RespuestaFalsa(200, const <String, Object?>{
+      'sucursales': [
+        {
+          'codigo': 'CAM',
+          'nombre': 'Camagüey',
+          'almacenes': [
+            {
+              'id': 'W1',
+              'nombre': 'PV CAMAGUEY',
+              'principal': true,
+              'activo': true,
+              'latitud': 21.38,
+              'longitud': -77.91,
+            },
+            {
+              'id': 'W1b',
+              'nombre': 'ALM CAMAGUEY',
+              'principal': false,
+              'activo': true,
+            },
+            {
+              'id': 'W1c',
+              'nombre': 'FLORIDA',
+              'principal': false,
+              'activo': true,
+            },
+          ],
+        },
+        {
+          'codigo': 'HAB',
+          'nombre': 'La Habana',
+          'almacenes': [
+            {
+              'id': 'W2',
+              'nombre': 'HABANA HACENDADO',
+              'principal': true,
+              'activo': true,
+              'latitud': 23.05,
+              'longitud': -82.35,
+            },
+            {
+              'id': 'W2b',
+              'nombre': 'PUNTO J',
+              'principal': false,
+              'activo': true,
+            },
+          ],
+        },
+      ],
+    });
+  }
+  if (peticion.ruta.contains('/admin/webhook')) {
+    // Los motivos van LARGOS y literales porque es lo que de verdad manda
+    // PEDIDO, y es justo lo que no puede perderse por la derecha: «el canal
+    // está caído» y «el canal lo rechazó» se arreglan en sitios distintos.
+    return RespuestaFalsa(200, const <String, Object?>{
+      'resumen': {
+        'ultimaEntrada': '2026-09-14T16:02:00.000Z',
+        'ultimaSalida': '2026-09-14T15:58:00.000Z',
+        'escritosHoy': 1284,
+        'rechazadosAlEntrar': 7,
+        'avisosPendientes': 23,
+        'avisosRechazados': 4,
+        'pendienteMasViejo': '2026-09-14T14:40:00.000Z',
+      },
+      'enviados': [
+        {
+          'mandados': 84,
+          'aceptados': 0,
+          'rechazados': 84,
+          'http': 403,
+          'motivo': 'forbidden: el aparato no está dado de alta en PEDIDO '
+              'para la sucursal San Antonio de los Baños',
+          'duracionMs': 1843,
+          'createdAt': '2026-09-14T15:58:00.000Z',
+        },
+      ],
+      'recibidos': [
+        {
+          'origen': 'pedido',
+          'traidos': 2284,
+          'escritos': 2277,
+          'rechazados': 7,
+          'motivos': 'sin sucursal (4), folio repetido sin sufijo (3)',
+          'duracionMs': 9120,
+          'createdAt': '2026-09-14T16:02:00.000Z',
+        },
+      ],
+      'sinMandar': [
+        {
+          'pedidoId': 'o1',
+          'folio': 'SC06-1257-4812-B',
+          'estado': 'entregado',
+          'situacion': 'esperando',
+          'intentos': 3,
+          'motivo': 'connection refused hacia pedido.procovar.cloud:443',
+          'createdAt': '2026-09-14T14:40:00.000Z',
+        },
+      ],
+    });
+  }
+  // Lo demás, como si no hubiera red: lo que se mide aquí es la forma de la
+  // pantalla, no el ciclo de sincronización.
+  return null;
+}

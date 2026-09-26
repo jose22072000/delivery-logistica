@@ -325,11 +325,32 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
   /// justamente ese caso—, y en blanco parece que el vehiculo no tiene tipo
   /// cuando si lo tiene. Guardar desde ahi no lo borraba, pero nadie podia
   /// saberlo mirando.
+  ///
+  /// ## `isExpanded` Y LA ELIPSIS NO SON ADORNO — 26/09/2026
+  ///
+  /// En el barrido de los cuatro anchos, a **390 px** este desplegable
+  /// desbordaba: `A RenderFlex overflowed by 39 pixels on the right.` Sale con
+  /// la franja amarilla y negra encima del formulario, y lo que se pierde por
+  /// la derecha es **el final del nombre del tipo y su costo por km** — el
+  /// numero del que sale lo que se le cobra al cliente por el domicilio.
+  ///
+  /// La causa es de `DropdownButton` y no nuestra: sin `isExpanded` su fila
+  /// interna se monta con `mainAxisSize: min` y **no envuelve el hijo en un
+  /// `Expanded`**, asi que el texto pide su ancho natural y la flecha se sale.
+  /// Con un tipo de catalogo corto («truck») no se nota; con uno de verdad
+  /// —«Camion rigido de reparto urbano · $1.25/km»— se ve siempre. Y no basta
+  /// `isExpanded`: con el hijo ya acotado, un texto largo se partiria en varias
+  /// lineas dentro de una caja de alto fijo, asi que cada opcion lleva su
+  /// `maxLines: 1` con elipsis. Cortar con «…» es correcto aqui porque el
+  /// nombre entero se lee al desplegar la lista, donde hay el ancho del panel
+  /// para el.
   Widget _desplegableDeTipo() {
     final enElCatalogo = widget.tipos.any((t) => t.nombre == _tipo);
     final heredado = !enElCatalogo && _tipo.trim().isNotEmpty;
 
     return DropdownButtonFormField<String>(
+      // Ver el comentario de arriba: sin esto desborda a 390 px.
+      isExpanded: true,
       initialValue: _creandoTipo
           ? _crearTipo
           : (enElCatalogo || heredado ? _tipo : null),
@@ -340,7 +361,11 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
       items: [
         // El heredado va primero y con su nombre a secas: no tiene costo en el
         // catalogo porque no esta en el catalogo.
-        if (heredado) DropdownMenuItem(value: _tipo, child: Text(_tipo)),
+        if (heredado)
+          DropdownMenuItem(
+            value: _tipo,
+            child: Text(_tipo, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
         for (final t in widget.tipos)
           DropdownMenuItem(
             value: t.nombre,
@@ -348,16 +373,26 @@ class _FichaVehiculoState extends State<FichaVehiculo> {
               t.costoKmUsd == null
                   ? t.nombre
                   : '${t.nombre} · \$${t.costoKmUsd}/km',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         if (widget.tipos.isEmpty && !heredado)
           const DropdownMenuItem(
             enabled: false,
-            child: Text('Sin tipos configurados'),
+            child: Text(
+              'Sin tipos configurados',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         const DropdownMenuItem(
           value: _crearTipo,
-          child: Text('+ Crear tipo nuevo…'),
+          child: Text(
+            '+ Crear tipo nuevo…',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
       ],
       onChanged: (valor) {

@@ -262,17 +262,100 @@ func almacenesDeCotizacion(ctx context.Context, r *http.Request, codigo string) 
 	// siga sin saber nada de HTTP ni de Accesos.
 	salida := make([]cotizar.Almacen, 0, len(crudos))
 	for _, a := range crudos {
-		id := ""
-		if a.ID != nil {
-			id = *a.ID
-		}
-		salida = append(salida, cotizar.Almacen{
-			ID: id, Nombre: a.Nombre, Direccion: a.Direccion,
-			Latitud: a.Latitud, Longitud: a.Longitud,
-			Principal: a.Principal, Activo: a.Activo,
-		})
+		salida = append(salida, deAlmacenDeAccesos(a))
 	}
 	return salida
+}
+
+// recuerdoDeAlmacenesDelLote devuelve una función que trae los almacenes de una sucursal y se
+// acuerda de lo que ya preguntó DENTRO DE ESTA TANDA.
+//
+// Un lote son 200 pedidos de hasta ocho sucursales: sin esto, doscientas vueltas para ocho
+// respuestas. Y la lista vacía SE RECUERDA IGUAL —el valor cero de `[]cotizar.Almacen` no
+// distingue «no pregunté» de «no hay»—, por eso el recuerdo lleva su propio mapa de
+// preguntados: si Accesos está caído, se le pregunta UNA vez por sucursal y no doscientas.
+func recuerdoDeAlmacenesDelLote(r *http.Request) func(string) []cotizar.Almacen {
+	visto := map[string][]cotizar.Almacen{}
+	preguntados := map[string]bool{}
+	return func(codigo string) []cotizar.Almacen {
+		clave := strings.ToUpper(strings.TrimSpace(codigo))
+		if preguntados[clave] {
+			return visto[clave]
+		}
+		preguntados[clave] = true
+		visto[clave] = almacenesDeCotizacion(r.Context(), r, codigo)
+		return visto[clave]
+	}
+}
+
+// codigoDelAlmacenDelLote: el código que trae el pedido, o «» cuando no trae almacén.
+//
+// NO SE CAE AL NOMBRE cuando el código viene vacío, y no es un olvido. `PV-STGO` está en
+// Santiago Y en Palma Soriano, y `Tiendas Parranda` en cinco sucursales: emparejar por nombre
+// no falla nunca, sólo mide desde el almacén de otro sitio. Sin código se mide desde el
+// principal y se dice, que es peor dato y mejor información.
+func codigoDelAlmacenDelLote(a *almacenDelPedidoDelLote) string {
+	if a == nil {
+		return ""
+	}
+	return a.Codigo
+}
+
+// avisarDeLosOrigenesQueNoEran deja UNA línea por tanda con lo que no se midió desde su
+// almacén, y sólo si hubo algo. Ver la llamada en `cotizarLote`.
+func avisarDeLosOrigenesQueNoEran(r *http.Request, porMotivo map[cotizar.MotivoDelOrigen]int) {
+	// Se recorre una lista FIJA y no el mapa: el orden de un mapa de Go cambia en cada
+	// ejecución, y un aviso que sale con los campos bailando no se puede comparar con el de
+	// ayer ni buscar en el registro.
+	orden := []cotizar.MotivoDelOrigen{
+		cotizar.MotivoPedidoSinAlmacen,
+		cotizar.MotivoAlmacenNoDadoDeAlta,
+		cotizar.MotivoAlmacenSinCoordenadas,
+		cotizar.MotivoAccesosSinCodigos,
+		cotizar.MotivoSucursalSinAlmacen,
+	}
+	campos := make([]any, 0, 2*len(orden))
+	for _, m := range orden {
+		if n := porMotivo[m]; n > 0 {
+			campos = append(campos, string(m), n)
+		}
+	}
+	if len(campos) == 0 {
+		return
+	}
+	campos = append(campos, "desde_su_almacen", porMotivo[cotizar.MotivoAlmacenDelPedido])
+	httpx.Registro(r).Warn("pedidos medidos desde un almacén que no es el suyo: "+
+		"mientras esto no sea cero, su kilometraje sale del principal de la sucursal", campos...)
+}
+
+// deAlmacenDeAccesos traduce UNA vez lo que da Accesos a lo que entiende la fórmula.
+//
+// ESTABA ESCRITO DOS VECES —aquí y en `almacenesConPunto` del tablero— y el 26/09/2026 eso
+// costó descubrirlo al añadir el `codigo`: una de las dos copias se habría quedado sin
+// arrastrarlo y entonces el tablero mediría desde el almacén del pedido y la cotización desde
+// el principal, o al revés. Es el mismo modo de fallo del 24/09 (`internal/cotizar/almacen.go`):
+// dos copias de una regla se separan, y ésta decide desde dónde se mide lo que se cobra.
+func deAlmacenDeAccesos(a Almacen) cotizar.Almacen {
+	return cotizar.Almacen{
+		ID:        oVacio(a.ID),
+		Codigo:    oVacio(a.Codigo),
+		Nombre:    a.Nombre,
+		Direccion: a.Direccion,
+		Latitud:   a.Latitud,
+		Longitud:  a.Longitud,
+		Principal: a.Principal,
+		Activo:    a.Activo,
+	}
+}
+
+// oVacio: un puntero nulo es la cadena vacía. Vale para `id` y para `codigo`, que Accesos da
+// por opcionales los dos. No se llama `textoDe` porque ése ya existe en `pedidos.go` y hace lo
+// contrario (texto a puntero).
+func oVacio(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +443,18 @@ type cuerpoDomicilio struct {
 	Lat            cotizar.Numero `json:"lat"`
 	Lng            cotizar.Numero `json:"lng"`
 	PesoKg         cotizar.Numero `json:"pesoKg"`
+
+	// DE QUÉ ALMACÉN SALE LA MERCANCÍA — 26/09/2026. Es OPCIONAL y ausente se comporta igual
+	// que siempre (el principal de la sucursal), así que quien no lo mande no se rompe.
+	//
+	// SIN ESTE CAMPO, ESTA RUTA NO PODÍA ACERTAR. Es la ÚNICA cuenta de dinero que hace esta
+	// API —la APK de Entrega cobra el número que devuelve y lo guarda en PEDIDO— y sólo
+	// recibía `sucursalCodigo`, así que medía desde el principal: en Santiago cobraba desde
+	// PV-STGO las 2.185 líneas que salen de AURORA. El lote ya mide desde el almacén del
+	// pedido; dejar esta ruta como estaba habría puesto en la MISMA tarjeta un kilometraje
+	// bueno y un importe malo, sin nada que dijera cuál creer. Eso es peor que los dos mal:
+	// dos números que no se pueden conciliar y ninguna pantalla desmintiendo a ninguno.
+	AlmacenCodigo string `json:"almacenCodigo"`
 }
 
 type domicilioSalida struct {
@@ -371,6 +466,15 @@ type domicilioSalida struct {
 	Desde       string  `json:"desde"`
 	Almacen     *string `json:"almacen"`
 	Sucursal    string  `json:"sucursal"`
+
+	// AlmacenCodigo y AlmacenMotivo: desde qué almacén se midió y por qué ése.
+	//
+	// `almacen` (el nombre) ya estaba, y NO basta: dos almacenes se pueden llamar igual
+	// —`PV-STGO` está en Santiago y en Palma Soriano— y, sobre todo, el nombre no dice si
+	// se midió desde el que se pidió o desde el principal porque el que se pidió no se pudo
+	// usar. Un importe que no se puede explicar es un importe que nadie puede discutir.
+	AlmacenCodigo *string `json:"almacenCodigo"`
+	AlmacenMotivo string  `json:"almacenMotivo"`
 }
 
 // cotizarDomicilio es la única ruta que calcula un importe, y lo calcula con la fórmula de
@@ -427,10 +531,32 @@ func (s *Servidor) cotizarDomicilio(w http.ResponseWriter, r *http.Request) {
 
 	// 5. El almacén de origen. ES DESDE DONDE SALE LA MERCANCÍA, que es lo que mide la
 	// APK; las coordenadas de la SUCURSAL no valen para esto.
-	almacen := cotizar.ElegirAlmacen(almacenesDeCotizacion(r.Context(), r, codigo))
+	//
+	// Y DESDE EL 26/09/2026 ES EL DEL PEDIDO cuando el que llama lo dice, no el principal de
+	// la sucursal. Ver `cuerpoDomicilio.AlmacenCodigo`: mientras hubo un almacén por sucursal
+	// las dos cosas eran la misma frase, y dejaron de serlo. Sin `almacenCodigo` se comporta
+	// igual que siempre y lo dice en `almacenMotivo`, así que un cliente viejo no cambia de
+	// respuesta por este despliegue — pero tampoco acierta, y eso queda escrito en el número
+	// que devuelve y no sólo en un informe.
+	origen := cotizar.ElegirOrigenDelPedido(
+		almacenesDeCotizacion(r.Context(), r, codigo), c.AlmacenCodigo)
+	almacen := origen.Almacen
 	if almacen == nil {
+		// AQUÍ SÍ SE CONTESTA 409, al revés que en el lote, y la diferencia es la de siempre:
+		// esto es una cuenta de dinero y el lote es una puerta. Un importe aproximado se cobra
+		// igual que uno bueno; un pedido rechazado en la puerta se pierde.
 		httpx.Error(w, r, http.StatusConflict, fmt.Sprintf(msgSinAlmacenF, suc.Name))
 		return
+	}
+	// UN ALMACÉN PEDIDO Y NO ENCONTRADO NO ES UN 409, y merece decirse en el registro: el
+	// importe sale del principal y quien llama se lo va a cobrar a alguien. El 409 es para
+	// «no hay desde dónde medir», no para «no medí desde donde pediste»: eso último sí tiene
+	// un número que dar, sólo que peor, y taparlo con un error dejaría sin cotizar los
+	// pedidos de un almacén nuevo el día que alguien lo dé de alta en Ventra y no en Accesos.
+	if !origen.DelPedido() && strings.TrimSpace(c.AlmacenCodigo) != "" {
+		httpx.Registro(r).Warn("se cobra un domicilio desde un almacén que no es el pedido",
+			"sucursal", codigo, "pedido", c.AlmacenCodigo,
+			"medido_desde", almacen.Nombre, "motivo", string(origen.Motivo))
 	}
 
 	// 6 y 7. Tasa y tarifa, las dos de ESTA sucursal. Nunca las de otra: convertir un
@@ -459,18 +585,45 @@ func (s *Servidor) cotizarDomicilio(w http.ResponseWriter, r *http.Request) {
 		n := almacen.Nombre
 		nombreAlmacen = &n
 	}
+	var codigoAlmacen *string
+	if almacen.Codigo != "" {
+		c := almacen.Codigo
+		codigoAlmacen = &c
+	}
 	httpx.JSON(w, r, http.StatusOK, domicilioSalida{
 		DistanciaKm: costo.DistanciaKm,
 		PesoKg:      costo.PesoKg,
 		USD:         costo.USD,
 		CUP:         costo.CUP,
 		TarifaUsd:   costo.TarifaUsd,
-		// `desde` dice con qué se midió. Si mañana se midiera desde otro punto, los
-		// importes viejos siguen explicándose solos.
-		Desde:    "almacen:" + codigo,
-		Almacen:  nombreAlmacen,
-		Sucursal: suc.Name,
+		// `desde` dice con qué se midió, y AHORA LLEVA EL ALMACÉN — 26/09/2026.
+		//
+		// Decía `almacen:<SUCURSAL>` y su propio comentario prometía que «si mañana se
+		// midiera desde otro punto, los importes viejos siguen explicándose solos». Mañana
+		// llegó: con varios almacenes por sucursal, `almacen:STG` es la misma cadena para un
+		// importe medido desde PV-STGO y para otro medido desde AURORA, así que los dos
+		// quedan indistinguibles en el histórico de PEDIDO — que es donde viven los importes
+		// cobrados. El campo cuyo único trabajo es explicar de dónde salió el número fallaba
+		// exactamente el día en que hacía falta.
+		//
+		// La forma es `almacen:<SUCURSAL>:<CÓDIGO>`, y sin código se queda en
+		// `almacen:<SUCURSAL>` como siempre: así lo viejo sigue leyéndose igual y lo nuevo
+		// dice más. Se añade por detrás y no por delante para que quien parta por `:` y coja
+		// los dos primeros trozos siga funcionando.
+		Desde:         desdeDelDomicilio(codigo, almacen.Codigo),
+		Almacen:       nombreAlmacen,
+		AlmacenCodigo: codigoAlmacen,
+		AlmacenMotivo: string(origen.Motivo),
+		Sucursal:      suc.Name,
 	})
+}
+
+// desdeDelDomicilio arma el `desde`. Ver el comentario del campo en `cotizarDomicilio`.
+func desdeDelDomicilio(sucursal, almacen string) string {
+	if strings.TrimSpace(almacen) == "" {
+		return "almacen:" + sucursal
+	}
+	return "almacen:" + sucursal + ":" + almacen
 }
 
 // leerCuerpoDomicilio decodifica con la tolerancia de la ruta de Next: **si el cuerpo no
@@ -683,11 +836,31 @@ type pedidoDelLote struct {
 	// Son dos preguntas distintas. Ver `00009_de_donde_son_los_renglones.sql`.
 	ItemsOrigen *string `json:"itemsOrigen"`
 
+	// DE QUÉ ALMACÉN SALE EL PEDIDO. Es lo que decide DESDE DÓNDE se mide la distancia, y de
+	// esa distancia sale el costo del domicilio. Ver `almacenDelPedidoDelLote`.
+	Almacen *almacenDelPedidoDelLote `json:"almacen"`
+
 	// `meta` LLEGA Y NO SE GUARDA, a propósito. El esquema nuevo no tiene columnas JSON
 	// (decisión 0 de la migración): lo que hace falta de PEDIDO se extrae a su columna, y
 	// guardar además el documento entero «por si acaso» es tener el mismo dato en dos
 	// sitios y no saber cuál manda. Se lee aquí sólo para no romper a quien lo manda.
 	Meta json.RawMessage `json:"meta"`
+}
+
+// almacenDelPedidoDelLote es el almacén que trae el pedido, con la forma acordada con la
+// sesión de PEDIDO el 26/09/2026:
+//
+//	"almacen": { "codigo": "2", "nombre": "AURORA", "sucursalCodigo": "STG", "mezclado": false }
+//
+// `Mezclado` es PUNTERO y `Codigo`/`Nombre` no: un `almacen` que llega sin `mezclado` no
+// afirma que el pedido salga de un solo almacén —eso es un dato que nadie comprobó— y la
+// columna se queda NULL. Los textos vacíos no hace falta distinguirlos del ausente: vacío y
+// ausente significan lo mismo, «no se sabe de qué almacén sale».
+type almacenDelPedidoDelLote struct {
+	Codigo         string `json:"codigo"`
+	Nombre         string `json:"nombre"`
+	SucursalCodigo string `json:"sucursalCodigo"`
+	Mezclado       *bool  `json:"mezclado"`
 }
 
 type sucursalDelLote struct {
@@ -704,6 +877,17 @@ type baseDelLote struct {
 	Branch     sucursalDelLote `json:"branch"`
 	OrderID    *string         `json:"orderId,omitempty"`
 	Persisted  *bool           `json:"persisted,omitempty"`
+
+	// DESDE DÓNDE SE MIDIÓ ESE `distanceKm`, y por qué. Va en la respuesta y no sólo en la
+	// columna porque quien lo tiene que arreglar está al otro lado: PEDIDO ve el resultado de
+	// cada pedido que manda, y el webhook lo repite en su motivo. Un kilometraje medido desde
+	// el principal porque el almacén no estaba dado de alta es, sin esto, indistinguible de
+	// uno bueno — mismos decimales, misma tarjeta, y nadie sospechando.
+	//
+	// `AlmacenDesde` es el NOMBRE del almacén desde el que se midió, o nil cuando no se midió
+	// desde ninguno (entonces salió del punto de la sucursal y el motivo lo dice).
+	AlmacenDesde  *string `json:"almacenDesde,omitempty"`
+	AlmacenMotivo string  `json:"almacenMotivo,omitempty"`
 }
 
 // loteCotizado es el resultado de un pedido que SÍ lleva domicilio. `price` se emite
@@ -808,6 +992,27 @@ func (s *Servidor) cotizarLote(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// --- LOS ALMACENES, UNA VEZ POR SUCURSAL Y NO UNA POR PEDIDO -------------
+	//
+	// De aquí sale DESDE DÓNDE se mide cada pedido, que es el arreglo del 26/09/2026. Se
+	// recuerda por código dentro de la tanda: un lote son 200 pedidos de ocho sucursales, y
+	// preguntar por cada uno sería doscientas vueltas para ocho respuestas. El cliente de
+	// Accesos además ya recuerda la lista cinco minutos (`ALMACENES_CACHE_MS`), así que esto
+	// es la segunda red, no la única.
+	//
+	// ACCESOS CAÍDO NO CORTA EL LOTE. `almacenesDeCotizacion` devuelve la lista vacía y lo
+	// avisa en el registro; el pedido se mide entonces desde el punto de la sucursal y lo dice
+	// en su motivo. Aquí no se puede hacer lo que hace `/api/quote/home-delivery` —contestar
+	// 409 antes que dar un número aproximado— porque esto no es un cotizador: es LA PUERTA de
+	// los pedidos, y un pedido rechazado en la puerta es un pedido perdido.
+	almacenesDeLaSucursal := recuerdoDeAlmacenesDelLote(r)
+
+	// LO QUE NO SE MIDIÓ DESDE SU ALMACÉN, contado por motivo para decirlo UNA vez al final.
+	// Una línea de registro por pedido son doscientas por tanda y cada minuto: un registro que
+	// no se puede leer es un registro que nadie lee, y entonces el día que aparezca un almacén
+	// nuevo tampoco se va a leer.
+	porMotivo := map[cotizar.MotivoDelOrigen]int{}
+
 	salida := loteSalida{
 		// `quoted` es SIEMPRE 0: la variable se declara y nunca se incrementa. Está
 		// inventariado en el contrato, así que se conserva la rareza en vez de
@@ -860,11 +1065,61 @@ func (s *Servidor) cotizarLote(w http.ResponseWriter, r *http.Request) {
 			// pedido. Un cero de verdad no existe: diría que en el camión cabe todo.
 			peso = p.Weight.O(0)
 		}
-		km := cotizar.DistanciaHaversineKm(suc.Lat, suc.Lng, *p.Lat, *p.Lng)
+
+		// 5-bis. DESDE DÓNDE SE MIDE — y es el arreglo del 26/09/2026.
+		//
+		// # QUÉ HABÍA AQUÍ Y POR QUÉ ESTABA MAL, dos fallos encajados
+		//
+		// Ponía `cotizar.DistanciaHaversineKm(suc.Lat, suc.Lng, ...)`: desde el punto de la
+		// SUCURSAL. O sea que `delivery_distance_km` —la columna de los ~5.500 pedidos, la que
+		// sale en la tarjeta y por la que filtra «Hasta N km»— no salía de ningún almacén,
+		// mientras `/api/quote/home-delivery`, el tablero y la lista de Clientes sí medían
+		// desde el almacén (`ElegirAlmacen`). CUATRO consumidores y dos orígenes: es el mismo
+		// fallo del 24/09 que cuenta `internal/cotizar/almacen.go` —«el mismo botón, dos
+		// orígenes y dos kilometrajes»— una capa más abajo, y el punto de la sucursal *no es
+		// el sitio del que sale la carga* (§10 de `reglas-negocio.md`).
+		//
+		// Y encima de eso, el fallo caro: los otros tres medían desde el PRINCIPAL de la
+		// sucursal, que mientras hubo un almacén por sucursal era el único. Ya no. Contado por
+		// la sesión de PEDIDO el 26/09/2026:
+		//
+		//	SANTIAGO    2.185 líneas desde AURORA · 804 desde PV-STGO · 11 desde PTO MONEDERO
+		//	CAMAGÜEY    2.778 desde PV CAMAGÜEY   · 183 desde FLORIDA · 39 desde ALM CAMAGÜEY
+		//	GUANTÁNAMO  2.060 desde PV GTMO       · 940 desde ALM CENTRAL
+		//
+		// En Santiago **dos de cada tres pedidos salen de AURORA** y se medían desde PV-STGO.
+		//
+		// # LO QUE ESTO CAMBIA Y HAY QUE SABER ANTES DE DESPLEGAR
+		//
+		// `delivery_distance_km` no es sólo un número que se enseña: `GET /api/orders` descarta
+		// los que pasan de `kmMax` (`pedidos.go`). Al mover el origen, un pedido que hoy sale
+		// en la lista puede dejar de salir, y al revés. No es «el número mejoró»: es una lista
+		// que cambia de contenido tras el despliegue. Lo fija
+		// `TestElFiltroDeKmSeMueveConElOrigen`.
+		origen := cotizar.ElegirOrigenDelPedido(
+			almacenesDeLaSucursal(p.SucursalExternalID), codigoDelAlmacenDelLote(p.Almacen))
+		porMotivo[origen.Motivo]++
+
+		var km float64
+		if origen.Almacen != nil {
+			km = cotizar.DistanciaEntre(origen.Almacen.Punto(),
+				cotizar.Punto{Lat: *p.Lat, Lng: *p.Lng})
+		} else {
+			// EL ÚLTIMO RECURSO, y va con su propio motivo para que no se confunda con los
+			// demás: aquí no se midió desde ningún almacén, se midió desde el punto de la
+			// sucursal. Es lo único que queda cuando esa sucursal no tiene ni un almacén con
+			// coordenadas, y es el caso que un `409` taparía a costa de perder el pedido.
+			km = cotizar.DistanciaHaversineKm(suc.Lat, suc.Lng, *p.Lat, *p.Lng)
+		}
 
 		base := baseDelLote{
 			Ref: ref, Status: "quoted", DistanceKm: km, WeightKg: peso,
-			Branch: sucursalDelLote{ID: suc.ID, Name: suc.Name},
+			Branch:        sucursalDelLote{ID: suc.ID, Name: suc.Name},
+			AlmacenMotivo: string(origen.Motivo),
+		}
+		if origen.Almacen != nil && origen.Almacen.Nombre != "" {
+			n := origen.Almacen.Nombre
+			base.AlmacenDesde = &n
 		}
 		if sinDomicilio {
 			// 6. Llega aquí con la factura cotejada: se guarda igual —hace falta para las
@@ -900,7 +1155,7 @@ func (s *Servidor) cotizarLote(w http.ResponseWriter, r *http.Request) {
 			salida.Results = append(salida.Results, resultadoDelLote(base, sinDomicilio))
 			continue
 		}
-		id, err := GuardarPedidoDelEspejo(r.Context(), a, armarPedidoDelLote(p, suc, pesos, peso, km))
+		id, err := GuardarPedidoDelEspejo(r.Context(), a, armarPedidoDelLote(p, suc, pesos, peso, km, origen))
 		if err != nil {
 			httpx.ErrorInterno(w, r, err)
 			return
@@ -920,6 +1175,17 @@ func (s *Servidor) cotizarLote(w http.ResponseWriter, r *http.Request) {
 		// volverá a pedir la lista y ESA sí va acotada por sucursal.
 		s.AvisarCambio(CambioPedidos, map[string]any{"pedidos": salida.Persisted})
 	}
+	// LO QUE NO SE MIDIÓ DESDE SU ALMACÉN, DICHO UNA VEZ.
+	//
+	// `CLAUDE.md` §4: nada se descarta en silencio. Estos pedidos NO se descartan —están
+	// guardados y medidos desde donde se pudo— pero el motivo tiene que salir por algún sitio
+	// que una persona mire, y el registro de la tanda es el primero. El segundo es la vista
+	// `almacenes_del_pedido_sin_medir` (00012), que es la que aguanta días.
+	//
+	// `almacen-del-pedido` NO se avisa: es lo normal, y un aviso que sale siempre deja de
+	// leerse — y entonces tampoco se lee el día que importa (`CLAUDE.md` §3-quinquies).
+	avisarDeLosOrigenesQueNoEran(r, porMotivo)
+
 	// LA TANDA, APUNTADA. Es la mitad de «ver cómo está funcionando el webhook».
 	//
 	// Los pedidos ya quedan guardados, sí — pero cuando uno NO aparece en el reparto, sin
@@ -1038,9 +1304,24 @@ type PedidoParaGuardar struct {
 	Municipio      *string
 	Vendedor       *string
 	SucursalCodigo *string
+
+	// EL ALMACÉN DEL QUE SALE, y desde dónde se midió de verdad. Migración 00012.
+	//
+	// Los cuatro primeros son lo que mandó PEDIDO, COPIADO TAL CUAL —también cuando ese
+	// almacén no está dado de alta en Accesos—: si se tirara, lo único que quedaría del
+	// `28 · PTO MONEDERO` de Santiago sería un kilometraje medido desde otro sitio, sin una
+	// sola pista de por qué. `AlmacenMotivo` es la confesión: DESDE DÓNDE se midió y POR QUÉ.
+	AlmacenCodigo   *string
+	AlmacenNombre   *string
+	AlmacenSucursal *string
+	AlmacenMezclado *bool
+	AlmacenMotivo   *string
 }
 
-func armarPedidoDelLote(p pedidoDelLote, suc sqlc.ListarSucursalesRow, pesos cotizar.PesosResueltos, peso, km float64) PedidoParaGuardar {
+func armarPedidoDelLote(
+	p pedidoDelLote, suc sqlc.ListarSucursalesRow, pesos cotizar.PesosResueltos,
+	peso, km float64, origen cotizar.OrigenDelPedido,
+) PedidoParaGuardar {
 	// `address || customerName`: nunca vacío.
 	direccion := p.Address
 	if direccion == "" {
@@ -1088,8 +1369,49 @@ func armarPedidoDelLote(p pedidoDelLote, suc sqlc.ListarSucursalesRow, pesos cot
 		// `cambiado` cuyo cotejo no pudo atar la factura a ESTE pedido se queda con las
 		// líneas del pedido, y afirmar lo contrario se lee igual de bien que la verdad.
 		ItemsOrigen: p.ItemsOrigen,
+
+		// EL ALMACÉN, TAL CUAL LLEGÓ, Y LA CONFESIÓN AL LADO. Son dos cosas distintas y las
+		// dos hacen falta: lo que mandó PEDIDO no se toca (aunque no se haya podido usar) y
+		// `almacen_salida_motivo` dice qué se hizo con ello. Sin el primero no se sabe a quién
+		// dar de alta; sin el segundo, un kilometraje medido desde el principal es
+		// indistinguible de uno bueno.
+		AlmacenCodigo:   textoONil(codigoDelAlmacenDelLote(p.Almacen)),
+		AlmacenNombre:   textoONil(nombreDelAlmacenDelLote(p.Almacen)),
+		AlmacenSucursal: textoONil(sucursalDelAlmacenDelLote(p.Almacen)),
+		AlmacenMezclado: mezcladoDelAlmacenDelLote(p.Almacen),
+		AlmacenMotivo:   textoONil(string(origen.Motivo)),
 	}
 	return out
+}
+
+// Los tres restantes del almacén del lote. Van sueltos y no como métodos de
+// `almacenDelPedidoDelLote` porque el puntero puede ser nil —el caso normal hasta que PEDIDO
+// mande el campo— y un método con receptor de valor sobre nil revienta.
+func nombreDelAlmacenDelLote(a *almacenDelPedidoDelLote) string {
+	if a == nil {
+		return ""
+	}
+	return a.Nombre
+}
+
+func sucursalDelAlmacenDelLote(a *almacenDelPedidoDelLote) string {
+	if a == nil {
+		return ""
+	}
+	return a.SucursalCodigo
+}
+
+// mezcladoDelAlmacenDelLote: nil cuando PEDIDO no lo dijo, y NO false.
+//
+// Un `false` escrito por defecto afirma «este pedido sale de un solo almacén», que es
+// exactamente lo que nadie comprobó. Y es el peor sitio para afirmar de más: `mezclado` es la
+// señal de que ese pedido son DOS recogidas, así que un false inventado manda al que despacha
+// a un solo almacén a por mercancía que está en dos.
+func mezcladoDelAlmacenDelLote(a *almacenDelPedidoDelLote) *bool {
+	if a == nil {
+		return nil
+	}
+	return a.Mezclado
 }
 
 // fechaDelLote lee una fecha del lote. Una que no se entiende se trata como AUSENTE y no
@@ -1191,6 +1513,12 @@ func paraLaBase(p PedidoParaGuardar) sqlc.GuardarPedidoDelEspejoParams {
 		Municipio:      p.Municipio,
 		Vendedor:       p.Vendedor,
 		SucursalCodigo: p.SucursalCodigo,
+
+		AlmacenSalidaCodigo:   p.AlmacenCodigo,
+		AlmacenSalidaNombre:   p.AlmacenNombre,
+		AlmacenSalidaSucursal: p.AlmacenSucursal,
+		AlmacenSalidaMezclado: p.AlmacenMezclado,
+		AlmacenSalidaMotivo:   p.AlmacenMotivo,
 	}
 }
 
@@ -1257,6 +1585,20 @@ func renglonesParaLaBase(renglones []cotizar.RenglonPesado) []sqlc.CrearRenglonD
 		fila.AlmacenNombre = r.WhName
 		emparejado := r.Matched
 		fila.Caso = &emparejado
+
+		// EL ALMACÉN DE ESTE RENGLÓN, en sus columnas y no en `almacen_nombre`.
+		//
+		// `almacen_nombre` existe desde la 00004 y, a pesar de cómo se llama, lo que lleva es
+		// la línea de arriba: `WhName`, el nombre del PRODUCTO con el que casó el catálogo
+		// local de pesos. Meter un almacén ahí dejaría a quien busca un producto leyendo «2» y
+		// «AURORA», y a quien busca un almacén leyendo «MALTA BUCANERO 355 ML». Columnas
+		// nuevas, 00012.
+		//
+		// POR RENGLÓN Y NO SÓLO POR PEDIDO porque un pedido mezclado sale de DOS almacenes: con
+		// sólo el del pedido, las 804 líneas de PV-STGO de Santiago quedarían apuntadas como de
+		// AURORA, que es el que más renglones pone.
+		fila.AlmacenSalidaCodigo = textoONil(r.AlmacenCodigo)
+		fila.AlmacenSalidaNombre = textoONil(r.AlmacenNombre)
 
 		// `product_id` se queda vacío y NO es un fallo: el emparejamiento con el catálogo
 		// de Ventra da el peso, no el id de la fila del catálogo, y hay renglones escritos

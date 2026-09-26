@@ -14,7 +14,18 @@ func entorno(pares map[string]string) func(string) string {
 func TestLosValoresPorDefectoSonLosMedidos(t *testing.T) {
 	// No son números elegidos al gusto: salen de los datos de verdad. El minuto de ciclo
 	// existe porque cinco minutos mirando una pantalla que no cambia se leen como que está
-	// roto; los 420 días, porque una ruta se arma también con pedidos ya completados.
+	// roto.
+	//
+	// LOS 60 DÍAS DE HISTÓRICO ERAN 420, y el cambio está medido — 26/09/2026. Decía aquí
+	// que el año hacía falta «porque una ruta se arma también con pedidos ya completados»,
+	// y los datos dicen otra cosa: **el reparto tiene 5.480 pedidos y el más viejo es de
+	// hace 27 días**. Nada de lo que el barrido traía de los días 30 a 420 se quedaba —
+	// PEDIDO filtra por repartible y la puerta rechaza lo que no tiene geolocalización ni
+	// factura—, así que de **101.445 pedidos traídos en un día se quedaron 5.480**: el 95%
+	// era trabajo para tirarlo, por la conexión de allá.
+	//
+	// Sesenta es el doble de lo que hoy sobrevive: margen para que un cambio en los filtros
+	// de allá no deje un hueco, sin traer un año «por si acaso».
 	o, err := Cargar(entorno(map[string]string{"SERVICE_API_KEY": "k"}))
 	if err != nil {
 		t.Fatalf("con la llave puesta tenía que cargar: %v", err)
@@ -22,8 +33,9 @@ func TestLosValoresPorDefectoSonLosMedidos(t *testing.T) {
 	if o.Poll != time.Minute {
 		t.Errorf("el ciclo por defecto es de un minuto; salió %v", o.Poll)
 	}
-	if o.HistoricoDias != 420 || o.HistoricoPorCiclo != 30 || o.RepasoDias != 3 {
-		t.Errorf("el histórico por defecto salió %d/%d/%d", o.HistoricoDias, o.HistoricoPorCiclo, o.RepasoDias)
+	if o.HistoricoDias != 60 || o.HistoricoPorCiclo != 30 || o.RepasoDias != 3 {
+		t.Errorf("el histórico por defecto salió %d/%d/%d y tenía que ser 60/30/3: ver arriba "+
+			"la medida que lo bajó de 420", o.HistoricoDias, o.HistoricoPorCiclo, o.RepasoDias)
 	}
 	if !o.SoloRepartibles {
 		t.Error("por defecto sólo se trae lo que puede subir a un camión: era el 2 % del catálogo")
@@ -303,5 +315,49 @@ func TestSYNCPOLLEscritoAManoManda(t *testing.T) {
 
 	if got := o.RitmoDelCiclo(true); got != 5*time.Second {
 		t.Fatalf("se pisó el ritmo que alguien escribió a mano: %v", got)
+	}
+}
+
+// EL BARRIDO BAJA A UNA VEZ AL DÍA CUANDO A ALGUIEN LE AVISAN — y sólo entonces.
+//
+// Con el webhook trayendo los cambios en el acto, releer el histórico en cada ciclo es
+// traer el año entero para no encontrar nada: 101.445 pedidos en un día sobre una base de
+// 67.971, medido el 26/09/2026.
+//
+// LA OTRA MITAD, que es la que importa: **sin avisos, el barrido vuelve a su ritmo de
+// siempre**. Entonces es lo único que caza lo que el `since` se pierde —una carga masiva,
+// una corrección por SQL sin tocar `updatedAt`— y dejarlo en una vez al día sería perder
+// eso durante un día entero sin que nada lo diga.
+func TestElBarridoSoloSeFrenaSiAlguienAvisa(t *testing.T) {
+	casos := []struct {
+		nombre string
+		o      Opciones
+		quiere time.Duration
+	}{
+		{"con la cola", Opciones{
+			BarridoCada: 10 * time.Minute, RedisDireccion: "r:6379", EscuchaElStream: true,
+		}, BarridoConAvisos},
+		{"con el webhook y la cola apagada", Opciones{
+			BarridoCada: 10 * time.Minute, TocanLaPuerta: true,
+		}, BarridoConAvisos},
+		{"NADIE avisa: vuelve a su ritmo", Opciones{
+			BarridoCada: 10 * time.Minute,
+		}, 10 * time.Minute},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			if got := c.o.RitmoDelBarrido(); got != c.quiere {
+				t.Fatalf("con %s el barrido va cada %v y tenía que ir cada %v",
+					c.nombre, got, c.quiere)
+			}
+		})
+	}
+}
+
+// Y el número, en un solo sitio, porque es una decisión y no un detalle.
+func TestElBarridoConAvisosEsUnaVezAlDia(t *testing.T) {
+	if BarridoConAvisos != 24*time.Hour {
+		t.Fatalf("el barrido con avisos vale %v: se puso en 24 h para que el histórico se "+
+			"repase entero cada dos días en vez de cada ciclo", BarridoConAvisos)
 	}
 }

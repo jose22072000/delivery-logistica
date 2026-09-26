@@ -57,6 +57,11 @@ type PedidoDeFuera struct {
 	Vendedor *VendedorDelPedido `json:"vendedor"`
 	Items    []RenglonDeFuera   `json:"items"`
 
+	// DE QUÉ ALMACÉN SALE. Puntero para poder distinguir «PEDIDO no lo manda» —todo lo
+	// bajado hasta el 26/09/2026, y todo pedido que entra antes de facturarse— de «lo manda
+	// vacío», que es un fallo del otro lado y hay que poder verlo distinto.
+	Almacen *AlmacenDelPedido `json:"almacen"`
+
 	// UpdatedAt es la MARCA DE AGUA: cuándo se tocó por última vez EN PEDIDO. De aquí sale
 	// el `since` de la próxima bajada, y por eso este campo no es uno más.
 	UpdatedAt string `json:"updatedAt"`
@@ -86,6 +91,57 @@ type PedidoDeFuera struct {
 	// no representa la cantidad total». Y como se resuelve: «mantenemos el pedido y solo
 	// le añadimos una factura a ese pedido para saber si cambio o no».
 	ItemsOrigen string `json:"itemsOrigen"`
+}
+
+// AlmacenDelPedido es el almacén del que sale el pedido, tal como lo manda PEDIDO. La forma
+// se acordó con su sesión el 26/09/2026 y NO se negocia aquí.
+//
+//	"almacen": { "codigo": "2", "nombre": "AURORA", "sucursalCodigo": "STG", "mezclado": false }
+//
+// POR QUÉ HACEN FALTA LOS CUATRO CAMPOS:
+//
+//   - `codigo` es la identidad, junto con la sucursal. El nombre NO identifica: `PV-STGO`
+//     está en Santiago Y en Palma Soriano, y `Tiendas Parranda` en cinco sucursales con cinco
+//     ids. Y el código solo tampoco: `objectCode: 2` es AURORA en Santiago, PV CAMAGÜEY en
+//     Camagüey y PV GTMO en Guantánamo.
+//   - `nombre` es lo único legible, y se guarda TAMBIÉN cuando el almacén no está dado de
+//     alta en Accesos: sin él, lo que queda apuntado es un «28» que no le dice nada a nadie.
+//   - `sucursalCodigo` es la otra mitad de la identidad, y puede no ser la del pedido.
+//   - `mezclado` es que sus renglones salen de MÁS DE UN almacén, y entonces `codigo` y
+//     `nombre` son los del que pone más renglones. Un pedido mezclado son DOS recogidas: se
+//     mide desde el que más pesa en renglones, que es lo único que se puede hacer con un solo
+//     origen, y queda dicho que el pedido toca dos sitios.
+//
+// EL DESEMPATE DE `mezclado` LO HACE PEDIDO, no esto: es quien tiene los renglones delante.
+// Aquí se copia tal cual y no se recalcula — recalcularlo sería tener el mismo dato dos veces
+// y discrepando sin que nadie lo vea, que es el §3-bis del `CLAUDE.md`. Lo que sí queda de
+// este lado es el almacén de CADA renglón, en `order_items`: con eso, «qué se recoge en
+// AURORA» se contesta sin adivinar nada.
+type AlmacenDelPedido struct {
+	Codigo         string `json:"codigo"`
+	Nombre         string `json:"nombre"`
+	SucursalCodigo string `json:"sucursalCodigo"`
+	// `Mezclado` ES PUNTERO Y CON `omitempty`, y las dos cosas hacen falta. Es el `activo` del
+	// 24/09/2026 otra vez, en el lado contrario y con peor final.
+	//
+	// Con un `bool` pelado, un `almacen` que llegue SIN `mezclado` se lee como `false` —así
+	// entiende Go un campo ausente— y esta estructura se vuelve a serializar tal cual hacia la
+	// puerta del lote, así que sale `"mezclado": false` EXPLÍCITO y la columna se guarda en
+	// `false`. O sea que la base acaba AFIRMANDO que el pedido sale de un solo almacén sin que
+	// nadie lo haya comprobado, y todo el cuidado del puntero del otro lado se pierde en el
+	// único camino por el que entran los pedidos de verdad.
+	//
+	// Lo que eso cuesta, con el caso de los 50/50: un pedido de Santiago con seis renglones de
+	// AURORA y seis de PV-STGO. PEDIDO resuelve el desempate y manda `codigo: "2"`, pero una
+	// versión suya que todavía no mande `mezclado` dejaría guardado «no está mezclado». Nadie
+	// sabe que son DOS recogidas, ninguna pantalla lo desmiente, y el que despacha va a AURORA
+	// y se deja media carga en PV-STGO. Un NULL dice «no se sabe»; un `false` dice «comprobado
+	// que no», y es mentira. `internal/api/almacenes.go` lo tiene escrito para `activo`: dos
+	// lados leyendo el mismo campo y entendiendo cosas distintas, sin que falle nada.
+	//
+	// El `omitempty` es lo que hace que un nil NO viaje como `false`. Lo ata
+	// `TestUnAlmacenSinMezcladoNoAfirmaQueNoLoEsta`, en `lote_test.go`.
+	Mezclado *bool `json:"mezclado,omitempty"`
 }
 
 type ClienteDelPedido struct {
@@ -118,6 +174,17 @@ type RenglonDeFuera struct {
 	Packs       *float64 `json:"packs"`
 	PesoKg      *float64 `json:"pesoKg"`
 	PesoLineaKg *float64 `json:"pesoLineaKg"`
+
+	// EL ALMACÉN DE ESTE RENGLÓN, que no siempre es el del pedido: un pedido mezclado sale de
+	// dos, y el que despacha necesita saber qué línea se recoge en cada uno. Con sólo el del
+	// pedido, las 804 líneas de PV-STGO de Santiago quedarían apuntadas como de AURORA.
+	//
+	// `AlmacenCodigo` es un CÓDIGO y no un id, y no se confunde con `Codigo`, que es el del
+	// PRODUCTO. Ojo también con `order_items.almacen_nombre`, que a pesar del nombre es el
+	// nombre del producto con el que casó el catálogo de pesos: esto va a columnas nuevas
+	// (`almacen_salida_*`, migración 00012).
+	AlmacenCodigo string `json:"almacenCodigo"`
+	AlmacenNombre string `json:"almacenNombre"`
 }
 
 // ClienteDeFuera es un cliente de PEDIDO. Sólo se copian los GEOLOCALIZADOS: sin

@@ -399,7 +399,7 @@ func (e *Espejo) unTramo(ctx context.Context, t Tramo, de string) int {
 // que «el más antiguo que tengo» no significa «tengo todo hasta ahí» — el barrido arrancaba
 // a 357 días y se saltaba entero el año de en medio, que era justo lo que faltaba.
 func (e *Espejo) barrido(ctx context.Context) int {
-	if e.Ahora().Sub(e.ultimoBarrido) < e.Opciones.BarridoCada {
+	if e.Ahora().Sub(e.ultimoBarrido) < e.Opciones.RitmoDelBarrido() {
 		return 0
 	}
 	e.ultimoBarrido = e.Ahora()

@@ -525,6 +525,17 @@ func (ns NullVehicleStatus) Value() (driver.Value, error) {
 	return string(ns.VehicleStatus), nil
 }
 
+// los pedidos que NO se midieron desde su propio almacén, agrupados por sucursal, motivo y almacén: qué llegó, cuántos pedidos y desde cuándo
+type AlmacenesDelPedidoSinMedir struct {
+	SucursalCodigo *string            `json:"sucursal_codigo"`
+	Motivo         *string            `json:"motivo"`
+	Codigo         *string            `json:"codigo"`
+	Nombre         *string            `json:"nombre"`
+	Pedidos        int64              `json:"pedidos"`
+	Desde          pgtype.Timestamptz `json:"desde"`
+	Hasta          pgtype.Timestamptz `json:"hasta"`
+}
+
 type AvisosAPedido struct {
 	ID         uuid.UUID          `json:"id"`
 	PedidoID   string             `json:"pedido_id"`
@@ -677,25 +688,40 @@ type Order struct {
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	// factura | pedido | NULL(no se sabe): de dónde salieron los renglones de este pedido
 	ItemsOrigen *string `json:"items_origen"`
+	// código del almacén de Ventra del que sale el pedido, tal como lo manda PEDIDO; NULL = no se sabe
+	AlmacenSalidaCodigo *string `json:"almacen_salida_codigo"`
+	// nombre del almacén tal como llegó, se guarde o no en Accesos: es lo único legible para saber a quién dar de alta
+	AlmacenSalidaNombre *string `json:"almacen_salida_nombre"`
+	// sucursal DEL ALMACÉN: (sucursal, código) es la identidad, el nombre no identifica
+	AlmacenSalidaSucursal *string `json:"almacen_salida_sucursal"`
+	// true = los renglones salen de MÁS de un almacén, o sea que este pedido son DOS recogidas; el código de arriba es entonces el del que pone más renglones
+	AlmacenSalidaMezclado *bool `json:"almacen_salida_mezclado"`
+	// desde dónde se midió y por qué: almacen-del-pedido | el-pedido-no-trae-almacen | almacen-no-dado-de-alta | almacen-sin-coordenadas | accesos-sin-codigos | sucursal-sin-almacen-con-punto
+	AlmacenSalidaMotivo *string `json:"almacen_salida_motivo"`
 }
 
 type OrderItem struct {
-	ID             uuid.UUID          `json:"id"`
-	OrderID        uuid.UUID          `json:"order_id"`
-	Linea          int32              `json:"linea"`
-	Description    string             `json:"description"`
-	Quantity       float64            `json:"quantity"`
-	Packs          *float64           `json:"packs"`
-	ProductID      pgtype.UUID        `json:"product_id"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	Nombre         *string            `json:"nombre"`
-	Codigo         *string            `json:"codigo"`
-	AlmacenNombre  *string            `json:"almacen_nombre"`
-	Caso           *bool              `json:"caso"`
-	PesoUnitarioKg *float64           `json:"peso_unitario_kg"`
-	PesoLineaKg    *float64           `json:"peso_linea_kg"`
-	OrigenPeso     *string            `json:"origen_peso"`
+	ID          uuid.UUID          `json:"id"`
+	OrderID     uuid.UUID          `json:"order_id"`
+	Linea       int32              `json:"linea"`
+	Description string             `json:"description"`
+	Quantity    float64            `json:"quantity"`
+	Packs       *float64           `json:"packs"`
+	ProductID   pgtype.UUID        `json:"product_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Nombre      *string            `json:"nombre"`
+	Codigo      *string            `json:"codigo"`
+	// el nombre del PRODUCTO con el que casó el catálogo local de pesos (RenglonPesado.WhName). NO es un almacén, a pesar del nombre: el del almacén es almacen_salida_nombre
+	AlmacenNombre  *string  `json:"almacen_nombre"`
+	Caso           *bool    `json:"caso"`
+	PesoUnitarioKg *float64 `json:"peso_unitario_kg"`
+	PesoLineaKg    *float64 `json:"peso_linea_kg"`
+	OrigenPeso     *string  `json:"origen_peso"`
+	// código del almacén de Ventra del que sale ESTE renglón. NO es almacen_nombre, que es el nombre del PRODUCTO con el que casó el catálogo
+	AlmacenSalidaCodigo *string `json:"almacen_salida_codigo"`
+	// nombre del almacén del que sale ESTE renglón, tal como llegó de PEDIDO
+	AlmacenSalidaNombre *string `json:"almacen_salida_nombre"`
 }
 
 type OrderVehicle struct {

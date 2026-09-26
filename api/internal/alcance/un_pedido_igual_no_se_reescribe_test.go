@@ -222,3 +222,65 @@ func (f fuenteDePedidos) Consultas() sqlc.Querier { return f.q }
 func (f fuenteDePedidos) EnTx(ctx context.Context, fn func(sqlc.Querier) error) error {
 	return fn(f.q)
 }
+
+// UN RENGLÓN QUE SÓLO CAMBIA DE ALMACÉN SÍ SE REESCRIBE — 26/09/2026.
+//
+// La migración 00012 añadió `order_items.almacen_salida_codigo` y `almacen_salida_nombre`: de
+// qué almacén sale cada línea. La guarda de arriba —«si los renglones son los mismos, no se toca
+// nada»— compara campo a campo, así que una columna nueva que no entre en esa comparación deja
+// un agujero con una forma muy concreta: **el renglón se lee como «no cambió» y la columna se
+// queda con el primer valor para siempre**, en silencio.
+//
+// Y ESE CASO PASA DE VERDAD, no es hipotético: un pedido entra al reparto ANTES de facturarse,
+// así que llega sin almacén; cuando PEDIDO lo cierra contra la factura llega ya con el suyo, con
+// el mismo producto, la misma cantidad y el mismo peso. Sin esto, el pedido de AURORA se quedaría
+// apuntado como «no se sabe de dónde sale» hasta que alguien le cambiara además la cantidad.
+//
+// LA PAREJA COMPLETA, y la segunda mitad es la que evita el arreglo fácil: comparar de más
+// —devolver «distinto» siempre— corta el agujero y devuelve los 8,8 millones de escrituras que
+// la guarda vino a quitar. Las dos tienen que valer.
+func TestUnRenglonQueSoloCambiaDeAlmacenSeReescribe(t *testing.T) {
+	aurora, nombre := "2", "AURORA"
+
+	casos := []struct {
+		nombre      string
+		renglones   []sqlc.CrearRenglonDePedidoParams
+		seReescribe bool
+		porQue      string
+	}{
+		{
+			nombre: "el mismo renglón con el almacén puesto SÍ se reescribe",
+			renglones: []sqlc.CrearRenglonDePedidoParams{{
+				Linea: 1, Description: "MALTA GUAJIRA 330 ML", Quantity: 60,
+				AlmacenSalidaCodigo: &aurora, AlmacenSalidaNombre: &nombre,
+			}},
+			seReescribe: true,
+			porQue: "es lo que pasa cuando llega la factura: mismo producto, misma cantidad, " +
+				"mismo peso, y por fin se sabe de qué almacén sale",
+		},
+		{
+			nombre:      "y el mismo renglón SIN nada nuevo NO se reescribe",
+			renglones:   elMismoRenglon(),
+			seReescribe: false,
+			porQue: "sin esta mitad, «compara el almacén» se cumple devolviendo «distinto» " +
+				"siempre, y vuelven los 8,8 millones de escrituras sobre 7.450 filas",
+		},
+	}
+
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			b := &baseDePedidos{cambio: false}
+			if _, _, err := guardarCon(t, b, c.renglones); err != nil {
+				t.Fatalf("guardar: %v", err)
+			}
+			if c.seReescribe && len(b.borradosDe) == 0 {
+				t.Fatalf("el renglón cambió de almacén y NO se reescribió: la columna se queda "+
+					"con el primer valor para siempre y en silencio\n  por qué importa: %s", c.porQue)
+			}
+			if !c.seReescribe && len(b.borradosDe) != 0 {
+				t.Fatalf("el renglón era idéntico y se reescribió igual\n  por qué importa: %s",
+					c.porQue)
+			}
+		})
+	}
+}

@@ -154,6 +154,64 @@ class FiltrosTablero extends Notifier<FiltrosSinColocar> {
 final filtrosTableroProvider =
     NotifierProvider<FiltrosTablero, FiltrosSinColocar>(FiltrosTablero.new);
 
+/// EL ALMACÉN DESDE EL QUE SE MIDE, ELEGIDO A MANO — 26/09/2026.
+///
+/// Jose, mirando la cabecera del tablero: «¿aquí me aparecerá lo de escoger los
+/// otros almacenes sólo cuando tenga más almacenes? Porque hace falta que
+/// aparezca por lo menos y diga que no está configurado el que no tiene la
+/// ubicación puesta».
+///
+/// Hasta hoy no había nada que elegir: cada sucursal tenía un almacén en Accesos
+/// y se llamaba como la sucursal. Ahora están dados de alta los 14 de verdad,
+/// leídos de Ventra, y cinco sucursales tienen más de uno — Camagüey tiene tres.
+/// Cuál se usa deja de ser evidente, y de los kilómetros hasta el cliente sale
+/// lo que se le cobra por el domicilio.
+///
+/// ## POR SUCURSAL, y por eso es un mapa y no un `String?`
+///
+/// Un solo valor se arrastraría al cambiar de sucursal: se elige «ALM CAMAGUEY»,
+/// se pasa a La Habana y el id de un almacén de Camagüey se quedaría puesto. No
+/// rompería nada —`almacenDe` lo ignora porque ese almacén no es de esa
+/// sucursal— y eso es justo el problema: mediría desde el principal de La Habana
+/// mientras la cabecera dice otra cosa, o al contrario. La elección es «desde
+/// dónde mido EN esta sucursal», así que se guarda por sucursal.
+///
+/// ## NO SE GUARDA EN EL APARATO, a propósito (por ahora)
+///
+/// La sucursal y la moneda sí se recuerdan entre arranques porque quien trabaja
+/// en La Habana trabaja en La Habana todos los días. Esto todavía no: los seis
+/// almacenes sin ubicación se van a ir configurando estos días, y una elección
+/// guardada apuntando a uno que entonces no servía —y que pasado mañana sí— es
+/// un almacén que cambia solo entre arranques. Cuando los 14 estén completos,
+/// esto se recuerda igual que la sucursal; hasta entonces, cada sesión arranca
+/// en el que manda Accesos.
+class AlmacenElegido extends Notifier<Map<String, String>> {
+  @override
+  Map<String, String> build() => const <String, String>{};
+
+  /// Pone [almacenId] como origen de [sucursalId]. Con `null` se vuelve al que
+  /// elige Accesos.
+  ///
+  /// Aquí NO se comprueba si ese almacén sirve para medir, y es deliberado: esa
+  /// pregunta tiene un solo dueño —`AlmacenDeReferencia`— y la contesta
+  /// `ConsultasTablero.almacenDe`, que es quien de verdad mide. Comprobarlo
+  /// también aquí sería la segunda respuesta a la misma pregunta, esperando a
+  /// separarse de la primera sin que salte nada (`CLAUDE.md` §3-bis). Lo que sí
+  /// hace la pantalla es no ofrecer los que no sirven.
+  void elegir(String sucursalId, String? almacenId) {
+    final copia = Map<String, String>.of(state);
+    if (almacenId == null) {
+      copia.remove(sucursalId);
+    } else {
+      copia[sucursalId] = almacenId;
+    }
+    state = copia;
+  }
+}
+
+final almacenElegidoProvider =
+    NotifierProvider<AlmacenElegido, Map<String, String>>(AlmacenElegido.new);
+
 /// Los camiones de la sucursal, para el «camion previsto» de la columna.
 ///
 /// **Stream y no Future** — 17/09/2026. Era un `FutureProvider` que leia la
@@ -209,6 +267,11 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
       return const Tablero.imposible('Elige una sucursal para ver su tablero');
     }
     final filtros = ref.watch(filtrosTableroProvider);
+    // El almacén elegido a mano. Se MIRA aquí para que cambiarlo vuelva a leer
+    // el tablero entero: de ese punto salen los kilómetros de cada tarjeta y el
+    // orden de la lista de sin colocar, así que no basta con repintar la
+    // cabecera.
+    ref.watch(almacenElegidoProvider);
     final base = ref.watch(baseProvider);
 
     // CON CONEXION, DEL SERVIDOR. Al abrir el tablero y al cambiar de sucursal —
@@ -358,9 +421,18 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
     await ref.read(repositorioTableroProvider).asentarProvisionales();
 
     final nombre = await consultas.nombreDeSucursal(sucursalId);
+    // TODOS los de la sucursal, también los que no tienen la ubicación puesta:
+    // es la lista que se ofrece al tocar la cabecera, y se lee ANTES del `try`
+    // porque hace falta igual cuando no hay ninguno con coordenadas — ése es
+    // justamente el caso en que quien mira necesita ver que sí tiene almacenes y
+    // que lo que les falta es el punto.
+    final almacenes = await consultas.almacenesDeLaSucursal(sucursalId);
     final AlmacenOrigen almacen;
     try {
-      almacen = await consultas.almacenDe(sucursalId);
+      almacen = await consultas.almacenDe(
+        sucursalId,
+        preferido: ref.read(almacenElegidoProvider)[sucursalId],
+      );
     } on SinAlmacenConCoordenadas catch (e) {
       // Se ordena desde el sitio del que sale la mercancia o no se ordena: no
       // se inventa un punto de partida.
@@ -374,6 +446,7 @@ class TableroDelDia extends AsyncNotifier<Tablero> {
       sucursalId: sucursalId,
       sucursalNombre: nombre,
       almacen: almacen,
+      almacenes: almacenes,
       columnas: await consultas.columnas(sucursalId),
       colocados: await consultas.colocados(sucursalId, almacen),
       avisos: await consultas.avisos(sucursalId),

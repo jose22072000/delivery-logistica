@@ -94,6 +94,19 @@ func correr() error {
 		reg.Warn("PEDIDO_API_URL vacía: no se le podrá contar a PEDIDO en qué punto va cada pedido " +
 			"(el reparto funciona igual, pero el vendedor no verá los cambios de estado)")
 	}
+	// LOS AVISOS POR NOTIFY, que es lo único que hace que un canal roto se vea sin que nadie
+	// abra `/admin/webhook`. Tiene que verse AL DESPLEGAR y no la tarde que alguien pregunte
+	// por qué no llegó ningún correo: sin esto, el reparto funciona igual y el fallo del
+	// canal vuelve a ser invisible, que es exactamente lo que se vino a arreglar.
+	if falta := cfg.Notify.Falta(); falta != "" {
+		reg.Warn("falta la configuración de notify: NADIE se enterará de que el canal con PEDIDO "+
+			"se rompió (avisos atascados, rechazos de PEDIDO, o PEDIDO dejando de empujar). "+
+			"El reparto funciona igual, pero el fallo vuelve a verse sólo abriendo /admin/webhook",
+			"falta", falta)
+	} else {
+		reg.Info("avisos por notify enchufados",
+			"url", cfg.Notify.URL, "tipo", cfg.Notify.Tipo, "destino", cfg.Notify.Destino)
+	}
 	if cfg.AuthSigningKey == "" {
 		reg.Warn("PROCOVAR_AUTH_SIGNING_KEY vacía: no se podrá preguntar a Accesos por los almacenes " +
 			"ni por las tasas, así que no se podrán cotizar domicilios")

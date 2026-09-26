@@ -725,7 +725,9 @@ INSERT INTO orders (
     pedido_updated_at, estado, archivado, fecha_comprometida, requiere_domicilio,
     pedido_costo, municipio, vendedor, sucursal_codigo, factura_estado,
     factura_numero, factura_at, factura_domicilio, factura_corregido_at,
-    items_origen, delivery_distance_km, delivery_price
+    items_origen, delivery_distance_km, delivery_price,
+    almacen_salida_codigo, almacen_salida_nombre, almacen_salida_sucursal,
+    almacen_salida_mezclado, almacen_salida_motivo
 ) VALUES (
     sqlc.narg('operation_number'), sqlc.arg('customer_name'), sqlc.narg('customer_phone'),
     sqlc.arg('address'), sqlc.narg('end_address'),
@@ -736,7 +738,10 @@ INSERT INTO orders (
     sqlc.narg('pedido_costo'), sqlc.narg('municipio'), sqlc.narg('vendedor'),
     sqlc.narg('sucursal_codigo'), sqlc.narg('factura_estado'), sqlc.narg('factura_numero'),
     sqlc.narg('factura_at'), sqlc.narg('factura_domicilio'), sqlc.narg('factura_corregido_at'),
-    sqlc.narg('items_origen'), sqlc.narg('delivery_distance_km'), sqlc.narg('delivery_price')
+    sqlc.narg('items_origen'), sqlc.narg('delivery_distance_km'), sqlc.narg('delivery_price'),
+    sqlc.narg('almacen_salida_codigo'), sqlc.narg('almacen_salida_nombre'),
+    sqlc.narg('almacen_salida_sucursal'), sqlc.narg('almacen_salida_mezclado'),
+    sqlc.narg('almacen_salida_motivo')
 )
 ON CONFLICT (source, external_id) WHERE source IS NOT NULL AND external_id IS NOT NULL
 DO UPDATE SET
@@ -768,7 +773,16 @@ DO UPDATE SET
     factura_corregido_at = excluded.factura_corregido_at,
     items_origen         = excluded.items_origen,
     delivery_distance_km = excluded.delivery_distance_km,
-    delivery_price       = excluded.delivery_price
+    delivery_price       = excluded.delivery_price,
+    -- DE QUÉ ALMACÉN SALE, y desde dónde se midió. Entra en el UPDATE porque cambia solo:
+    -- un pedido entra al reparto antes de estar facturado —sin almacén, medido desde el
+    -- principal— y cuando PEDIDO lo cierra contra la factura llega ya con el suyo. Si esto
+    -- no se pisara, el kilometraje se quedaría para siempre con el del primer día.
+    almacen_salida_codigo   = excluded.almacen_salida_codigo,
+    almacen_salida_nombre   = excluded.almacen_salida_nombre,
+    almacen_salida_sucursal = excluded.almacen_salida_sucursal,
+    almacen_salida_mezclado = excluded.almacen_salida_mezclado,
+    almacen_salida_motivo   = excluded.almacen_salida_motivo
 -- UN PEDIDO QUE LLEGA IGUAL NO SE TOCA. Medido en producción el 26/09/2026:
 --
 --     orders   5.452 filas  ·  7.170.587 actualizaciones
@@ -801,7 +815,10 @@ WHERE (orders.operation_number, orders.customer_name, orders.customer_phone,
        orders.municipio, orders.vendedor, orders.sucursal_codigo,
        orders.factura_estado, orders.factura_numero, orders.factura_at,
        orders.factura_domicilio, orders.factura_corregido_at, orders.items_origen,
-       orders.delivery_distance_km, orders.delivery_price)
+       orders.delivery_distance_km, orders.delivery_price,
+       orders.almacen_salida_codigo, orders.almacen_salida_nombre,
+       orders.almacen_salida_sucursal, orders.almacen_salida_mezclado,
+       orders.almacen_salida_motivo)
    IS DISTINCT FROM
       (excluded.operation_number, excluded.customer_name, excluded.customer_phone,
        excluded.address, excluded.end_address, excluded.lat, excluded.lng,
@@ -811,7 +828,10 @@ WHERE (orders.operation_number, orders.customer_name, orders.customer_phone,
        excluded.municipio, excluded.vendedor, excluded.sucursal_codigo,
        excluded.factura_estado, excluded.factura_numero, excluded.factura_at,
        excluded.factura_domicilio, excluded.factura_corregido_at, excluded.items_origen,
-       excluded.delivery_distance_km, excluded.delivery_price)
+       excluded.delivery_distance_km, excluded.delivery_price,
+       excluded.almacen_salida_codigo, excluded.almacen_salida_nombre,
+       excluded.almacen_salida_sucursal, excluded.almacen_salida_mezclado,
+       excluded.almacen_salida_motivo)
 RETURNING id, branch_id, external_id, (xmax = 0)::boolean AS es_nuevo;
 
 -- EL PEDIDO QUE NO HIZO FALTA TOCAR, para poder seguir con sus renglones.
@@ -846,7 +866,8 @@ WHERE source = sqlc.arg('source') AND external_id = sqlc.arg('external_id');
 -- eso, comparar dos listas iguales en otro orden dice «cambió» y se reescribe igual.
 -- name: RenglonesDePedidoParaComparar :many
 SELECT linea, description, quantity, packs, product_id, nombre, codigo,
-       almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso
+       almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso,
+       almacen_salida_codigo, almacen_salida_nombre
 FROM order_items
 WHERE order_id = sqlc.arg('pedido_id')
 ORDER BY linea ASC;
@@ -871,21 +892,29 @@ DELETE FROM order_items WHERE order_id = sqlc.arg('pedido_id');
 -- Todos anulables a propósito: un renglón que no sabe lo que pesa se guarda VACÍO, no en
 -- cero. `origen_peso = 'none'` —`cotizar.PesoDesconocido`— es otra cosa y sí se escribe:
 -- es el renglón confesando que lo intentó y no pudo, que es lo que la vista mira.
+--
+-- Y OJO CON LAS DOS COLUMNAS QUE SE PARECEN: `almacen_nombre` es el nombre del PRODUCTO con
+-- el que casó el catálogo local de pesos (`RenglonPesado.WhName`) y no tiene nada que ver
+-- con un almacén, a pesar de cómo se llama. El almacén del que sale el renglón —00012— es
+-- `almacen_salida_codigo` / `almacen_salida_nombre`. Escribir un almacén en la primera
+-- dejaría a quien busca un producto leyendo «2» y «AURORA».
 -- name: CrearRenglonDePedido :one
 INSERT INTO order_items (
     order_id, linea, description, quantity, packs, product_id,
-    nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso
+    nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso,
+    almacen_salida_codigo, almacen_salida_nombre
 )
 VALUES (
     sqlc.arg('pedido_id'), sqlc.arg('linea'), sqlc.arg('description'),
     sqlc.arg('quantity'), sqlc.narg('packs'), sqlc.narg('product_id'),
     sqlc.narg('nombre'), sqlc.narg('codigo'), sqlc.narg('almacen_nombre'),
     sqlc.narg('caso'), sqlc.narg('peso_unitario_kg'), sqlc.narg('peso_linea_kg'),
-    sqlc.narg('origen_peso')
+    sqlc.narg('origen_peso'),
+    sqlc.narg('almacen_salida_codigo'), sqlc.narg('almacen_salida_nombre')
 )
 RETURNING id, order_id, linea, description, quantity, packs, product_id,
           nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg,
-          origen_peso;
+          origen_peso, almacen_salida_codigo, almacen_salida_nombre;
 
 -- La marca de agua del espejo: `since` de la próxima bajada.
 --

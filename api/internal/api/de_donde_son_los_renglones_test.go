@@ -33,6 +33,7 @@ import (
 func armadoConOrigen(origen *string) PedidoParaGuardar {
 	return armarPedidoDelLote(
 		conOrigen(origen), sqlc.ListarSucursalesRow{}, cotizar.PesosResueltos{}, 0, 0,
+		cotizar.OrigenDelPedido{},
 	)
 }
 
@@ -98,7 +99,8 @@ func TestElOrigenNoSaleDelEstadoDeLaFactura(t *testing.T) {
 	p.FacturaEstado = &cambiado
 
 	arg := paraLaBase(
-		armarPedidoDelLote(p, sqlc.ListarSucursalesRow{}, cotizar.PesosResueltos{}, 0, 0),
+		armarPedidoDelLote(p, sqlc.ListarSucursalesRow{}, cotizar.PesosResueltos{}, 0, 0,
+			cotizar.OrigenDelPedido{}),
 	)
 
 	if arg.ItemsOrigen == nil || *arg.ItemsOrigen != "pedido" {

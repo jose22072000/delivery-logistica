@@ -402,6 +402,33 @@ type ParteAPedido struct {
 	Enviados  int    `json:"enviados"`
 	Aplicados int    `json:"aplicados"`
 	Error     string `json:"error,omitempty"`
+
+	// Rechazo: PEDIDO CONTESTÓ Y DIJO QUE NO. Es otra cosa que `Error`, y meterlos en el
+	// mismo sitio era un fallo vivo del 26/09/2026.
+	//
+	// Los dos acaban en `Error` —ahí está el motivo para la persona que lo lea— pero el
+	// que decide qué hacer con el aviso es ÉSTE. Un rechazo no se arregla esperando:
+	// repetirlo da exactamente lo mismo. Un fallo de transporte sí.
+	//
+	// LO QUE PASABA SIN ESTO, y no es hipotético: `Ok = (Error == "")` mandaba los dos por
+	// la rama de «no se pudo ni preguntar», así que `AvisoAPedidoRechazado` era **código
+	// muerto** —`situacion='rechazado'` no se escribía jamás— y el aviso se reenviaba cada
+	// minuto PARA SIEMPRE. Y como el buzón se drena por orden de llegada con
+	// `LIMIT 200`, esa fila iba en todas las tandas y **paraba el canal entero**: nada de
+	// lo que viniera detrás llegaba a marcarse enviado.
+	//
+	// Encima dejaba `pendienteMasViejo` clavado, así que la alarma del atasco sonaba a
+	// diario diciendo «la salida está atascada» cuando la verdad era «PEDIDO rechazó un
+	// pedido que allá no existe». Un aviso que sale siempre se silencia en una semana.
+	Rechazo bool `json:"rechazo,omitempty"`
+
+	// HTTP es el código que contestó PEDIDO, o 0 si no se llegó a hablar.
+	//
+	// La columna `envios_del_webhook.http` existe desde la 00011 y **nunca se rellenaba**,
+	// porque `mandarTanda` se comía el `res.StatusCode` dentro de una cadena. Su propia
+	// migración dice por qué hace falta: «un 200 con cero aceptados y un 502 no son lo
+	// mismo, y guardar sólo “falló” los confunde». Estaban confundidos.
+	HTTP int `json:"http,omitempty"`
 }
 
 // AvisoDeParada es un pedido y en qué punto del reparto quedó.

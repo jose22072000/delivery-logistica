@@ -16,6 +16,58 @@ class AlmacenOrigen {
   final double lng;
 }
 
+/// UN ALMACEN DE LA SUCURSAL, PARA PODER ELEGIRLO — 26/09/2026.
+///
+/// Es la lista que se ensena al tocar la cabecera del tablero, y lleva **todos**
+/// los de la sucursal, tambien los que no tienen la ubicacion puesta.
+///
+/// ## Por que los que no sirven tambien salen
+///
+/// Hasta hoy cada sucursal tenia un almacen en Accesos y se llamaba como la
+/// sucursal. Jose dio de alta los 14 de verdad, leidos de Ventra, y **seis de
+/// ellos estan sin coordenadas a proposito**: las ponen los logisticos de cada
+/// sucursal. O sea que «existe pero le falta la ubicacion» es el estado normal
+/// de estos dias, no una averia.
+///
+/// Con la lista filtrada por «los que sirven», esos seis desaparecian en
+/// silencio y quien mira no se enteraba de que su sucursal tiene un almacen a
+/// medio dar de alta. Eso es el §4 del `CLAUDE.md`: **nada se descarta en
+/// silencio**. Jose, 26/09/2026: «hace falta que aparezca por lo menos y diga
+/// que no esta configurado el que no tiene la ubicacion puesta».
+///
+/// Y la otra mitad, que es la que cuesta dinero: **el que no tiene ubicacion no
+/// se puede elegir**. De los kilometros desde el almacen sale el costo del
+/// domicilio, asi que medir desde un punto que no existe da un numero creible y
+/// equivocado — el fallo que mas caro sale aqui. Que exista y que le falte algo
+/// son dos cosas distintas, y las dos hay que ensenarlas.
+class AlmacenDeLaSucursal {
+  const AlmacenDeLaSucursal({
+    required this.id,
+    required this.nombre,
+    required this.principal,
+    required this.sirveParaMedir,
+  });
+
+  final String id;
+  final String nombre;
+
+  /// El que Accesos marca como principal. Es el que se elige solo cuando nadie
+  /// ha elegido nada.
+  final bool principal;
+
+  /// `false` = **le falta la ubicacion**, asi que no hay desde donde medir y no
+  /// se puede elegir. Las condiciones enteras —y por que cada una— viven en
+  /// `nucleo/almacenes/almacen_de_referencia.dart`, en un solo sitio: tres
+  /// pantallas hacen esta misma pregunta y el 22/09/2026 contestaban tres cosas
+  /// distintas de la misma sucursal.
+  final bool sirveParaMedir;
+
+  /// El motivo, en palabras de la casa, para quien ve la fila apagada. Se guarda
+  /// como texto y no como un enum porque es lo que se lee en la pantalla, y
+  /// «sin ubicación configurada» es exactamente lo que Jose pidió que dijera.
+  static const sinUbicacion = 'sin ubicación configurada';
+}
+
 /// La sucursal no tiene ningun almacen con coordenadas: **no hay tablero**.
 ///
 /// No se ordena por un punto inventado ni por las coordenadas de la sucursal,
@@ -312,6 +364,7 @@ class Tablero {
     required this.sucursalId,
     required this.sucursalNombre,
     required this.almacen,
+    this.almacenes = const <AlmacenDeLaSucursal>[],
     required this.columnas,
     required this.colocados,
     required this.avisos,
@@ -333,6 +386,7 @@ class Tablero {
     this.sucursalId = '',
     this.sucursalNombre = '',
   }) : almacen = const AlmacenOrigen(id: '', nombre: '', lat: 0, lng: 0),
+       almacenes = const <AlmacenDeLaSucursal>[],
        columnas = const <ColumnaTablero>[],
        colocados = const <TarjetaColocada>[],
        avisos = const AvisosTablero(),
@@ -346,6 +400,16 @@ class Tablero {
   final String sucursalId;
   final String sucursalNombre;
   final AlmacenOrigen almacen;
+
+  /// TODOS los almacenes de la sucursal, con ubicacion o sin ella. Vacia cuando
+  /// el tablero no se puede pintar.
+  ///
+  /// Va en el tablero y no en un provider aparte porque quien la ensena es la
+  /// cabecera, que ya tiene el tablero delante, y porque asi la lista y el
+  /// almacen desde el que se mide salen de **la misma lectura**: dos lecturas
+  /// distintas del mismo dato es como llegamos al 17/09/2026 con «Sin colocar
+  /// (722)» encima de una lista de 293 (`CLAUDE.md` §3-bis).
+  final List<AlmacenDeLaSucursal> almacenes;
 
   final List<ColumnaTablero> columnas;
   final List<TarjetaColocada> colocados;

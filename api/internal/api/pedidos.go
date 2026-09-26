@@ -562,9 +562,7 @@ func (s *Servidor) pedidosDisponibles(w http.ResponseWriter, r *http.Request) {
 	costoMin, hayCostoMin := numeroDeQuery(q.Get("costoMin"))
 	quedan := make([]sqlc.ListarPedidosDisponiblesRow, 0, len(filas))
 	for _, x := range filas {
-		// Un pedido SIN distancia medida NUNCA se descarta: no saber cuánto hay no es
-		// estar lejos, y dejarlo fuera esconde justo los que hay que mirar a mano.
-		if hayKmMax && x.DeliveryDistanceKm != nil && *x.DeliveryDistanceKm > kmMax {
+		if !pasaElTopeDeKm(x.DeliveryDistanceKm, kmMax, hayKmMax) {
 			continue
 		}
 		// Aquí el ausente SÍ cuenta como cero, y es lo pedido: `costoMin` es «enséñame
@@ -1315,6 +1313,25 @@ func unoOCero(s string) *bool {
 		return &v
 	}
 	return nil
+}
+
+// pasaElTopeDeKm decide si un pedido sobrevive al filtro «Hasta N km».
+//
+// SALIÓ A FUNCIÓN EL 26/09/2026 PARA PODER PROBARLA, y no por gusto. Ese día el lote dejó de
+// medir `delivery_distance_km` desde el punto de la sucursal y empezó a medirlo desde el
+// almacén del pedido (`cotizacion.go`, bloque 5-bis). En Santiago eso mueve un pedido de
+// AURORA unos veinte kilómetros, así que **un pedido que hoy sale en la lista puede dejar de
+// salir tras el despliegue, y al revés**: este filtro no cambia de código y sí cambia de
+// resultado. Estando en línea, dentro de un bucle, no había forma de escribir esa prueba sin
+// montar media API; ahora la escribe `TestElFiltroDeKmSeMueveConElOrigen`.
+//
+// UN PEDIDO SIN DISTANCIA MEDIDA NUNCA SE DESCARTA: no saber cuánto hay no es estar lejos, y
+// dejarlo fuera esconde justo los que hay que mirar a mano.
+func pasaElTopeDeKm(km *float64, tope float64, hayTope bool) bool {
+	if !hayTope || km == nil {
+		return true
+	}
+	return *km <= tope
 }
 
 // numeroDeQuery lee `kmMax` / `costoMin`. Cadena vacía o no numérica -> se ignora el

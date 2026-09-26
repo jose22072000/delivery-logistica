@@ -17,6 +17,7 @@
 // «Camaguey». Dos escrituras del mismo sitio no son dos sitios.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reparto/pantallas/tablero/vista/pantalla_tablero.dart';
 
@@ -28,9 +29,17 @@ void main() {
     String sucursal,
     String almacen,
   ) async {
+    // EL `ProviderScope` ES DE AHORA, no adorno: desde el 26/09/2026 la
+    // cabecera es un `ConsumerWidget` porque, con más de un almacén en la
+    // sucursal, se toca y anota la elección. Aquí se monta **sin lista de
+    // almacenes**, que es el caso de «no hay nada que elegir»: entonces es un
+    // `Text` pelado, exactamente como antes, y eso es lo que estas pruebas
+    // miden.
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(body: CabeceraDelTablero(sucursal, almacen)),
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(body: CabeceraDelTablero(sucursal, almacen)),
+        ),
       ),
     );
     return (tester.widget<Text>(find.byType(Text)).data)!;

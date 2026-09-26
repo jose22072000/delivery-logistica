@@ -135,6 +135,26 @@ type Config struct {
 	AuthClientID   string
 	AuthSigningKey string
 
+	// --- notify: por dónde salen los avisos a las personas ------------------
+	//
+	// Los correos y avisos de la casa los manda notify y NADA MÁS que notify —regla de
+	// `procovar/CLAUDE.md`—: ni un `sendmail` en el contenedor ni un guion suelto en el
+	// servidor, que son cosas que nadie encuentra el día que dejan de salir.
+	//
+	// TRES DE LOS CINCO NOMBRES SON LOS QUE YA USA ACCESOS, copiados y no inventados
+	// (`procovar/auth/src/lib/notifications.ts`): `QB_NOTIFY_URL`, `QB_NOTIFY_KEY_ID` y
+	// `QB_NOTIFY_SECRET`, la misma pareja firmada igual contra la misma API. Si algún día
+	// cambian, cambian en los dos sitios a la vez, y eso sólo pasa si se llaman igual.
+	// `QB_NOTIFY_TIPO` y `QB_NOTIFY_DESTINO` son de aquí: Accesos lleva el tipo escrito en
+	// el código y no tiene destinatario fijo, porque el suyo es el usuario de cada correo.
+	//
+	// NO SON OBLIGATORIAS PARA ARRANCAR, por lo mismo que `PEDIDO_API_URL`: el reparto
+	// entero funciona sin ellas y lo único que se pierde es el aviso. Lo que NO puede
+	// pasar es que se pierda en silencio, así que sin ellas se dice al arrancar —con el
+	// nombre de la que falta— y el canal devuelve error en vez de decir que sí. Ver
+	// `internal/api/canal_notify.go`.
+	Notify Notify
+
 	// --- La versión de la APLICACIÓN que hay colgada ------------------------
 	//
 	// Ojo con no confundirla con `Version`, que es la de ESTE servicio y la incrusta el
@@ -209,6 +229,79 @@ type FicheroPublicado struct {
 // pero el manejador no tiene por qué saberlo.
 func (p *Publicada) HayAlguna() bool { return p != nil && p.Version != "" }
 
+// TipoDeAvisoPorDefecto es el nombre del «Tipo de notificación» de notify por el que salen
+// estos avisos.
+//
+// EN NOTIFY EL TIPO ES QUIEN LLEVA EL CANAL, LA PLANTILLA Y EL SMTP: desde aquí sólo se
+// manda su nombre, el destinatario y las variables (`notify/docs/API-INTEGRACION.md` §1). O
+// sea que un tipo que allá no existe no es un aviso feo: es un `404
+// notification_type_not_found` y ni un correo.
+//
+// POR QUÉ `aviso-servidor` Y NO UNO PROPIO — 26/09/2026, comprobado en la base de notify de
+// producción antes de escribir esta línea. El primer intento puso aquí
+// `reparto-canal-pedido`, que sonaba bien y NO EXISTE: en `channel_routes` sólo hay siete
+// tipos, repartidos en tres aplicaciones (Demo, Procovar y Servidor), y ninguna se llama
+// Reparto. Un canal con la clave bien, el secreto bien y la firma bien, y nada al otro lado:
+// el canal de Entrega otra vez, con otro agujero.
+//
+// `aviso-servidor` es de la aplicación **Servidor** y es el único de los siete que está
+// probado de verdad — es por donde salen los avisos del VPS—. Su plantilla pide cinco
+// variables: `asunto`, `cuerpo`, `fecha`, `nivel` y `servidor`, y ésas son exactamente las
+// que manda `payloadDelAviso`. Una variable REQUERIDA que no esté tumba el envío en
+// `notify/backend/internal/notification/service.go` (`ValidatePayload`); una de más no rompe
+// nada, porque esa plantilla no pone `additionalProperties: false`.
+//
+// Y LA CLAVE TIENE QUE SER DE LA MISMA APLICACIÓN QUE EL TIPO. La búsqueda del tipo va
+// acotada por `application_id`, así que `QB_NOTIFY_KEY_ID` de Procovar con
+// `QB_NOTIFY_TIPO=aviso-servidor` da un 404 que no menciona la aplicación en ninguna parte
+// y manda a buscar una errata en el nombre del tipo, que está bien escrito.
+//
+// El día que Reparto tenga su aplicación y su plantilla propia, esto se cambia con
+// `QB_NOTIFY_TIPO` y sin desplegar código — pero entonces esa plantilla tiene que pedir
+// estas mismas cinco, o hay que venir aquí a cambiar los nombres.
+const TipoDeAvisoPorDefecto = "aviso-servidor"
+
+// Notify es por dónde salen los avisos a las personas.
+//
+// Son cinco datos y hacen falta CUATRO de los cinco (el tipo ya trae valor por defecto).
+// Media configuración es el peor de los casos y es justo el que ya pasó en esta casa: el
+// canal de Entrega existía con clave y secreto y **sin URL**, así que no salía nada y no se
+// veía en ningún registro. De ahí `Falta`, que nombra la primera que no está.
+type Notify struct {
+	// URL es la base del despliegue de notify, SIN el `/v1` — la ruta entra en la firma,
+	// así que meterla aquí la duplicaría y ninguna petición cuadraría.
+	URL string
+	// KeyID viaja en claro y dice QUIÉN llama; Secreto no viaja nunca y firma el cuerpo.
+	KeyID   string
+	Secreto string
+	// Tipo es el «Tipo de notificación» de la SPA de notify. Ver TipoDeAvisoPorDefecto.
+	Tipo string
+	// Destino es a quién le llega. notify pide el destinatario en cada petición: el tipo
+	// trae el SMTP de salida, no la dirección de quien lee.
+	Destino string
+}
+
+// Falta devuelve el NOMBRE de la primera variable que no está, o cadena vacía si está todo.
+//
+// Devuelve el nombre y no un booleano a propósito: «notify no está configurado» manda a
+// alguien a mirar cinco variables, y «falta QB_NOTIFY_SECRET» se arregla en un minuto. Es
+// la misma lección que los avisos de arranque de `cmd/api/main.go`.
+func (n Notify) Falta() string {
+	switch {
+	case n.URL == "":
+		return "QB_NOTIFY_URL"
+	case n.KeyID == "":
+		return "QB_NOTIFY_KEY_ID"
+	case n.Secreto == "":
+		return "QB_NOTIFY_SECRET"
+	case n.Tipo == "":
+		return "QB_NOTIFY_TIPO"
+	case n.Destino == "":
+		return "QB_NOTIFY_DESTINO"
+	}
+	return ""
+}
+
 // Obligatorias: sin una de éstas el servicio no puede hacer su trabajo, así que no
 // arranca. Ojo con relajar esta lista — una variable "opcional" con valor por defecto
 // silencioso es la forma de tener producción apuntando a la base de desarrollo.
@@ -264,6 +357,20 @@ func Cargar(version string) (*Config, error) {
 
 		VentraURL:   strings.TrimRight(valor("WAREHOUSE_API_URL", ""), "/"),
 		VentraToken: strings.TrimSpace(os.Getenv("WAREHOUSE_API_TOKEN")),
+
+		Notify: Notify{
+			// La barra final fuera, igual que las demás: con ella la ruta firmada
+			// sería `//v1/notifications` y la firma no cuadraría nunca — y el motivo
+			// que se ve es un 401, que manda a mirar el secreto y no la URL.
+			URL:   strings.TrimRight(valor("QB_NOTIFY_URL", ""), "/"),
+			KeyID: strings.TrimSpace(os.Getenv("QB_NOTIFY_KEY_ID")),
+			// El espacio de alrededor fuera, por lo del webhook de PEDIDO: un secreto
+			// pegado en Dokploy con un salto de línea de más da una firma que no
+			// cuadra jamás y los dos lados juran tener «el mismo» secreto.
+			Secreto: strings.TrimSpace(os.Getenv("QB_NOTIFY_SECRET")),
+			Tipo:    valor("QB_NOTIFY_TIPO", TipoDeAvisoPorDefecto),
+			Destino: strings.TrimSpace(os.Getenv("QB_NOTIFY_DESTINO")),
+		},
 	}
 
 	var errs []error
@@ -317,6 +424,7 @@ func Cargar(version string) (*Config, error) {
 		{"DELIVERY_URL", c.DeliveryURL},
 		{"PROCOVAR_AUTH_URL", c.AuthURL},
 		{"WAREHOUSE_API_URL", c.VentraURL},
+		{"QB_NOTIFY_URL", c.Notify.URL},
 	} {
 		if u.valor == "" {
 			continue // vacía es «no configurada», y cada quien sabe qué hacer con eso

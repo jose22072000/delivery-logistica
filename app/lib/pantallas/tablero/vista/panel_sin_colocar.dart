@@ -256,7 +256,30 @@ class _Filtros extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 8),
+        // LOS DOS DESPLEGABLES DE AQUI VAN CON `isExpanded` — 26/09/2026.
+        //
+        // En el barrido de los cuatro anchos, el de **Vendedor** desbordaba a
+        // 390 px con el cajon de filtros abierto: `A RenderFlex overflowed by
+        // 20 pixels on the right.` Lo que se sale por la derecha es la flecha
+        // del desplegable, o sea **la unica pista de que eso se puede tocar**,
+        // encima de la franja amarilla y negra.
+        //
+        // No es culpa de estos nombres: `DropdownButton` sin `isExpanded` monta
+        // su fila interna con `mainAxisSize: min` y NO envuelve el hijo en un
+        // `Expanded`, asi que el texto pide su ancho natural. Un vendedor con
+        // nombre y dos apellidos —«Luis Alberto Dominguez Hernandez», que es
+        // como vienen de PEDIDO— ya basta. Y el municipio va igual aunque hoy
+        // no lo cace nadie: es el mismo desplegable con datos del mismo sitio,
+        // y «Santa Cruz del Sur» o «San Miguel del Padron» son municipios de
+        // verdad. Arreglar solo el que salto deja el hermano esperando al dia
+        // que llegue un nombre un poco mas largo.
+        //
+        // La elipsis va aparte de `isExpanded`: con el hijo ya acotado, un
+        // nombre largo se partiria en dos lineas dentro de una caja de alto
+        // fijo. Cortar con «…» se puede porque el nombre entero se lee al
+        // desplegar la lista.
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: filtros.municipio,
           decoration: const InputDecoration(
             labelText: 'Municipio',
@@ -265,7 +288,10 @@ class _Filtros extends ConsumerWidget {
           items: [
             const DropdownMenuItem<String>(child: Text('Todos')),
             for (final m in municipios)
-              DropdownMenuItem<String>(value: m, child: Text(m)),
+              DropdownMenuItem<String>(
+                value: m,
+                child: Text(m, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
           ],
           onChanged: (valor) => poner(
             valor == null
@@ -275,6 +301,7 @@ class _Filtros extends ConsumerWidget {
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
+          isExpanded: false,
           initialValue: filtros.vendedor,
           decoration: const InputDecoration(
             labelText: 'Vendedor',
@@ -283,7 +310,10 @@ class _Filtros extends ConsumerWidget {
           items: [
             const DropdownMenuItem<String>(child: Text('Todos')),
             for (final v in vendedores)
-              DropdownMenuItem<String>(value: v, child: Text(v)),
+              DropdownMenuItem<String>(
+                value: v,
+                child: Text(v, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
           ],
           onChanged: (valor) => poner(
             valor == null

@@ -32,6 +32,17 @@ type Renglon struct {
 	Packs       Numero `json:"packs"`       // unidades de venta: blísters, cajas
 	PesoKg      Numero `json:"pesoKg"`      // de PEDIDO, por unidad de venta
 	PesoLineaKg Numero `json:"pesoLineaKg"` // de PEDIDO, la línea entera
+
+	// DE QUÉ ALMACÉN SALE ESTA LÍNEA. No entra en la cascada del peso ni la toca: viaja
+	// pegada al renglón porque `RenglonPesado` la incrusta, y de ahí va a `order_items`.
+	//
+	// NO CONFUNDIR CON `RenglonPesado.WhName`, que está dos structs más abajo y se llama
+	// «wh» por warehouse: eso es el nombre del PRODUCTO con el que casó el catálogo local de
+	// pesos y por eso se escribe en `order_items.almacen_nombre`. La columna lleva ese nombre
+	// desde la 00004 y el comentario de aquella migración ya lo decía mal. El almacén de
+	// verdad va en `almacen_salida_*` (00012).
+	AlmacenCodigo string `json:"almacenCodigo"`
+	AlmacenNombre string `json:"almacenNombre"`
 }
 
 // RenglonPesado es la línea con el peso ya resuelto.

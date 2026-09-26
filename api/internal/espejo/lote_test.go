@@ -2,6 +2,7 @@ package espejo
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -189,6 +190,80 @@ func TestLosCamposVaciosViajanComoAusentes(t *testing.T) {
 	for _, campo := range []string{"facturaEstado", "facturaNumero", "municipio", "vendedor", "orderDate", "pedidoUpdatedAt"} {
 		if visto[campo] != nil {
 			t.Errorf("%s tenía que ir nulo y fue %v", campo, visto[campo])
+		}
+	}
+}
+
+// UN ALMACÉN SIN `mezclado` NO AFIRMA QUE EL PEDIDO SALGA DE UNO SOLO.
+//
+// # Qué pasa si esto se rompe
+//
+// `AlmacenDelPedido.Mezclado` es `*bool` con `omitempty`, y las dos cosas hacen falta. Con un
+// `bool` pelado, un `almacen` que llegue de PEDIDO SIN `mezclado` se lee como `false` —así
+// entiende Go un campo ausente—, esta estructura se vuelve a serializar hacia la puerta del
+// lote y sale `"mezclado": false` EXPLÍCITO. La puerta lo guarda como `false` y la base acaba
+// AFIRMANDO que el pedido sale de un solo almacén sin que nadie lo haya comprobado.
+//
+// Lo que eso cuesta: un pedido de Santiago con seis renglones de AURORA y seis de PV-STGO.
+// PEDIDO resuelve el desempate y manda `codigo: "2"`, pero una versión suya que todavía no
+// mande `mezclado` dejaría guardado «no está mezclado». Nadie sabe que son DOS recogidas,
+// ninguna pantalla lo desmiente, y el que despacha va a AURORA y se deja media carga en
+// PV-STGO. Un NULL dice «no se sabe»; un `false` dice «comprobado que no», y es mentira.
+//
+// Es el mismo modo de fallo que `internal/api/almacenes.go` documenta para `activo`: dos lados
+// leyendo el mismo campo y entendiendo cosas distintas, sin que falle nada.
+//
+// SE MIRA EL JSON QUE SALE y no el campo de la estructura: lo que hace daño es el `false`
+// serializado, y un `*bool` sin `omitempty` tiene el campo bien y emite `"mezclado":null`,
+// que la puerta también lee bien — pero el día que alguien lo vuelva a poner `bool`, mirar la
+// estructura no lo caza y mirar el JSON sí.
+func TestUnAlmacenSinMezcladoNoAfirmaQueNoLoEsta(t *testing.T) {
+	// Como llega de PEDIDO: el bloque `almacen` SIN `mezclado`.
+	var p PedidoDeFuera
+	if err := json.Unmarshal([]byte(`{
+		"id":"ped-1","sucursalCodigo":"STG",
+		"almacen":{"codigo":"2","nombre":"AURORA","sucursalCodigo":"STG"}
+	}`), &p); err != nil {
+		t.Fatalf("no se entendió el pedido: %v", err)
+	}
+	if p.Almacen == nil {
+		t.Fatal("el almacén no se leyó")
+	}
+	if p.Almacen.Mezclado != nil {
+		t.Fatalf("un `mezclado` ausente se leyó como %v: eso AFIRMA que el pedido sale de un "+
+			"solo almacén, y nadie lo ha comprobado", *p.Almacen.Mezclado)
+	}
+
+	crudo, err := json.Marshal(ArmarLote([]PedidoDeFuera{p}))
+	if err != nil {
+		t.Fatalf("no se pudo serializar el lote: %v", err)
+	}
+	if strings.Contains(string(crudo), `"mezclado":false`) {
+		t.Fatalf("el lote manda `\"mezclado\":false` sobre algo que PEDIDO no dijo: la puerta "+
+			"lo va a guardar como «comprobado que no está mezclado» — %s", crudo)
+	}
+
+	// LA OTRA MITAD: cuando PEDIDO SÍ lo dice, viaja. Sin esto, «no afirma de más» se cumple
+	// tirando el campo siempre, y entonces un pedido de dos recogidas nunca se marca.
+	for _, caso := range []struct {
+		valor  string
+		quiere string
+	}{
+		{`true`, `"mezclado":true`},
+		{`false`, `"mezclado":false`},
+	} {
+		var q PedidoDeFuera
+		if err := json.Unmarshal([]byte(`{"id":"p","almacen":{"codigo":"2","mezclado":`+
+			caso.valor+`}}`), &q); err != nil {
+			t.Fatalf("no se entendió: %v", err)
+		}
+		salida, err := json.Marshal(ArmarLote([]PedidoDeFuera{q}))
+		if err != nil {
+			t.Fatalf("no se pudo serializar: %v", err)
+		}
+		if !strings.Contains(string(salida), caso.quiere) {
+			t.Errorf("con `mezclado: %s` el lote tenía que llevar %s; llevó %s",
+				caso.valor, caso.quiere, salida)
 		}
 	}
 }

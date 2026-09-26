@@ -527,9 +527,15 @@ class _BarraDeArriba extends ConsumerWidget {
                 // desde ESE almacén. Eso hay que decirlo cuando la sucursal
                 // tiene más de uno, porque entonces cuál se usa no es evidente.
                 // Cuando tiene uno solo y se llama igual, es ruido.
+                // Y DESDE EL 26/09/2026 SE PUEDE ELEGIR, cuando hay más de uno.
+                // Jose: «hace falta que aparezca por lo menos y diga que no está
+                // configurado el que no tiene la ubicación puesta». El porqué
+                // entero, en `CabeceraDelTablero`.
                 CabeceraDelTablero(
                   tablero.sucursalNombre,
                   tablero.almacen.nombre,
+                  sucursalId: tablero.sucursalId,
+                  almacenes: tablero.almacenes,
                 ),
                 // Un tablero que parece vivo y lleva seis horas congelado es
                 // peor que uno que avisa.
@@ -711,19 +717,175 @@ class _Problema extends StatelessWidget {
 /// Es un widget con nombre y no una línea suelta dentro del `build` para que su
 /// prueba pase por lo que de verdad se pinta —`la_cabecera_no_se_repite_test`—
 /// y no por una función copiada al lado.
-class CabeceraDelTablero extends StatelessWidget {
-  const CabeceraDelTablero(this.sucursal, this.almacen, {super.key});
+class CabeceraDelTablero extends ConsumerWidget {
+  const CabeceraDelTablero(
+    this.sucursal,
+    this.almacen, {
+    this.sucursalId = '',
+    this.almacenes = const <AlmacenDeLaSucursal>[],
+    super.key,
+  });
 
   final String sucursal;
 
   /// El almacén desde el que se mide. Vacío mientras no se sabe cuál es.
   final String almacen;
 
+  /// Para poder anotar la elección donde toca: es por sucursal.
+  final String sucursalId;
+
+  /// TODOS los de la sucursal, con ubicación o sin ella.
+  final List<AlmacenDeLaSucursal> almacenes;
+
+  /// CON UNO SOLO NO SE OFRECE ELEGIR.
+  ///
+  /// Un desplegable de un elemento no elige nada: es un botón que promete algo y
+  /// abre una lista de uno. Tres de las ocho sucursales están así hoy —Granma,
+  /// Holguín y Las Tunas tienen un almacén cada una—, y en ésas la cabecera se
+  /// queda exactamente como estaba.
+  bool get sePuedeElegir => almacenes.length > 1;
+
   @override
-  Widget build(BuildContext context) => Text(
-    _cabecera(sucursal, almacen),
-    style: Theme.of(context).textTheme.labelMedium,
-  );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final texto = _cabecera(sucursal, almacen);
+    final estilo = Theme.of(context).textTheme.labelMedium;
+    if (!sePuedeElegir) return Text(texto, style: estilo);
+
+    // SE TOCA. Y se ve que se toca: sin la flecha, un texto que abre algo no lo
+    // parece — es el mismo fallo que el `isExpanded` que faltaba en los
+    // desplegables de esta pantalla, donde lo que se perdía era justo la flecha.
+    return InkWell(
+      onTap: () => _abrirLaLista(context, ref),
+      borderRadius: BorderRadius.circular(Radios.sm),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // `Flexible` y elipsis: a 390 px «San Antonio de los Baños · desde
+            // HABANA HACENDADO» no cabe, y lo que no puede irse por la derecha
+            // es la flecha.
+            Flexible(
+              child: Text(
+                texto,
+                style: estilo,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 2),
+            const Icon(Icons.expand_more, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// La lista, EN UN CAJÓN, también en escritorio.
+  ///
+  /// La regla general de Procovar es cajón en móvil y modal en escritorio. Aquí
+  /// no: delivery-logistica tiene una **excepción aprobada el 05/09/2026**
+  /// —escrita en el §4 del `CLAUDE.md` de este repo, en `pantallas.md` §0 y §9.2
+  /// y en la cabecera de `diseno/cajon.dart`— y no hay variante modal. Lo que se
+  /// conserva de la regla es lo que de verdad importa: en móvil ocupa la pantalla
+  /// entera, y **la ✕ de cerrar no desaparece nunca** — la pone la cabecera del
+  /// propio [Cajon], fuera del cuerpo desplazable.
+  ///
+  /// Se usa `mostrarCajon` y no `showDialog` por eso mismo, y porque los otros
+  /// cinco paneles de esta pantalla ya van así: un panel que se abriera de otra
+  /// forma se leería como si fuera otra cosa.
+  Future<void> _abrirLaLista(BuildContext context, WidgetRef ref) =>
+      mostrarCajon<void>(
+        context: context,
+        titulo: 'Desde qué almacén se mide',
+        contenido: (contexto) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Los kilómetros de cada tarjeta —y el domicilio que se cobra con '
+              'ellos— se miden desde este punto.',
+              style: Theme.of(contexto).textTheme.bodySmall,
+            ),
+            const SizedBox(height: Aire.md),
+            for (final a in almacenes)
+              _FilaDeAlmacen(
+                almacen: a,
+                elegido: a.nombre == almacen,
+                alElegir: a.sirveParaMedir
+                    ? () {
+                        ref
+                            .read(almacenElegidoProvider.notifier)
+                            .elegir(sucursalId, a.id);
+                        Navigator.of(contexto).maybePop();
+                      }
+                    : null,
+              ),
+          ],
+        ),
+      );
+}
+
+/// UNA FILA DE LA LISTA DE ALMACENES.
+///
+/// Dos cosas distintas y las dos hacen falta: **que existe** y **que le falta la
+/// ubicación**. Un almacén sin punto sale con su nombre, apagado, y con el motivo
+/// en palabras de la casa al lado. No se puede pulsar, y ahí no hay término
+/// medio: medir desde un punto que no existe da un kilometraje creíble y
+/// equivocado, y con ese kilometraje se le cobra el domicilio al cliente. El
+/// fallo que más caro sale aquí es el número que se lee bien y está mal.
+class _FilaDeAlmacen extends StatelessWidget {
+  const _FilaDeAlmacen({
+    required this.almacen,
+    required this.elegido,
+    required this.alElegir,
+  });
+
+  final AlmacenDeLaSucursal almacen;
+  final bool elegido;
+
+  /// `null` = **no se puede elegir**. Es lo que apaga la fila, y es una sola
+  /// fuente: así no puede pasar que se vea apagada y se pueda pulsar, ni al
+  /// revés.
+  final VoidCallback? alElegir;
+
+  @override
+  Widget build(BuildContext context) {
+    final tema = Theme.of(context);
+    final sirve = alElegir != null;
+    return ListTile(
+      key: ValueKey('almacen-${almacen.id}'),
+      contentPadding: EdgeInsets.zero,
+      enabled: sirve,
+      onTap: alElegir,
+      leading: Icon(
+        elegido ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+        size: 20,
+        color: sirve ? Colores.primario : Colores.tintaSuave,
+      ),
+      title: Text(
+        almacen.nombre,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: tema.textTheme.bodyMedium?.copyWith(
+          color: sirve ? Colores.tinta : Colores.tintaSuave,
+        ),
+      ),
+      subtitle: sirve
+          ? (almacen.principal
+                ? Text('el principal', style: tema.textTheme.bodySmall)
+                : null)
+          // EL MOTIVO, LITERAL Y EN SU FILA. Un icono de aviso a secas deja a
+          // quien mira preguntándose qué le pasa, y lo que le pasa tiene
+          // arreglo: lo pone el logístico de esa sucursal.
+          : Text(
+              AlmacenDeLaSucursal.sinUbicacion,
+              style: tema.textTheme.bodySmall?.copyWith(
+                color: ColoresTablero.ambar,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+    );
+  }
 }
 
 /// La sucursal y, si aporta algo, desde dónde se mide.

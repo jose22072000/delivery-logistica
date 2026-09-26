@@ -99,8 +99,17 @@ func nuevoCanalAPedido(cfg *config.Config, reg *slog.Logger) CanalAPedido {
 		for i := 0; i < len(avisos); i += TandaAPedido {
 			tanda := avisos[i:min(i+TandaAPedido, len(avisos))]
 
-			aplicados, motivo := mandarTanda(ctx, destino, clave, tanda)
+			aplicados, motivo, rechazo, codigo := mandarTanda(ctx, destino, clave, tanda)
 			parte.Aplicados += aplicados
+			// EL HTTP SE FIJA CON EL MOTIVO, EN EL MISMO SITIO. Si uno se quedara con el
+			// primero y el otro con el último, la fila saldría con el motivo de una tanda
+			// y el código de otra: se lee bien y es mentira.
+			if parte.HTTP == 0 {
+				parte.HTTP = codigo
+			}
+			if rechazo {
+				parte.Rechazo = true
+			}
 			if motivo != "" {
 				// SE GUARDA EL PRIMER MOTIVO Y SE SIGUE, no se aborta: las tandas que
 				// vienen detrás son pedidos distintos y no tienen la culpa de que ésta
@@ -134,10 +143,16 @@ func canalMudo(reg *slog.Logger, motivo string) CanalAPedido {
 // mandarTanda hace UNA llamada. Devuelve cuántos aplicó PEDIDO y, si algo salió mal, el
 // motivo en texto. No devuelve `error` a propósito: aquí ningún fallo se propaga hacia
 // arriba, se cuenta.
-func mandarTanda(ctx context.Context, destino, clave string, tanda []AvisoDeParada) (int, string) {
+// mandarTanda devuelve cuántos aplicó PEDIDO, el motivo, **si fue un rechazo suyo** y el
+// código HTTP.
+//
+// El tercer valor es el que separa «PEDIDO dijo que no» de «no se pudo ni preguntar». Ver
+// `ParteAPedido.Rechazo`: sin él, un rechazo se reintentaba cada minuto para siempre y
+// paraba el buzón entero.
+func mandarTanda(ctx context.Context, destino, clave string, tanda []AvisoDeParada) (int, string, bool, int) {
 	cuerpo, err := json.Marshal(map[string]any{"pedidos": tanda})
 	if err != nil {
-		return 0, fmt.Sprintf("no se pudo armar el aviso: %s", err)
+		return 0, fmt.Sprintf("no se pudo armar el aviso: %s", err), false, 0
 	}
 
 	// Plazo PROPIO por tanda, además del que trae el cliente: el contexto que llega puede
@@ -148,7 +163,7 @@ func mandarTanda(ctx context.Context, destino, clave string, tanda []AvisoDePara
 
 	pet, err := http.NewRequestWithContext(ctx, http.MethodPost, destino, bytes.NewReader(cuerpo))
 	if err != nil {
-		return 0, err.Error()
+		return 0, err.Error(), false, 0
 	}
 	pet.Header.Set("Content-Type", "application/json")
 	pet.Header.Set("Accept", "application/json")
@@ -158,7 +173,8 @@ func mandarTanda(ctx context.Context, destino, clave string, tanda []AvisoDePara
 
 	res, err := ClienteDePedido.Do(pet)
 	if err != nil {
-		return 0, err.Error()
+		// NO SE LLEGÓ A HABLAR: no es rechazo, y el HTTP es 0 porque no hubo ninguno.
+		return 0, err.Error(), false, 0
 	}
 	defer res.Body.Close()
 
@@ -168,7 +184,9 @@ func mandarTanda(ctx context.Context, destino, clave string, tanda []AvisoDePara
 	crudo, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return 0, fmt.Sprintf("PEDIDO contestó %d", res.StatusCode)
+		// UN CÓDIGO DE ERROR NO ES UN RECHAZO. Un 502 de un proxy o un 500 mientras PEDIDO
+		// arranca se arreglan solos esperando; un rechazo suyo no. Se reintenta.
+		return 0, fmt.Sprintf("PEDIDO contestó %d", res.StatusCode), false, res.StatusCode
 	}
 
 	var r struct {
@@ -180,14 +198,17 @@ func mandarTanda(ctx context.Context, destino, clave string, tanda []AvisoDePara
 	if err := json.Unmarshal(crudo, &r); err != nil {
 		// 200 con un cuerpo que no se entiende NO se cuenta como aplicado. Contarlo sería
 		// dar por contado lo que no consta en ningún sitio.
-		return 0, fmt.Sprintf("PEDIDO contestó algo que no se entiende: %s", err)
+		// 200 CON UN CUERPO QUE NO SE ENTIENDE tampoco es un rechazo: no sabemos qué dijo.
+		// Y si no es suyo —Traefik, un proxy— reintentar es lo correcto.
+		return 0, fmt.Sprintf("PEDIDO contestó algo que no se entiende: %s", err), false, res.StatusCode
 	}
 	if len(r.Rechazados) > 0 {
 		// El PRIMER motivo, no todos: es lo que cabe en una pantalla y lo que hace falta
 		// para saber qué mirar. Los demás están en el registro de PEDIDO.
-		return len(r.Aplicados), r.Rechazados[0].Motivo
+		// AQUÍ SÍ: contestó, miró los pedidos uno a uno y dijo que no. Repetirlo da lo mismo.
+		return len(r.Aplicados), r.Rechazados[0].Motivo, true, res.StatusCode
 	}
-	return len(r.Aplicados), ""
+	return len(r.Aplicados), "", false, res.StatusCode
 }
 
 // sinRepetidos quita los avisos idénticos de un mismo lote.

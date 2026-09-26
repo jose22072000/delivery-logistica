@@ -486,51 +486,57 @@ func (q *Queries) ContarPedidosDisponibles(ctx context.Context, arg ContarPedido
 const crearRenglonDePedido = `-- name: CrearRenglonDePedido :one
 INSERT INTO order_items (
     order_id, linea, description, quantity, packs, product_id,
-    nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso
+    nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso,
+    almacen_salida_codigo, almacen_salida_nombre
 )
 VALUES (
     $1, $2, $3,
     $4, $5, $6,
     $7, $8, $9,
     $10, $11, $12,
-    $13
+    $13,
+    $14, $15
 )
 RETURNING id, order_id, linea, description, quantity, packs, product_id,
           nombre, codigo, almacen_nombre, caso, peso_unitario_kg, peso_linea_kg,
-          origen_peso
+          origen_peso, almacen_salida_codigo, almacen_salida_nombre
 `
 
 type CrearRenglonDePedidoParams struct {
-	PedidoID       uuid.UUID   `json:"pedido_id"`
-	Linea          int32       `json:"linea"`
-	Description    string      `json:"description"`
-	Quantity       float64     `json:"quantity"`
-	Packs          *float64    `json:"packs"`
-	ProductID      pgtype.UUID `json:"product_id"`
-	Nombre         *string     `json:"nombre"`
-	Codigo         *string     `json:"codigo"`
-	AlmacenNombre  *string     `json:"almacen_nombre"`
-	Caso           *bool       `json:"caso"`
-	PesoUnitarioKg *float64    `json:"peso_unitario_kg"`
-	PesoLineaKg    *float64    `json:"peso_linea_kg"`
-	OrigenPeso     *string     `json:"origen_peso"`
+	PedidoID            uuid.UUID   `json:"pedido_id"`
+	Linea               int32       `json:"linea"`
+	Description         string      `json:"description"`
+	Quantity            float64     `json:"quantity"`
+	Packs               *float64    `json:"packs"`
+	ProductID           pgtype.UUID `json:"product_id"`
+	Nombre              *string     `json:"nombre"`
+	Codigo              *string     `json:"codigo"`
+	AlmacenNombre       *string     `json:"almacen_nombre"`
+	Caso                *bool       `json:"caso"`
+	PesoUnitarioKg      *float64    `json:"peso_unitario_kg"`
+	PesoLineaKg         *float64    `json:"peso_linea_kg"`
+	OrigenPeso          *string     `json:"origen_peso"`
+	AlmacenSalidaCodigo *string     `json:"almacen_salida_codigo"`
+	AlmacenSalidaNombre *string     `json:"almacen_salida_nombre"`
 }
 
 type CrearRenglonDePedidoRow struct {
-	ID             uuid.UUID   `json:"id"`
-	OrderID        uuid.UUID   `json:"order_id"`
-	Linea          int32       `json:"linea"`
-	Description    string      `json:"description"`
-	Quantity       float64     `json:"quantity"`
-	Packs          *float64    `json:"packs"`
-	ProductID      pgtype.UUID `json:"product_id"`
-	Nombre         *string     `json:"nombre"`
-	Codigo         *string     `json:"codigo"`
-	AlmacenNombre  *string     `json:"almacen_nombre"`
-	Caso           *bool       `json:"caso"`
-	PesoUnitarioKg *float64    `json:"peso_unitario_kg"`
-	PesoLineaKg    *float64    `json:"peso_linea_kg"`
-	OrigenPeso     *string     `json:"origen_peso"`
+	ID                  uuid.UUID   `json:"id"`
+	OrderID             uuid.UUID   `json:"order_id"`
+	Linea               int32       `json:"linea"`
+	Description         string      `json:"description"`
+	Quantity            float64     `json:"quantity"`
+	Packs               *float64    `json:"packs"`
+	ProductID           pgtype.UUID `json:"product_id"`
+	Nombre              *string     `json:"nombre"`
+	Codigo              *string     `json:"codigo"`
+	AlmacenNombre       *string     `json:"almacen_nombre"`
+	Caso                *bool       `json:"caso"`
+	PesoUnitarioKg      *float64    `json:"peso_unitario_kg"`
+	PesoLineaKg         *float64    `json:"peso_linea_kg"`
+	OrigenPeso          *string     `json:"origen_peso"`
+	AlmacenSalidaCodigo *string     `json:"almacen_salida_codigo"`
+	AlmacenSalidaNombre *string     `json:"almacen_salida_nombre"`
 }
 
 // LA CONSTANCIA DEL PESO, que estaba dada de alta y no la escribía nadie.
@@ -550,6 +556,12 @@ type CrearRenglonDePedidoRow struct {
 // Todos anulables a propósito: un renglón que no sabe lo que pesa se guarda VACÍO, no en
 // cero. `origen_peso = 'none'` —`cotizar.PesoDesconocido`— es otra cosa y sí se escribe:
 // es el renglón confesando que lo intentó y no pudo, que es lo que la vista mira.
+//
+// Y OJO CON LAS DOS COLUMNAS QUE SE PARECEN: `almacen_nombre` es el nombre del PRODUCTO con
+// el que casó el catálogo local de pesos (`RenglonPesado.WhName`) y no tiene nada que ver
+// con un almacén, a pesar de cómo se llama. El almacén del que sale el renglón —00012— es
+// `almacen_salida_codigo` / `almacen_salida_nombre`. Escribir un almacén en la primera
+// dejaría a quien busca un producto leyendo «2» y «AURORA».
 func (q *Queries) CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePedidoParams) (CrearRenglonDePedidoRow, error) {
 	row := q.db.QueryRow(ctx, crearRenglonDePedido,
 		arg.PedidoID,
@@ -565,6 +577,8 @@ func (q *Queries) CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePe
 		arg.PesoUnitarioKg,
 		arg.PesoLineaKg,
 		arg.OrigenPeso,
+		arg.AlmacenSalidaCodigo,
+		arg.AlmacenSalidaNombre,
 	)
 	var i CrearRenglonDePedidoRow
 	err := row.Scan(
@@ -582,6 +596,8 @@ func (q *Queries) CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePe
 		&i.PesoUnitarioKg,
 		&i.PesoLineaKg,
 		&i.OrigenPeso,
+		&i.AlmacenSalidaCodigo,
+		&i.AlmacenSalidaNombre,
 	)
 	return i, err
 }
@@ -949,7 +965,9 @@ INSERT INTO orders (
     pedido_updated_at, estado, archivado, fecha_comprometida, requiere_domicilio,
     pedido_costo, municipio, vendedor, sucursal_codigo, factura_estado,
     factura_numero, factura_at, factura_domicilio, factura_corregido_at,
-    items_origen, delivery_distance_km, delivery_price
+    items_origen, delivery_distance_km, delivery_price,
+    almacen_salida_codigo, almacen_salida_nombre, almacen_salida_sucursal,
+    almacen_salida_mezclado, almacen_salida_motivo
 ) VALUES (
     $1, $2, $3,
     $4, $5,
@@ -960,7 +978,10 @@ INSERT INTO orders (
     $20, $21, $22,
     $23, $24, $25,
     $26, $27, $28,
-    $29, $30, $31
+    $29, $30, $31,
+    $32, $33,
+    $34, $35,
+    $36
 )
 ON CONFLICT (source, external_id) WHERE source IS NOT NULL AND external_id IS NOT NULL
 DO UPDATE SET
@@ -992,7 +1013,16 @@ DO UPDATE SET
     factura_corregido_at = excluded.factura_corregido_at,
     items_origen         = excluded.items_origen,
     delivery_distance_km = excluded.delivery_distance_km,
-    delivery_price       = excluded.delivery_price
+    delivery_price       = excluded.delivery_price,
+    -- DE QUÉ ALMACÉN SALE, y desde dónde se midió. Entra en el UPDATE porque cambia solo:
+    -- un pedido entra al reparto antes de estar facturado —sin almacén, medido desde el
+    -- principal— y cuando PEDIDO lo cierra contra la factura llega ya con el suyo. Si esto
+    -- no se pisara, el kilometraje se quedaría para siempre con el del primer día.
+    almacen_salida_codigo   = excluded.almacen_salida_codigo,
+    almacen_salida_nombre   = excluded.almacen_salida_nombre,
+    almacen_salida_sucursal = excluded.almacen_salida_sucursal,
+    almacen_salida_mezclado = excluded.almacen_salida_mezclado,
+    almacen_salida_motivo   = excluded.almacen_salida_motivo
 WHERE (orders.operation_number, orders.customer_name, orders.customer_phone,
        orders.address, orders.end_address, orders.lat, orders.lng,
        orders.end_lat, orders.end_lng, orders.weight, orders.branch_id,
@@ -1001,7 +1031,10 @@ WHERE (orders.operation_number, orders.customer_name, orders.customer_phone,
        orders.municipio, orders.vendedor, orders.sucursal_codigo,
        orders.factura_estado, orders.factura_numero, orders.factura_at,
        orders.factura_domicilio, orders.factura_corregido_at, orders.items_origen,
-       orders.delivery_distance_km, orders.delivery_price)
+       orders.delivery_distance_km, orders.delivery_price,
+       orders.almacen_salida_codigo, orders.almacen_salida_nombre,
+       orders.almacen_salida_sucursal, orders.almacen_salida_mezclado,
+       orders.almacen_salida_motivo)
    IS DISTINCT FROM
       (excluded.operation_number, excluded.customer_name, excluded.customer_phone,
        excluded.address, excluded.end_address, excluded.lat, excluded.lng,
@@ -1011,42 +1044,50 @@ WHERE (orders.operation_number, orders.customer_name, orders.customer_phone,
        excluded.municipio, excluded.vendedor, excluded.sucursal_codigo,
        excluded.factura_estado, excluded.factura_numero, excluded.factura_at,
        excluded.factura_domicilio, excluded.factura_corregido_at, excluded.items_origen,
-       excluded.delivery_distance_km, excluded.delivery_price)
+       excluded.delivery_distance_km, excluded.delivery_price,
+       excluded.almacen_salida_codigo, excluded.almacen_salida_nombre,
+       excluded.almacen_salida_sucursal, excluded.almacen_salida_mezclado,
+       excluded.almacen_salida_motivo)
 RETURNING id, branch_id, external_id, (xmax = 0)::boolean AS es_nuevo
 `
 
 type GuardarPedidoDelEspejoParams struct {
-	OperationNumber    *string            `json:"operation_number"`
-	CustomerName       string             `json:"customer_name"`
-	CustomerPhone      *string            `json:"customer_phone"`
-	Address            string             `json:"address"`
-	EndAddress         *string            `json:"end_address"`
-	Lat                *float64           `json:"lat"`
-	Lng                *float64           `json:"lng"`
-	EndLat             *float64           `json:"end_lat"`
-	EndLng             *float64           `json:"end_lng"`
-	Weight             float64            `json:"weight"`
-	BranchID           pgtype.UUID        `json:"branch_id"`
-	Source             *Procedencia       `json:"source"`
-	ExternalID         *string            `json:"external_id"`
-	OrderDate          pgtype.Timestamptz `json:"order_date"`
-	PedidoUpdatedAt    pgtype.Timestamptz `json:"pedido_updated_at"`
-	Estado             *PedidoEstado      `json:"estado"`
-	Archivado          bool               `json:"archivado"`
-	FechaComprometida  pgtype.Timestamptz `json:"fecha_comprometida"`
-	RequiereDomicilio  *bool              `json:"requiere_domicilio"`
-	PedidoCosto        *float64           `json:"pedido_costo"`
-	Municipio          *string            `json:"municipio"`
-	Vendedor           *string            `json:"vendedor"`
-	SucursalCodigo     *string            `json:"sucursal_codigo"`
-	FacturaEstado      *FacturaEstado     `json:"factura_estado"`
-	FacturaNumero      *string            `json:"factura_numero"`
-	FacturaAt          pgtype.Timestamptz `json:"factura_at"`
-	FacturaDomicilio   *float64           `json:"factura_domicilio"`
-	FacturaCorregidoAt pgtype.Timestamptz `json:"factura_corregido_at"`
-	ItemsOrigen        *string            `json:"items_origen"`
-	DeliveryDistanceKm *float64           `json:"delivery_distance_km"`
-	DeliveryPrice      *float64           `json:"delivery_price"`
+	OperationNumber       *string            `json:"operation_number"`
+	CustomerName          string             `json:"customer_name"`
+	CustomerPhone         *string            `json:"customer_phone"`
+	Address               string             `json:"address"`
+	EndAddress            *string            `json:"end_address"`
+	Lat                   *float64           `json:"lat"`
+	Lng                   *float64           `json:"lng"`
+	EndLat                *float64           `json:"end_lat"`
+	EndLng                *float64           `json:"end_lng"`
+	Weight                float64            `json:"weight"`
+	BranchID              pgtype.UUID        `json:"branch_id"`
+	Source                *Procedencia       `json:"source"`
+	ExternalID            *string            `json:"external_id"`
+	OrderDate             pgtype.Timestamptz `json:"order_date"`
+	PedidoUpdatedAt       pgtype.Timestamptz `json:"pedido_updated_at"`
+	Estado                *PedidoEstado      `json:"estado"`
+	Archivado             bool               `json:"archivado"`
+	FechaComprometida     pgtype.Timestamptz `json:"fecha_comprometida"`
+	RequiereDomicilio     *bool              `json:"requiere_domicilio"`
+	PedidoCosto           *float64           `json:"pedido_costo"`
+	Municipio             *string            `json:"municipio"`
+	Vendedor              *string            `json:"vendedor"`
+	SucursalCodigo        *string            `json:"sucursal_codigo"`
+	FacturaEstado         *FacturaEstado     `json:"factura_estado"`
+	FacturaNumero         *string            `json:"factura_numero"`
+	FacturaAt             pgtype.Timestamptz `json:"factura_at"`
+	FacturaDomicilio      *float64           `json:"factura_domicilio"`
+	FacturaCorregidoAt    pgtype.Timestamptz `json:"factura_corregido_at"`
+	ItemsOrigen           *string            `json:"items_origen"`
+	DeliveryDistanceKm    *float64           `json:"delivery_distance_km"`
+	DeliveryPrice         *float64           `json:"delivery_price"`
+	AlmacenSalidaCodigo   *string            `json:"almacen_salida_codigo"`
+	AlmacenSalidaNombre   *string            `json:"almacen_salida_nombre"`
+	AlmacenSalidaSucursal *string            `json:"almacen_salida_sucursal"`
+	AlmacenSalidaMezclado *bool              `json:"almacen_salida_mezclado"`
+	AlmacenSalidaMotivo   *string            `json:"almacen_salida_motivo"`
 }
 
 type GuardarPedidoDelEspejoRow struct {
@@ -1137,6 +1178,11 @@ func (q *Queries) GuardarPedidoDelEspejo(ctx context.Context, arg GuardarPedidoD
 		arg.ItemsOrigen,
 		arg.DeliveryDistanceKm,
 		arg.DeliveryPrice,
+		arg.AlmacenSalidaCodigo,
+		arg.AlmacenSalidaNombre,
+		arg.AlmacenSalidaSucursal,
+		arg.AlmacenSalidaMezclado,
+		arg.AlmacenSalidaMotivo,
 	)
 	var i GuardarPedidoDelEspejoRow
 	err := row.Scan(
@@ -2361,25 +2407,28 @@ func (q *Queries) QuitarPedidosDelEspejo(ctx context.Context, externalIds []stri
 
 const renglonesDePedidoParaComparar = `-- name: RenglonesDePedidoParaComparar :many
 SELECT linea, description, quantity, packs, product_id, nombre, codigo,
-       almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso
+       almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso,
+       almacen_salida_codigo, almacen_salida_nombre
 FROM order_items
 WHERE order_id = $1
 ORDER BY linea ASC
 `
 
 type RenglonesDePedidoParaCompararRow struct {
-	Linea          int32       `json:"linea"`
-	Description    string      `json:"description"`
-	Quantity       float64     `json:"quantity"`
-	Packs          *float64    `json:"packs"`
-	ProductID      pgtype.UUID `json:"product_id"`
-	Nombre         *string     `json:"nombre"`
-	Codigo         *string     `json:"codigo"`
-	AlmacenNombre  *string     `json:"almacen_nombre"`
-	Caso           *bool       `json:"caso"`
-	PesoUnitarioKg *float64    `json:"peso_unitario_kg"`
-	PesoLineaKg    *float64    `json:"peso_linea_kg"`
-	OrigenPeso     *string     `json:"origen_peso"`
+	Linea               int32       `json:"linea"`
+	Description         string      `json:"description"`
+	Quantity            float64     `json:"quantity"`
+	Packs               *float64    `json:"packs"`
+	ProductID           pgtype.UUID `json:"product_id"`
+	Nombre              *string     `json:"nombre"`
+	Codigo              *string     `json:"codigo"`
+	AlmacenNombre       *string     `json:"almacen_nombre"`
+	Caso                *bool       `json:"caso"`
+	PesoUnitarioKg      *float64    `json:"peso_unitario_kg"`
+	PesoLineaKg         *float64    `json:"peso_linea_kg"`
+	OrigenPeso          *string     `json:"origen_peso"`
+	AlmacenSalidaCodigo *string     `json:"almacen_salida_codigo"`
+	AlmacenSalidaNombre *string     `json:"almacen_salida_nombre"`
 }
 
 // Los renglones se reescriben enteros en cada pasada del espejo: PEDIDO puede haber
@@ -2423,6 +2472,8 @@ func (q *Queries) RenglonesDePedidoParaComparar(ctx context.Context, pedidoID uu
 			&i.PesoUnitarioKg,
 			&i.PesoLineaKg,
 			&i.OrigenPeso,
+			&i.AlmacenSalidaCodigo,
+			&i.AlmacenSalidaNombre,
 		); err != nil {
 			return nil, err
 		}

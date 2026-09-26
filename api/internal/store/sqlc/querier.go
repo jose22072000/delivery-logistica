@@ -69,6 +69,30 @@ type Querier interface {
 	ActualizarTipoDeVehiculo(ctx context.Context, arg ActualizarTipoDeVehiculoParams) (VehicleType, error)
 	ActualizarVehiculo(ctx context.Context, arg ActualizarVehiculoParams) (Vehicle, error)
 	// ---------------------------------------------------------------------------
+	// Los pedidos que NO se midieron desde su propio almacén
+	// ---------------------------------------------------------------------------
+	// QUÉ ALMACENES ESTÁN HACIENDO QUE SE MIDA DESDE OTRO SITIO, Y POR QUÉ.
+	//
+	// Es la mitad visible de la regla «nada se descarta en silencio» (`CLAUDE.md` §4). Un pedido
+	// cuyo almacén no se pudo usar no se tira y no se cambia por el principal a escondidas: se
+	// guarda su código y su nombre tal cual, se mide desde donde se pudo, y sale AQUÍ con el
+	// motivo para que alguien lo arregle.
+	//
+	// LOS MOTIVOS SE ARREGLAN EN SITIOS DISTINTOS y por eso viajan separados: dar de alta el
+	// almacén en Accesos, ponerle el punto, ponerle el código, o que PEDIDO empiece a mandar el
+	// campo. Y el peor —`sucursal-sin-almacen-con-punto`— no se midió desde ningún almacén, sino
+	// desde el punto de la sucursal.
+	//
+	// SE ACOTA POR CÓDIGO DE SUCURSAL: `sucursales` NULL es «todas» —el caso de administración—
+	// y con una lista sólo salen ésas. Sin esto, unir esta vista a una respuesta de la API le
+	// enseñaría Santiago al logístico de Camagüey, que es la regla 1 de la casa y ya pasó una vez
+	// en delivery.
+	//
+	// `pedidos AS cuantos` no es un capricho: cuando el SELECT es exactamente las columnas de la
+	// vista y en su orden, sqlc reutiliza el modelo de la vista y lo llama
+	// `AlmacenesDelPedidoSinMedirum`. Con un alias emite un `...Row` que se puede leer.
+	AlmacenesDelPedidoSinMedir(ctx context.Context, arg AlmacenesDelPedidoSinMedirParams) ([]AlmacenesDelPedidoSinMedirRow, error)
+	// ---------------------------------------------------------------------------
 	// Lo que sale
 	// ---------------------------------------------------------------------------
 	ApuntarEnvioDelWebhook(ctx context.Context, arg ApuntarEnvioDelWebhookParams) error
@@ -340,6 +364,12 @@ type Querier interface {
 	// Todos anulables a propósito: un renglón que no sabe lo que pesa se guarda VACÍO, no en
 	// cero. `origen_peso = 'none'` —`cotizar.PesoDesconocido`— es otra cosa y sí se escribe:
 	// es el renglón confesando que lo intentó y no pudo, que es lo que la vista mira.
+	//
+	// Y OJO CON LAS DOS COLUMNAS QUE SE PARECEN: `almacen_nombre` es el nombre del PRODUCTO con
+	// el que casó el catálogo local de pesos (`RenglonPesado.WhName`) y no tiene nada que ver
+	// con un almacén, a pesar de cómo se llama. El almacén del que sale el renglón —00012— es
+	// `almacen_salida_codigo` / `almacen_salida_nombre`. Escribir un almacén en la primera
+	// dejaría a quien busca un producto leyendo «2» y «AURORA».
 	CrearRenglonDePedido(ctx context.Context, arg CrearRenglonDePedidoParams) (CrearRenglonDePedidoRow, error)
 	// La ruta nace `planned` y `optimized` en false: los totales y el orden de visita se
 	// calculan después, con las paradas ya enganchadas, y se fijan con `FijarTotalesDeRuta`.

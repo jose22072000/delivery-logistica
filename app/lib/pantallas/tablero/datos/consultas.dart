@@ -1,7 +1,9 @@
+import 'package:collection/collection.dart';
 import 'package:drift/drift.dart';
 
 import '../../../nucleo/almacenes/almacen_de_referencia.dart';
 import '../../../nucleo/base/base.dart';
+import '../../../nucleo/registro/registro.dart';
 import 'esquema.dart';
 import 'geo.dart';
 import 'modelos.dart';
@@ -130,7 +132,21 @@ class ConsultasTablero {
   /// Lanza [SinAlmacenConCoordenadas], y en DOS formas que no son la misma:
   /// «no tiene» —se miro y no hay— y «todavia no ha bajado» —no se pudo mirar—.
   /// La segunda no acusa a nadie de un hueco que no tiene.
-  Future<AlmacenOrigen> almacenDe(String sucursalId) async {
+  ///
+  /// ## Y SE PUEDE ELEGIR OTRO A MANO — 26/09/2026
+  ///
+  /// [preferido] es el almacen que el logistico ha elegido en la cabecera del
+  /// tablero. Manda sobre la eleccion automatica, **pero solo si sirve para
+  /// medir**: un preferido guardado que se haya quedado sin coordenadas —o que
+  /// Accesos haya dado de baja— se ignora y se vuelve al de siempre, porque la
+  /// alternativa es medir desde un punto que no existe y cobrar el domicilio con
+  /// esos kilometros.
+  ///
+  /// La pantalla ya no deja elegir uno que no sirva, asi que llegar aqui con un
+  /// preferido invalido significa que el dato cambio DESPUES de elegirlo. No se
+  /// calla: se deja dicho en el registro, porque de otro modo los kilometros
+  /// cambian solos y nadie sabe por que.
+  Future<AlmacenOrigen> almacenDe(String sucursalId, {String? preferido}) async {
     final sucursal = await (_base.select(
       _base.branches,
     )..where((b) => b.id.equals(sucursalId))).getSingleOrNull();
@@ -139,6 +155,29 @@ class ConsultasTablero {
     // Accesos, que es otra base. Si la sucursal no tiene codigo no se adivina
     // nada — se queda sin tablero, que es lo honesto.
     final codigo = sucursal?.externalId;
+    if (preferido != null && preferido.isNotEmpty) {
+      final filas = await _almacenesCrudos(codigo);
+      final elegidoAMano = filas.firstWhereOrNull((a) => a.id == preferido);
+      // `elegir` sobre una lista de uno: asi las condiciones de «sirve para
+      // medir» se preguntan en UN solo sitio, el mismo que decide cuando nadie
+      // ha elegido nada. Escribirlas aqui otra vez es como llegamos al
+      // 22/09/2026 con tres pantallas contestando cosas distintas.
+      final sirve = elegidoAMano == null
+          ? null
+          : AlmacenDeReferencia.elegir([elegidoAMano]);
+      if (sirve != null) {
+        return AlmacenOrigen(
+          id: sirve.id,
+          nombre: sirve.nombre,
+          lat: sirve.lat!,
+          lng: sirve.lng!,
+        );
+      }
+      Registro.aviso(
+        'el almacén elegido a mano ($preferido) ya no sirve para medir: se '
+        'vuelve al de siempre. Los kilómetros del tablero van a cambiar.',
+      );
+    }
     final elegido = await AlmacenDeReferencia.de(_base, codigo);
     if (elegido == null) {
       final nombre = await nombreDeSucursal(sucursalId);
@@ -153,6 +192,55 @@ class ConsultasTablero {
       lat: elegido.lat!,
       lng: elegido.lng!,
     );
+  }
+
+  /// TODOS LOS ALMACENES DE LA SUCURSAL, para poder elegir desde cuál se mide.
+  ///
+  /// **Sin filtrar por coordenadas a propósito.** Los que no las tienen salen
+  /// igual, marcados y sin poder elegirse: el porqué entero está en
+  /// [AlmacenDeLaSucursal]. En dos líneas: seis de los catorce almacenes de
+  /// verdad están hoy sin ubicación porque la ponen los logísticos de cada
+  /// sucursal, y esconderlos es descartar en silencio (`CLAUDE.md` §4).
+  ///
+  /// Lo que SÍ se filtra es `activo`: un almacén que Accesos dio de baja no es
+  /// uno al que le falte un paso, es uno que ya no está. Enseñarlo en la lista
+  /// invitaría a elegir algo que no existe, y no hay nada que el logístico pueda
+  /// hacer con él.
+  ///
+  /// El orden es el mismo que usa la elección automática —`principal` primero y
+  /// luego el nombre—, para que la lista se lea en el orden en que se decide.
+  Future<List<AlmacenDeLaSucursal>> almacenesDeLaSucursal(
+    String sucursalId,
+  ) async {
+    final sucursal = await (_base.select(
+      _base.branches,
+    )..where((b) => b.id.equals(sucursalId))).getSingleOrNull();
+    final filas = await _almacenesCrudos(sucursal?.externalId);
+    return [
+      for (final a in filas)
+        if (a.activo)
+          AlmacenDeLaSucursal(
+            id: a.id,
+            nombre: a.nombre,
+            principal: a.principal,
+            // La pregunta se le hace a quien la sabe: una lista de uno contra
+            // la misma regla que elige el de siempre.
+            sirveParaMedir: AlmacenDeReferencia.elegir([a]) != null,
+          ),
+    ];
+  }
+
+  /// Las filas de `warehouses` de esa sucursal, tal cual y ya ordenadas.
+  Future<List<Almacen>> _almacenesCrudos(String? codigo) async {
+    if (codigo == null || codigo.isEmpty) return const <Almacen>[];
+    return (_base.select(_base.warehouses)
+          ..where((w) => w.sucursalCodigo.equals(codigo))
+          // `principal` primero: en SQLite es 1/0, así que descendente.
+          ..orderBy([
+            (w) => OrderingTerm.desc(w.principal),
+            (w) => OrderingTerm.asc(w.nombre),
+          ]))
+        .get();
   }
 
   /// ¿SE PUEDE AFIRMAR que esta sucursal no tiene almacén? `true` = NO se puede.
