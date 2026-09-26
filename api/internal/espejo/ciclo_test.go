@@ -18,6 +18,8 @@ import (
 // compilación y no «cuando haya un entorno a mano».
 
 type pedidoFalso struct {
+	// Los ids que se pidieron por `?ids=`.
+	clientesPedidos []string
 	// pedidos: qué contesta, por el filtro con el que se pidió.
 	porSince  []PedidoDeFuera
 	porTramo  []PedidoDeFuera
@@ -512,4 +514,21 @@ func TestUnTramoQueSiempreVineLlenoNoGiraParaSiempre(t *testing.T) {
 func (b *baseFalsa) QuitarPedidos(_ context.Context, ids []string) error {
 	b.quitados = append(b.quitados, ids...)
 	return nil
+}
+
+// ClientesPorID: los que se movieron de sitio, pedidos por su id.
+//
+// Se apuntan los ids para poder comprobar que un aviso de `cliente` pide ESE cliente y no
+// el padrón entero — que es la diferencia entre una fila y 8.673.
+func (p *pedidoFalso) ClientesPorID(_ context.Context, ids []string) ([]ClienteDeFuera, error) {
+	p.clientesPedidos = append(p.clientesPedidos, ids...)
+	var salida []ClienteDeFuera
+	for _, c := range p.clientes {
+		for _, id := range ids {
+			if c.ID == id {
+				salida = append(salida, c)
+			}
+		}
+	}
+	return salida, nil
 }

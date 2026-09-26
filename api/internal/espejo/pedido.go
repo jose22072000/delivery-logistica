@@ -30,6 +30,11 @@ type FuenteDePedidos interface {
 	Pedidos(ctx context.Context, q url.Values) ([]PedidoDeFuera, error)
 	// Clientes devuelve una página y el cursor de la siguiente («» cuando no hay más).
 	Clientes(ctx context.Context, cursor string, limite int) ([]ClienteDeFuera, string, error)
+	// ClientesPorID trae unos clientes concretos. Es lo que hace que un aviso de
+	// `cliente` cueste UNA fila y no el padrón entero. PEDIDO abrió `?ids=` el
+	// 26/09/2026 justo para esto; su tope es 200 por llamada, porque la lista va en la
+	// URL y sin tope es un 414 el día que alguien pida mil.
+	ClientesPorID(ctx context.Context, ids []string) ([]ClienteDeFuera, error)
 }
 
 // PedidoDeFuera es un pedido tal como lo da PEDIDO.
@@ -163,6 +168,38 @@ func (c *ClientePedido) Pedidos(ctx context.Context, q url.Values) ([]PedidoDeFu
 		return nil, fmt.Errorf("PEDIDO contestó algo que no se entiende: %w", err)
 	}
 	return cuerpo.Orders, nil
+}
+
+// TopeDeClientesPorID es el de PEDIDO: 200 por llamada. Ir por encima es un 414 y el
+// cliente se queda sin actualizar sin que nadie vea un error de verdad.
+const TopeDeClientesPorID = 200
+
+// ClientesPorID trae los que se le digan y nada más.
+func (c *ClientePedido) ClientesPorID(ctx context.Context, ids []string) ([]ClienteDeFuera, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var todos []ClienteDeFuera
+	for i := 0; i < len(ids); i += TopeDeClientesPorID {
+		fin := i + TopeDeClientesPorID
+		if fin > len(ids) {
+			fin = len(ids)
+		}
+		q := url.Values{}
+		q.Set("ids", strings.Join(ids[i:fin], ","))
+		crudo, err := c.pedir(ctx, "/integration/clients?"+q.Encode())
+		if err != nil {
+			return nil, err
+		}
+		var cuerpo struct {
+			Clients []ClienteDeFuera `json:"clients"`
+		}
+		if err := json.Unmarshal(crudo, &cuerpo); err != nil {
+			return nil, err
+		}
+		todos = append(todos, cuerpo.Clients...)
+	}
+	return todos, nil
 }
 
 func (c *ClientePedido) Clientes(ctx context.Context, cursor string, limite int) ([]ClienteDeFuera, string, error) {

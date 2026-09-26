@@ -66,9 +66,10 @@ func (e *Espejo) Atender(ctx context.Context, q QueHaceFaltaTraer) error {
 	// El reparto ordena las paradas por la coordenada del cliente: si alguien la corrige y
 	// esto no se entera, la ruta se arma hacia el sitio de antes, con números y todo y sin
 	// un solo error. Va UNA vez por tanda aunque se hayan movido veinte.
-	if q.Clientes {
-		e.Reg.Info("un cliente se movió de sitio: se repasa el padrón")
-		e.clientes(ctx)
+	if len(q.Clientes) > 0 {
+		if err := e.clientesPorID(ctx, q.Clientes); err != nil {
+			return err
+		}
 	}
 
 	// 5. Y SI ALGUNO VINO SIN SUCURSAL, se mira todo. Debería ser raro, y por eso se dice
@@ -118,4 +119,39 @@ func enTandas(ids []string, tope int) [][]string {
 		salida = append(salida, ids[i:fin])
 	}
 	return salida
+}
+
+// clientesPorID trae y guarda los clientes que se movieron.
+//
+// UNA FILA POR CLIENTE, no el padrón entero: PEDIDO abrió `?ids=` para esto. Antes esto
+// repasaba los 8.673 por cada aviso, que era correcto y carísimo.
+//
+// Sólo los GEOLOCALIZADOS se guardan —lo mismo que el repaso completo—: sin coordenadas no
+// hay parada que visitar y la columna no admite nulos.
+func (e *Espejo) clientesPorID(ctx context.Context, ids []string) error {
+	clientes, err := e.Pedido.ClientesPorID(ctx, ids)
+	if err != nil {
+		return err
+	}
+	// QUE NO VUELVA NINGUNO NO ES UN FALLO: el cliente pudo quedarse sin coordenadas, o
+	// PEDIDO lo archivó entre el aviso y esta llamada. Se dice y se sigue — devolver error
+	// haría que la tanda no se reconociera nunca y se releyera en bucle.
+	if len(clientes) == 0 {
+		e.Reg.Info("el aviso de cliente no trajo ninguno", "pedidos", len(ids))
+		return nil
+	}
+	puestos := 0
+	for _, c := range clientes {
+		if c.Latitud == nil || c.Longitud == nil {
+			continue
+		}
+		if err := e.Base.GuardarCliente(ctx, c); err != nil {
+			// Un cliente que no entra no se lleva por delante a los otros de la tanda.
+			e.Reg.Warn("un cliente movido no se pudo copiar", "cliente", c.ID, "err", err)
+			continue
+		}
+		puestos++
+	}
+	e.Reg.Info("clientes movidos de sitio, al día", "avisados", len(ids), "puestos", puestos)
+	return nil
 }

@@ -43,17 +43,14 @@ type QueHaceFaltaTraer struct {
 	// Si alguno llegó sin sucursal: hay que mirar todas. Debería ser raro.
 	TodasLasSucursales bool
 
-	// Clientes: hay que repasar el padrón.
+	// Clientes: los que se movieron de sitio, por su id.
 	//
-	// ES UN BOOLEANO Y NO UNA LISTA DE IDS A PROPÓSITO: hoy `/integration/clients` no
-	// acepta `?ids=` —sólo `sucursalCodigo`, `archivado`, `vendedor` y `since`—, así que
-	// con el clienteId en la mano no se puede pedir ESE cliente. Lo que se puede es
-	// repasar, y repasar una vez por tanda en vez de una por aviso: veinte clientes
-	// movidos son UN repaso, no veinte.
+	// Era un booleano —«repasa el padrón entero»— hasta que PEDIDO abrió `?ids=` el mismo
+	// día, a petición de este lado. Con el id se pide ESE cliente y se acabó: veinte
+	// clientes movidos son veinte filas, no las 8.673 del padrón.
 	//
-	// Cuando PEDIDO abra `?ids=`, esto pasa a ser una lista y se piden los que son. Está
-	// pedido en el mensaje del 26/09.
-	Clientes bool
+	// SIN REPETIDOS: el mismo cliente puede venir dos veces en la misma tanda.
+	Clientes []string
 }
 
 // AgruparAvisos convierte una tanda en qué hay que hacer.
@@ -70,10 +67,15 @@ func AgruparAvisos(avisos []AvisoDePedido) QueHaceFaltaTraer {
 	pedidos := map[string]bool{}
 	sucursales := map[string]bool{}
 	borrados := map[string]bool{}
+	clientes := map[string]bool{}
 
 	for _, a := range avisos {
 		switch a.Motivo {
-		case MotivoBorrado:
+		// BORRADO y YA_NO_VA acaban en lo mismo: quitarlo de aquí. Son dos sucesos
+		// distintos —uno se borró en PEDIDO, el otro dejó de ser repartible— y por eso
+		// PEDIDO los nombra distinto, pero la reacción del reparto es la misma: si se
+		// queda, alguien lo mete en un camión.
+		case MotivoBorrado, MotivoYaNoVa:
 			if a.PedidoID != "" {
 				borrados[a.PedidoID] = true
 			}
@@ -90,8 +92,11 @@ func AgruparAvisos(avisos []AvisoDePedido) QueHaceFaltaTraer {
 				q.TodasLasSucursales = true
 			}
 		case MotivoCliente:
-			// El padrón entero, una vez por tanda. Ver `QueHaceFaltaTraer.Clientes`.
-			q.Clientes = true
+			// EL `id` DE ESTE AVISO ES EL DEL CLIENTE, no el de un pedido: pedirlo como
+			// pedido no encuentra nada y el cliente se queda mal, sin un solo error.
+			if a.PedidoID != "" {
+				clientes[a.PedidoID] = true
+			}
 
 		case MotivoImportacion:
 			// CON `id` SE PIDE ESE PEDIDO; SIN ÉL, SE REPASA LA SUCURSAL — 26/09/2026.
@@ -138,6 +143,9 @@ func AgruparAvisos(avisos []AvisoDePedido) QueHaceFaltaTraer {
 	}
 	for id := range borrados {
 		q.Borrados = append(q.Borrados, id)
+	}
+	for id := range clientes {
+		q.Clientes = append(q.Clientes, id)
 	}
 	return q
 }

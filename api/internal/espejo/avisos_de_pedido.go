@@ -91,6 +91,18 @@ const (
 	MotivoDomicilio = "domicilio"
 	// MotivoImportacion: entró una tanda de CSV. Viene SIN `id`: se repasa esa sucursal.
 	MotivoImportacion = "importacion"
+	// MotivoYaNoVa: este pedido DEJÓ de ser repartible. Se quita, igual que un borrado.
+	//
+	// Es el agujero que abría el filtro y que PEDIDO tapó el 26/09/2026 a petición de
+	// este lado. Desde que sólo avisan de lo que ya lleva domicilio y factura, a un
+	// pedido al que le quitan el domicilio o le anulan la factura **no le llegaba ningún
+	// aviso**: se quedaba aquí para siempre, en la lista de disponibles, y alguien acaba
+	// metiéndolo en un camión. Antes lo arreglaba solo el barrido; con avisos filtrados,
+	// no.
+	//
+	// **Viene SIN el pedido dentro, y es a propósito**: lo que dice es «quítalo», y
+	// mandarlo con sus datos invita a guardarlo otra vez.
+	MotivoYaNoVa = "ya_no_va"
 	// MotivoCliente: un cliente se movió de sitio. **El `id` es el del CLIENTE, no el de
 	// un pedido**, y la entidad viene como `cliente`.
 	//

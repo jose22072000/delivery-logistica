@@ -233,16 +233,19 @@ func TestUnaImportacionConIDPideEsePedido(t *testing.T) {
 // coordenada del cliente, así que si alguien corrige dónde vive y esto no se entera, la
 // ruta se arma hacia el sitio de antes — con números y todo, sin un solo error.
 //
-// VEINTE CLIENTES MOVIDOS SON UN REPASO, no veinte: hoy `/integration/clients` no acepta
-// `?ids=`, así que lo que se puede hacer es repasar, y repasar una sola vez.
-func TestUnClienteMovidoRepasaElPadronUnaVez(t *testing.T) {
+// SE PIDEN POR SU ID, no repasando el padrón: PEDIDO abrió `?ids=` el mismo día a petición
+// de este lado. Veinte clientes movidos son veinte filas, no las 8.673 del padrón.
+func TestUnClienteMovidoSePidePorSuID(t *testing.T) {
 	q := AgruparAvisos([]AvisoDePedido{
 		{ID: "1-0", Motivo: MotivoCliente, PedidoID: "cli-1", SucursalID: "cam"},
 		{ID: "1-1", Motivo: MotivoCliente, PedidoID: "cli-2", SucursalID: "cam"},
 	})
 
-	if !q.Clientes {
-		t.Fatalf("no se repasa el padrón: las rutas se armarían hacia el sitio de antes")
+	if len(q.Clientes) != 2 {
+		t.Fatalf(
+			"no se van a traer los clientes movidos: las rutas se armarían hacia el "+
+				"sitio de antes, con números y todo. %+v", q,
+		)
 	}
 	if len(q.Pedidos) != 0 {
 		t.Fatalf(
@@ -252,5 +255,40 @@ func TestUnClienteMovidoRepasaElPadronUnaVez(t *testing.T) {
 	}
 	if len(q.Sucursales) != 0 {
 		t.Fatalf("se barrieron pedidos por un aviso que no va de pedidos: %+v", q)
+	}
+}
+
+// UN PEDIDO QUE DEJA DE SER REPARTIBLE SE QUITA, IGUAL QUE UNO BORRADO.
+//
+// Es el agujero que abría el filtro de PEDIDO y que taparon el 26/09/2026 a petición de
+// este lado: desde que sólo avisan de lo que ya lleva domicilio y factura, a un pedido al
+// que le quitan el domicilio o le anulan la factura **no le llegaba ningún aviso**. Se
+// quedaba aquí para siempre, en la lista de disponibles, y alguien acaba metiéndolo en un
+// camión. Antes lo arreglaba solo el barrido; con avisos filtrados, no.
+func TestUnPedidoQueYaNoVaSeQuita(t *testing.T) {
+	q := AgruparAvisos([]AvisoDePedido{
+		{ID: "1-0", Motivo: MotivoYaNoVa, PedidoID: "ped-1", SucursalID: "cam"},
+	})
+
+	if len(q.Borrados) != 1 || q.Borrados[0] != "ped-1" {
+		t.Fatalf(
+			"un pedido que dejó de ser repartible se queda en el reparto: acaba en un "+
+				"camión y nadie lo echa en falta. %+v", q,
+		)
+	}
+	if len(q.Pedidos) != 0 {
+		t.Fatalf("se fue a pedirlo en vez de quitarlo: traerlo lo deja donde estaba")
+	}
+}
+
+// Y si en la misma tanda se actualizó y después dejó de ir, manda el «ya no va».
+func TestYaNoVaMandaSobreUnTraer(t *testing.T) {
+	q := AgruparAvisos([]AvisoDePedido{
+		{ID: "1-0", Motivo: MotivoFactura, PedidoID: "ped-1"},
+		{ID: "1-1", Motivo: MotivoYaNoVa, PedidoID: "ped-1"},
+	})
+
+	if len(q.Pedidos) != 0 {
+		t.Fatalf("se trae un pedido que acaba de dejar de ser repartible: %+v", q)
 	}
 }
