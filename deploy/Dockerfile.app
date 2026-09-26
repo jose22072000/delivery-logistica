@@ -107,58 +107,36 @@ COPY docs/almacen-de-origen.casos.json /docs/almacen-de-origen.casos.json
 # LAS PRUEBAS, ANTES DE CONSTRUIR. Como en `Dockerfile.api` y `Dockerfile.sync`.
 #
 # El 16/09/2026 una mutación de prueba llegó a producción porque el Dockerfile del
-# sincronizador sólo compilaba. Se arregló ahí y en la api, y **aquí se quedó sin
-# arreglar**: la web se construía sin pasar una sola prueba. O sea, el mismo
-# agujero por el que ya se coló una vez, abierto en el otro lado.
+# sincronizador sólo compilaba. Se arregló ahí y en la api, y aquí se quedó sin
+# arreglar: la web se construía sin pasar una sola prueba.
 #
-# `analyze` además de `test` porque son cosas distintas: `analyze` caza el código
-# que no compila en un destino aunque las pruebas no lo toquen.
+# AQUÍ CORRÍA LA SUITE ENTERA, Y SE QUITÓ EL 26/09/2026 — decisión de Jose, con dos
+# despliegues tirados en una tarde delante.
 #
-# SIN `timeout`, Y ESO ES A PROPÓSITO (26/09/2026).
+# Lo que la quitó no fue el tiempo: fue una prueba **colgada**. «Tablero a 390 px» se
+# comió los diez minutos de tope de Flutter —el suyo, de fábrica— dentro del contenedor,
+# mientras en el portátil pasaba: aquí hay 12 núcleos y en el VPS hay menos. Una prueba
+# que se cuelga en vez de fallar es lo peor que puede hacer una prueba (`CLAUDE.md` §5),
+# y desde una imagen no se depura.
 #
-# Aquí hubo un `timeout 600`, y fue él quien tiró la construcción del 25/09/2026, no
-# una prueba: `990dad8` cambió el texto de la lista vacía de Pedidos y
-# `fechas_y_buscador_test.dart` seguía buscando el viejo. Esa prueba fallaba a los
-# 5 s, pero su proceso tardaba otros ~3 min en soltarse, y con eso la batería (que
-# sola ya tarda ~5 min) pasaba de los 600 s. El `timeout` la mataba a medias y el
-# registro no decía qué prueba había fallado, sólo que el build no terminó.
+# Jose: «las pruebas son necesarias, ponerlas en los builds si ya las estamos haciendo
+# aquí en local no creo que haya necesidad».
 #
-# En producción no importa cuánto tarde en construirse (Jose, 26/09/2026): importa
-# que lo que se despliega haya pasado TODAS las pruebas. Un tope que crece menos que
-# la batería acaba tirando builds buenos. Las pruebas colgadas se cazan en local con
-# `timeout 300` (CLAUDE.md §5), que es donde alguien está mirando.
+# LO QUE SE PIERDE, dicho para que nadie lo descubra a base de sustos: esta línea cazaba
+# el caso en que **lo que se sube no es lo que se probó** —un commit sin correr la suite,
+# o trabajo que llega sin probar—. Ese agujero es por donde se coló una mutación de
+# prueba a producción el 16/09/2026. La disciplina de correr `flutter test` ANTES de subir
+# pasa a ser de quien sube, y no hay red debajo.
 #
-# `-r failures-only` es la otra mitad de lo que faltó aquel día: el registro de Dokploy
-# decía «Docker build failed» y nada más. Con este informe cada prueba que falla se
-# escribe con su nombre y su motivo EN EL MOMENTO en que cae, y no sólo en el resumen del
-# final, que no llega si el proceso se para antes.
-
-# AQUÍ NO VA `flutter gen-l10n`, Y ESO ES UN CAMBIO A PROPÓSITO.
+# LO QUE SE QUEDA es `flutter analyze`, que tarda segundos y caza lo que de verdad ha
+# tirado builds aquí: un import que sobra, un texto generado que no está, código que no
+# compila en un destino aunque ninguna prueba lo toque. Y en `Dockerfile.api` y
+# `Dockerfile.sync` **sí sigue `go test`**: tarda menos de un segundo y nunca ha dado
+# guerra.
 #
-# Estuvo, y hacía falta: `.dockerignore` excluía `app/lib/textos/generado/`,
-# `lib/textos/textos.dart` lo importaba, y `flutter analyze` —a diferencia de
-# `flutter build web`— no genera l10n, así que sin ese paso la imagen moría en
-# 11 «Target of URI doesn't exist: 'generado/textos.dart'». Costó dos intentos
-# descubrirlo, reproduciendo la secuencia del Dockerfile paso a paso.
-#
-# El 24/09/2026 se quitó entera la traducción al inglés (`app/lib/idioma.dart`):
-# no quedan `.arb`, ni `l10n.yaml`, ni clase generada, ni `generate: true` en el
-# pubspec, ni la línea del `.dockerignore` que los excluía. `flutter gen-l10n`
-# aquí fallaría por no encontrar nada que generar. Los tres se fueron juntos, que
-# es como tenían que irse.
-RUN flutter analyze
-# Y `-j $(nproc)`, que es de lo que salio el margen (26/09/2026).
-#
-# Flutter lanza por defecto **`nucleos - 2`** procesos de prueba. En el portatil de
-# Jose, con 12 nucleos, son 10; **en este VPS, con 4, son DOS**. O sea que aqui la
-# suite corria a un quinto del paralelismo de la maquina de desarrollo, no a un
-# tercio como sugerian los nucleos, y por eso el muro aparecio justo al crecer.
-# Medido sobre `test/pantallas/rutas/`, 304 pruebas: **50 s con `-j2` y 28 s con
-# `-j4`**, un 44 % menos y las mismas en verde.
-#
-# `$(nproc)` y no un 4 a mano: el dia que el VPS tenga mas nucleos los usa solo, y
-# el dia que tenga menos no se pelea consigo mismo.
-RUN flutter test -r failures-only -j "$(nproc)"
+# `lib test` y no sólo `lib`: el 26/09/2026 un fichero de pruebas con un import que
+# sobraba dejó `analyze` en rojo y tiró el build. Mirar sólo `lib` lo habría dejado pasar.
+RUN flutter analyze lib test
 
 # Las tres URL. Los valores por defecto son los de producción, los mismos que están
 # escritos en entorno.dart: si alguien construye sin argumentos, sale la de verdad y no

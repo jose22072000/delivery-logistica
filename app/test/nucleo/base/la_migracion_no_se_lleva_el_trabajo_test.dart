@@ -51,6 +51,14 @@ void main() {
       "VALUES ('ped-1', 'Bodega La Esquina', 'Calle 4', 120.5, 0)",
     );
     await ayer.customStatement('ALTER TABLE orders DROP COLUMN items_origen');
+    // Y las del esquema 4, o la migracion intenta anadirlas sobre las que ya
+    // estan: la base se monta con el esquema DE VERDAD y despues se le quitan
+    // las columnas nuevas, que es lo que la deja como la de un aparato que
+    // lleva dias en la calle.
+    await ayer.customStatement('ALTER TABLE order_items DROP COLUMN peso_kg');
+    await ayer.customStatement(
+      'ALTER TABLE order_items DROP COLUMN peso_linea_kg',
+    );
     await ayer.customStatement('PRAGMA user_version = 2');
     await ayer.close();
 
