@@ -1092,3 +1092,20 @@ WHERE (sqlc.narg('desde')::timestamptz IS NULL OR f.salio_at >  sqlc.narg('desde
   )
 ORDER BY f.salio_at ASC, f.order_id ASC
 LIMIT sqlc.arg('tope');
+
+-- LOS PEDIDOS QUE PEDIDO BORRÓ, quitados por su referencia.
+--
+-- Llega por el aviso del stream con `motivo = borrado`. Es el único de los cuatro que no
+-- requiere ir a pedir nada, y el único que si se ignora deja el pedido aquí para siempre:
+-- se queda en la lista de disponibles, alguien lo mete en un camión y nadie lo echa en
+-- falta hasta que el cliente dice que él no pidió eso.
+--
+-- SÓLO los de `source = 'pedido'`. El alta MANUAL del reparto no tiene origen ni id
+-- externo, y un id que coincidiera por casualidad se llevaría por delante un pedido que no
+-- está en ningún otro sitio.
+--
+-- Un pedido que ya no está NO es un error: el aviso puede llegar dos veces —el stream
+-- entrega al menos una— y la segunda no encuentra nada. Por eso `:execrows` y no `:one`.
+-- name: QuitarPedidosDelEspejo :execrows
+DELETE FROM orders
+WHERE source = 'pedido' AND external_id = ANY(sqlc.arg('external_ids')::text[]);

@@ -736,3 +736,15 @@ func mismoBooleano(a, b *bool) bool {
 	}
 	return *a == *b
 }
+
+// QuitarPedidosDelEspejo borra los que PEDIDO dice que ya no están.
+//
+// VA SIN ALCANCE, igual que el resto de lo del espejo: el que llama es un proceso de
+// servicio que recorre las ocho sucursales, no una persona. Lo que sí acota la consulta es
+// `source = 'pedido'`: un alta manual del reparto no se toca ni por casualidad.
+func (a *Acotado) QuitarPedidosDelEspejo(ctx context.Context, ids []string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	return a.q.QuitarPedidosDelEspejo(ctx, ids)
+}

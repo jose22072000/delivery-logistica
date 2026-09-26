@@ -2333,6 +2333,32 @@ func (q *Queries) PesosDelCatalogoPorFuente(ctx context.Context, source Proceden
 	return items, nil
 }
 
+const quitarPedidosDelEspejo = `-- name: QuitarPedidosDelEspejo :execrows
+DELETE FROM orders
+WHERE source = 'pedido' AND external_id = ANY($1::text[])
+`
+
+// LOS PEDIDOS QUE PEDIDO BORRÓ, quitados por su referencia.
+//
+// Llega por el aviso del stream con `motivo = borrado`. Es el único de los cuatro que no
+// requiere ir a pedir nada, y el único que si se ignora deja el pedido aquí para siempre:
+// se queda en la lista de disponibles, alguien lo mete en un camión y nadie lo echa en
+// falta hasta que el cliente dice que él no pidió eso.
+//
+// SÓLO los de `source = 'pedido'`. El alta MANUAL del reparto no tiene origen ni id
+// externo, y un id que coincidiera por casualidad se llevaría por delante un pedido que no
+// está en ningún otro sitio.
+//
+// Un pedido que ya no está NO es un error: el aviso puede llegar dos veces —el stream
+// entrega al menos una— y la segunda no encuentra nada. Por eso `:execrows` y no `:one`.
+func (q *Queries) QuitarPedidosDelEspejo(ctx context.Context, externalIds []string) (int64, error) {
+	result, err := q.db.Exec(ctx, quitarPedidosDelEspejo, externalIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const renglonesDePedidoParaComparar = `-- name: RenglonesDePedidoParaComparar :many
 SELECT linea, description, quantity, packs, product_id, nombre, codigo,
        almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso

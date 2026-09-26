@@ -17,6 +17,7 @@ package espejo
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -98,6 +99,22 @@ type Opciones struct {
 	// una sola respuesta; por páginas la memoria se mantiene plana y una respuesta cortada a
 	// medias no deja el proceso con datos incompletos.
 	PaginaClientes int
+
+	// --- El canal de avisos de PEDIDO ---------------------------------------
+	//
+	// PEDIDO deja un aviso en un stream de Redis cada vez que un pedido pasa a importarle
+	// al reparto, y el espejo lo lee BLOQUEADO: entra en cuanto lo sueltan, sin sondeo.
+	// Ver `avisos_de_pedido.go`.
+	//
+	// SIN `REDIS_DIRECCION` NI CENTINELAS NO SE ENCHUFA NADA y el espejo sigue con su
+	// ciclo de siempre. Es lo que hace que esto se pueda desplegar antes de tocar el
+	// Redis, y que un Redis caído no impida arrancar: el ciclo es la red de debajo.
+	RedisDireccion  string
+	RedisCentinelas []string
+	RedisMaestro    string
+	RedisClave      string
+	RedisBase       int
+	Stream          string
 }
 
 // PorDefecto son los valores con los que arranca si el entorno no dice otra cosa. Son los
@@ -116,6 +133,7 @@ func PorDefecto() Opciones {
 		CotizadosMin:      30,
 		Lote:              200,
 		PaginaClientes:    1000,
+		Stream:            StreamPorDefecto,
 	}
 }
 
@@ -159,6 +177,58 @@ func Cargar(entorno func(string) string) (Opciones, error) {
 	}
 
 	milis("SYNC_POLL_MS", &o.Poll)
+
+	// EL CANAL DE AVISOS. Los nombres son los del Redis de la casa: un solo motor, con
+	// centinela (`procovar-sentinel`), y cada aplicación con su prefijo y sus bases.
+	// `REDIS_URL` ES LA MISMA VARIABLE QUE USA PEDIDO, y se lee la primera a propósito.
+	//
+	// Los dos lados tienen que hablar con EL MISMO Redis o cada uno escribe en su cola y
+	// no llega nunca nada — sin un solo error, que es el fallo que no se ve. Compartir el
+	// nombre de la variable es lo que hace que copiarla de un servicio a otro no admita
+	// equivocación.
+	//
+	// Formato: `redis://[:clave@]maquina:puerto[/base]`.
+	if v := strings.TrimSpace(entorno("REDIS_URL")); v != "" {
+		if u, err := url.Parse(v); err == nil {
+			o.RedisDireccion = u.Host
+			if pw, hay := u.User.Password(); hay {
+				o.RedisClave = pw
+			}
+			if b := strings.TrimPrefix(u.Path, "/"); b != "" {
+				if n, err := strconv.Atoi(b); err == nil {
+					o.RedisBase = n
+				}
+			}
+		}
+	}
+	if v := strings.TrimSpace(entorno("REDIS_DIRECCION")); v != "" {
+		o.RedisDireccion = v
+	}
+	if v := strings.TrimSpace(entorno("REDIS_MAESTRO")); v != "" {
+		o.RedisMaestro = v
+	}
+	if v := strings.TrimSpace(entorno("REDIS_CLAVE")); v != "" {
+		o.RedisClave = v
+	}
+	// EL NOMBRE DEL STREAM TIENE QUE SER EL MISMO EN LOS DOS LADOS o cada uno habla solo:
+	// PEDIDO escribiría en uno y el reparto leería de otro, sin un solo error y sin que
+	// llegue nunca nada. Por eso el valor por defecto está escrito en las dos casas.
+	if v := strings.TrimSpace(entorno("DELIVERY_STREAM")); v != "" {
+		o.Stream = v
+	}
+	if v := strings.TrimSpace(entorno("REDIS_CENTINELAS")); v != "" {
+		o.RedisCentinelas = nil
+		for _, parte := range strings.Split(v, ",") {
+			if p := strings.TrimSpace(parte); p != "" {
+				o.RedisCentinelas = append(o.RedisCentinelas, p)
+			}
+		}
+	}
+	if v := strings.TrimSpace(entorno("REDIS_BASE")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			o.RedisBase = n
+		}
+	}
 	entero("SYNC_TRAMO_DIAS", &o.TramoDias)
 	entero("SYNC_HISTORICO_DIAS", &o.HistoricoDias)
 	entero("SYNC_HISTORICO_POR_CICLO", &o.HistoricoPorCiclo)

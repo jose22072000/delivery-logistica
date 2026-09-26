@@ -101,6 +101,36 @@ func correr() error {
 	if *unaVez {
 		return proceso.Ciclo(ctx)
 	}
+
+	// EL ESCUCHADOR DE AVISOS, EN PARALELO CON EL CICLO.
+	//
+	// PEDIDO deja un aviso en un stream de Redis cada vez que un pedido pasa a importarle
+	// al reparto, y esto lo lee BLOQUEADO: entra en cuanto lo sueltan, sin sondeo. Jose,
+	// 26/09/2026: «que notifique ya cada vez que salga uno, así entra directo; nada de
+	// polling».
+	//
+	// SIN REDIS CONFIGURADO NO SE ENCHUFA y el espejo sigue con su ciclo de siempre. Es
+	// deliberado: así esto se puede desplegar antes de tocar el Redis, y un Redis caído no
+	// impide arrancar. El aviso va al ARRANCAR, que es cuando lo lee quien despliega, y no
+	// la tarde que alguien se pregunte por qué los pedidos tardan quince minutos.
+	if opciones.RedisDireccion != "" || len(opciones.RedisCentinelas) > 0 {
+		escuchador := espejo.NuevoEscuchador(
+			espejo.NuevoRedisDeAvisos(opciones), opciones, reg,
+			func(c context.Context, q espejo.QueHaceFaltaTraer) error {
+				return proceso.Atender(c, q)
+			},
+		)
+		go func() {
+			if err := escuchador.Correr(ctx); err != nil {
+				reg.Error("el escuchador de avisos de PEDIDO se paró", "err", err)
+			}
+		}()
+	} else {
+		reg.Warn("sin REDIS_DIRECCION ni REDIS_CENTINELAS no se escuchan los avisos de " +
+			"PEDIDO: el espejo se entera de los cambios por su ciclo, y el ciclo tarda " +
+			"lo que diga SYNC_POLL_MS")
+	}
+
 	return proceso.Correr(ctx)
 }
 

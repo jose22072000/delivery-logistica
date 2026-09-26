@@ -63,9 +63,19 @@ func Nuevo(o Opciones, base Base, reg *slog.Logger) *Espejo {
 
 // Correr da vueltas hasta que se cancele el contexto.
 //
-// SE QUITÓ EL MODO «POR AVISOS»: escuchaba una cola donde PEDIDO ya no publica. Un proceso
+// EL MODO «POR AVISOS» VOLVIÓ el 26/09/2026, y esta vez con quien publica al otro lado.
+//
+// Se había quitado porque escuchaba una cola donde PEDIDO ya no publicaba: un proceso
 // esperando avisos que nunca llegan no da error —simplemente no hace nada—, y eso es peor
-// que no tenerlo: parece que funciona.
+// que no tenerlo porque parece que funciona. Ahora PEDIDO sí escribe
+// (`DELIVERY_EVENTS=true`, stream `procovar-delivery:in:orders`), y el escuchador vive
+// aparte, en `escuchar_a_pedido.go`, corriendo EN PARALELO con este bucle.
+//
+// ESTE CICLO NO SE QUITA, y ésa es la mitad que importa: es la red debajo del trapecio. Si
+// Redis se cae, si un aviso se pierde, o si alguien corrige la base por SQL sin tocar
+// `updatedAt`, esto lo recoge igual. Lo que cambia es que puede ir mucho más despacio
+// —`SYNC_POLL_MS`— porque ya no es quien se entera de las cosas, sino quien comprueba que
+// nada se quedó por el camino.
 func (e *Espejo) Correr(ctx context.Context) error {
 	e.Reg.Info("espejo arrancado",
 		"pedido", e.Opciones.PedidoURL, "reparto", e.Opciones.DeliveryURL,

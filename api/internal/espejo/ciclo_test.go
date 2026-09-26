@@ -85,6 +85,8 @@ func (d *repartoFalso) SincronizarCatalogo(context.Context) (*RespuestaDelCatalo
 }
 
 type baseFalsa struct {
+	// Lo que se quitó por un aviso de borrado.
+	quitados     []string
 	marca        *time.Time
 	falloDeMarca error
 	posicion     int
@@ -502,4 +504,12 @@ func TestUnTramoQueSiempreVineLlenoNoGiraParaSiempre(t *testing.T) {
 	if !strings.Contains(reg.String(), "todas las vueltas") {
 		t.Errorf("cortarse por el tope tambien se dice; el registro dice: %s", reg.String())
 	}
+}
+
+// QuitarPedidos: los que PEDIDO avisó como borrados. Se apunta para poder comprobar que el
+// aviso de borrado llega hasta aquí — es el único de los cuatro motivos que no va a pedir
+// nada, y si se ignorara el pedido se queda en el reparto para siempre.
+func (b *baseFalsa) QuitarPedidos(_ context.Context, ids []string) error {
+	b.quitados = append(b.quitados, ids...)
+	return nil
 }

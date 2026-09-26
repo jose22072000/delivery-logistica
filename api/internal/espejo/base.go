@@ -37,6 +37,8 @@ type Base interface {
 	FijarBarrido(ctx context.Context, dia int) error
 	GuardarCliente(ctx context.Context, c ClienteDeFuera) error
 	BorrarClientesQueYaNoVienen(ctx context.Context, ids []string) (int64, error)
+	// QuitarPedidos borra los que PEDIDO avisó como borrados. Ver `atender_avisos.go`.
+	QuitarPedidos(ctx context.Context, externalIDs []string) error
 }
 
 // BaseDelReparto es la Base de verdad, sobre el alcance.
@@ -99,6 +101,13 @@ func (b BaseDelReparto) GuardarCliente(ctx context.Context, c ClienteDeFuera) er
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
+	return err
+}
+
+// QuitarPedidos: los que PEDIDO borró. Que no encuentre ninguno NO es un error — el stream
+// entrega al menos una vez y el mismo aviso puede llegar dos veces.
+func (b BaseDelReparto) QuitarPedidos(ctx context.Context, externalIDs []string) error {
+	_, err := b.Acotado.QuitarPedidosDelEspejo(ctx, externalIDs)
 	return err
 }
 

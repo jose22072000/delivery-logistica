@@ -79,3 +79,67 @@ func TestUnRepasoMasLargoQueElHistoricoNoSeAdmite(t *testing.T) {
 		t.Fatalf("tenía que quejarse del repaso; se quejó de %v", err)
 	}
 }
+
+// LOS DOS LADOS TIENEN QUE HABLAR DE LA MISMA COLA Y DEL MISMO REDIS.
+//
+// Si PEDIDO escribe en `procovar-delivery:in:orders` y el reparto lee de otro nombre, no
+// llega nunca nada **y no hay un solo error**: los dos procesos funcionan perfectamente,
+// cada uno hablando solo. Es el fallo que no se ve.
+//
+// Por eso el valor por defecto está escrito aquí y se prueba, y por eso `REDIS_URL` es la
+// MISMA variable que usa PEDIDO: copiarla de un servicio a otro no admite equivocación.
+func TestElStreamPorDefectoEsElQueEscribePedido(t *testing.T) {
+	o := PorDefecto()
+
+	if o.Stream != "procovar-delivery:in:orders" {
+		t.Fatalf(
+			"el nombre de la cola no es el que escribe PEDIDO: cada uno hablaría solo y "+
+				"no habría ningún error. Salió: %q", o.Stream,
+		)
+	}
+}
+
+func TestRedisURLSeLeeIgualQueEnPedido(t *testing.T) {
+	o, err := Cargar(func(k string) string {
+		switch k {
+		case "SERVICE_API_KEY":
+			return "la-clave"
+		case "REDIS_URL":
+			return "redis://:secreta@procovar-redis-bbg3v0:6379/2"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if o.RedisDireccion != "procovar-redis-bbg3v0:6379" {
+		t.Fatalf("dirección: %q", o.RedisDireccion)
+	}
+	if o.RedisClave != "secreta" {
+		t.Fatalf("la clave no se leyó de la URL: sin ella el Redis contesta NOAUTH y no " +
+			"entra un solo aviso")
+	}
+	if o.RedisBase != 2 {
+		t.Fatalf("base: %d — cada aplicación tiene la suya y mezclarlas se lleva llaves "+
+			"de otra sin avisar", o.RedisBase)
+	}
+}
+
+// Y SIN REDIS NO SE ENCHUFA NADA, que es lo que deja desplegar esto antes de tocar el
+// Redis y hace que un Redis caído no impida arrancar.
+func TestSinRedisElEspejoSigueConSuCiclo(t *testing.T) {
+	o, err := Cargar(func(k string) string {
+		if k == "SERVICE_API_KEY" {
+			return "la-clave"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if o.RedisDireccion != "" || len(o.RedisCentinelas) != 0 {
+		t.Fatalf("se inventó un Redis: %q %v", o.RedisDireccion, o.RedisCentinelas)
+	}
+}
