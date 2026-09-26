@@ -278,6 +278,16 @@ void main() {
     // es del binding y no de la prueba: sin `reset` la siguiente se monta a 390
     // px sin haberlo pedido y falla por algo que no está mirando.
     addTearDown(tester.view.reset);
+    // EL DESMONTAJE SE REGISTRA AQUI, NO SE LLAMA AL FINAL.
+    //
+    // Si un `expect` falla antes de la llamada del final, esa llamada NO corre: el arbol
+    // se queda montado, los `watch()` de Drift dejan temporizadores vivos y la prueba
+    // **se cuelga en vez de fallar** — que es lo peor que puede hacer una prueba (§5).
+    //
+    // Paso el 26/09/2026 y tumbo la imagen de la web: «Tablero a 390 px» se comio los diez
+    // minutos de tope dentro del contenedor mientras en este portatil pasaba. Registrado
+    // aqui corre siempre, tambien cuando el caso falla.
+    addTearDown(() => desmontar(tester));
 
     final desbordes = <String>[];
     final anterior = FlutterError.onError;
