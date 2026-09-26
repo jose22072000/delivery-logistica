@@ -113,7 +113,7 @@ func correr() error {
 	// deliberado: así esto se puede desplegar antes de tocar el Redis, y un Redis caído no
 	// impide arrancar. El aviso va al ARRANCAR, que es cuando lo lee quien despliega, y no
 	// la tarde que alguien se pregunte por qué los pedidos tardan quince minutos.
-	if opciones.RedisDireccion != "" || len(opciones.RedisCentinelas) > 0 {
+	if opciones.EscuchaLosAvisos() {
 		base := espejo.BaseDelReparto{Acotado: acotado}
 		escuchador := espejo.NuevoEscuchador(
 			espejo.NuevoRedisDeAvisos(opciones), opciones, reg,

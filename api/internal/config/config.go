@@ -67,6 +67,25 @@ type Config struct {
 	// mismo» (`http://127.0.0.1:PUERTO`), que es lo correcto en el monolito de hoy.
 	DeliveryURL string
 
+	// La pareja con la que PEDIDO toca la puerta: `POST /api/webhooks/pedido`.
+	//
+	// SON DOS Y HACEN DOS COSAS DISTINTAS, y por eso no vale una sola: la KEY dice QUIÉN
+	// llama y viaja en claro en una cabecera; el SECRET no viaja nunca —firma el cuerpo— y
+	// dice que ESE cuerpo es el que mandó quien dice ser. Con la key sola, cualquiera que la
+	// vea en un registro puede mandarle al reparto un pedido inventado.
+	//
+	// ES LA MISMA PAREJA PARA LOS DOS SENTIDOS. Cuando el reparto se mude a
+	// `POST /webhooks/reparto/estados`, firma con estas mismas — acordado con la sesión de
+	// PEDIDO el 26/09/2026: una pareja que las dos partes conocen, no dos que hay que casar.
+	//
+	// SIN ELLAS NO SE ACEPTA NINGÚN AVISO, y la puerta contesta 503 y no 401: 401 es «tu
+	// configuración está mal» y PEDIDO lo descarta a la primera, así que un despiste de
+	// despliegue NUESTRO le haría tirar los avisos. Con 503 los reintenta y no se pierde
+	// ninguno. Por eso tampoco son obligatorias para arrancar: sin ellas el reparto sigue
+	// leyendo la cola, que es la otra puerta y sigue viva.
+	WebhookDePedidoKey    string
+	WebhookDePedidoSecret string
+
 	// CatalogoCada es cada cuánto se vuelve a bajar el catálogo de Ventra.
 	CatalogoCada time.Duration
 
@@ -232,11 +251,16 @@ func Cargar(version string) (*Config, error) {
 		// Se les quita la barra final AQUÍ y no en cada sitio que las concatena: una
 		// barra de más en la variable produce `//integration/orders/status`, que unos
 		// servidores toleran y otros contestan con un 404 que nadie sabe explicar.
-		PedidoAPIURL:   strings.TrimRight(valor("PEDIDO_API_URL", ""), "/"),
-		DeliveryURL:    strings.TrimRight(valor("DELIVERY_URL", ""), "/"),
-		AuthURL:        strings.TrimRight(valor("PROCOVAR_AUTH_URL", "https://auth.procovar.cloud"), "/"),
-		AuthClientID:   valor("PROCOVAR_AUTH_CLIENT_ID", "delivery"),
-		AuthSigningKey: strings.TrimSpace(os.Getenv("PROCOVAR_AUTH_SIGNING_KEY")),
+		PedidoAPIURL: strings.TrimRight(valor("PEDIDO_API_URL", ""), "/"),
+		DeliveryURL:  strings.TrimRight(valor("DELIVERY_URL", ""), "/"),
+		// SE LES QUITA EL ESPACIO DE ALREDEDOR. Un secreto pegado con un salto de línea de
+		// más en el panel de Dokploy da una firma que no cuadra jamás, y el motivo no se ve
+		// en ningún sitio: los dos lados juran tener «el mismo» secreto.
+		WebhookDePedidoKey:    strings.TrimSpace(os.Getenv("PEDIDO_WEBHOOK_KEY")),
+		WebhookDePedidoSecret: strings.TrimSpace(os.Getenv("PEDIDO_WEBHOOK_SECRET")),
+		AuthURL:               strings.TrimRight(valor("PROCOVAR_AUTH_URL", "https://auth.procovar.cloud"), "/"),
+		AuthClientID:          valor("PROCOVAR_AUTH_CLIENT_ID", "delivery"),
+		AuthSigningKey:        strings.TrimSpace(os.Getenv("PROCOVAR_AUTH_SIGNING_KEY")),
 
 		VentraURL:   strings.TrimRight(valor("WAREHOUSE_API_URL", ""), "/"),
 		VentraToken: strings.TrimSpace(os.Getenv("WAREHOUSE_API_TOKEN")),

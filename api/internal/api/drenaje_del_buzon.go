@@ -146,6 +146,10 @@ func (s *Servidor) DrenarElBuzon(ctx context.Context, a *alcance.Acotado) (envia
 		}
 		s.reg.Warn("PEDIDO no contestó: el buzón se queda lleno y se reintenta",
 			"pendientes", len(pend), "motivo", motivo)
+		// SE AVISA TAMBIÉN DE ESTO, y es la mitad que más importa de las dos: la pantalla
+		// del canal existe para contestar «¿está saliendo algo?», y un PEDIDO caído es
+		// justo la respuesta que hay que ver al instante y no en la vuelta siguiente.
+		avisarCambioEnElCanal(ctx)
 		return 0, len(pend)
 	}
 
@@ -174,6 +178,8 @@ func (s *Servidor) DrenarElBuzon(ctx context.Context, a *alcance.Acotado) (envia
 			s.reg.Error("no se pudo marcar el aviso como rechazado", "aviso", p.ID, "err", err)
 		}
 	}
+	// LA TANDA SALIÓ: que se repinte la pantalla del canal. Ver `CambioCanal`.
+	avisarCambioEnElCanal(ctx)
 	return enviados, len(pend) - enviados
 }
 

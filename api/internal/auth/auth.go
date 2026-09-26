@@ -348,3 +348,19 @@ func numero(m map[string]any, clave string) *float64 {
 func (u *Usuario) EsDesarrollador() bool {
 	return u.tieneAlguno(rolDesarrollador)
 }
+
+// PuedeMirarElCanal: quién entra en la pantalla de las tuberías con PEDIDO.
+//
+// EL DESARROLLADOR Y EL SUPER ADMIN, y sólo ellos. Jose, 26/09/2026: «ponle para super
+// admin también, de todas formas yo limpiaré eso después». Lo anterior era sólo
+// `DESARROLLADOR` —sus palabras del mismo día: «que sólo lo pueda ver yo»— y lo abrió él
+// mismo al ver que su propia cuenta, que es `SUPER ADMIN` por defecto, se quedaba fuera.
+//
+// ESTÁ APARTE DE [Usuario.EsSuperAdmin] A PROPÓSITO, aunque hoy dé casi lo mismo: aquel
+// deja pasar además al `admin` heredado de la web vieja, que es un puente para que su gente
+// no se quede fuera de su propio sistema, y esto no es su sistema. Y separado es como se
+// vuelve a cerrar el día que Jose lo limpie: se quita `rolSuperAdmin` de esta línea y no se
+// toca nada más.
+func (u *Usuario) PuedeMirarElCanal() bool {
+	return u.tieneAlguno(rolDesarrollador, rolSuperAdmin)
+}

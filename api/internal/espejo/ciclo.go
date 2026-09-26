@@ -77,14 +77,23 @@ func Nuevo(o Opciones, base Base, reg *slog.Logger) *Espejo {
 // —`SYNC_POLL_MS`— porque ya no es quien se entera de las cosas, sino quien comprueba que
 // nada se quedó por el camino.
 func (e *Espejo) Correr(ctx context.Context) error {
-	// EL RITMO DEPENDE DE SI LOS AVISOS ENTRAN. Con el canal puesto, el ciclo deja de ser
-	// quien se entera y pasa a ser quien comprueba: quince minutos. Sin canal sigue cada
-	// minuto, porque entonces es lo ÚNICO que trae los cambios y bajarlo dejaría al
-	// reparto quince minutos por detrás sin que nada lo diga.
+	// EL RITMO DEPENDE DE SI A ALGUIEN LE AVISAN. Con una de las dos puertas puesta, el
+	// ciclo deja de ser quien se entera y pasa a ser quien comprueba: tres horas. Sin
+	// ninguna sigue cada minuto, porque entonces es lo ÚNICO que trae los cambios y dejarlo
+	// lento pondría al reparto tres horas por detrás sin que nada lo diga.
 	ritmo := e.Opciones.RitmoDelCiclo(e.Opciones.PollDelEntorno)
+	// SE DICEN LAS DOS PUERTAS POR SEPARADO, y no un «con avisos» que las resume.
+	//
+	// Es la única línea que contesta «¿por qué va a este ritmo?» cuando alguien lo pregunta
+	// dentro de tres semanas. Con el resumen, un ciclo lento porque lee la cola y uno lento
+	// porque le tocan la puerta se ven idénticos — y si lo que falla es la puerta, saber que
+	// estaba puesta es justo el dato que hace falta.
 	e.Reg.Info("espejo arrancado",
 		"pedido", e.Opciones.PedidoURL, "reparto", e.Opciones.DeliveryURL,
-		"cada", ritmo, "con avisos", e.Opciones.EscuchaLosAvisos(),
+		"cada", ritmo,
+		"lee la cola", e.Opciones.EscuchaLosAvisos(),
+		"hay redis", e.Opciones.HayRedis(),
+		"le tocan la puerta", e.Opciones.TocanLaPuerta,
 		"sucursal", e.sucursalODejarTodas())
 
 	temporizador := time.NewTimer(0)

@@ -38,6 +38,21 @@ abstract final class CambioEnVivo {
   static const sucursales = 'sucursales';
   static const ajustes = 'ajustes';
 
+  /// Se movio algo en el canal con PEDIDO: entro un aviso, o salio una tanda.
+  ///
+  /// Jose, 26/09/2026: «SSE con todo esto igual, nada de polling». La pantalla del
+  /// canal contesta «¿esta entrando algo?», y a esa pregunta no se le contesta con
+  /// una foto de hace un rato: hay que ver el aviso APARECER.
+  ///
+  /// Lo publican las DOS mitades desde la api —la entrada del webhook y el drenaje
+  /// del buzon—, tambien cuando se rechaza: un PEDIDO que manda y un reparto que
+  /// rechaza todo es la situacion que hay que ver cuanto antes.
+  ///
+  /// Lo que NO lo publica es el consumidor de la cola: corre en otro proceso y el
+  /// bus vive en la memoria de la api, igual que le pasa a [clientes]. Mientras las
+  /// dos puertas convivan, lo que entre por la cola se vera en la vuelta siguiente.
+  static const canal = 'canal';
+
   static const todos = <String>[
     pedidos,
     catalogo,
@@ -48,6 +63,7 @@ abstract final class CambioEnVivo {
     almacenes,
     sucursales,
     ajustes,
+    canal,
   ];
 }
 

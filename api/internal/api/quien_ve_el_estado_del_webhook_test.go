@@ -16,33 +16,41 @@ import (
 	"procovar/reparto-api/internal/store/sqlc"
 )
 
-// LA PANTALLA DEL WEBHOOK ES DEL DESARROLLADOR Y DE NADIE MÁS.
+// QUIÉN VE LA PANTALLA DEL WEBHOOK: DOS ROLES DE LOS SIETE.
 //
-// Jose, 26/09/2026: «esto es para administración, esta vista no la puede ver nadie» y, más
-// claro todavía: «que sólo lo pueda ver yo, eso no lo puede ver más nadie, sólo yo, el
-// desarrollador».
+// Jose, 26/09/2026, por este orden: «esto es para administración, esta vista no la puede
+// ver nadie», luego «que sólo lo pueda ver yo, eso no lo puede ver más nadie, sólo yo, el
+// desarrollador» —y se cerró a `DESARROLLADOR` a secas— y esa misma tarde, al ver que su
+// propia cuenta es `SUPER ADMIN` por defecto y se quedaba fuera: **«ponle para super admin
+// también, de todas formas yo limpiaré eso después»**.
 //
-// POR QUÉ NO VALE `ExigirAdmin`, que era lo primero que se puso: `EsAdmin` deja pasar a
-// SUPER ADMIN, ADMINISTRADOR y al `admin` heredado de la web vieja. Un ADMINISTRADOR
-// administra SU SUCURSAL —es uno de los cinco roles de una sola— y ninguno de los tres
-// tiene nada que hacer en una pantalla de colas, reintentos, códigos HTTP y motivos de
-// error de otro sistema.
+// Así que son dos, y los otros CINCO siguen fuera. Eso último es lo que esta prueba
+// defiende, porque es lo que se pierde por descuido: basta con que alguien escriba
+// `ExigirAdmin` —lo primero que se puso aquí— para que entren también ADMINISTRADOR, que
+// administra UNA sucursal, y el `admin` heredado de la web vieja. Ninguno de los dos tiene
+// nada que hacer en una pantalla de colas, reintentos, códigos HTTP y motivos de error de
+// otro sistema.
 //
-// LA FORMA: se prueban los SIETE roles de la casa, uno a uno, y no sólo «un admin sí y un
-// operador no». Con dos casos, cambiar `EsDesarrollador` por `EsSuperAdmin` sale verde y la
-// pantalla se le abre a medio Procovar sin que nada falle.
+// LA FORMA: los SIETE roles de la casa, uno a uno, y no «un admin sí y un operador no». Con
+// dos casos, cambiar `PuedeMirarElCanal` por `EsAdmin` sale verde y la pantalla se le abre a
+// medio Procovar sin que nada falle.
+//
+// Y CUANDO JOSE LO LIMPIE —quitar `rolSuperAdmin` de `PuedeMirarElCanal`—, esta prueba
+// falla en el caso `SUPER ADMIN` y basta con moverlo de una lista a la otra. Que falle es
+// justo lo que se quiere: dice dónde está escrito el permiso.
 
-func TestSoloElDesarrolladorVeElEstadoDelWebhook(t *testing.T) {
+func TestQuienVeElEstadoDelWebhook(t *testing.T) {
 	// Los siete de `procovar/CLAUDE.md`, escritos EXACTAMENTE así: PEDIDO los compara
 	// como texto y aquí también.
-	losOtrosSeis := []string{
-		"SUPER ADMIN", "GERENTE", "ADMINISTRADOR", "SUPERVISOR", "GESTOR", "OPERADOR",
+	entran := []string{"DESARROLLADOR", "SUPER ADMIN"}
+	seQuedanFuera := []string{
+		"GERENTE", "ADMINISTRADOR", "SUPERVISOR", "GESTOR", "OPERADOR",
 	}
 
 	h, _ := montarRutasDelWebhook(t)
 
-	for _, rol := range losOtrosSeis {
-		t.Run(rol, func(t *testing.T) {
+	for _, rol := range seQuedanFuera {
+		t.Run("fuera/"+rol, func(t *testing.T) {
 			w := llamarRutas(t, h, http.MethodGet, "/api/admin/webhook",
 				tokenConRol(t, rol), "")
 			if w.Code != http.StatusForbidden {
@@ -54,20 +62,25 @@ func TestSoloElDesarrolladorVeElEstadoDelWebhook(t *testing.T) {
 		})
 	}
 
-	t.Run("DESARROLLADOR", func(t *testing.T) {
-		w := llamarRutas(t, h, http.MethodGet, "/api/admin/webhook",
-			tokenConRol(t, "DESARROLLADOR"), "")
-		if w.Code != http.StatusOK {
-			t.Fatalf(
-				"el desarrollador NO pudo entrar en su propia pantalla: %d %s",
-				w.Code, w.Body.String(),
-			)
-		}
-	})
+	// LA OTRA MITAD, y no sobra: sin ella, «los cinco no entran» se cumple con la ruta
+	// cerrada a todo el mundo, y Jose se queda mirando un 403 en su propia pantalla —que
+	// es exactamente lo que pasó y por lo que ahora son dos roles y no uno.
+	for _, rol := range entran {
+		t.Run("entra/"+rol, func(t *testing.T) {
+			w := llamarRutas(t, h, http.MethodGet, "/api/admin/webhook",
+				tokenConRol(t, rol), "")
+			if w.Code != http.StatusOK {
+				t.Fatalf(
+					"%s NO pudo entrar, y tiene que poder: %d %s",
+					rol, w.Code, w.Body.String(),
+				)
+			}
+		})
+	}
 }
 
 // Y SIN SESIÓN, NI ESO. Va aparte porque es otro middleware el que lo para —`Exigir`, no
-// `ExigirDesarrollador`— y por tanto otra cosa que se puede romper por su cuenta.
+// `ExigirQuienMiraElCanal`— y por tanto otra cosa que se puede romper por su cuenta.
 func TestSinSesionElEstadoDelWebhookNoSeSirve(t *testing.T) {
 	h, _ := montarRutasDelWebhook(t)
 

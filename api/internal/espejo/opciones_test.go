@@ -144,28 +144,154 @@ func TestSinRedisElEspejoSigueConSuCiclo(t *testing.T) {
 	}
 }
 
-// EL RITMO DEL CICLO DEPENDE DE SI LOS AVISOS ENTRAN.
+// EL RITMO DEL CICLO DEPENDE DE SI A ALGUIEN LE AVISAN, Y HAY DOS PUERTAS.
 //
-// Con el canal de Redis puesto, el ciclo deja de ser quien se entera de las cosas —eso lo
-// hace el stream, que entra en cuanto PEDIDO suelta— y pasa a ser quien comprueba que nada
-// se quedó por el camino: quince minutos.
+// Cuando entra un aviso —por la cola o por el webhook— el ciclo deja de ser quien se entera
+// de las cosas y pasa a ser quien comprueba que nada se quedó por el camino: tres horas, ocho
+// vueltas al día (Jose, 26/09/2026).
 //
-// SIN CANAL TIENE QUE SEGUIR CADA MINUTO, y ésta es la mitad que importa: entonces el ciclo
-// es lo ÚNICO que trae los cambios, y bajarlo dejaría al reparto quince minutos por detrás
-// de PEDIDO **sin que nada lo diga**. Esa es la forma de este fallo: no da error, sólo
-// llega tarde.
-func TestElCicloVaLentoSoloSiLosAvisosEntran(t *testing.T) {
-	conCanal := Opciones{Poll: time.Minute, RedisDireccion: "procovar-redis:6379"}
-	if got := conCanal.RitmoDelCiclo(false); got != PollConAvisos {
-		t.Fatalf("con los avisos entrando el ciclo sigue corriendo cada %v", got)
+// SIN NINGUNA DE LAS DOS TIENE QUE SEGUIR CADA MINUTO, y ésta es la mitad que importa:
+// entonces el ciclo es lo ÚNICO que trae los cambios, y dejarlo en tres horas pondría al
+// reparto tres horas por detrás de PEDIDO **sin que nada lo diga**. Ésa es la forma de este
+// fallo: no da error, sólo llega tarde.
+//
+// LA FILA QUE ESTA PRUEBA EXISTE PARA CUBRIR es «la cola apagada y el webhook puesto». Era
+// una trampa colocada justo en el camino que íbamos a andar: la decisión miraba sólo la cola,
+// así que apagarla el día de la mudanza habría devuelto el ciclo a UN MINUTO —1.440 barridos
+// diarios de las ocho sucursales por la conexión de allá— en el momento exacto en que menos
+// falta hacían.
+func TestElRitmoDelCicloMiraLasDosPuertas(t *testing.T) {
+	casos := []struct {
+		nombre string
+		o      Opciones
+		quiere time.Duration
+	}{
+		{"sólo la cola", Opciones{
+			Poll: time.Minute, RedisDireccion: "procovar-redis:6379", EscuchaElStream: true,
+		}, PollConAvisos},
+		{"sólo el webhook, la cola apagada", Opciones{
+			Poll: time.Minute, RedisDireccion: "procovar-redis:6379",
+			EscuchaElStream: false, TocanLaPuerta: true,
+		}, PollConAvisos},
+		{"el webhook sin Redis siquiera", Opciones{
+			Poll: time.Minute, TocanLaPuerta: true,
+		}, PollConAvisos},
+		{"las dos", Opciones{
+			Poll: time.Minute, RedisDireccion: "procovar-redis:6379",
+			EscuchaElStream: true, TocanLaPuerta: true,
+		}, PollConAvisos},
+		{"NINGUNA: el ciclo es lo único que trae los cambios", Opciones{
+			Poll: time.Minute,
+		}, time.Minute},
+		{"Redis puesto pero la cola apagada y sin webhook", Opciones{
+			Poll: time.Minute, RedisDireccion: "procovar-redis:6379", EscuchaElStream: false,
+		}, time.Minute},
 	}
 
-	sinCanal := Opciones{Poll: time.Minute}
-	if got := sinCanal.RitmoDelCiclo(false); got != time.Minute {
-		t.Fatalf(
-			"sin canal el ciclo se fue a %v: es lo único que trae los cambios y el "+
-				"reparto se quedaría así de atrás sin que nada lo diga", got,
-		)
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			if got := c.o.RitmoDelCiclo(false); got != c.quiere {
+				t.Fatalf("con %s el ciclo va cada %v y tenía que ir cada %v",
+					c.nombre, got, c.quiere)
+			}
+		})
+	}
+}
+
+// TRES HORAS, Y ESTÁ ESCRITO EN UN SOLO SITIO.
+//
+// El número va aparte porque es una decisión de Jose y no un detalle: «cada 3 lo veo, serían
+// 8 veces en el día para comprobar si todo está correcto en el espejo». Si alguien lo cambia
+// sin querer —un dedo en el teclado, un `time.Minute` donde iba `time.Hour`— esto lo dice.
+func TestElCicloLentoEsDeTresHoras(t *testing.T) {
+	if PollConAvisos != 3*time.Hour {
+		t.Fatalf("el ciclo lento vale %v: Jose lo puso en 3 horas, ocho vueltas al día",
+			PollConAvisos)
+	}
+}
+
+// EL INTERRUPTOR DE LA COLA: `ESPEJO_ESCUCHA_AVISOS=false` la apaga DEJANDO el Redis puesto.
+//
+// Es lo que hace posible el orden acordado con la sesión de PEDIDO: la cola se apaga sólo
+// cuando se ha visto entrar una tanda por HTTP. Sin esto, apagarla obligaba a quitarle el
+// Redis al servicio entero — y el Redis hace más cosas.
+func TestLaColaSeApagaSinQuitarElRedis(t *testing.T) {
+	entorno := func(valor string) func(string) string {
+		return func(k string) string {
+			switch k {
+			case "SERVICE_API_KEY":
+				return "la-clave"
+			case "REDIS_URL":
+				return "redis://procovar-redis:6379/2"
+			case "ESPEJO_ESCUCHA_AVISOS":
+				return valor
+			}
+			return ""
+		}
+	}
+
+	// Apagada: el Redis sigue configurado y la cola NO se lee.
+	o, err := Cargar(entorno("false"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !o.HayRedis() {
+		t.Fatal("se perdió el Redis al apagar la cola: el interruptor tenía que dejarlo puesto")
+	}
+	if o.EscuchaLosAvisos() {
+		t.Fatal("se apagó la cola y sigue diciendo que la lee")
+	}
+
+	// LA OTRA MITAD: sin la variable, se lee. Quien no toque nada sigue como estaba, y una
+	// errata en el nombre no puede dejar al reparto sin enterarse de nada.
+	for _, valor := range []string{"", "true", "si", "lo-que-sea"} {
+		o, err := Cargar(entorno(valor))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !o.EscuchaLosAvisos() {
+			t.Fatalf("con ESPEJO_ESCUCHA_AVISOS=%q se apagó la cola: sólo `false` y `0` "+
+				"apagan, porque el lado seguro es seguir escuchando", valor)
+		}
+	}
+}
+
+// Y LA PAREJA DEL WEBHOOK SE LEE DE LAS MISMAS DOS VARIABLES QUE LA API.
+//
+// HACEN FALTA LAS DOS: con una sola, la API contesta 503 y no entra ni un aviso, así que dar
+// el ritmo lento por buena con media pareja dejaría el ciclo en tres horas sin que nadie
+// estuviera avisando de nada. Eso es el reparto tres horas por detrás y en silencio.
+func TestLaMediaParejaDelWebhookNoCuenta(t *testing.T) {
+	casos := []struct {
+		nombre       string
+		key, secreto string
+		quiere       bool
+	}{
+		{"las dos", "rp_k", "s3cr3t", true},
+		{"sólo la key", "rp_k", "", false},
+		{"sólo el secreto", "", "s3cr3t", false},
+		{"ninguna", "", "", false},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			o, err := Cargar(func(k string) string {
+				switch k {
+				case "SERVICE_API_KEY":
+					return "la-clave"
+				case "PEDIDO_WEBHOOK_KEY":
+					return c.key
+				case "PEDIDO_WEBHOOK_SECRET":
+					return c.secreto
+				}
+				return ""
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if o.TocanLaPuerta != c.quiere {
+				t.Fatalf("con %s dice TocanLaPuerta=%v", c.nombre, o.TocanLaPuerta)
+			}
+		})
 	}
 }
 

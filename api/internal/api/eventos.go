@@ -208,6 +208,7 @@ func init() {
 	avisarCambioDeAlmacenes = func(_ context.Context) { busEventos.Avisar(CambioAlmacenes, nil) }
 	avisarCambioDeSucursales = func(_ context.Context) { busEventos.Avisar(CambioSucursales, nil) }
 	avisarCambioDeAjustes = func(_ context.Context) { busEventos.Avisar(CambioAjustes, nil) }
+	avisarCambioEnElCanal = func(_ context.Context) { busEventos.Avisar(CambioCanal, nil) }
 }
 
 // Avisar publica un cambio. Devuelve si salió o si lo paró el freno; nunca bloquea y nunca
@@ -517,4 +518,24 @@ const (
 	CambioAlmacenes  = "almacenes"
 	CambioSucursales = "sucursales"
 	CambioAjustes    = "ajustes"
+
+	// CambioCanal: se movió algo en el canal con PEDIDO — entró un aviso, o salió una tanda.
+	//
+	// Jose, 26/09/2026: «SSE con todo esto igual, nada de polling». La pantalla del canal
+	// nació pidiendo su estado UNA vez, con un botón de «volver a mirar» al lado, y eso es
+	// medio sondeo con el dedo de una persona haciendo de temporizador: quien la mira quiere
+	// ver el aviso APARECER, que es justo la pregunta que esa pantalla contesta —«¿está
+	// entrando algo?»—, y con una foto de hace un rato no se contesta.
+	//
+	// SE PUBLICA TAMBIÉN CUANDO SE RECHAZA, y no sólo cuando entra: un PEDIDO que manda y un
+	// reparto que rechaza todo son la situación que hay que ver cuanto antes, y es la que con
+	// un aviso sólo-de-éxito se quedaría sin pintar.
+	//
+	// LOS DOS SENTIDOS LO PUBLICAN desde esta API —la entrada en `webhook_de_pedido.go`, la
+	// salida en `drenaje_del_buzon.go`—, así que la pantalla se entera de las dos mitades.
+	// Lo que NO puede publicar es el consumidor de la cola: corre en el proceso del espejo y
+	// este bus vive en la memoria de éste, igual que le pasa a `CambioClientes`. Queda dicho
+	// para que nadie lo lea como un olvido: mientras las dos puertas convivan, lo que entre
+	// por la cola se verá en la siguiente vuelta y no al instante.
+	CambioCanal = "canal"
 )

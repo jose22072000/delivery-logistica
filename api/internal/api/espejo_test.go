@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -1498,5 +1499,70 @@ func TestElLogisticoSoloSeLlevaElPadronDeSuSucursal(t *testing.T) {
 	}
 	if puestos[deHol.String()] {
 		t.Fatalf("el operador de Santiago recibió un cliente de HOLGUÍN: el acotado del padrón se cayó")
+	}
+}
+
+// EL RECOSTEO MANDA LOS PEDIDOS TRADUCIDOS A LA PUERTA.
+//
+// ESTO ESTUVO ROTO Y EN VERDE, y así se encontró el 26/09/2026 escribiendo la puerta del
+// webhook, que necesitaba la misma traducción: el recosteo metía los pedidos de
+// `/integration/orders` TAL CUAL en el `orders` del lote. Las dos formas no se parecen —PEDIDO
+// manda `id` y `sucursalCodigo`, la puerta espera `externalId` y `sucursalExternalId`—, así
+// que llegaba un lote entero con el id VACÍO y sin id no se guarda ningún pedido.
+//
+// LA FORMA DEL FALLO, que es la que importa: **no daba error**. Contestaba 200 con
+// `total: 5000, recosteados: 0`, y un cero es perfectamente creíble para «no había nada que
+// recostear». Las tres pruebas que ya había —el 502, el 200 sin pedidos y el aviso del tope—
+// pasaban con el fallo puesto, porque ninguna miraba QUÉ le llegaba a la puerta.
+//
+// Por eso esta prueba no comprueba el código de la respuesta: comprueba el CUERPO que sale.
+func TestElRecosteoMandaLosPedidosTraducidos(t *testing.T) {
+	pedido := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// La forma REAL de PEDIDO, la de `/integration/orders`.
+		_ = json.NewEncoder(w).Encode(map[string]any{"orders": []any{map[string]any{
+			"id":             "PED-42",
+			"folio":          "X-2992",
+			"sucursalCodigo": "STG",
+			"itemsOrigen":    "factura",
+			"cliente":        map[string]any{"nombre": "Uno", "latitud": 20.1, "longitud": -77.2},
+			"items":          []any{map[string]any{"codigo": "A", "pesoLineaKg": 24, "packs": 12}},
+		}}})
+	}))
+	defer pedido.Close()
+
+	var loQueLlegoALaPuerta string
+	puerta := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		crudo, _ := io.ReadAll(r.Body)
+		loQueLlegoALaPuerta = string(crudo)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"weightsSource": "pedido",
+			"results":       []any{map[string]any{"status": "quoted", "price": 100.0}},
+		})
+	}))
+	defer puerta.Close()
+
+	t.Setenv("SERVICE_API_KEY", "clave")
+	t.Setenv("PEDIDO_API_URL", pedido.URL)
+	t.Setenv("DELIVERY_URL", puerta.URL)
+	h := montarTab(t, nuevoEspejo())
+
+	w := pedirTab(t, h, http.MethodPost, "/api/admin/recompute", tokenTab(t, sucStg.String()), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("código %d: %s", w.Code, w.Body.String())
+	}
+
+	if !strings.Contains(loQueLlegoALaPuerta, `"externalId":"PED-42"`) {
+		t.Fatalf("a la puerta le llegó el pedido SIN traducir: el `externalId` es lo que lo "+
+			"identifica, y sin él no se guarda ninguno — el recosteo contestaría 200 y no "+
+			"recostearía nada.\n  llegó: %s", loQueLlegoALaPuerta)
+	}
+	if !strings.Contains(loQueLlegoALaPuerta, `"sucursalExternalId":"STG"`) {
+		t.Fatalf("se perdió la sucursal: sin ella la puerta no sabe desde qué almacén medir "+
+			"la distancia.\n  llegó: %s", loQueLlegoALaPuerta)
+	}
+	// Y QUE EL NÚMERO QUE SALE CUADRE CON LO QUE PASÓ. Sin esto, «llegó traducido» se cumple
+	// aunque la respuesta siga diciendo cero.
+	if !strings.Contains(w.Body.String(), `"recosteados":1`) {
+		t.Fatalf("llegó bien y la respuesta no lo cuenta: %s", w.Body.String())
 	}
 }

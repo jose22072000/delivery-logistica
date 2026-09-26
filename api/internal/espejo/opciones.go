@@ -117,36 +117,83 @@ type Opciones struct {
 	RedisClave      string
 	RedisBase       int
 	Stream          string
+
+	// EscuchaElStream: si se lee la cola de Redis.
+	//
+	// Existe para poder APAGAR la cola sin quitar `REDIS_URL`, que es lo que hacía falta el
+	// día de la mudanza al webhook: mientras las dos puertas conviven, el mismo aviso entra
+	// por las dos, y el orden acordado con la sesión de PEDIDO es apagar la cola SÓLO cuando
+	// se ha visto entrar una tanda por HTTP. Sin este interruptor, apagarla obligaba a
+	// quitarle el Redis al servicio entero.
+	//
+	// Por defecto true cuando hay Redis: quien no toque nada sigue como estaba.
+	EscuchaElStream bool
+
+	// TocanLaPuerta: si PEDIDO avisa por el webhook (`POST /api/webhooks/pedido`).
+	//
+	// EL ESPEJO NO RECIBE ESE POST —entra por la API—, pero SÍ le cambia el ritmo: es la
+	// diferencia entre «soy el único que se entera de las cosas» y «soy la red de debajo».
+	// Se deduce de la MISMA pareja key+secret que usa la API, así que ponerla en el servicio
+	// ya lo dice y no hay una segunda variable que se pueda quedar a medias.
+	TocanLaPuerta bool
 }
 
-// PollConAvisos es cada cuánto da la vuelta el ciclo CUANDO los avisos están entrando.
+// PollConAvisos es cada cuánto da la vuelta el ciclo CUANDO a alguien le avisan.
 //
-// De un minuto a quince. El ciclo deja de ser quien se entera de las cosas —eso lo hace el
-// stream, que entra en cuanto PEDIDO suelta— y pasa a ser quien comprueba que nada se quedó
-// por el camino: Redis caído, un aviso perdido, o alguien corrigiendo la base por SQL sin
-// tocar `updatedAt`.
+// TRES HORAS — ocho vueltas al día. Jose, 26/09/2026: «el espejo sube el tiempo de la
+// comprobación, 15 y 30 es muy poco tiempo, ponlo más alto, cada 3 o cada 5 horas; cada 3 lo
+// veo, serían 8 veces en el día para comprobar si todo está correcto en el espejo».
 //
-// QUINCE Y NO TREINTA: es el tiempo que alguien tarda en llamar a la oficina preguntando
-// por un pedido que no ve. Más largo ahorra poco y se nota cuando el canal falla justo ese
-// día.
-const PollConAvisos = 15 * time.Minute
+// POR QUÉ SE PUEDE: el ciclo ya no es quien se entera de las cosas. Eso lo hace el aviso
+// —por la cola o por el webhook—, que entra EN EL ACTO cuando PEDIDO suelta. Al ciclo le
+// queda comprobar que nada se quedó por el camino: Redis caído, un aviso que se rindió a los
+// tres intentos, o alguien corrigiendo la base por SQL sin tocar `updatedAt`.
+//
+// Y ESTE FICHERO YA SE EQUIVOCÓ UNA VEZ EN LO MISMO: decía «QUINCE Y NO TREINTA, es el
+// tiempo que alguien tarda en llamar a la oficina preguntando por un pedido que no ve». Ese
+// razonamiento era el del mundo anterior, cuando el ciclo ERA el que traía los cambios y
+// quince minutos era lo que se tardaba en enterarse. Con avisos, quien pregunta por un pedido
+// que no ve lo ve aparecer en segundos, y las otras 95 vueltas del día no encontraban nada:
+// 96 barridos diarios de las ocho sucursales por la conexión de allá para no traer nada.
+//
+// LO QUE CUESTA, dicho claro: si el aviso se pierde Y el webhook se rinde, ese pedido puede
+// tardar hasta tres horas en aparecer. Es el precio, y es el que Jose ha elegido sabiendo lo
+// que hay. Lo que NO se pierde es nada: el ciclo lo encuentra igual, sólo más tarde.
+const PollConAvisos = 3 * time.Hour
 
-// EscuchaLosAvisos: ¿hay canal configurado?
-//
-// Es lo que decide el ritmo del ciclo, y por eso es un método y no una comprobación suelta
-// en tres sitios: sin Redis el ciclo tiene que seguir yendo cada minuto porque es lo ÚNICO
-// que trae los cambios. Bajarlo igualmente sería dejar al reparto quince minutos por detrás
-// de PEDIDO sin que nada lo diga.
-func (o Opciones) EscuchaLosAvisos() bool {
+// HayRedis: si se puede hablar con la cola. No es lo mismo que leerla — ver EscuchaLosAvisos.
+func (o Opciones) HayRedis() bool {
 	return o.RedisDireccion != "" || len(o.RedisCentinelas) > 0
+}
+
+// EscuchaLosAvisos: ¿se va a leer la cola de avisos?
+//
+// Hacen falta LAS DOS COSAS: que haya Redis y que no se haya apagado a mano. El interruptor
+// es lo que permite apagar la cola el día que el webhook quede como puerta buena, sin tener
+// que quitarle el Redis al servicio.
+func (o Opciones) EscuchaLosAvisos() bool {
+	return o.HayRedis() && o.EscuchaElStream
+}
+
+// LeAvisan: ¿se entera alguien de los cambios SIN el ciclo?
+//
+// ES LA PREGUNTA QUE DECIDE EL RITMO, y son DOS puertas, no una. Estaba escrita mirando sólo
+// la cola, y eso era una trampa puesta justo en el camino que íbamos a andar: **apagar la
+// cola con el webhook funcionando habría devuelto el ciclo a UN MINUTO**, o sea 1.440 barridos
+// al día de las ocho sucursales por la conexión de allá, en el momento exacto en que menos
+// falta hacían. Sin un solo error, y nadie mirando el ritmo de una tarea de fondo.
+func (o Opciones) LeAvisan() bool {
+	return o.EscuchaLosAvisos() || o.TocanLaPuerta
 }
 
 // RitmoDelCiclo es cada cuánto toca dar la vuelta, ya decidido.
 //
 // Si el entorno puso `SYNC_POLL_MS` a mano, manda ése: alguien que lo escribe sabe lo que
-// quiere y no se le discute.
+// quiere y no se le discute. Y si NADIE avisa, el ciclo vuelve a ser lo único que trae los
+// cambios y tiene que ir deprisa: dejarlo en tres horas sería tener el reparto tres horas por
+// detrás de PEDIDO sin que nada lo diga.
 func (o Opciones) RitmoDelCiclo(loPusoElEntorno bool) time.Duration {
-	if loPusoElEntorno || !o.EscuchaLosAvisos() {
+	if loPusoElEntorno || !o.LeAvisan() {
 		return o.Poll
 	}
 	return PollConAvisos
@@ -169,6 +216,9 @@ func PorDefecto() Opciones {
 		Lote:              200,
 		PaginaClientes:    1000,
 		Stream:            StreamPorDefecto,
+		// SE LEE LA COLA SALVO QUE SE DIGA LO CONTRARIO: quien no toque nada sigue como
+		// estaba. Apagarla es una decisión que se escribe, no un olvido.
+		EscuchaElStream: true,
 	}
 }
 
@@ -216,6 +266,24 @@ func Cargar(entorno func(string) string) (Opciones, error) {
 	// automático pisaría una decisión tomada a mano.
 	o.PollDelEntorno = strings.TrimSpace(entorno("SYNC_POLL_MS")) != ""
 	milis("SYNC_POLL_MS", &o.Poll)
+
+	// EL INTERRUPTOR DE LA COLA. `ESPEJO_ESCUCHA_AVISOS=false` la apaga dejando el Redis
+	// puesto — que es lo que hace falta el día de la mudanza al webhook, y en el orden
+	// acordado: la cola se apaga SÓLO cuando se ha visto entrar una tanda por HTTP.
+	//
+	// SÓLO `false` Y `0` APAGAN. Cualquier otra cosa —vacía, `si`, una errata— deja la cola
+	// encendida, que es el lado seguro: una variable mal escrita no puede dejar al reparto
+	// sin enterarse de nada.
+	if v := strings.ToLower(strings.TrimSpace(entorno("ESPEJO_ESCUCHA_AVISOS"))); v == "false" || v == "0" {
+		o.EscuchaElStream = false
+	}
+
+	// ¿LE TOCAN LA PUERTA? Se deduce de la pareja del webhook, la MISMA que lee la API
+	// (`PEDIDO_WEBHOOK_KEY` / `PEDIDO_WEBHOOK_SECRET`). El espejo no recibe ese POST, pero le
+	// cambia el ritmo: ver `LeAvisan`. Hacen falta las dos, porque con una sola la API
+	// contesta 503 y no entra ni un aviso.
+	o.TocanLaPuerta = strings.TrimSpace(entorno("PEDIDO_WEBHOOK_KEY")) != "" &&
+		strings.TrimSpace(entorno("PEDIDO_WEBHOOK_SECRET")) != ""
 
 	// EL CANAL DE AVISOS. Los nombres son los del Redis de la casa: un solo motor, con
 	// centinela (`procovar-sentinel`), y cada aplicación con su prefijo y sus bases.

@@ -37,25 +37,36 @@ import (
 
 	"procovar/reparto-api/internal/alcance"
 	"procovar/reparto-api/internal/auth"
+	"procovar/reparto-api/internal/espejo"
 	"procovar/reparto-api/internal/httpx"
 	"procovar/reparto-api/internal/store/sqlc"
 )
 
 // rutasEspejo monta las tres. Lo llama `Rutas()` en servidor.go.
 func (s *Servidor) rutasEspejo(rt *httpx.Router, sesion, admin []httpx.Medio) {
-	// CÓMO VA EL WEBHOOK. SÓLO EL DESARROLLADOR, y fuera del menú.
+	// CÓMO VA EL WEBHOOK. DESARROLLADOR Y SUPER ADMIN, y fuera del menú.
 	//
 	// No son datos de una sucursal ni de administrar la empresa: es el estado de una
 	// tubería entre dos sistemas, con colas, reintentos, códigos HTTP y motivos de error
 	// de PEDIDO dentro. Jose, 26/09/2026: «esto es para administración, esta vista no la
-	// puede ver nadie» y, más claro todavía: «que sólo lo pueda ver yo, eso no lo puede
-	// ver más nadie, sólo yo, el desarrollador».
+	// puede ver nadie» y «que sólo lo pueda ver yo, eso no lo puede ver más nadie, sólo yo,
+	// el desarrollador» — y esa misma tarde, al quedarse fuera su propia cuenta: «ponle
+	// para super admin también, de todas formas yo limpiaré eso después».
 	//
-	// Por eso NO va con `admin`: un ADMINISTRADOR administra su sucursal y un SUPER ADMIN
-	// toda la empresa, y ninguno de los dos tiene nada que hacer aquí. Ver
-	// `auth.ExigirDesarrollador` y `estado_del_webhook.go`.
-	soloDesarrollador := append(append([]httpx.Medio{}, sesion...), auth.ExigirDesarrollador)
-	rt.ManejarFunc(http.MethodGet, "/api/admin/webhook", s.estadoDelWebhook, soloDesarrollador...)
+	// Por eso NO va con `admin` aunque dos de sus roles coincidan: `ExigirAdmin` deja pasar
+	// además a ADMINISTRADOR, que administra UNA sucursal, y al `admin` heredado de la web
+	// vieja. Quién entra exactamente está en `auth.PuedeMirarElCanal`, en un solo sitio.
+	soloElCanal := append(append([]httpx.Medio{}, sesion...), auth.ExigirQuienMiraElCanal)
+	rt.ManejarFunc(http.MethodGet, "/api/admin/webhook", s.estadoDelWebhook, soloElCanal...)
+
+	// LA PUERTA POR DONDE PEDIDO TOCA. Va SIN sesión y con su propia llave: quien llama es
+	// otro sistema, no una persona, y no tiene ni token ni sucursal. Se comprueba con la
+	// pareja key+secret y el cuerpo FIRMADO — ver `webhook_de_pedido.go`.
+	//
+	// EL CAMINO IMPORTA: `PathPrefix(/api)` de Traefik ya manda esto a la API, así que
+	// montarla bajo `/api` es lo que hace que funcione sin tocar el proxy. Una ruta
+	// `/webhooks/...` a secas se la comería la aplicación web y PEDIDO recibiría un HTML.
+	rt.ManejarFunc(http.MethodPost, "/api/webhooks/pedido", s.avisoDePedido, s.mediosDelWebhook()...)
 	_ = admin
 
 	// `products/sync` admite LAS DOS PUERTAS —clave de servicio o sesión— porque la
@@ -421,11 +432,31 @@ func (s *Servidor) recomputar(w http.ResponseWriter, r *http.Request) {
 	if destino == "" {
 		destino = "http://127.0.0.1:" + s.cfg.Puerto
 	}
-	lote, _ := json.Marshal(map[string]any{
-		"preview":             false,
-		"useWarehouseWeights": true,
-		"orders":              respuesta.Orders,
-	})
+
+	// LOS PEDIDOS SE TRADUCEN, y esto es un ARREGLO del 26/09/2026, no un refinamiento.
+	//
+	// Antes se metían los de `/integration/orders` TAL CUAL en `orders`, y las dos formas no
+	// se parecen: PEDIDO manda `id`, `sucursalCodigo` y `cliente{}`; la puerta espera
+	// `externalId`, `sucursalExternalId` y `customerName`. Así que a la puerta le llegaba un
+	// lote entero con el `externalId` VACÍO —y sin id no se puede guardar ningún pedido—.
+	//
+	// LA FORMA DEL FALLO es la de siempre aquí: no daba error. Contestaba 200, con
+	// `total: 5000` y `recosteados: 0`, y un cero es un número perfectamente creíble para
+	// «no había nada que recostear». El botón existía, se pulsaba, decía que sí y no
+	// recosteaba un solo pedido.
+	//
+	// Se encontró escribiendo la puerta del webhook, que necesitaba la misma traducción. Es
+	// `espejo.ArmarLote`, la MISMA que usa el ciclo — que es la razón de que el ciclo sí
+	// funcionara y esto no.
+	var pedidos []espejo.PedidoDeFuera
+	if err := json.Unmarshal(cuerpo, &struct {
+		Orders *[]espejo.PedidoDeFuera `json:"orders"`
+	}{Orders: &pedidos}); err != nil {
+		httpx.Error(w, r, http.StatusBadGateway,
+			fmt.Sprintf("los pedidos de PEDIDO no se entienden: %s", err))
+		return
+	}
+	lote, _ := json.Marshal(espejo.ArmarLote(pedidos))
 	cuerpo, estado, err = s.pedirAlEspejo(r.Context(), http.MethodPost, destino+"/api/quote/batch", lote)
 	if err != nil {
 		httpx.Error(w, r, http.StatusBadGateway, fmt.Sprintf("Cotización no contesta: %s", err))

@@ -213,6 +213,58 @@ func TestConElBuzonVacioNoSeLlamaANadie(t *testing.T) {
 	}
 }
 
+// CADA TANDA QUE SALE AVISA A LA PANTALLA DEL CANAL — LOS TRES DESENLACES.
+//
+// Jose, 26/09/2026: «SSE con todo esto igual, nada de polling». La pantalla del canal contesta
+// «¿está saliendo algo?», y a eso no se le contesta con una foto de hace un rato.
+//
+// EL DESENLACE QUE MÁS IMPORTA ES EL SEGUNDO: PEDIDO caído. Es lo que hay que ver aparecer, y
+// justo lo que se quedaría sin pintar con un aviso que sólo sale cuando algo va bien. Se
+// escribió sin prueba y una mutación lo quitó sin que nada fallara, así que aquí está.
+//
+// Y LA OTRA MITAD, el cuarto caso: con el buzón VACÍO no se avisa. Sin eso, «avisa siempre» se
+// cumple avisando en cada vuelta del temporizador —una al minuto, sin que haya pasado nada—, y
+// entonces ocho navegadores se bajan el estado del canal 1.440 veces al día por nada. Un aviso
+// que sale siempre deja de significar algo.
+func TestCadaTandaQueSaleAvisaALaPantalla(t *testing.T) {
+	casos := []struct {
+		nombre     string
+		pendientes []sqlc.AvisosAPedidoPendientesRow
+		parte      ParteAPedido
+		quiere     int
+	}{
+		{"la tanda entró", []sqlc.AvisosAPedidoPendientesRow{avisoEnElBuzon("ped-1")},
+			ParteAPedido{Ok: true, Enviados: 1, Aplicados: 1}, 1},
+		{"PEDIDO no contestó", []sqlc.AvisosAPedidoPendientesRow{avisoEnElBuzon("ped-1")},
+			ParteAPedido{Ok: false, Error: "dial tcp: connection refused"}, 1},
+		{"PEDIDO lo rechazó", []sqlc.AvisosAPedidoPendientesRow{avisoEnElBuzon("ped-1")},
+			ParteAPedido{Ok: true, Enviados: 1, Aplicados: 0, Error: "no existe aquí"}, 1},
+		{"el buzón estaba vacío", nil, ParteAPedido{Ok: true}, 0},
+	}
+
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			avisos := 0
+			antes := avisarCambioEnElCanal
+			avisarCambioEnElCanal = func(context.Context) { avisos++ }
+			t.Cleanup(func() { avisarCambioEnElCanal = antes })
+
+			b := &buzonFalso{pendientes: c.pendientes}
+			parte := c.parte
+			s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
+				return parte
+			})
+
+			s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
+
+			if avisos != c.quiere {
+				t.Fatalf("con «%s» salieron %d avisos y tenían que salir %d",
+					c.nombre, avisos, c.quiere)
+			}
+		})
+	}
+}
+
 // --------------------------------------------------------------------------- el montaje
 
 type fuenteDelBuzon struct{ q sqlc.Querier }

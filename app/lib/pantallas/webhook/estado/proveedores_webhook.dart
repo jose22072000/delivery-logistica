@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../nucleo/proveedores.dart';
+import '../../../nucleo/refresco_en_vivo.dart';
 import '../datos/estado_del_webhook.dart';
 
 /// EL ESTADO DEL CANAL, pedido al servidor.
@@ -23,9 +24,24 @@ import '../datos/estado_del_webhook.dart';
 /// Es la misma regla de la casa escrita en otro sitio: un rechazo permanente contra un
 /// reintentador no es una defensa, es un bucle. Devolver `null` es «no lo vuelvas a
 /// intentar»: el error sale a la primera y la pantalla dice de quién es.
+///
+/// ## Y SE REPINTA SOLA: NADA DE SONDEO
+///
+/// Jose, 26/09/2026: «SSE con todo esto igual, nada de polling». Esta pantalla nacio con una
+/// sola peticion y un boton de «volver a mirar» al lado, y ese boton es medio sondeo con el
+/// dedo de una persona haciendo de temporizador.
+///
+/// [refrescarConElAviso] la vuelve a pedir en cuanto el servidor dice que se movio algo en el
+/// canal —entro un aviso, salio una tanda, o PEDIDO no contesto—. **Se mira el TIPO y no
+/// «llego algo»**: un cambio de pedidos no puede costar una peticion de esta pantalla.
+///
+/// El boton se queda, y ya no es el unico camino: sirve para cuando el canal de eventos no
+/// esta —ahi no se dispara nada— y para el 403, donde no va a llegar ningun aviso porque la
+/// peticion ni se atiende.
 final estadoDelWebhookProvider = FutureProvider.autoDispose<EstadoDelWebhook>((
   ref,
 ) async {
+  refrescarConElAviso(ref, const [CambioEnVivo.canal]);
   final api = ref.watch(clienteApiProvider);
   return RepositorioDelWebhook(api).mirar();
 }, retry: (_, _) => null);
