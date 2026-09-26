@@ -266,55 +266,62 @@ type PedidoDisponibleSalida struct {
 // entero. Aquí sí van todos los campos, porque es UNA fila y la pantalla de detalle los
 // enseña.
 type PedidoDetalleSalida struct {
-	ID                 uuid.UUID         `json:"id"`
-	OperationNumber    *string           `json:"operationNumber"`
-	CustomerName       string            `json:"customerName"`
-	CustomerPhone      *string           `json:"customerPhone"`
-	Address            string            `json:"address"`
-	EndAddress         *string           `json:"endAddress"`
-	EndLat             *float64          `json:"endLat"`
-	EndLng             *float64          `json:"endLng"`
-	Lat                *float64          `json:"lat"`
-	Lng                *float64          `json:"lng"`
-	Weight             float64           `json:"weight"`
-	Status             string            `json:"status"`
-	TripLeg            string            `json:"tripLeg"`
-	Notes              *string           `json:"notes"`
-	RouteID            *uuid.UUID        `json:"routeId"`
-	UltimaRutaID       *uuid.UUID        `json:"ultimaRutaId"`
-	VehicleID          *uuid.UUID        `json:"vehicleId"`
-	Price              *float64          `json:"price"`
-	SegmentKm          *float64          `json:"segmentKm"`
-	DeliveryPrice      *float64          `json:"deliveryPrice"`
-	DeliveryDistanceKm *float64          `json:"deliveryDistanceKm"`
-	BranchID           *uuid.UUID        `json:"branchId"`
-	Source             *string           `json:"source"`
-	ExternalID         *string           `json:"externalId"`
-	OrderDate          *time.Time        `json:"orderDate"`
-	PedidoUpdatedAt    *time.Time        `json:"pedidoUpdatedAt"`
-	Estado             *string           `json:"estado"`
-	Archivado          bool              `json:"archivado"`
-	FechaComprometida  *time.Time        `json:"fechaComprometida"`
-	RequiereDomicilio  *bool             `json:"requiereDomicilio"`
-	PedidoCosto        *float64          `json:"pedidoCosto"`
-	Municipio          *string           `json:"municipio"`
-	Vendedor           *string           `json:"vendedor"`
-	SucursalCodigo     *string           `json:"sucursalCodigo"`
-	FacturaEstado      *string           `json:"facturaEstado"`
-	FacturaNumero      *string           `json:"facturaNumero"`
-	FacturaAt          *time.Time        `json:"facturaAt"`
-	FacturaDomicilio   *float64          `json:"facturaDomicilio"`
-	FacturaCorregidoAt *time.Time        `json:"facturaCorregidoAt"`
-	StopOrder          *int32            `json:"stopOrder"`
-	DeliveredAt        *time.Time        `json:"deliveredAt"`
-	Resultado          *string           `json:"resultado"`
-	ResultadoAt        *time.Time        `json:"resultadoAt"`
-	ResultadoNota      *string           `json:"resultadoNota"`
-	CreatedAt          *time.Time        `json:"createdAt"`
-	UpdatedAt          *time.Time        `json:"updatedAt"`
-	Items              []RenglonSalida   `json:"items"`
-	Route              *RutaDePedido     `json:"route"`
-	Vehicle            *VehiculoDePedido `json:"vehicle"`
+	ID                 uuid.UUID  `json:"id"`
+	OperationNumber    *string    `json:"operationNumber"`
+	CustomerName       string     `json:"customerName"`
+	CustomerPhone      *string    `json:"customerPhone"`
+	Address            string     `json:"address"`
+	EndAddress         *string    `json:"endAddress"`
+	EndLat             *float64   `json:"endLat"`
+	EndLng             *float64   `json:"endLng"`
+	Lat                *float64   `json:"lat"`
+	Lng                *float64   `json:"lng"`
+	Weight             float64    `json:"weight"`
+	Status             string     `json:"status"`
+	TripLeg            string     `json:"tripLeg"`
+	Notes              *string    `json:"notes"`
+	RouteID            *uuid.UUID `json:"routeId"`
+	UltimaRutaID       *uuid.UUID `json:"ultimaRutaId"`
+	VehicleID          *uuid.UUID `json:"vehicleId"`
+	Price              *float64   `json:"price"`
+	SegmentKm          *float64   `json:"segmentKm"`
+	DeliveryPrice      *float64   `json:"deliveryPrice"`
+	DeliveryDistanceKm *float64   `json:"deliveryDistanceKm"`
+	BranchID           *uuid.UUID `json:"branchId"`
+	Source             *string    `json:"source"`
+	ExternalID         *string    `json:"externalId"`
+	OrderDate          *time.Time `json:"orderDate"`
+	PedidoUpdatedAt    *time.Time `json:"pedidoUpdatedAt"`
+	Estado             *string    `json:"estado"`
+	Archivado          bool       `json:"archivado"`
+	FechaComprometida  *time.Time `json:"fechaComprometida"`
+	RequiereDomicilio  *bool      `json:"requiereDomicilio"`
+	PedidoCosto        *float64   `json:"pedidoCosto"`
+	Municipio          *string    `json:"municipio"`
+	Vendedor           *string    `json:"vendedor"`
+	SucursalCodigo     *string    `json:"sucursalCodigo"`
+	FacturaEstado      *string    `json:"facturaEstado"`
+	FacturaNumero      *string    `json:"facturaNumero"`
+	FacturaAt          *time.Time `json:"facturaAt"`
+	FacturaDomicilio   *float64   `json:"facturaDomicilio"`
+	FacturaCorregidoAt *time.Time `json:"facturaCorregidoAt"`
+	// DE DÓNDE SON `items`, `weight` y las unidades: `factura` o `pedido`.
+	//
+	// Cuando la factura cambió lo que se pidió, lo que llega aquí YA son las líneas de la
+	// factura — es lo que sube al camión—. Sin este campo la pantalla enseña un número y
+	// no puede decir cuál de los dos es, que es justo lo que hay que saber para no cargar
+	// de más. Ver `00009_de_donde_son_los_renglones.sql`.
+	ItemsOrigen   *string           `json:"itemsOrigen"`
+	StopOrder     *int32            `json:"stopOrder"`
+	DeliveredAt   *time.Time        `json:"deliveredAt"`
+	Resultado     *string           `json:"resultado"`
+	ResultadoAt   *time.Time        `json:"resultadoAt"`
+	ResultadoNota *string           `json:"resultadoNota"`
+	CreatedAt     *time.Time        `json:"createdAt"`
+	UpdatedAt     *time.Time        `json:"updatedAt"`
+	Items         []RenglonSalida   `json:"items"`
+	Route         *RutaDePedido     `json:"route"`
+	Vehicle       *VehiculoDePedido `json:"vehicle"`
 	// ¿Ese `weight` sale de algo? false = inventado, true = algún renglón lo respalda,
 	// null = no consta (que no es «está bien»). Ver `PedidoSalida.PesoRespaldado`.
 	PesoRespaldado *bool `json:"pesoRespaldado"`
@@ -743,7 +750,8 @@ func (s *Servidor) detalleDePedido(w http.ResponseWriter, r *http.Request, a *al
 		SucursalCodigo: x.SucursalCodigo, FacturaEstado: textoDe(x.FacturaEstado),
 		FacturaNumero: x.FacturaNumero, FacturaAt: hora(x.FacturaAt),
 		FacturaDomicilio: x.FacturaDomicilio, FacturaCorregidoAt: hora(x.FacturaCorregidoAt),
-		StopOrder: x.StopOrder, DeliveredAt: hora(x.DeliveredAt),
+		ItemsOrigen: x.ItemsOrigen,
+		StopOrder:   x.StopOrder, DeliveredAt: hora(x.DeliveredAt),
 		Resultado: textoDe(x.Resultado), ResultadoAt: hora(x.ResultadoAt),
 		ResultadoNota: x.ResultadoNota, CreatedAt: hora(x.CreatedAt),
 		UpdatedAt: hora(x.UpdatedAt), Items: items,

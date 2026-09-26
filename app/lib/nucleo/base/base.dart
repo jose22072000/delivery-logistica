@@ -146,7 +146,7 @@ class BaseLocal extends _$BaseLocal {
   /// subir**. Un aparato que se quede sin poder abrir su base pierde el trabajo
   /// del dia, que es lo unico que esta aplicacion no puede permitirse.
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -161,6 +161,14 @@ class BaseLocal extends _$BaseLocal {
         // pasarle a `m.deleteTable`: se tira por SQL. `IF EXISTS` porque una base
         // recien creada con la version 2 nunca la tuvo.
         await customStatement('DROP TABLE IF EXISTS currencies');
+      }
+      if (desde < 3) {
+        // DE DÓNDE SON LOS RENGLONES. Ver `Orders.itemsOrigen`.
+        //
+        // Se añade vacía: nula es «no se sabe», y la pantalla no dice nada hasta
+        // que la bajada la rellene. Poner `'pedido'` por defecto sería afirmar
+        // sobre todo lo que ya tiene el aparato algo que nadie ha comprobado.
+        await m.addColumn(orders, orders.itemsOrigen);
       }
     },
     beforeOpen: (detalles) async {

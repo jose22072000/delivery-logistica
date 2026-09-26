@@ -481,6 +481,7 @@ SELECT
     o.archivado, o.fecha_comprometida, o.requiere_domicilio, o.pedido_costo,
     o.municipio, o.vendedor, o.sucursal_codigo, o.factura_estado,
     o.factura_numero, o.factura_at, o.factura_domicilio, o.factura_corregido_at,
+        o.items_origen,
     o.stop_order, o.delivered_at, o.resultado, o.resultado_at, o.resultado_nota,
     o.created_at, o.updated_at,
     r.name  AS ruta_nombre,
@@ -724,7 +725,7 @@ INSERT INTO orders (
     pedido_updated_at, estado, archivado, fecha_comprometida, requiere_domicilio,
     pedido_costo, municipio, vendedor, sucursal_codigo, factura_estado,
     factura_numero, factura_at, factura_domicilio, factura_corregido_at,
-    delivery_distance_km, delivery_price
+    items_origen, delivery_distance_km, delivery_price
 ) VALUES (
     sqlc.narg('operation_number'), sqlc.arg('customer_name'), sqlc.narg('customer_phone'),
     sqlc.arg('address'), sqlc.narg('end_address'),
@@ -735,7 +736,7 @@ INSERT INTO orders (
     sqlc.narg('pedido_costo'), sqlc.narg('municipio'), sqlc.narg('vendedor'),
     sqlc.narg('sucursal_codigo'), sqlc.narg('factura_estado'), sqlc.narg('factura_numero'),
     sqlc.narg('factura_at'), sqlc.narg('factura_domicilio'), sqlc.narg('factura_corregido_at'),
-    sqlc.narg('delivery_distance_km'), sqlc.narg('delivery_price')
+    sqlc.narg('items_origen'), sqlc.narg('delivery_distance_km'), sqlc.narg('delivery_price')
 )
 ON CONFLICT (source, external_id) WHERE source IS NOT NULL AND external_id IS NOT NULL
 DO UPDATE SET
@@ -765,6 +766,7 @@ DO UPDATE SET
     factura_at           = excluded.factura_at,
     factura_domicilio    = excluded.factura_domicilio,
     factura_corregido_at = excluded.factura_corregido_at,
+    items_origen         = excluded.items_origen,
     delivery_distance_km = excluded.delivery_distance_km,
     delivery_price       = excluded.delivery_price
 RETURNING id, branch_id, external_id, (xmax = 0)::boolean AS es_nuevo;
@@ -945,6 +947,7 @@ marcados AS (
         o.archivado, o.fecha_comprometida, o.requiere_domicilio, o.pedido_costo,
         o.municipio, o.vendedor, o.sucursal_codigo, o.factura_estado,
         o.factura_numero, o.factura_at, o.factura_domicilio, o.factura_corregido_at,
+        o.items_origen,
         o.stop_order, o.delivered_at, o.resultado, o.resultado_at, o.resultado_nota,
         o.created_at, o.updated_at,
         GREATEST(
@@ -968,6 +971,7 @@ SELECT
     pedido_updated_at, estado, archivado, fecha_comprometida, requiere_domicilio,
     pedido_costo, municipio, vendedor, sucursal_codigo, factura_estado,
     factura_numero, factura_at, factura_domicilio, factura_corregido_at,
+    items_origen,
     stop_order, delivered_at, resultado, resultado_at, resultado_nota,
     created_at, updated_at, cambiado_at
 FROM marcados

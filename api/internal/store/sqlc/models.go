@@ -605,6 +605,8 @@ type Order struct {
 	ResultadoNota      *string            `json:"resultado_nota"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	// factura | pedido | NULL(no se sabe): de dónde salieron los renglones de este pedido
+	ItemsOrigen *string `json:"items_origen"`
 }
 
 type OrderItem struct {

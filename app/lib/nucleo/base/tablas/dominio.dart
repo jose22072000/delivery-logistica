@@ -215,6 +215,27 @@ class Orders extends Table {
   RealColumn get facturaDomicilio => real().nullable()();
   DateTimeColumn get facturaCorregidoAt => dateTime().nullable()();
 
+  /// DE DÓNDE SON LOS RENGLONES, EL PESO Y LAS UNIDADES: `factura` o `pedido`.
+  ///
+  /// Cuando un pedido se factura distinto de como se tomó, PEDIDO manda **las
+  /// líneas de la factura** —descartando las que se pidieron y no se facturaron,
+  /// para que nadie cargue un hueco—. O sea que lo que hay aquí YA es lo que
+  /// sube al camión. Comprobado contra producción el 26/09/2026: en
+  /// `PAT26-260923-1246` el vendedor tomó dos productos y la factura dice uno,
+  /// y aquí hay un renglón con los 60 uds y los 24,194 kg de la factura.
+  ///
+  /// Lo que faltaba era DECIRLO. Salía «Cambió en la factura» y nada más, así
+  /// que quien mira un número no sabe cuál de los dos tiene delante. Jose,
+  /// 26/09/2026: «se facturó otra cosa, ese pedido ya no representa la cantidad
+  /// total»; y cómo se resuelve: «mantenemos el pedido y sólo le añadimos una
+  /// factura a ese pedido para saber si cambió o no».
+  ///
+  /// **Nulo es «no se sabe»**, y entonces la pantalla no dice nada. No se
+  /// deduce de [facturaEstado]: un `cambiado` cuyo cotejo no pudo atar la
+  /// factura a ESTE pedido se queda con las del pedido, y un `igual` también
+  /// trae las de la factura. Son dos preguntas distintas.
+  TextColumn get itemsOrigen => text().nullable()();
+
   TextColumn get customerPhone => text().nullable()();
 
   IntColumn get stopOrder => integer().nullable()();

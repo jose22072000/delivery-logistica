@@ -1439,11 +1439,19 @@ func (s *Servidor) pedidosDeLaBajada(r *http.Request, a *alcance.Acotado, v alca
 			"facturaEstado":     textoDe(f.FacturaEstado),
 			"facturaNumero":     f.FacturaNumero,
 			"facturaDomicilio":  f.FacturaDomicilio,
-			"stopOrder":         f.StopOrder,
-			"deliveredAt":       hora(f.DeliveredAt),
-			"resultado":         textoDe(f.Resultado),
-			"resultadoNota":     f.ResultadoNota,
-			"items":             items,
+			// DE DÓNDE SON `items` Y `weight`: `factura` o `pedido`.
+			//
+			// Cuando la factura cambió lo que se pidió, lo que va en `items` YA son las
+			// líneas de la factura —es lo que sube al camión—. Sin esta clave la pantalla
+			// enseña un número y no puede decir cuál de los dos es, que es justo lo que
+			// hay que saber para no cargar de más. Ver
+			// `00009_de_donde_son_los_renglones.sql`.
+			"itemsOrigen":   f.ItemsOrigen,
+			"stopOrder":     f.StopOrder,
+			"deliveredAt":   hora(f.DeliveredAt),
+			"resultado":     textoDe(f.Resultado),
+			"resultadoNota": f.ResultadoNota,
+			"items":         items,
 			// La marca que el aparato guarda para la próxima vez. Es `cambiado_at` y NO
 			// `updated_at`: con la del pedido a secas, un pedido al que sólo le cambió un
 			// renglón volvería a salir en cada bajada para siempre.

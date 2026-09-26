@@ -68,6 +68,19 @@ type PedidoDeFuera struct {
 	FacturaAt          string   `json:"facturaAt"`
 	FacturaDomicilio   *float64 `json:"facturaDomicilio"`
 	FacturaCorregidoAt string   `json:"facturaCorregidoAt"`
+	// ItemsOrigen dice si los renglones de arriba son los del PEDIDO o los de la FACTURA.
+	//
+	// PEDIDO manda las de la factura en cuanto hay uno cotejado —descartando las que se
+	// pidieron y no se facturaron, para que nadie cargue un hueco—, asi que los kg y las
+	// unidades que ve el reparto ya son los que van a subir al camion. Lo que faltaba era
+	// **decirlo**: en pantalla salia «Cambio en la factura» y nada mas, y quien lo mira no
+	// sabe si el numero que tiene delante es lo que se pidio o lo que se facturo.
+	//
+	// Jose, 26/09/2026: «cuando la factura cambio el pedido, el pedido en delivery debe
+	// mostrar la factura no el pedido, por que cambio, se facturo otra cosa, ese pedido ya
+	// no representa la cantidad total». Y como se resuelve: «mantenemos el pedido y solo
+	// le añadimos una factura a ese pedido para saber si cambio o no».
+	ItemsOrigen string `json:"itemsOrigen"`
 }
 
 type ClienteDelPedido struct {

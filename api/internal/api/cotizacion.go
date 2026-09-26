@@ -670,6 +670,18 @@ type pedidoDelLote struct {
 	FacturaAt          *string  `json:"facturaAt"`
 	FacturaDomicilio   *float64 `json:"facturaDomicilio"`
 	FacturaCorregidoAt *string  `json:"facturaCorregidoAt"`
+	// DE DÓNDE SON LOS RENGLONES: `factura` o `pedido`.
+	//
+	// PEDIDO manda las líneas de la FACTURA en cuanto hay una cotejada y atada a este
+	// pedido —descartando las que se pidieron y no se facturaron, para que nadie cargue un
+	// hueco—. O sea que los kg y las unidades que llegan aquí ya son los que suben al
+	// camión. Lo que faltaba era decirlo: en pantalla salía «Cambió en la factura» y nada
+	// más, y quien mira un número no sabe cuál de los dos tiene delante.
+	//
+	// NO se deduce de `facturaEstado`: un `cambiado` cuyo cotejo no pudo atar la factura a
+	// ESTE pedido se queda con las del pedido, y un `igual` también trae las de la factura.
+	// Son dos preguntas distintas. Ver `00009_de_donde_son_los_renglones.sql`.
+	ItemsOrigen *string `json:"itemsOrigen"`
 
 	// `meta` LLEGA Y NO SE GUARDA, a propósito. El esquema nuevo no tiene columnas JSON
 	// (decisión 0 de la migración): lo que hace falta de PEDIDO se extrae a su columna, y
@@ -1008,6 +1020,10 @@ type PedidoParaGuardar struct {
 	FacturaAt          *time.Time
 	FacturaDomicilio   *float64
 	FacturaCorregidoAt *time.Time
+	// ItemsOrigen: `factura` | `pedido` | nil. De donde salieron los renglones de arriba.
+	// No se deduce de FacturaEstado: son dos preguntas distintas y confundirlas hace que
+	// la pantalla afirme algo que nadie comprobo. Ver `00009_de_donde_son_los_renglones`.
+	ItemsOrigen *string
 
 	Municipio      *string
 	Vendedor       *string
@@ -1058,6 +1074,10 @@ func armarPedidoDelLote(p pedidoDelLote, suc sqlc.ListarSucursalesRow, pesos cot
 		FechaComprometida:  fechaDelLote(p.FechaComprometida),
 		FacturaAt:          fechaDelLote(p.FacturaAt),
 		FacturaCorregidoAt: fechaDelLote(p.FacturaCorregidoAt),
+		// DE DÓNDE SON LOS RENGLONES. Se copia tal cual, sin deducirlo de nada: un
+		// `cambiado` cuyo cotejo no pudo atar la factura a ESTE pedido se queda con las
+		// líneas del pedido, y afirmar lo contrario se lee igual de bien que la verdad.
+		ItemsOrigen: p.ItemsOrigen,
 	}
 	return out
 }
@@ -1156,6 +1176,7 @@ func paraLaBase(p PedidoParaGuardar) sqlc.GuardarPedidoDelEspejoParams {
 		FacturaAt:          marcaDeTiempo(p.FacturaAt),
 		FacturaDomicilio:   p.FacturaDomicilio,
 		FacturaCorregidoAt: marcaDeTiempo(p.FacturaCorregidoAt),
+		ItemsOrigen:        p.ItemsOrigen,
 
 		Municipio:      p.Municipio,
 		Vendedor:       p.Vendedor,

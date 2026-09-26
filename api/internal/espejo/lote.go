@@ -189,6 +189,9 @@ type PedidoDelCuerpo struct {
 	// Si cuadra porque se corrigió o porque vino bien no es lo mismo, y quien carga el
 	// camión tiene que poder verlo.
 	FacturaCorregidoAt *string `json:"facturaCorregidoAt"`
+	// `factura` cuando los renglones son los de la FACTURA, `pedido` cuando son los que
+	// tomo el vendedor. Ver `PedidoCrudo.ItemsOrigen`.
+	ItemsOrigen *string `json:"itemsOrigen"`
 }
 
 type RenglonDelLote struct {
@@ -249,6 +252,7 @@ func pedidoAlLote(p PedidoDeFuera) PedidoDelCuerpo {
 		FacturaAt:          textoONada(p.FacturaAt),
 		FacturaDomicilio:   p.FacturaDomicilio,
 		FacturaCorregidoAt: textoONada(p.FacturaCorregidoAt),
+		ItemsOrigen:        textoONada(p.ItemsOrigen),
 	}
 	return out
 }

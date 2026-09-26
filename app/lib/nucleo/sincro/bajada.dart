@@ -644,6 +644,8 @@ class Bajada {
             vendedor: Value(_texto(j['vendedor'])),
             sucursalCodigo: Value(_texto(j['sucursalCodigo'])),
             facturaEstado: Value(_texto(j['facturaEstado'])),
+            // DE DÓNDE SON LOS RENGLONES Y EL PESO. Ver `Orders.itemsOrigen`.
+            itemsOrigen: Value(_texto(j['itemsOrigen'])),
             facturaNumero: Value(_texto(j['facturaNumero'])),
             facturaDomicilio: Value(_numero(j['facturaDomicilio'])),
             stopOrder: Value(_entero(j['stopOrder'])),

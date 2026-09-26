@@ -4179,6 +4179,17 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Pedido> {
         type: DriftSqlType.dateTime,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _itemsOrigenMeta = const VerificationMeta(
+    'itemsOrigen',
+  );
+  @override
+  late final GeneratedColumn<String> itemsOrigen = GeneratedColumn<String>(
+    'items_origen',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _customerPhoneMeta = const VerificationMeta(
     'customerPhone',
   );
@@ -4307,6 +4318,7 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Pedido> {
     facturaAt,
     facturaDomicilio,
     facturaCorregidoAt,
+    itemsOrigen,
     customerPhone,
     stopOrder,
     deliveredAt,
@@ -4601,6 +4613,15 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Pedido> {
         ),
       );
     }
+    if (data.containsKey('items_origen')) {
+      context.handle(
+        _itemsOrigenMeta,
+        itemsOrigen.isAcceptableOrUnknown(
+          data['items_origen']!,
+          _itemsOrigenMeta,
+        ),
+      );
+    }
     if (data.containsKey('customer_phone')) {
       context.handle(
         _customerPhoneMeta,
@@ -4822,6 +4843,10 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Pedido> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}factura_corregido_at'],
       ),
+      itemsOrigen: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}items_origen'],
+      ),
       customerPhone: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}customer_phone'],
@@ -4913,6 +4938,27 @@ class Pedido extends DataClass implements Insertable<Pedido> {
   final DateTime? facturaAt;
   final double? facturaDomicilio;
   final DateTime? facturaCorregidoAt;
+
+  /// DE DÓNDE SON LOS RENGLONES, EL PESO Y LAS UNIDADES: `factura` o `pedido`.
+  ///
+  /// Cuando un pedido se factura distinto de como se tomó, PEDIDO manda **las
+  /// líneas de la factura** —descartando las que se pidieron y no se facturaron,
+  /// para que nadie cargue un hueco—. O sea que lo que hay aquí YA es lo que
+  /// sube al camión. Comprobado contra producción el 26/09/2026: en
+  /// `PAT26-260923-1246` el vendedor tomó dos productos y la factura dice uno,
+  /// y aquí hay un renglón con los 60 uds y los 24,194 kg de la factura.
+  ///
+  /// Lo que faltaba era DECIRLO. Salía «Cambió en la factura» y nada más, así
+  /// que quien mira un número no sabe cuál de los dos tiene delante. Jose,
+  /// 26/09/2026: «se facturó otra cosa, ese pedido ya no representa la cantidad
+  /// total»; y cómo se resuelve: «mantenemos el pedido y sólo le añadimos una
+  /// factura a ese pedido para saber si cambió o no».
+  ///
+  /// **Nulo es «no se sabe»**, y entonces la pantalla no dice nada. No se
+  /// deduce de [facturaEstado]: un `cambiado` cuyo cotejo no pudo atar la
+  /// factura a ESTE pedido se queda con las del pedido, y un `igual` también
+  /// trae las de la factura. Son dos preguntas distintas.
+  final String? itemsOrigen;
   final String? customerPhone;
   final int? stopOrder;
   final DateTime? deliveredAt;
@@ -4960,6 +5006,7 @@ class Pedido extends DataClass implements Insertable<Pedido> {
     this.facturaAt,
     this.facturaDomicilio,
     this.facturaCorregidoAt,
+    this.itemsOrigen,
     this.customerPhone,
     this.stopOrder,
     this.deliveredAt,
@@ -5071,6 +5118,9 @@ class Pedido extends DataClass implements Insertable<Pedido> {
     }
     if (!nullToAbsent || facturaCorregidoAt != null) {
       map['factura_corregido_at'] = Variable<DateTime>(facturaCorregidoAt);
+    }
+    if (!nullToAbsent || itemsOrigen != null) {
+      map['items_origen'] = Variable<String>(itemsOrigen);
     }
     if (!nullToAbsent || customerPhone != null) {
       map['customer_phone'] = Variable<String>(customerPhone);
@@ -5197,6 +5247,9 @@ class Pedido extends DataClass implements Insertable<Pedido> {
       facturaCorregidoAt: facturaCorregidoAt == null && nullToAbsent
           ? const Value.absent()
           : Value(facturaCorregidoAt),
+      itemsOrigen: itemsOrigen == null && nullToAbsent
+          ? const Value.absent()
+          : Value(itemsOrigen),
       customerPhone: customerPhone == null && nullToAbsent
           ? const Value.absent()
           : Value(customerPhone),
@@ -5274,6 +5327,7 @@ class Pedido extends DataClass implements Insertable<Pedido> {
       facturaCorregidoAt: serializer.fromJson<DateTime?>(
         json['facturaCorregidoAt'],
       ),
+      itemsOrigen: serializer.fromJson<String?>(json['itemsOrigen']),
       customerPhone: serializer.fromJson<String?>(json['customerPhone']),
       stopOrder: serializer.fromJson<int?>(json['stopOrder']),
       deliveredAt: serializer.fromJson<DateTime?>(json['deliveredAt']),
@@ -5326,6 +5380,7 @@ class Pedido extends DataClass implements Insertable<Pedido> {
       'facturaAt': serializer.toJson<DateTime?>(facturaAt),
       'facturaDomicilio': serializer.toJson<double?>(facturaDomicilio),
       'facturaCorregidoAt': serializer.toJson<DateTime?>(facturaCorregidoAt),
+      'itemsOrigen': serializer.toJson<String?>(itemsOrigen),
       'customerPhone': serializer.toJson<String?>(customerPhone),
       'stopOrder': serializer.toJson<int?>(stopOrder),
       'deliveredAt': serializer.toJson<DateTime?>(deliveredAt),
@@ -5376,6 +5431,7 @@ class Pedido extends DataClass implements Insertable<Pedido> {
     Value<DateTime?> facturaAt = const Value.absent(),
     Value<double?> facturaDomicilio = const Value.absent(),
     Value<DateTime?> facturaCorregidoAt = const Value.absent(),
+    Value<String?> itemsOrigen = const Value.absent(),
     Value<String?> customerPhone = const Value.absent(),
     Value<int?> stopOrder = const Value.absent(),
     Value<DateTime?> deliveredAt = const Value.absent(),
@@ -5445,6 +5501,7 @@ class Pedido extends DataClass implements Insertable<Pedido> {
     facturaCorregidoAt: facturaCorregidoAt.present
         ? facturaCorregidoAt.value
         : this.facturaCorregidoAt,
+    itemsOrigen: itemsOrigen.present ? itemsOrigen.value : this.itemsOrigen,
     customerPhone: customerPhone.present
         ? customerPhone.value
         : this.customerPhone,
@@ -5530,6 +5587,9 @@ class Pedido extends DataClass implements Insertable<Pedido> {
       facturaCorregidoAt: data.facturaCorregidoAt.present
           ? data.facturaCorregidoAt.value
           : this.facturaCorregidoAt,
+      itemsOrigen: data.itemsOrigen.present
+          ? data.itemsOrigen.value
+          : this.itemsOrigen,
       customerPhone: data.customerPhone.present
           ? data.customerPhone.value
           : this.customerPhone,
@@ -5590,6 +5650,7 @@ class Pedido extends DataClass implements Insertable<Pedido> {
           ..write('facturaAt: $facturaAt, ')
           ..write('facturaDomicilio: $facturaDomicilio, ')
           ..write('facturaCorregidoAt: $facturaCorregidoAt, ')
+          ..write('itemsOrigen: $itemsOrigen, ')
           ..write('customerPhone: $customerPhone, ')
           ..write('stopOrder: $stopOrder, ')
           ..write('deliveredAt: $deliveredAt, ')
@@ -5642,6 +5703,7 @@ class Pedido extends DataClass implements Insertable<Pedido> {
     facturaAt,
     facturaDomicilio,
     facturaCorregidoAt,
+    itemsOrigen,
     customerPhone,
     stopOrder,
     deliveredAt,
@@ -5693,6 +5755,7 @@ class Pedido extends DataClass implements Insertable<Pedido> {
           other.facturaAt == this.facturaAt &&
           other.facturaDomicilio == this.facturaDomicilio &&
           other.facturaCorregidoAt == this.facturaCorregidoAt &&
+          other.itemsOrigen == this.itemsOrigen &&
           other.customerPhone == this.customerPhone &&
           other.stopOrder == this.stopOrder &&
           other.deliveredAt == this.deliveredAt &&
@@ -5742,6 +5805,7 @@ class OrdersCompanion extends UpdateCompanion<Pedido> {
   final Value<DateTime?> facturaAt;
   final Value<double?> facturaDomicilio;
   final Value<DateTime?> facturaCorregidoAt;
+  final Value<String?> itemsOrigen;
   final Value<String?> customerPhone;
   final Value<int?> stopOrder;
   final Value<DateTime?> deliveredAt;
@@ -5790,6 +5854,7 @@ class OrdersCompanion extends UpdateCompanion<Pedido> {
     this.facturaAt = const Value.absent(),
     this.facturaDomicilio = const Value.absent(),
     this.facturaCorregidoAt = const Value.absent(),
+    this.itemsOrigen = const Value.absent(),
     this.customerPhone = const Value.absent(),
     this.stopOrder = const Value.absent(),
     this.deliveredAt = const Value.absent(),
@@ -5839,6 +5904,7 @@ class OrdersCompanion extends UpdateCompanion<Pedido> {
     this.facturaAt = const Value.absent(),
     this.facturaDomicilio = const Value.absent(),
     this.facturaCorregidoAt = const Value.absent(),
+    this.itemsOrigen = const Value.absent(),
     this.customerPhone = const Value.absent(),
     this.stopOrder = const Value.absent(),
     this.deliveredAt = const Value.absent(),
@@ -5890,6 +5956,7 @@ class OrdersCompanion extends UpdateCompanion<Pedido> {
     Expression<DateTime>? facturaAt,
     Expression<double>? facturaDomicilio,
     Expression<DateTime>? facturaCorregidoAt,
+    Expression<String>? itemsOrigen,
     Expression<String>? customerPhone,
     Expression<int>? stopOrder,
     Expression<DateTime>? deliveredAt,
@@ -5941,6 +6008,7 @@ class OrdersCompanion extends UpdateCompanion<Pedido> {
       if (facturaDomicilio != null) 'factura_domicilio': facturaDomicilio,
       if (facturaCorregidoAt != null)
         'factura_corregido_at': facturaCorregidoAt,
+      if (itemsOrigen != null) 'items_origen': itemsOrigen,
       if (customerPhone != null) 'customer_phone': customerPhone,
       if (stopOrder != null) 'stop_order': stopOrder,
       if (deliveredAt != null) 'delivered_at': deliveredAt,
@@ -5992,6 +6060,7 @@ class OrdersCompanion extends UpdateCompanion<Pedido> {
     Value<DateTime?>? facturaAt,
     Value<double?>? facturaDomicilio,
     Value<DateTime?>? facturaCorregidoAt,
+    Value<String?>? itemsOrigen,
     Value<String?>? customerPhone,
     Value<int?>? stopOrder,
     Value<DateTime?>? deliveredAt,
@@ -6041,6 +6110,7 @@ class OrdersCompanion extends UpdateCompanion<Pedido> {
       facturaAt: facturaAt ?? this.facturaAt,
       facturaDomicilio: facturaDomicilio ?? this.facturaDomicilio,
       facturaCorregidoAt: facturaCorregidoAt ?? this.facturaCorregidoAt,
+      itemsOrigen: itemsOrigen ?? this.itemsOrigen,
       customerPhone: customerPhone ?? this.customerPhone,
       stopOrder: stopOrder ?? this.stopOrder,
       deliveredAt: deliveredAt ?? this.deliveredAt,
@@ -6172,6 +6242,9 @@ class OrdersCompanion extends UpdateCompanion<Pedido> {
         facturaCorregidoAt.value,
       );
     }
+    if (itemsOrigen.present) {
+      map['items_origen'] = Variable<String>(itemsOrigen.value);
+    }
     if (customerPhone.present) {
       map['customer_phone'] = Variable<String>(customerPhone.value);
     }
@@ -6243,6 +6316,7 @@ class OrdersCompanion extends UpdateCompanion<Pedido> {
           ..write('facturaAt: $facturaAt, ')
           ..write('facturaDomicilio: $facturaDomicilio, ')
           ..write('facturaCorregidoAt: $facturaCorregidoAt, ')
+          ..write('itemsOrigen: $itemsOrigen, ')
           ..write('customerPhone: $customerPhone, ')
           ..write('stopOrder: $stopOrder, ')
           ..write('deliveredAt: $deliveredAt, ')
@@ -10530,42 +10604,44 @@ abstract class _$BaseLocal extends GeneratedDatabase {
       const DriftDatabaseOptions(storeDateTimeAsText: true);
 }
 
-typedef $$BranchesTableCreateCompanionBuilder = BranchesCompanion Function({
-  required String id,
-  required String name,
-  Value<String?> address,
-  required double lat,
-  required double lng,
-  Value<double> areaKm2,
-  Value<String?> externalId,
-  Value<bool> originConfigured,
-  Value<String?> creadoPor,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<double?> cupRate,
-  Value<String?> cupRateFuente,
-  Value<DateTime?> cupRateTraidoAt,
-  Value<bool?> cupRateFresca,
-  Value<int> rowid,
-});
-typedef $$BranchesTableUpdateCompanionBuilder = BranchesCompanion Function({
-  Value<String> id,
-  Value<String> name,
-  Value<String?> address,
-  Value<double> lat,
-  Value<double> lng,
-  Value<double> areaKm2,
-  Value<String?> externalId,
-  Value<bool> originConfigured,
-  Value<String?> creadoPor,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<double?> cupRate,
-  Value<String?> cupRateFuente,
-  Value<DateTime?> cupRateTraidoAt,
-  Value<bool?> cupRateFresca,
-  Value<int> rowid,
-});
+typedef $$BranchesTableCreateCompanionBuilder =
+    BranchesCompanion Function({
+      required String id,
+      required String name,
+      Value<String?> address,
+      required double lat,
+      required double lng,
+      Value<double> areaKm2,
+      Value<String?> externalId,
+      Value<bool> originConfigured,
+      Value<String?> creadoPor,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<double?> cupRate,
+      Value<String?> cupRateFuente,
+      Value<DateTime?> cupRateTraidoAt,
+      Value<bool?> cupRateFresca,
+      Value<int> rowid,
+    });
+typedef $$BranchesTableUpdateCompanionBuilder =
+    BranchesCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String?> address,
+      Value<double> lat,
+      Value<double> lng,
+      Value<double> areaKm2,
+      Value<String?> externalId,
+      Value<bool> originConfigured,
+      Value<String?> creadoPor,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<double?> cupRate,
+      Value<String?> cupRateFuente,
+      Value<DateTime?> cupRateTraidoAt,
+      Value<bool?> cupRateFresca,
+      Value<int> rowid,
+    });
 
 class $$BranchesTableFilterComposer
     extends Composer<_$BaseLocal, $BranchesTable> {
@@ -11143,36 +11219,38 @@ typedef $$VehicleTypesTableProcessedTableManager =
       TipoVehiculo,
       PrefetchHooks Function()
     >;
-typedef $$VehiclesTableCreateCompanionBuilder = VehiclesCompanion Function({
-  required String id,
-  required String name,
-  Value<String?> vehicleTypeId,
-  Value<String?> plate,
-  Value<double> capacity,
-  Value<double?> costoKmUsd,
-  Value<bool> usarParaDomicilio,
-  Value<String> status,
-  Value<String?> notes,
-  Value<String?> branchId,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$VehiclesTableUpdateCompanionBuilder = VehiclesCompanion Function({
-  Value<String> id,
-  Value<String> name,
-  Value<String?> vehicleTypeId,
-  Value<String?> plate,
-  Value<double> capacity,
-  Value<double?> costoKmUsd,
-  Value<bool> usarParaDomicilio,
-  Value<String> status,
-  Value<String?> notes,
-  Value<String?> branchId,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$VehiclesTableCreateCompanionBuilder =
+    VehiclesCompanion Function({
+      required String id,
+      required String name,
+      Value<String?> vehicleTypeId,
+      Value<String?> plate,
+      Value<double> capacity,
+      Value<double?> costoKmUsd,
+      Value<bool> usarParaDomicilio,
+      Value<String> status,
+      Value<String?> notes,
+      Value<String?> branchId,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$VehiclesTableUpdateCompanionBuilder =
+    VehiclesCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String?> vehicleTypeId,
+      Value<String?> plate,
+      Value<double> capacity,
+      Value<double?> costoKmUsd,
+      Value<bool> usarParaDomicilio,
+      Value<String> status,
+      Value<String?> notes,
+      Value<String?> branchId,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$VehiclesTableFilterComposer
     extends Composer<_$BaseLocal, $VehiclesTable> {
@@ -11474,40 +11552,42 @@ typedef $$VehiclesTableProcessedTableManager =
       Vehiculo,
       PrefetchHooks Function()
     >;
-typedef $$ProductsTableCreateCompanionBuilder = ProductsCompanion Function({
-  required String id,
-  required String name,
-  Value<double> weight,
-  Value<String?> packaging,
-  Value<double?> unitsPerPackage,
-  Value<String?> category,
-  Value<String?> sku,
-  Value<String?> sucursalCodigo,
-  Value<double?> price,
-  Value<double?> stock,
-  Value<String?> unit,
-  Value<DateTime?> traidoAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$ProductsTableUpdateCompanionBuilder = ProductsCompanion Function({
-  Value<String> id,
-  Value<String> name,
-  Value<double> weight,
-  Value<String?> packaging,
-  Value<double?> unitsPerPackage,
-  Value<String?> category,
-  Value<String?> sku,
-  Value<String?> sucursalCodigo,
-  Value<double?> price,
-  Value<double?> stock,
-  Value<String?> unit,
-  Value<DateTime?> traidoAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$ProductsTableCreateCompanionBuilder =
+    ProductsCompanion Function({
+      required String id,
+      required String name,
+      Value<double> weight,
+      Value<String?> packaging,
+      Value<double?> unitsPerPackage,
+      Value<String?> category,
+      Value<String?> sku,
+      Value<String?> sucursalCodigo,
+      Value<double?> price,
+      Value<double?> stock,
+      Value<String?> unit,
+      Value<DateTime?> traidoAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$ProductsTableUpdateCompanionBuilder =
+    ProductsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<double> weight,
+      Value<String?> packaging,
+      Value<double?> unitsPerPackage,
+      Value<String?> category,
+      Value<String?> sku,
+      Value<String?> sucursalCodigo,
+      Value<double?> price,
+      Value<double?> stock,
+      Value<String?> unit,
+      Value<DateTime?> traidoAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$ProductsTableFilterComposer
     extends Composer<_$BaseLocal, $ProductsTable> {
@@ -11841,44 +11921,46 @@ typedef $$ProductsTableProcessedTableManager =
       Producto,
       PrefetchHooks Function()
     >;
-typedef $$CustomersTableCreateCompanionBuilder = CustomersCompanion Function({
-  required String id,
-  Value<String?> source,
-  Value<String?> externalId,
-  required String name,
-  Value<String?> phone,
-  Value<String?> address,
-  Value<String?> municipio,
-  Value<String?> zona,
-  Value<String?> codigo,
-  Value<String?> vendedor,
-  required double lat,
-  required double lng,
-  Value<String?> sucursalCodigo,
-  Value<DateTime?> syncedAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$CustomersTableUpdateCompanionBuilder = CustomersCompanion Function({
-  Value<String> id,
-  Value<String?> source,
-  Value<String?> externalId,
-  Value<String> name,
-  Value<String?> phone,
-  Value<String?> address,
-  Value<String?> municipio,
-  Value<String?> zona,
-  Value<String?> codigo,
-  Value<String?> vendedor,
-  Value<double> lat,
-  Value<double> lng,
-  Value<String?> sucursalCodigo,
-  Value<DateTime?> syncedAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$CustomersTableCreateCompanionBuilder =
+    CustomersCompanion Function({
+      required String id,
+      Value<String?> source,
+      Value<String?> externalId,
+      required String name,
+      Value<String?> phone,
+      Value<String?> address,
+      Value<String?> municipio,
+      Value<String?> zona,
+      Value<String?> codigo,
+      Value<String?> vendedor,
+      required double lat,
+      required double lng,
+      Value<String?> sucursalCodigo,
+      Value<DateTime?> syncedAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$CustomersTableUpdateCompanionBuilder =
+    CustomersCompanion Function({
+      Value<String> id,
+      Value<String?> source,
+      Value<String?> externalId,
+      Value<String> name,
+      Value<String?> phone,
+      Value<String?> address,
+      Value<String?> municipio,
+      Value<String?> zona,
+      Value<String?> codigo,
+      Value<String?> vendedor,
+      Value<double> lat,
+      Value<double> lng,
+      Value<String?> sucursalCodigo,
+      Value<DateTime?> syncedAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$CustomersTableFilterComposer
     extends Composer<_$BaseLocal, $CustomersTable> {
@@ -12246,104 +12328,108 @@ typedef $$CustomersTableProcessedTableManager =
       Cliente,
       PrefetchHooks Function()
     >;
-typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
-  required String id,
-  Value<String?> operationNumber,
-  required String customerName,
-  required String address,
-  Value<String?> endAddress,
-  Value<double?> endLat,
-  Value<double?> endLng,
-  Value<double?> lat,
-  Value<double?> lng,
-  Value<double> weight,
-  Value<String> status,
-  Value<String> tripLeg,
-  Value<String?> notes,
-  Value<String?> routeId,
-  Value<String?> ultimaRutaId,
-  Value<String?> vehicleId,
-  Value<double?> price,
-  Value<double?> segmentKm,
-  Value<double?> deliveryPrice,
-  Value<double?> deliveryDistanceKm,
-  Value<String?> branchId,
-  Value<String?> source,
-  Value<String?> externalId,
-  Value<DateTime?> orderDate,
-  Value<DateTime?> pedidoUpdatedAt,
-  Value<String?> estado,
-  Value<bool> archivado,
-  Value<DateTime?> fechaComprometida,
-  Value<bool?> requiereDomicilio,
-  Value<double?> pedidoCosto,
-  Value<String?> municipio,
-  Value<String?> vendedor,
-  Value<String?> sucursalCodigo,
-  Value<String?> facturaEstado,
-  Value<String?> facturaNumero,
-  Value<DateTime?> facturaAt,
-  Value<double?> facturaDomicilio,
-  Value<DateTime?> facturaCorregidoAt,
-  Value<String?> customerPhone,
-  Value<int?> stopOrder,
-  Value<DateTime?> deliveredAt,
-  Value<String?> resultado,
-  Value<DateTime?> resultadoAt,
-  Value<String?> resultadoNota,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
-  Value<String> id,
-  Value<String?> operationNumber,
-  Value<String> customerName,
-  Value<String> address,
-  Value<String?> endAddress,
-  Value<double?> endLat,
-  Value<double?> endLng,
-  Value<double?> lat,
-  Value<double?> lng,
-  Value<double> weight,
-  Value<String> status,
-  Value<String> tripLeg,
-  Value<String?> notes,
-  Value<String?> routeId,
-  Value<String?> ultimaRutaId,
-  Value<String?> vehicleId,
-  Value<double?> price,
-  Value<double?> segmentKm,
-  Value<double?> deliveryPrice,
-  Value<double?> deliveryDistanceKm,
-  Value<String?> branchId,
-  Value<String?> source,
-  Value<String?> externalId,
-  Value<DateTime?> orderDate,
-  Value<DateTime?> pedidoUpdatedAt,
-  Value<String?> estado,
-  Value<bool> archivado,
-  Value<DateTime?> fechaComprometida,
-  Value<bool?> requiereDomicilio,
-  Value<double?> pedidoCosto,
-  Value<String?> municipio,
-  Value<String?> vendedor,
-  Value<String?> sucursalCodigo,
-  Value<String?> facturaEstado,
-  Value<String?> facturaNumero,
-  Value<DateTime?> facturaAt,
-  Value<double?> facturaDomicilio,
-  Value<DateTime?> facturaCorregidoAt,
-  Value<String?> customerPhone,
-  Value<int?> stopOrder,
-  Value<DateTime?> deliveredAt,
-  Value<String?> resultado,
-  Value<DateTime?> resultadoAt,
-  Value<String?> resultadoNota,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$OrdersTableCreateCompanionBuilder =
+    OrdersCompanion Function({
+      required String id,
+      Value<String?> operationNumber,
+      required String customerName,
+      required String address,
+      Value<String?> endAddress,
+      Value<double?> endLat,
+      Value<double?> endLng,
+      Value<double?> lat,
+      Value<double?> lng,
+      Value<double> weight,
+      Value<String> status,
+      Value<String> tripLeg,
+      Value<String?> notes,
+      Value<String?> routeId,
+      Value<String?> ultimaRutaId,
+      Value<String?> vehicleId,
+      Value<double?> price,
+      Value<double?> segmentKm,
+      Value<double?> deliveryPrice,
+      Value<double?> deliveryDistanceKm,
+      Value<String?> branchId,
+      Value<String?> source,
+      Value<String?> externalId,
+      Value<DateTime?> orderDate,
+      Value<DateTime?> pedidoUpdatedAt,
+      Value<String?> estado,
+      Value<bool> archivado,
+      Value<DateTime?> fechaComprometida,
+      Value<bool?> requiereDomicilio,
+      Value<double?> pedidoCosto,
+      Value<String?> municipio,
+      Value<String?> vendedor,
+      Value<String?> sucursalCodigo,
+      Value<String?> facturaEstado,
+      Value<String?> facturaNumero,
+      Value<DateTime?> facturaAt,
+      Value<double?> facturaDomicilio,
+      Value<DateTime?> facturaCorregidoAt,
+      Value<String?> itemsOrigen,
+      Value<String?> customerPhone,
+      Value<int?> stopOrder,
+      Value<DateTime?> deliveredAt,
+      Value<String?> resultado,
+      Value<DateTime?> resultadoAt,
+      Value<String?> resultadoNota,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$OrdersTableUpdateCompanionBuilder =
+    OrdersCompanion Function({
+      Value<String> id,
+      Value<String?> operationNumber,
+      Value<String> customerName,
+      Value<String> address,
+      Value<String?> endAddress,
+      Value<double?> endLat,
+      Value<double?> endLng,
+      Value<double?> lat,
+      Value<double?> lng,
+      Value<double> weight,
+      Value<String> status,
+      Value<String> tripLeg,
+      Value<String?> notes,
+      Value<String?> routeId,
+      Value<String?> ultimaRutaId,
+      Value<String?> vehicleId,
+      Value<double?> price,
+      Value<double?> segmentKm,
+      Value<double?> deliveryPrice,
+      Value<double?> deliveryDistanceKm,
+      Value<String?> branchId,
+      Value<String?> source,
+      Value<String?> externalId,
+      Value<DateTime?> orderDate,
+      Value<DateTime?> pedidoUpdatedAt,
+      Value<String?> estado,
+      Value<bool> archivado,
+      Value<DateTime?> fechaComprometida,
+      Value<bool?> requiereDomicilio,
+      Value<double?> pedidoCosto,
+      Value<String?> municipio,
+      Value<String?> vendedor,
+      Value<String?> sucursalCodigo,
+      Value<String?> facturaEstado,
+      Value<String?> facturaNumero,
+      Value<DateTime?> facturaAt,
+      Value<double?> facturaDomicilio,
+      Value<DateTime?> facturaCorregidoAt,
+      Value<String?> itemsOrigen,
+      Value<String?> customerPhone,
+      Value<int?> stopOrder,
+      Value<DateTime?> deliveredAt,
+      Value<String?> resultado,
+      Value<DateTime?> resultadoAt,
+      Value<String?> resultadoNota,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$OrdersTableFilterComposer extends Composer<_$BaseLocal, $OrdersTable> {
   $$OrdersTableFilterComposer({
@@ -12540,6 +12626,11 @@ class $$OrdersTableFilterComposer extends Composer<_$BaseLocal, $OrdersTable> {
 
   ColumnFilters<DateTime> get facturaCorregidoAt => $composableBuilder(
     column: $table.facturaCorregidoAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get itemsOrigen => $composableBuilder(
+    column: $table.itemsOrigen,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12783,6 +12874,11 @@ class $$OrdersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get itemsOrigen => $composableBuilder(
+    column: $table.itemsOrigen,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get customerPhone => $composableBuilder(
     column: $table.customerPhone,
     builder: (column) => ColumnOrderings(column),
@@ -12979,6 +13075,11 @@ class $$OrdersTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get itemsOrigen => $composableBuilder(
+    column: $table.itemsOrigen,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get customerPhone => $composableBuilder(
     column: $table.customerPhone,
     builder: (column) => column,
@@ -13078,6 +13179,7 @@ class $$OrdersTableTableManager
                 Value<DateTime?> facturaAt = const Value.absent(),
                 Value<double?> facturaDomicilio = const Value.absent(),
                 Value<DateTime?> facturaCorregidoAt = const Value.absent(),
+                Value<String?> itemsOrigen = const Value.absent(),
                 Value<String?> customerPhone = const Value.absent(),
                 Value<int?> stopOrder = const Value.absent(),
                 Value<DateTime?> deliveredAt = const Value.absent(),
@@ -13126,6 +13228,7 @@ class $$OrdersTableTableManager
                 facturaAt: facturaAt,
                 facturaDomicilio: facturaDomicilio,
                 facturaCorregidoAt: facturaCorregidoAt,
+                itemsOrigen: itemsOrigen,
                 customerPhone: customerPhone,
                 stopOrder: stopOrder,
                 deliveredAt: deliveredAt,
@@ -13176,6 +13279,7 @@ class $$OrdersTableTableManager
                 Value<DateTime?> facturaAt = const Value.absent(),
                 Value<double?> facturaDomicilio = const Value.absent(),
                 Value<DateTime?> facturaCorregidoAt = const Value.absent(),
+                Value<String?> itemsOrigen = const Value.absent(),
                 Value<String?> customerPhone = const Value.absent(),
                 Value<int?> stopOrder = const Value.absent(),
                 Value<DateTime?> deliveredAt = const Value.absent(),
@@ -13224,6 +13328,7 @@ class $$OrdersTableTableManager
                 facturaAt: facturaAt,
                 facturaDomicilio: facturaDomicilio,
                 facturaCorregidoAt: facturaCorregidoAt,
+                itemsOrigen: itemsOrigen,
                 customerPhone: customerPhone,
                 stopOrder: stopOrder,
                 deliveredAt: deliveredAt,
@@ -13256,30 +13361,32 @@ typedef $$OrdersTableProcessedTableManager =
       Pedido,
       PrefetchHooks Function()
     >;
-typedef $$OrderItemsTableCreateCompanionBuilder = OrderItemsCompanion Function({
-  required String id,
-  required String orderId,
-  required int linea,
-  required String description,
-  required double quantity,
-  Value<double?> packs,
-  Value<String?> productId,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$OrderItemsTableUpdateCompanionBuilder = OrderItemsCompanion Function({
-  Value<String> id,
-  Value<String> orderId,
-  Value<int> linea,
-  Value<String> description,
-  Value<double> quantity,
-  Value<double?> packs,
-  Value<String?> productId,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$OrderItemsTableCreateCompanionBuilder =
+    OrderItemsCompanion Function({
+      required String id,
+      required String orderId,
+      required int linea,
+      required String description,
+      required double quantity,
+      Value<double?> packs,
+      Value<String?> productId,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$OrderItemsTableUpdateCompanionBuilder =
+    OrderItemsCompanion Function({
+      Value<String> id,
+      Value<String> orderId,
+      Value<int> linea,
+      Value<String> description,
+      Value<double> quantity,
+      Value<double?> packs,
+      Value<String?> productId,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$OrderItemsTableFilterComposer
     extends Composer<_$BaseLocal, $OrderItemsTable> {
@@ -13532,50 +13639,52 @@ typedef $$OrderItemsTableProcessedTableManager =
       RenglonPedido,
       PrefetchHooks Function()
     >;
-typedef $$RoutesTableCreateCompanionBuilder = RoutesCompanion Function({
-  required String id,
-  Value<String?> name,
-  Value<String?> routeCode,
-  Value<String> status,
-  Value<String?> originAddress,
-  Value<double?> originLat,
-  Value<double?> originLng,
-  Value<double> totalDistance,
-  Value<double> totalWeight,
-  Value<double> totalPrice,
-  Value<DateTime?> deliveryDate,
-  Value<String?> vehicleId,
-  Value<String?> creadoPor,
-  Value<String?> branchId,
-  Value<DateTime?> startedAt,
-  Value<DateTime?> finishedAt,
-  Value<bool> optimized,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$RoutesTableUpdateCompanionBuilder = RoutesCompanion Function({
-  Value<String> id,
-  Value<String?> name,
-  Value<String?> routeCode,
-  Value<String> status,
-  Value<String?> originAddress,
-  Value<double?> originLat,
-  Value<double?> originLng,
-  Value<double> totalDistance,
-  Value<double> totalWeight,
-  Value<double> totalPrice,
-  Value<DateTime?> deliveryDate,
-  Value<String?> vehicleId,
-  Value<String?> creadoPor,
-  Value<String?> branchId,
-  Value<DateTime?> startedAt,
-  Value<DateTime?> finishedAt,
-  Value<bool> optimized,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$RoutesTableCreateCompanionBuilder =
+    RoutesCompanion Function({
+      required String id,
+      Value<String?> name,
+      Value<String?> routeCode,
+      Value<String> status,
+      Value<String?> originAddress,
+      Value<double?> originLat,
+      Value<double?> originLng,
+      Value<double> totalDistance,
+      Value<double> totalWeight,
+      Value<double> totalPrice,
+      Value<DateTime?> deliveryDate,
+      Value<String?> vehicleId,
+      Value<String?> creadoPor,
+      Value<String?> branchId,
+      Value<DateTime?> startedAt,
+      Value<DateTime?> finishedAt,
+      Value<bool> optimized,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$RoutesTableUpdateCompanionBuilder =
+    RoutesCompanion Function({
+      Value<String> id,
+      Value<String?> name,
+      Value<String?> routeCode,
+      Value<String> status,
+      Value<String?> originAddress,
+      Value<double?> originLat,
+      Value<double?> originLng,
+      Value<double> totalDistance,
+      Value<double> totalWeight,
+      Value<double> totalPrice,
+      Value<DateTime?> deliveryDate,
+      Value<String?> vehicleId,
+      Value<String?> creadoPor,
+      Value<String?> branchId,
+      Value<DateTime?> startedAt,
+      Value<DateTime?> finishedAt,
+      Value<bool> optimized,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$RoutesTableFilterComposer extends Composer<_$BaseLocal, $RoutesTable> {
   $$RoutesTableFilterComposer({
@@ -14001,32 +14110,34 @@ typedef $$RoutesTableProcessedTableManager =
       Ruta,
       PrefetchHooks Function()
     >;
-typedef $$WarehousesTableCreateCompanionBuilder = WarehousesCompanion Function({
-  required String id,
-  required String sucursalCodigo,
-  required String nombre,
-  Value<String?> direccion,
-  Value<double?> lat,
-  Value<double?> lng,
-  Value<bool> principal,
-  Value<bool> activo,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
-typedef $$WarehousesTableUpdateCompanionBuilder = WarehousesCompanion Function({
-  Value<String> id,
-  Value<String> sucursalCodigo,
-  Value<String> nombre,
-  Value<String?> direccion,
-  Value<double?> lat,
-  Value<double?> lng,
-  Value<bool> principal,
-  Value<bool> activo,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-  Value<int> rowid,
-});
+typedef $$WarehousesTableCreateCompanionBuilder =
+    WarehousesCompanion Function({
+      required String id,
+      required String sucursalCodigo,
+      required String nombre,
+      Value<String?> direccion,
+      Value<double?> lat,
+      Value<double?> lng,
+      Value<bool> principal,
+      Value<bool> activo,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$WarehousesTableUpdateCompanionBuilder =
+    WarehousesCompanion Function({
+      Value<String> id,
+      Value<String> sucursalCodigo,
+      Value<String> nombre,
+      Value<String?> direccion,
+      Value<double?> lat,
+      Value<double?> lng,
+      Value<bool> principal,
+      Value<bool> activo,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
 
 class $$WarehousesTableFilterComposer
     extends Composer<_$BaseLocal, $WarehousesTable> {
@@ -14290,26 +14401,28 @@ typedef $$WarehousesTableProcessedTableManager =
       Almacen,
       PrefetchHooks Function()
     >;
-typedef $$SettingsTableCreateCompanionBuilder = SettingsCompanion Function({
-  Value<int> id,
-  Value<int> syncBarridoDia,
-  Value<DateTime?> catalogoTraidoAt,
-  Value<String> currency,
-  Value<double> cupRate,
-  Value<DateTime?> cupRateUpdatedAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-});
-typedef $$SettingsTableUpdateCompanionBuilder = SettingsCompanion Function({
-  Value<int> id,
-  Value<int> syncBarridoDia,
-  Value<DateTime?> catalogoTraidoAt,
-  Value<String> currency,
-  Value<double> cupRate,
-  Value<DateTime?> cupRateUpdatedAt,
-  Value<DateTime?> createdAt,
-  Value<DateTime?> updatedAt,
-});
+typedef $$SettingsTableCreateCompanionBuilder =
+    SettingsCompanion Function({
+      Value<int> id,
+      Value<int> syncBarridoDia,
+      Value<DateTime?> catalogoTraidoAt,
+      Value<String> currency,
+      Value<double> cupRate,
+      Value<DateTime?> cupRateUpdatedAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+    });
+typedef $$SettingsTableUpdateCompanionBuilder =
+    SettingsCompanion Function({
+      Value<int> id,
+      Value<int> syncBarridoDia,
+      Value<DateTime?> catalogoTraidoAt,
+      Value<String> currency,
+      Value<double> cupRate,
+      Value<DateTime?> cupRateUpdatedAt,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
+    });
 
 class $$SettingsTableFilterComposer
     extends Composer<_$BaseLocal, $SettingsTable> {
@@ -14539,32 +14652,34 @@ typedef $$SettingsTableProcessedTableManager =
       Ajustes,
       PrefetchHooks Function()
     >;
-typedef $$ApuntesTableCreateCompanionBuilder = ApuntesCompanion Function({
-  Value<int> orden,
-  required String clave,
-  required DateTime hechoAt,
-  required String metodo,
-  required String ruta,
-  required String cuerpo,
-  Value<String?> provisional,
-  Value<EstadoApunte> estado,
-  Value<String?> motivo,
-  Value<DateTime?> resueltoAt,
-  Value<int> intentos,
-});
-typedef $$ApuntesTableUpdateCompanionBuilder = ApuntesCompanion Function({
-  Value<int> orden,
-  Value<String> clave,
-  Value<DateTime> hechoAt,
-  Value<String> metodo,
-  Value<String> ruta,
-  Value<String> cuerpo,
-  Value<String?> provisional,
-  Value<EstadoApunte> estado,
-  Value<String?> motivo,
-  Value<DateTime?> resueltoAt,
-  Value<int> intentos,
-});
+typedef $$ApuntesTableCreateCompanionBuilder =
+    ApuntesCompanion Function({
+      Value<int> orden,
+      required String clave,
+      required DateTime hechoAt,
+      required String metodo,
+      required String ruta,
+      required String cuerpo,
+      Value<String?> provisional,
+      Value<EstadoApunte> estado,
+      Value<String?> motivo,
+      Value<DateTime?> resueltoAt,
+      Value<int> intentos,
+    });
+typedef $$ApuntesTableUpdateCompanionBuilder =
+    ApuntesCompanion Function({
+      Value<int> orden,
+      Value<String> clave,
+      Value<DateTime> hechoAt,
+      Value<String> metodo,
+      Value<String> ruta,
+      Value<String> cuerpo,
+      Value<String?> provisional,
+      Value<EstadoApunte> estado,
+      Value<String?> motivo,
+      Value<DateTime?> resueltoAt,
+      Value<int> intentos,
+    });
 
 class $$ApuntesTableFilterComposer
     extends Composer<_$BaseLocal, $ApuntesTable> {
@@ -15008,20 +15123,22 @@ typedef $$EquivalenciasTableProcessedTableManager =
       Equivalencia,
       PrefetchHooks Function()
     >;
-typedef $$FrescuraTableCreateCompanionBuilder = FrescuraCompanion Function({
-  required String coleccion,
-  Value<DateTime?> bajadaAt,
-  Value<String?> hasta,
-  Value<bool> completa,
-  Value<int> rowid,
-});
-typedef $$FrescuraTableUpdateCompanionBuilder = FrescuraCompanion Function({
-  Value<String> coleccion,
-  Value<DateTime?> bajadaAt,
-  Value<String?> hasta,
-  Value<bool> completa,
-  Value<int> rowid,
-});
+typedef $$FrescuraTableCreateCompanionBuilder =
+    FrescuraCompanion Function({
+      required String coleccion,
+      Value<DateTime?> bajadaAt,
+      Value<String?> hasta,
+      Value<bool> completa,
+      Value<int> rowid,
+    });
+typedef $$FrescuraTableUpdateCompanionBuilder =
+    FrescuraCompanion Function({
+      Value<String> coleccion,
+      Value<DateTime?> bajadaAt,
+      Value<String?> hasta,
+      Value<bool> completa,
+      Value<int> rowid,
+    });
 
 class $$FrescuraTableFilterComposer
     extends Composer<_$BaseLocal, $FrescuraTable> {
@@ -15282,11 +15399,16 @@ class $$PreferenciasTableTableManager
               $$PreferenciasTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
               $$PreferenciasTableAnnotationComposer($db: db, $table: table),
-          updateCompanionCallback: ({
-            Value<String> clave = const Value.absent(),
-            Value<String> valor = const Value.absent(),
-            Value<int> rowid = const Value.absent(),
-          }) => PreferenciasCompanion(clave: clave, valor: valor, rowid: rowid),
+          updateCompanionCallback:
+              ({
+                Value<String> clave = const Value.absent(),
+                Value<String> valor = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PreferenciasCompanion(
+                clave: clave,
+                valor: valor,
+                rowid: rowid,
+              ),
           createCompanionCallback:
               ({
                 required String clave,
