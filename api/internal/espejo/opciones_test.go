@@ -143,3 +143,39 @@ func TestSinRedisElEspejoSigueConSuCiclo(t *testing.T) {
 		t.Fatalf("se inventó un Redis: %q %v", o.RedisDireccion, o.RedisCentinelas)
 	}
 }
+
+// EL RITMO DEL CICLO DEPENDE DE SI LOS AVISOS ENTRAN.
+//
+// Con el canal de Redis puesto, el ciclo deja de ser quien se entera de las cosas —eso lo
+// hace el stream, que entra en cuanto PEDIDO suelta— y pasa a ser quien comprueba que nada
+// se quedó por el camino: quince minutos.
+//
+// SIN CANAL TIENE QUE SEGUIR CADA MINUTO, y ésta es la mitad que importa: entonces el ciclo
+// es lo ÚNICO que trae los cambios, y bajarlo dejaría al reparto quince minutos por detrás
+// de PEDIDO **sin que nada lo diga**. Esa es la forma de este fallo: no da error, sólo
+// llega tarde.
+func TestElCicloVaLentoSoloSiLosAvisosEntran(t *testing.T) {
+	conCanal := Opciones{Poll: time.Minute, RedisDireccion: "procovar-redis:6379"}
+	if got := conCanal.RitmoDelCiclo(false); got != PollConAvisos {
+		t.Fatalf("con los avisos entrando el ciclo sigue corriendo cada %v", got)
+	}
+
+	sinCanal := Opciones{Poll: time.Minute}
+	if got := sinCanal.RitmoDelCiclo(false); got != time.Minute {
+		t.Fatalf(
+			"sin canal el ciclo se fue a %v: es lo único que trae los cambios y el "+
+				"reparto se quedaría así de atrás sin que nada lo diga", got,
+		)
+	}
+}
+
+// Y SI ALGUIEN LO ESCRIBIÓ A MANO, MANDA ÉL. Quien pone `SYNC_POLL_MS` sabe lo que quiere y
+// no se le discute; pisarlo con un automatismo es la clase de sorpresa que se descubre un
+// martes por la tarde.
+func TestSYNCPOLLEscritoAManoManda(t *testing.T) {
+	o := Opciones{Poll: 5 * time.Second, RedisDireccion: "procovar-redis:6379"}
+
+	if got := o.RitmoDelCiclo(true); got != 5*time.Second {
+		t.Fatalf("se pisó el ritmo que alguien escribió a mano: %v", got)
+	}
+}

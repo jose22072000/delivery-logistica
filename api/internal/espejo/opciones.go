@@ -44,6 +44,8 @@ type Opciones struct {
 	// incremental casi siempre trae cero filas—, y lo caro (el barrido del histórico) tiene
 	// su propio freno en `BarridoCada`.
 	Poll time.Duration
+	// PollDelEntorno: `SYNC_POLL_MS` venía escrito. Ver `RitmoDelCiclo`.
+	PollDelEntorno bool
 
 	// TramoDias: cuántos días por petición al recorrer el histórico.
 	TramoDias int
@@ -117,6 +119,39 @@ type Opciones struct {
 	Stream          string
 }
 
+// PollConAvisos es cada cuánto da la vuelta el ciclo CUANDO los avisos están entrando.
+//
+// De un minuto a quince. El ciclo deja de ser quien se entera de las cosas —eso lo hace el
+// stream, que entra en cuanto PEDIDO suelta— y pasa a ser quien comprueba que nada se quedó
+// por el camino: Redis caído, un aviso perdido, o alguien corrigiendo la base por SQL sin
+// tocar `updatedAt`.
+//
+// QUINCE Y NO TREINTA: es el tiempo que alguien tarda en llamar a la oficina preguntando
+// por un pedido que no ve. Más largo ahorra poco y se nota cuando el canal falla justo ese
+// día.
+const PollConAvisos = 15 * time.Minute
+
+// EscuchaLosAvisos: ¿hay canal configurado?
+//
+// Es lo que decide el ritmo del ciclo, y por eso es un método y no una comprobación suelta
+// en tres sitios: sin Redis el ciclo tiene que seguir yendo cada minuto porque es lo ÚNICO
+// que trae los cambios. Bajarlo igualmente sería dejar al reparto quince minutos por detrás
+// de PEDIDO sin que nada lo diga.
+func (o Opciones) EscuchaLosAvisos() bool {
+	return o.RedisDireccion != "" || len(o.RedisCentinelas) > 0
+}
+
+// RitmoDelCiclo es cada cuánto toca dar la vuelta, ya decidido.
+//
+// Si el entorno puso `SYNC_POLL_MS` a mano, manda ése: alguien que lo escribe sabe lo que
+// quiere y no se le discute.
+func (o Opciones) RitmoDelCiclo(loPusoElEntorno bool) time.Duration {
+	if loPusoElEntorno || !o.EscuchaLosAvisos() {
+		return o.Poll
+	}
+	return PollConAvisos
+}
+
 // PorDefecto son los valores con los que arranca si el entorno no dice otra cosa. Son los
 // mismos números que llevaba el espejo de Node, y están medidos contra los datos de verdad.
 func PorDefecto() Opciones {
@@ -176,6 +211,10 @@ func Cargar(entorno func(string) string) (Opciones, error) {
 		*destino = time.Duration(n) * time.Millisecond
 	}
 
+	// SE APUNTA SI LO PUSO EL ENTORNO. Sin esto no hay forma de distinguir «un minuto
+	// porque nadie dijo nada» de «un minuto porque alguien lo escribió», y el ritmo
+	// automático pisaría una decisión tomada a mano.
+	o.PollDelEntorno = strings.TrimSpace(entorno("SYNC_POLL_MS")) != ""
 	milis("SYNC_POLL_MS", &o.Poll)
 
 	// EL CANAL DE AVISOS. Los nombres son los del Redis de la casa: un solo motor, con

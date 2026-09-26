@@ -77,9 +77,15 @@ func Nuevo(o Opciones, base Base, reg *slog.Logger) *Espejo {
 // —`SYNC_POLL_MS`— porque ya no es quien se entera de las cosas, sino quien comprueba que
 // nada se quedó por el camino.
 func (e *Espejo) Correr(ctx context.Context) error {
+	// EL RITMO DEPENDE DE SI LOS AVISOS ENTRAN. Con el canal puesto, el ciclo deja de ser
+	// quien se entera y pasa a ser quien comprueba: quince minutos. Sin canal sigue cada
+	// minuto, porque entonces es lo ÚNICO que trae los cambios y bajarlo dejaría al
+	// reparto quince minutos por detrás sin que nada lo diga.
+	ritmo := e.Opciones.RitmoDelCiclo(e.Opciones.PollDelEntorno)
 	e.Reg.Info("espejo arrancado",
 		"pedido", e.Opciones.PedidoURL, "reparto", e.Opciones.DeliveryURL,
-		"cada", e.Opciones.Poll, "sucursal", e.sucursalODejarTodas())
+		"cada", ritmo, "con avisos", e.Opciones.EscuchaLosAvisos(),
+		"sucursal", e.sucursalODejarTodas())
 
 	temporizador := time.NewTimer(0)
 	defer temporizador.Stop()
@@ -104,7 +110,7 @@ func (e *Espejo) Correr(ctx context.Context) error {
 			// vuelta siguiente, y morirse aquí obligaría a que alguien lo levantara.
 			e.Reg.Error("el ciclo falló entero", "err", err)
 		}
-		temporizador.Reset(e.Opciones.Poll)
+		temporizador.Reset(ritmo)
 	}
 }
 
