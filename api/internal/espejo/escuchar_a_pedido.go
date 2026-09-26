@@ -3,6 +3,7 @@ package espejo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 )
@@ -42,6 +43,20 @@ type QueHaceFaltaTraer struct {
 	Borrados []string
 	// Si alguno llegó sin sucursal: hay que mirar todas. Debería ser raro.
 	TodasLasSucursales bool
+
+	// SinEfecto: cuántos avisos NO llevaron a ninguna acción, y por qué.
+	//
+	// Lo pidió la sesión de PEDIDO: desde su lado, **un aviso que sale y no lleva a nada
+	// se ve exactamente igual que uno que funcionó**. Ellos ven que lo mandaron; lo que
+	// pasó después sólo se ve aquí, y si no se cuenta no se ve en ningún sitio.
+	//
+	// No son fallos: un pedido repetido en la misma tanda o un traer que un borrado
+	// anuló son el sistema haciendo lo correcto. Lo que hace falta es poder DECIRLO,
+	// porque «de veinte avisos, tres llevaron a algo» y «veinte de veinte» son dos
+	// situaciones muy distintas y se arreglan en sitios distintos.
+	SinEfecto int
+	// PorQueSinEfecto, en palabras: «4 repetidos», «2 anulados por un borrado».
+	PorQueSinEfecto string
 
 	// Clientes: los que se movieron de sitio, por su id.
 	//
@@ -131,12 +146,28 @@ func AgruparAvisos(avisos []AvisoDePedido) QueHaceFaltaTraer {
 		}
 	}
 
+	repetidos := len(avisos) - len(pedidos) - len(sucursales) - len(borrados) - len(clientes)
+	anulados := 0
 	for id := range pedidos {
 		// El borrado manda: ver el encabezado.
 		if borrados[id] {
+			anulados++
 			continue
 		}
 		q.Pedidos = append(q.Pedidos, id)
+	}
+	if repetidos < 0 {
+		repetidos = 0
+	}
+	q.SinEfecto = repetidos + anulados
+	switch {
+	case repetidos > 0 && anulados > 0:
+		q.PorQueSinEfecto = fmt.Sprintf("%d repetidos, %d anulados por un borrado",
+			repetidos, anulados)
+	case repetidos > 0:
+		q.PorQueSinEfecto = fmt.Sprintf("%d repetidos en la misma tanda", repetidos)
+	case anulados > 0:
+		q.PorQueSinEfecto = fmt.Sprintf("%d anulados por un borrado", anulados)
 	}
 	for id := range sucursales {
 		q.Sucursales = append(q.Sucursales, id)
@@ -158,7 +189,15 @@ type Escuchador struct {
 	quien          string
 	reg            *slog.Logger
 	atender        func(ctx context.Context, q QueHaceFaltaTraer) error
+	apuntar        func(ctx context.Context, t TandaDeAvisos) error
 	ultimaRecogida time.Time
+}
+
+// ConApunte le dice dónde dejar constancia de cada tanda. Separado del constructor porque
+// es opcional: sin él el escuchador funciona igual y sólo se pierde la pantalla.
+func (e *Escuchador) ConApunte(f func(ctx context.Context, t TandaDeAvisos) error) *Escuchador {
+	e.apuntar = f
+	return e
 }
 
 // NuevoEscuchador lo arma. `atender` es lo que hace el trabajo de verdad —traer y
@@ -229,6 +268,7 @@ func (e *Escuchador) UnaVuelta(ctx context.Context) {
 		return
 	}
 
+	arranque := time.Now()
 	q := AgruparAvisos(avisos)
 	if err := e.atender(ctx, q); err != nil {
 		// NO SE RECONOCE. Si se reconociera, estos avisos no los vuelve a leer nadie y
@@ -253,5 +293,20 @@ func (e *Escuchador) UnaVuelta(ctx context.Context) {
 	}
 	e.reg.Info("tanda de avisos de PEDIDO atendida",
 		"avisos", len(ids), "pedidos", len(q.Pedidos),
-		"sucursales", len(q.Sucursales), "borrados", len(q.Borrados))
+		"sucursales", len(q.Sucursales), "borrados", len(q.Borrados),
+		"clientes", len(q.Clientes), "sin efecto", q.SinEfecto)
+
+	// LA CONSTANCIA, para que desde PEDIDO se pueda ver qué pasó con lo que mandaron.
+	//
+	// Un fallo al apuntar no tumba nada: la tanda ya está atendida y reconocida, que es lo
+	// que importa; lo que se pierde es la línea del registro.
+	if e.apuntar != nil {
+		atendidos := len(q.Pedidos) + len(q.Sucursales) + len(q.Borrados) + len(q.Clientes)
+		if err := e.apuntar(ctx, TandaDeAvisos{
+			Traidos: len(avisos), Atendidos: atendidos, SinEfecto: q.SinEfecto,
+			Motivos: q.PorQueSinEfecto, TardoMs: int(time.Since(arranque).Milliseconds()),
+		}); err != nil {
+			e.reg.Warn("no se pudo apuntar la tanda de avisos", "err", err)
+		}
+	}
 }

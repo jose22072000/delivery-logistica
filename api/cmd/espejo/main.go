@@ -114,12 +114,18 @@ func correr() error {
 	// impide arrancar. El aviso va al ARRANCAR, que es cuando lo lee quien despliega, y no
 	// la tarde que alguien se pregunte por qué los pedidos tardan quince minutos.
 	if opciones.RedisDireccion != "" || len(opciones.RedisCentinelas) > 0 {
+		base := espejo.BaseDelReparto{Acotado: acotado}
 		escuchador := espejo.NuevoEscuchador(
 			espejo.NuevoRedisDeAvisos(opciones), opciones, reg,
 			func(c context.Context, q espejo.QueHaceFaltaTraer) error {
 				return proceso.Atender(c, q)
 			},
-		)
+			// LA CONSTANCIA DE CADA TANDA. Lo pidió la sesión de PEDIDO: desde allá, un
+			// aviso que sale y no lleva a nada se ve exactamente igual que uno que
+			// funcionó. Va a la MISMA tabla que las tandas que entran por HTTP, con el
+			// `origen` distinguiéndolas, para no tener que mirar en dos sitios la
+			// pregunta «¿está entrando algo?».
+		).ConApunte(base.ApuntarTandaDeAvisos)
 		go func() {
 			if err := escuchador.Correr(ctx); err != nil {
 				reg.Error("el escuchador de avisos de PEDIDO se paró", "err", err)

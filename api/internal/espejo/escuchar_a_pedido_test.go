@@ -292,3 +292,48 @@ func TestYaNoVaMandaSobreUnTraer(t *testing.T) {
 		t.Fatalf("se trae un pedido que acaba de dejar de ser repartible: %+v", q)
 	}
 }
+
+// LOS AVISOS QUE NO LLEVAN A NADA SE CUENTAN, Y SE DICE POR QUÉ.
+//
+// Lo pidió la sesión de PEDIDO y es justo lo que desde allá no se puede ver: ellos ven que
+// mandaron el aviso, y **uno que sale y no lleva a nada se ve exactamente igual que uno que
+// funcionó**. Lo que pasó después sólo se ve aquí.
+//
+// NO SON FALLOS: un pedido repetido en la misma tanda, o un traer que un borrado anuló, es
+// el sistema haciendo lo correcto. Lo que hace falta es poder DECIRLO — «de veinte avisos,
+// tres llevaron a algo» y «veinte de veinte» son dos situaciones distintas que se arreglan
+// en sitios distintos.
+func TestSeCuentanLosAvisosQueNoLlevaronANada(t *testing.T) {
+	q := AgruparAvisos([]AvisoDePedido{
+		// Dos del mismo pedido: uno se pide, el otro sobra.
+		{ID: "1-0", Motivo: MotivoDomicilio, PedidoID: "ped-1"},
+		{ID: "1-1", Motivo: MotivoFactura, PedidoID: "ped-1"},
+		// Y uno que se anula solo: se actualizó y después se borró.
+		{ID: "1-2", Motivo: MotivoFactura, PedidoID: "ped-2"},
+		{ID: "1-3", Motivo: MotivoBorrado, PedidoID: "ped-2"},
+	})
+
+	if q.SinEfecto == 0 {
+		t.Fatalf(
+			"no se contó ningún aviso sin efecto: desde PEDIDO no hay forma de ver la "+
+				"diferencia entre «llegó y sirvió» y «llegó y no hizo nada». %+v", q,
+		)
+	}
+	if q.PorQueSinEfecto == "" {
+		t.Fatalf("se cuentan pero no se dice por qué: un número solo no lleva a ninguna acción")
+	}
+}
+
+// Y CUANDO TODOS SIRVEN, NO SE INVENTA NINGUNO. Sin esta mitad, «se cuentan» se cumple
+// contando siempre, y la pantalla diría que se descarta trabajo que sí se hizo.
+func TestConTodosLosAvisosUtilesNoSeCuentaNinguno(t *testing.T) {
+	q := AgruparAvisos([]AvisoDePedido{
+		{ID: "1-0", Motivo: MotivoFactura, PedidoID: "ped-1"},
+		{ID: "1-1", Motivo: MotivoFactura, PedidoID: "ped-2"},
+	})
+
+	if q.SinEfecto != 0 {
+		t.Fatalf("se contaron %d sin efecto habiendo servido los dos: %q",
+			q.SinEfecto, q.PorQueSinEfecto)
+	}
+}

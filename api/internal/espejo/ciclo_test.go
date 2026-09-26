@@ -87,6 +87,8 @@ func (d *repartoFalso) SincronizarCatalogo(context.Context) (*RespuestaDelCatalo
 }
 
 type baseFalsa struct {
+	// Las tandas del canal que se apuntaron.
+	tandas []TandaDeAvisos
 	// Lo que se quitó por un aviso de borrado.
 	quitados     []string
 	marca        *time.Time
@@ -531,4 +533,12 @@ func (p *pedidoFalso) ClientesPorID(_ context.Context, ids []string) ([]ClienteD
 		}
 	}
 	return salida, nil
+}
+
+// ApuntarTandaDeAvisos: la constancia de cada lectura del canal. Se guarda para poder
+// comprobar que los avisos que no llevaron a nada se cuentan — desde PEDIDO, un aviso que
+// sale y no hace nada se ve igual que uno que funcionó.
+func (b *baseFalsa) ApuntarTandaDeAvisos(_ context.Context, t TandaDeAvisos) error {
+	b.tandas = append(b.tandas, t)
+	return nil
 }

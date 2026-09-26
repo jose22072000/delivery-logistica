@@ -39,6 +39,28 @@ type Base interface {
 	BorrarClientesQueYaNoVienen(ctx context.Context, ids []string) (int64, error)
 	// QuitarPedidos borra los que PEDIDO avisó como borrados. Ver `atender_avisos.go`.
 	QuitarPedidos(ctx context.Context, externalIDs []string) error
+	// ApuntarTandaDeAvisos deja constancia de una tanda que entró por el canal.
+	//
+	// Lo pidió la sesión de PEDIDO y tienen razón: desde su lado, **un aviso que sale y
+	// no lleva a nada se ve exactamente igual que uno que funcionó**. Ellos ven que lo
+	// mandaron; lo que pasó después sólo se ve aquí.
+	ApuntarTandaDeAvisos(ctx context.Context, t TandaDeAvisos) error
+}
+
+// TandaDeAvisos es lo que pasó con una lectura del canal.
+//
+// `Traidos` son los avisos que llegaron; `Atendidos`, los que llevaron a una acción; y
+// `SinEfecto`, los que no. Los tres números y no uno: «llegaron veinte» no dice nada, y
+// «veinte de veinte atendidos» frente a «tres de veinte» son dos situaciones distintas que
+// se arreglan en sitios distintos.
+type TandaDeAvisos struct {
+	Traidos   int
+	Atendidos int
+	SinEfecto int
+	// Motivos, en palabras: «4 repetidos», «2 borrados que ya no estaban». Vacío cuando
+	// todos llevaron a algo.
+	Motivos string
+	TardoMs int
 }
 
 // BaseDelReparto es la Base de verdad, sobre el alcance.
@@ -109,6 +131,23 @@ func (b BaseDelReparto) GuardarCliente(ctx context.Context, c ClienteDeFuera) er
 func (b BaseDelReparto) QuitarPedidos(ctx context.Context, externalIDs []string) error {
 	_, err := b.Acotado.QuitarPedidosDelEspejo(ctx, externalIDs)
 	return err
+}
+
+// ApuntarTandaDeAvisos escribe la constancia en `recepciones_del_webhook`, la MISMA tabla
+// que las tandas que entran por HTTP.
+//
+// Es a propósito: son dos caminos para lo mismo —enterarse de lo que cambió en PEDIDO— y
+// tenerlos en dos tablas obligaría a mirar en dos sitios para responder «¿está entrando
+// algo?». El `origen` los distingue.
+func (b BaseDelReparto) ApuntarTandaDeAvisos(ctx context.Context, t TandaDeAvisos) error {
+	return b.Acotado.ApuntarRecepcionDelWebhook(ctx, sqlc.ApuntarRecepcionDelWebhookParams{
+		Origen:     "stream",
+		Traidos:    int32(t.Traidos),
+		Escritos:   int32(t.Atendidos),
+		Rechazados: int32(t.SinEfecto),
+		Motivos:    textoONada(t.Motivos),
+		DuracionMs: int32(t.TardoMs),
+	})
 }
 
 func (b BaseDelReparto) BorrarClientesQueYaNoVienen(ctx context.Context, ids []string) (int64, error) {
