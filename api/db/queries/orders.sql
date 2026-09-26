@@ -769,7 +769,61 @@ DO UPDATE SET
     items_origen         = excluded.items_origen,
     delivery_distance_km = excluded.delivery_distance_km,
     delivery_price       = excluded.delivery_price
+-- UN PEDIDO QUE LLEGA IGUAL NO SE TOCA. Medido en producción el 26/09/2026:
+--
+--     orders   5.452 filas  ·  7.170.587 actualizaciones
+--
+-- Mil trescientas veces cada pedido, casi siempre para dejarlo exactamente igual: el
+-- espejo repasa cada minuto y además siempre los últimos tres días. Es la tercera pata
+-- del 36 % de CPU del Postgres, con los 98 millones de `customers` y los 8,8 de
+-- `order_items` — las otras dos ya cortadas el mismo día.
+--
+-- `IS DISTINCT FROM` y no `<>`: con `<>`, un nulo a cada lado da NULL y la fila no se
+-- actualizaría NUNCA. Un pedido al que le ponen la factura por primera vez se quedaría
+-- sin ella para siempre, y en silencio.
+--
+-- LO QUE NO ENTRA EN LA COMPARACIÓN, y es lo que hace que esto funcione:
+--
+--   * `pedido_updated_at` sí entra — es la marca de agua de PEDIDO y, si cambió, el
+--     pedido cambió aunque el resto se vea igual;
+--   * `route_id`, `ultima_ruta_id`, `stop_order`, `resultado`, `delivered_at` y `status`
+--     NO están en el upsert siquiera: son NUESTROS, los escribe el reparto, y el espejo
+--     no los toca. Meterlos aquí sería comparar contra algo que este INSERT no manda.
+--
+-- Y OJO CON EL `RETURNING`: cuando el WHERE dice que no hay nada que cambiar, **no
+-- devuelve fila**. Quien llama tiene que saber que eso NO es un error — se resuelve con
+-- `BuscarPedidoPorReferencia`, aquí abajo. Ver `EspejoGuardarPedido`.
+WHERE (orders.operation_number, orders.customer_name, orders.customer_phone,
+       orders.address, orders.end_address, orders.lat, orders.lng,
+       orders.end_lat, orders.end_lng, orders.weight, orders.branch_id,
+       orders.order_date, orders.pedido_updated_at, orders.estado, orders.archivado,
+       orders.fecha_comprometida, orders.requiere_domicilio, orders.pedido_costo,
+       orders.municipio, orders.vendedor, orders.sucursal_codigo,
+       orders.factura_estado, orders.factura_numero, orders.factura_at,
+       orders.factura_domicilio, orders.factura_corregido_at, orders.items_origen,
+       orders.delivery_distance_km, orders.delivery_price)
+   IS DISTINCT FROM
+      (excluded.operation_number, excluded.customer_name, excluded.customer_phone,
+       excluded.address, excluded.end_address, excluded.lat, excluded.lng,
+       excluded.end_lat, excluded.end_lng, excluded.weight, excluded.branch_id,
+       excluded.order_date, excluded.pedido_updated_at, excluded.estado, excluded.archivado,
+       excluded.fecha_comprometida, excluded.requiere_domicilio, excluded.pedido_costo,
+       excluded.municipio, excluded.vendedor, excluded.sucursal_codigo,
+       excluded.factura_estado, excluded.factura_numero, excluded.factura_at,
+       excluded.factura_domicilio, excluded.factura_corregido_at, excluded.items_origen,
+       excluded.delivery_distance_km, excluded.delivery_price)
 RETURNING id, branch_id, external_id, (xmax = 0)::boolean AS es_nuevo;
+
+-- EL PEDIDO QUE NO HIZO FALTA TOCAR, para poder seguir con sus renglones.
+--
+-- El upsert de arriba no devuelve fila cuando nada cambió, y quien llama necesita el `id`
+-- igualmente: los renglones se comparan contra los que ya hay, y para eso hace falta saber
+-- de qué pedido son. Un SELECT por el índice único cuesta mucho menos que el UPDATE con su
+-- WAL que esto viene a evitar.
+-- name: BuscarPedidoPorReferencia :one
+SELECT id, branch_id, external_id
+FROM orders
+WHERE source = sqlc.arg('source') AND external_id = sqlc.arg('external_id');
 
 -- Los renglones se reescriben enteros en cada pasada del espejo: PEDIDO puede haber
 -- quitado una línea, y un UPDATE línea a línea dejaría la vieja colgada. Se borran y se

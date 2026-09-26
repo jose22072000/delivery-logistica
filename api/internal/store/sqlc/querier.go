@@ -152,6 +152,13 @@ type Querier interface {
 	// sentencia, y no con un conteo antes: entre el conteo y el borrado cabe un alta.
 	BorrarTipoDeVehiculoSinUso(ctx context.Context, id uuid.UUID) (int64, error)
 	BorrarVehiculo(ctx context.Context, arg BorrarVehiculoParams) (int64, error)
+	// EL PEDIDO QUE NO HIZO FALTA TOCAR, para poder seguir con sus renglones.
+	//
+	// El upsert de arriba no devuelve fila cuando nada cambió, y quien llama necesita el `id`
+	// igualmente: los renglones se comparan contra los que ya hay, y para eso hace falta saber
+	// de qué pedido son. Un SELECT por el índice único cuesta mucho menos que el UPDATE con su
+	// WAL que esto viene a evitar.
+	BuscarPedidoPorReferencia(ctx context.Context, arg BuscarPedidoPorReferenciaParams) (BuscarPedidoPorReferenciaRow, error)
 	// Emparejar un renglón de pedido con el catálogo de SU sucursal. El `sku` sólo es único
 	// dentro de una sucursal —la clave de la tabla es (`sucursal_codigo`, `sku`)—, así que
 	// buscarlo sin ella devuelve el precio y las existencias de donde no toca.
@@ -603,6 +610,30 @@ type Querier interface {
 	// `xmax = 0` es el truco de Postgres para saber si la fila se INSERTÓ o se ACTUALIZÓ: en
 	// una fila recién insertada el id de la transacción que la borró todavía es cero. Hace
 	// falta para poder decir en el registro cuántos pedidos son nuevos sin una consulta más.
+	// UN PEDIDO QUE LLEGA IGUAL NO SE TOCA. Medido en producción el 26/09/2026:
+	//
+	//     orders   5.452 filas  ·  7.170.587 actualizaciones
+	//
+	// Mil trescientas veces cada pedido, casi siempre para dejarlo exactamente igual: el
+	// espejo repasa cada minuto y además siempre los últimos tres días. Es la tercera pata
+	// del 36 % de CPU del Postgres, con los 98 millones de `customers` y los 8,8 de
+	// `order_items` — las otras dos ya cortadas el mismo día.
+	//
+	// `IS DISTINCT FROM` y no `<>`: con `<>`, un nulo a cada lado da NULL y la fila no se
+	// actualizaría NUNCA. Un pedido al que le ponen la factura por primera vez se quedaría
+	// sin ella para siempre, y en silencio.
+	//
+	// LO QUE NO ENTRA EN LA COMPARACIÓN, y es lo que hace que esto funcione:
+	//
+	//   * `pedido_updated_at` sí entra — es la marca de agua de PEDIDO y, si cambió, el
+	//     pedido cambió aunque el resto se vea igual;
+	//   * `route_id`, `ultima_ruta_id`, `stop_order`, `resultado`, `delivered_at` y `status`
+	//     NO están en el upsert siquiera: son NUESTROS, los escribe el reparto, y el espejo
+	//     no los toca. Meterlos aquí sería comparar contra algo que este INSERT no manda.
+	//
+	// Y OJO CON EL `RETURNING`: cuando el WHERE dice que no hay nada que cambiar, **no
+	// devuelve fila**. Quien llama tiene que saber que eso NO es un error — se resuelve con
+	// `BuscarPedidoPorReferencia`, aquí abajo. Ver `EspejoGuardarPedido`.
 	GuardarPedidoDelEspejo(ctx context.Context, arg GuardarPedidoDelEspejoParams) (GuardarPedidoDelEspejoRow, error)
 	// ---------------------------------------------------------------------------
 	// Bajada del catálogo  (POST /api/products/sync)

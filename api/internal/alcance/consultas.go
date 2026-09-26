@@ -19,8 +19,10 @@ package alcance
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"procovar/reparto-api/internal/store/sqlc"
@@ -533,10 +535,38 @@ func (a *Acotado) EspejoGuardarPedido(
 	var nuevo bool
 	err := a.EnTx(ctx, func(dentro *Acotado) error {
 		fila, err := dentro.q.GuardarPedidoDelEspejo(ctx, pedido)
-		if err != nil {
+		switch {
+		case err == nil:
+			id, nuevo = fila.ID, fila.EsNuevo
+
+		// SIN FILA NO ES UN FALLO: ES QUE NO HABÍA NADA QUE CAMBIAR.
+		//
+		// El upsert lleva desde el 26/09/2026 un `WHERE ... IS DISTINCT FROM ...` que
+		// evita reescribir un pedido idéntico — es lo que corta los 7,1 millones de
+		// actualizaciones sobre 5.452 filas—. Con ese `WHERE`, el `RETURNING` no devuelve
+		// nada cuando la fila se queda igual, y la consulta es `:one`: sale
+		// `pgx.ErrNoRows`.
+		//
+		// Pero el `id` HACE FALTA igualmente: los renglones se comparan contra los que ya
+		// hay, y para eso hay que saber de qué pedido son. Se busca por la referencia, que
+		// es el índice único. Un SELECT cuesta mucho menos que el UPDATE con su WAL que
+		// esto viene a evitar, y sólo se paga cuando NO cambió nada.
+		//
+		// `nuevo` queda en false, que es la verdad: si no cambió nada, desde luego no
+		// acaba de nacer.
+		case errors.Is(err, pgx.ErrNoRows):
+			ref, errRef := dentro.q.BuscarPedidoPorReferencia(ctx, sqlc.BuscarPedidoPorReferenciaParams{
+				Source:     pedido.Source,
+				ExternalID: pedido.ExternalID,
+			})
+			if errRef != nil {
+				return errRef
+			}
+			id, nuevo = ref.ID, false
+
+		default:
 			return err
 		}
-		id, nuevo = fila.ID, fila.EsNuevo
 
 		// SI LOS RENGLONES SON LOS MISMOS, NO SE TOCA NADA.
 		//
