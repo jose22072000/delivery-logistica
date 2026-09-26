@@ -392,7 +392,6 @@ WHERE c.branch_id = ?1''',
     FiltrosSinColocar filtros = const FiltrosSinColocar(),
   }) async {
     await _listo();
-    final puestos = await _idsColocados();
     final o = _base.orders;
 
     final consulta = _base.select(o)
@@ -425,11 +424,20 @@ WHERE c.branch_id = ?1''',
             // y la pantalla seguia diciendo 243.
             t.requiereDomicilio.equals(true),
       );
-    if (puestos.isNotEmpty) {
-      // «Sin colocar» = no esta en ninguna columna. Del tablero de NADIE: un
-      // pedido es de una sucursal y sólo puede estar en el suyo.
-      consulta.where((t) => t.id.isNotIn(puestos));
-    }
+    // «Sin colocar» = no esta en ninguna columna. Del tablero de NADIE: un
+    // pedido es de una sucursal y sólo puede estar en el suyo.
+    //
+    // `NOT EXISTS` contra la tabla y no `isNotIn` con la lista de ids: aquello
+    // era una consulta más para traerse los colocados y luego UN PARÁMETRO POR
+    // PEDIDO COLOCADO, y SQLite tiene tope de parámetros por sentencia. Medido
+    // igual de rápido (26/09/2026); lo que se gana es que no tiene techo. Tira
+    // de la clave primaria `board_placements.order_id`.
+    consulta.where(
+      (t) => const CustomExpression<bool>(
+        'NOT EXISTS (SELECT 1 FROM ${EsquemaTablero.colocaciones} p '
+        'WHERE p.order_id = "orders"."id")',
+      ),
+    );
 
     final q = filtros.q?.trim();
     if (q != null && q.isNotEmpty) {
@@ -600,13 +608,6 @@ WHERE c.branch_id = ?1''',
           ),
         )
         .toList(growable: false);
-  }
-
-  Future<List<String>> _idsColocados() async {
-    final filas = await _base
-        .customSelect('SELECT order_id FROM ${EsquemaTablero.colocaciones}')
-        .get();
-    return filas.map((f) => f.read<String>('order_id')).toList(growable: false);
   }
 
   /// Sin coordenadas no hay distancia. `infinity` y no `0`: un pedido sin

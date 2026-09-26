@@ -168,6 +168,9 @@ class BaseLocal extends _$BaseLocal {
       // sin ellas un borrado de ruta deja renglones huerfanos que luego salen en
       // el post-despacho de una ruta que ya no existe.
       await customStatement('PRAGMA foreign_keys = ON');
+      for (final indice in indicesDeLaBase) {
+        await customStatement(indice);
+      }
       // QUIEN ES EL DUENO, dentro de la propia base. Escrito al abrir y no al
       // guardar el primer apunte: la cola tiene que poder decir de quien es
       // AUNQUE este vacia, porque lo que se comprueba antes de subir es de quien
@@ -183,6 +186,42 @@ class BaseLocal extends _$BaseLocal {
       }
     },
   );
+
+  /// LOS ÍNDICES DE LA COPIA, medidos el 26/09/2026 con el volumen de un aparato
+  /// (20.000 pedidos, 80.000 renglones, 300 colocados):
+  ///
+  ///   buscar un producto en «Sin colocar»   44.286 ms  ->  28 ms
+  ///   la página de Pedidos (página 100)         30 ms  ->  1,3 ms
+  ///   los renglones de una página              4,9 ms  ->  0,6 ms
+  ///   las paradas de una ruta                  1,7 ms  ->  0,14 ms
+  ///
+  /// La primera no es una errata: el `EXISTS` de «¿qué pedidos llevan malta?»
+  /// recorría los 80.000 renglones POR CADA pedido. Hasta aquí la base no tenía
+  /// ni un índice aparte de las claves primarias.
+  ///
+  /// **Van al ABRIR y con `IF NOT EXISTS`, no en una migración**, y es a
+  /// propósito: así los recibe también el aparato que ya está en la calle con
+  /// su base llena, sin subir `schemaVersion` —que es tocar la base donde vive
+  /// la cola sin subir—. Cuando ya están, cada uno cuesta una consulta a
+  /// `sqlite_master`. Y la web, con su base en memoria que nace vacía en cada
+  /// carga, los crea antes de que llegue nada.
+  ///
+  /// El orden de las columnas es el de las consultas que los usan, y lo ata
+  /// `test/nucleo/base/indices_de_la_base_test.dart` con `EXPLAIN QUERY PLAN`:
+  /// un índice con otra forma no falla, sólo deja de usarse.
+  static const indicesDeLaBase = <String>[
+    // Los renglones de un pedido: el buscador por producto, el peso y la hoja
+    // del despacho. Es el que se comía los 44 segundos.
+    'CREATE INDEX IF NOT EXISTS order_items_order_idx ON order_items (order_id)',
+    // La lista de Pedidos, en su orden (`RepositorioPedidos.pagina`).
+    'CREATE INDEX IF NOT EXISTS orders_sucursal_fecha_idx '
+        'ON orders (branch_id, order_date DESC, created_at DESC)',
+    // Las paradas de una ruta, ya en su orden (`RepositorioRutas.paradasDe`).
+    'CREATE INDEX IF NOT EXISTS orders_ultima_ruta_idx '
+        'ON orders (ultima_ruta_id, stop_order)',
+    // La cola: cuántos quedan, y si una zona tiene algo sin subir.
+    'CREATE INDEX IF NOT EXISTS apuntes_estado_idx ON apuntes (estado)',
+  ];
 
   /// Vacia el dominio de ESTA copia.
   ///
