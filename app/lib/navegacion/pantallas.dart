@@ -9,6 +9,7 @@ import '../pantallas/rutas/registro.dart';
 import '../pantallas/mapa/registro.dart';
 import '../pantallas/sincronizacion/registro.dart';
 import '../pantallas/tablero/registro.dart';
+import '../pantallas/webhook/registro.dart';
 import 'pantalla_registrada.dart';
 
 /// EL REGISTRO. Una linea por pantalla, en el orden en que salen en el menu.
@@ -46,6 +47,17 @@ List<PantallaRegistrada> pantallasDeLaAplicacion() => <PantallaRegistrada>[
   // acotado por sucursal desde el servidor. El motivo largo esta en su
   // `registro.dart`.
   registrarSincronizacion(),
+
+  // CÓMO VA EL CANAL CON PEDIDO. Fuera del menú, y **sólo en la web**.
+  //
+  // Devuelve `null` en la APK y en el escritorio, así que allí ni siquiera se
+  // registra: el repartidor está en la calle y esto es una pantalla de tuberías
+  // entre dos sistemas. Jose, 26/09/2026: «eso me lo dejas en la web solamente»
+  // y «que sólo lo pueda ver yo, el desarrollador».
+  //
+  // El cerrojo que de verdad cierra es el 403 del servidor; esto es para que no
+  // estorbe. El rol que lleva el aparato no decide permisos — lo dice `Sesion`.
+  ?registrarWebhook(),
 
   // El mapa de Cuba para trabajar sin conexion. Va en el menu SOLO en la APK y
   // el escritorio —lo decide su propio `registro.dart`, regla 1— y sin entrada
