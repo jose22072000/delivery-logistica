@@ -158,7 +158,7 @@ ls api/db/migrations/ sync/db/migrations/
 ```
 
 Apunta el número más alto de cada carpeta. Al terminar, `status` tiene que decir
-exactamente ése. Hoy (23/09/2026) son `00006_bajas_de_la_bajada.sql` en la serie del
+exactamente ése. Hoy (26/09/2026) son `00008_indices_medidos.sql` en la serie del
 reparto y `00001_sync.sql` en la del sincronizador.
 
 **Que la imagen está en el servidor.** Se construyó allí y se queda:
@@ -314,6 +314,31 @@ docker run --rm --network dokploy-network \
 Termina imprimiendo `migraciones aplicadas` y el `status` de las dos series. Si sale
 distinto de cero, **no se pulsa Deploy**.
 
+#### La 00008 es distinta: índices en caliente (26/09/2026)
+
+`00008_indices_medidos.sql` crea índices con `CREATE INDEX CONCURRENTLY`, que no bloquea
+las escrituras del espejo, y por eso va **fuera de transacción** (`-- +goose NO
+TRANSACTION`). Dos cosas que cambian respecto a las demás:
+
+- **Tarda unos segundos, no milisegundos**: con 55.600 pedidos, ~6 s en local.
+- **Si se corta** —el `lock_timeout=5s` de la URL puede saltar si hay una transacción
+  larga abierta mientras espera— deja algún índice a medias (INVÁLIDO) y goose NO la da
+  por aplicada. **Se vuelve a lanzar el mismo `up` y ya está**: cada índice va precedido
+  de su `DROP INDEX CONCURRENTLY IF EXISTS`, así que se rehace. Para comprobar que no
+  quedó ninguno inválido:
+
+  ```bash
+  ssh vps 'C=$(docker ps -qf name=procovar-postgres-nlfols | head -1); \
+    docker exec "$C" psql -U procovar -d procovar_reparto -tAc \
+    "SELECT count(*) FROM pg_index WHERE NOT indisvalid;"'
+  ```
+
+  Tiene que dar **0**.
+
+Y como siempre: **primero la migración, después Deploy de `reparto-api`**. La api se
+niega a arrancar con la base atrasada (§2.8). Al revés no pasa nada: la api de antes
+funciona igual sobre la base con la 00008, que sólo añade y quita índices.
+
 Las dos series van en **una sola pasada y en orden** (primero reparto, después
 sincronizador). Si la primera falla, `set -eu` corta y la segunda ni se intenta: es a
 propósito, porque lo que hay que arreglar es lo primero que se rompió.
@@ -336,7 +361,7 @@ Tres cosas, y las tres:
      "SELECT max(version_id) FROM goose_db_version WHERE is_applied;"'
    ```
 
-   Tiene que dar **6**. El `WHERE is_applied` importa: goose apunta también las vueltas
+   Tiene que dar el número más alto de `api/db/migrations/` (hoy, **8**). El `WHERE is_applied` importa: goose apunta también las vueltas
    atrás, con `is_applied = false`, y contarlas daría por aplicada una migración que se
    deshizo (`api/internal/store/migraciones.go`).
 3. **Y la prueba de verdad: que la api arranca.** Desde el 21/09/2026 la api y el

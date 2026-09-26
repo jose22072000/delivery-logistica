@@ -44,6 +44,7 @@ func Abrir(ctx context.Context, c *config.Config) (*Almacen, error) {
 	// que ninguno de los dos lados lo sepa. Reciclarlas evita el «se quedó colgado» de la
 	// primera consulta después de un rato sin usar.
 	cfg.MaxConnLifetime = time.Hour
+	PlanesAMedida(cfg)
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -58,6 +59,39 @@ func Abrir(ctx context.Context, c *config.Config) (*Almacen, error) {
 	}
 
 	return &Almacen{pool: pool, q: sqlc.New(pool)}, nil
+}
+
+// PlanesAMedida obliga a Postgres a planear CADA ejecución con sus valores de verdad.
+//
+// # Qué pasaba sin esto
+//
+// pgx prepara cada sentencia en la conexión y la reutiliza. A partir de la sexta vez,
+// Postgres puede cambiar a un «plan genérico», pensado sin mirar los parámetros, y casi
+// todas nuestras consultas llevan filtros opcionales (`$1 IS NULL OR branch_id = $1`). Un
+// plan que no sabe si `$1` viene vacío no puede usar el índice de la sucursal, y lee la
+// tabla entera. Medido el 26/09/2026 sobre 55.600 pedidos, el mismo `EXECUTE` con plan
+// genérico y con plan a medida:
+//
+//	ListarPedidos (página 1)        646 ms  contra    0,4 ms
+//	ContarPedidos                 3.338 ms  contra    7   ms
+//	DiferenciasDePedidos (bajada)   500 ms  contra   55   ms
+//
+// Y lo peor es que no falla: la pantalla tarda a ratos, según qué conexión del pool toque
+// y cuántas veces la haya usado ya. No se reproduce en local, que abre conexiones nuevas.
+//
+// `plan_cache_mode` va como parámetro de la CONEXIÓN y no con un `ALTER DATABASE`: así
+// viaja con el código, no depende de que alguien lo ejecute en el Postgres compartido, y
+// no toca a nadie más de ese servidor.
+//
+// EL PRECIO, medido y no supuesto: planear cada vez cuesta entre 0,35 y 0,9 ms por
+// llamada (la contrapartida del 26/09/2026). En la bajada eso es más que ejecutarla
+// —0,44 ms planeando para 0,04 ejecutando—, y aun así sale a cuenta: el plan genérico
+// de esa misma consulta tarda 350 ms.
+func PlanesAMedida(cfg *pgxpool.Config) {
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	cfg.ConnConfig.RuntimeParams["plan_cache_mode"] = "force_custom_plan"
 }
 
 // Consultas devuelve el Querier.

@@ -45,6 +45,21 @@ type Opciones struct {
 	MaxConexiones int32
 }
 
+// PlanesAMedida obliga a Postgres a planear cada ejecución con sus valores de verdad.
+//
+// El porqué entero, con las medidas, está en `PlanesAMedida` de la api
+// (api/internal/store/store.go): con sentencias preparadas, a la sexta vez Postgres
+// puede pasar a un plan genérico que no sabe si `sqlc.narg('sucursal')` viene vacío, y
+// entonces no usa el índice de la sucursal. Aquí la bandeja de apuntes filtra igual
+// (`sucursal IS NULL OR a.branch_id = …`). Va en la conexión y no en la base: viaja con
+// el código y no toca a nadie más del Postgres compartido.
+func PlanesAMedida(cfg *pgxpool.Config) {
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	cfg.ConnConfig.RuntimeParams["plan_cache_mode"] = "force_custom_plan"
+}
+
 func Abrir(ctx context.Context, o Opciones) (*Base, error) {
 	cfg, err := pgxpool.ParseConfig(o.URL)
 	if err != nil {
@@ -57,6 +72,7 @@ func Abrir(ctx context.Context, o Opciones) (*Base, error) {
 	// conexión muerta que se descubre en la primera subida del día.
 	cfg.MaxConnLifetime = 30 * time.Minute
 	cfg.MaxConnIdleTime = 5 * time.Minute
+	PlanesAMedida(cfg)
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
