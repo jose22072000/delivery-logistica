@@ -263,6 +263,31 @@ class OrderItems extends Table {
   /// una linea son sus `packs` y si no los trae sus `quantity`, nunca cero
   /// (reglas-negocio §12).
   RealColumn get packs => real().nullable()();
+
+  /// Lo que pesa UN empaque, tal como quedo cuando el pedido entro.
+  ///
+  /// SON DOS COLUMNAS Y CON NOMBRES DISTINTOS A PROPOSITO: esta es la de un
+  /// empaque y [pesoLineaKg] la de la linea entera. Guardar solo la primera
+  /// llamandola «el peso» es pedir que alguien se acuerde de multiplicar por los
+  /// empaques, y el dia que se olvide el camion sale dividido entre treinta sin
+  /// que falle nada.
+  ///
+  /// HASTA EL 26/09/2026 NO EXISTIAN, y la ficha resolvia el peso contra el
+  /// CATALOGO LOCAL. Lo que se veia: un renglon diciendo «sin peso» mientras el
+  /// total del mismo pedido decia 72,6 kg, y el pre-despacho —la hoja con la que
+  /// se carga el camion— con las catorce filas en raya y «sin peso en el
+  /// catalogo» encima de 7.446 empaques. Inservible.
+  ///
+  /// El peso no es del catalogo de hoy: es el que tenia la mercancia cuando se
+  /// facturo. Un producto que hoy no este en el catalogo de esa sucursal no
+  /// tiene por que perderlo.
+  ///
+  /// `null` = **no se sabe**, y la pantalla lo dice con esas palabras. No es
+  /// cero: un cero se suma, se ordena y se lee como «no pesa nada».
+  RealColumn get pesoKg => real().nullable()();
+
+  /// Lo que pesa la LINEA entera. Ver [pesoKg].
+  RealColumn get pesoLineaKg => real().nullable()();
   TextColumn get productId => text().nullable()();
   DateTimeColumn get createdAt => dateTime().nullable()();
   DateTimeColumn get updatedAt => dateTime().nullable()();

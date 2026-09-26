@@ -27,6 +27,18 @@ import "testing"
 // siempre el principal pasaría cualquier prueba que sólo mirara que no es nil.
 
 // almacenDePrueba: un almacén usable, con su código y su punto.
+// elQueSalio dice QUÉ almacén salió, en palabras.
+//
+// Un `%v` sobre el `*Almacen` imprime la estructura entera con las coordenadas como direcciones
+// —`&{1 1 PV-STGO <nil> 0xe2d052bf610 ...}`—, o sea que el mensaje del fallo no se puede leer sin
+// abrir el fichero. Lo que hace falta saber es el nombre y el código, y nada más.
+func elQueSalio(o OrigenDelPedido) string {
+	if o.Almacen == nil {
+		return "nada (no había desde dónde medir), motivo " + string(o.Motivo)
+	}
+	return o.Almacen.Nombre + " (código " + o.Almacen.Codigo + "), motivo " + string(o.Motivo)
+}
+
 func almacenDePrueba(codigo, nombre string, lat, lng float64, principal bool) Almacen {
 	return Almacen{
 		ID: codigo, Codigo: codigo, Nombre: nombre,
@@ -235,10 +247,10 @@ func TestLaIdentidadEsElCodigoYNuncaElNombre(t *testing.T) {
 	enCam := ElegirOrigenDelPedido(camaguey, "2")
 
 	if enStg.Almacen == nil || enStg.Almacen.Nombre != "AURORA" {
-		t.Fatalf("el código 2 de Santiago tenía que ser AURORA; salió %v", enStg.Almacen)
+		t.Fatalf("el código 2 de Santiago tenía que ser AURORA; salió %s", elQueSalio(enStg))
 	}
 	if enCam.Almacen == nil || enCam.Almacen.Nombre != "PV CAMAGUEY" {
-		t.Fatalf("el código 2 de Camagüey tenía que ser PV CAMAGUEY; salió %v", enCam.Almacen)
+		t.Fatalf("el código 2 de Camagüey tenía que ser PV CAMAGUEY; salió %s", elQueSalio(enCam))
 	}
 	// Y no son el mismo punto, que es lo que de verdad se cobra distinto.
 	if *enStg.Almacen.Latitud == *enCam.Almacen.Latitud {

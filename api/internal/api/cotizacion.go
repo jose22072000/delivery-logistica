@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -304,21 +305,44 @@ func codigoDelAlmacenDelLote(a *almacenDelPedidoDelLote) string {
 // avisarDeLosOrigenesQueNoEran deja UNA línea por tanda con lo que no se midió desde su
 // almacén, y sólo si hubo algo. Ver la llamada en `cotizarLote`.
 func avisarDeLosOrigenesQueNoEran(r *http.Request, porMotivo map[cotizar.MotivoDelOrigen]int) {
-	// Se recorre una lista FIJA y no el mapa: el orden de un mapa de Go cambia en cada
-	// ejecución, y un aviso que sale con los campos bailando no se puede comparar con el de
-	// ayer ni buscar en el registro.
-	orden := []cotizar.MotivoDelOrigen{
-		cotizar.MotivoPedidoSinAlmacen,
-		cotizar.MotivoAlmacenNoDadoDeAlta,
-		cotizar.MotivoAlmacenSinCoordenadas,
-		cotizar.MotivoAccesosSinCodigos,
-		cotizar.MotivoSucursalSinAlmacen,
-	}
-	campos := make([]any, 0, 2*len(orden))
-	for _, m := range orden {
-		if n := porMotivo[m]; n > 0 {
-			campos = append(campos, string(m), n)
+	// SE RECORREN LAS CLAVES QUE HAY, ORDENADAS. Aquí había una lista FIJA de los cinco motivos
+	// planos, y **al caso peor no lo contaba nadie** — 26/09/2026, encontrado por el auditor
+	// ejecutándolo.
+	//
+	// El motivo de «no había ni un almacén con punto» sale SIEMPRE COMPUESTO
+	// (`sucursal-sin-almacen-con-punto+almacen-no-dado-de-alta` y sus variantes), porque son dos
+	// preguntas y las dos tienen respuesta. `MotivoSucursalSinAlmacen` a secas no ocurre nunca,
+	// así que comparar por igualdad contra la lista de cinco dejaba fuera justo los pedidos
+	// medidos desde las coordenadas de la SUCURSAL. Y peor: una tanda con SÓLO de ésos dejaba
+	// `campos` vacío, la función salía por el `return` de abajo y **no había ni una línea en el
+	// registro**. El motivo aparte existe precisamente para que el caso peor no sea el invisible,
+	// y el contador lo volvía invisible por otra puerta.
+	//
+	// Ordenar las claves es lo que sustituye a la lista fija: un mapa de Go se recorre en otro
+	// orden en cada ejecución, y un aviso con los campos bailando no se puede comparar con el de
+	// ayer ni buscar en el registro. Y recorrer lo que HAY, en vez de lo que se espera, hace que
+	// un motivo nuevo —o uno compuesto que nadie previó— salga solo en vez de desaparecer.
+	//
+	// Y EL BUENO NO CUENTA. `almacen-del-pedido` es «se midió desde donde tocaba»: meterlo
+	// aquí hacía que el aviso saliera **también cuando la tanda estaba perfecta** —200 de
+	// 200 bien y un WARN igual—, que es la otra mitad del mismo fallo. Un aviso que sale
+	// siempre deja de leerse, y entonces tampoco se lee el día que de verdad hay algo.
+	motivos := make([]string, 0, len(porMotivo))
+	malos := 0
+	for m, n := range porMotivo {
+		if n > 0 && m != cotizar.MotivoAlmacenDelPedido {
+			motivos = append(motivos, string(m))
+			malos += n
 		}
+	}
+	if malos == 0 {
+		return
+	}
+	sort.Strings(motivos)
+
+	campos := make([]any, 0, 2*len(motivos))
+	for _, m := range motivos {
+		campos = append(campos, m, porMotivo[cotizar.MotivoDelOrigen(m)])
 	}
 	if len(campos) == 0 {
 		return

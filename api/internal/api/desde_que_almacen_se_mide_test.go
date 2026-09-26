@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -215,7 +216,10 @@ func TestSeMideDesdeElAlmacenDelPedidoYSinElDesdeElPrincipal(t *testing.T) {
 				t.Errorf("almacenMotivo = %q, se esperaba %q", res.AlmacenMotivo, c.motivo)
 			}
 			if res.AlmacenDesde == nil || *res.AlmacenDesde != c.desde {
-				t.Errorf("almacenDesde = %v, se esperaba %q", res.AlmacenDesde, c.desde)
+				// Se imprime el VALOR y no el puntero: un `%v` sobre un `*string` se lee bien
+				// cuando es nil y es ilegible —`0x3b6355bae720`— justo en el caso que importa,
+				// que es no-nil y equivocado.
+				t.Errorf("almacenDesde = %s, se esperaba %q", textoDelPuntero(res.AlmacenDesde), c.desde)
 			}
 			// 3. LO QUE SE ESCRIBE. La fila, por `paraLaBase`, que es la que va a Postgres.
 			fila := paraLaBase(escrito)
@@ -552,6 +556,19 @@ func TestElAlmacenLlegaDesdePedidoHastaLaPuerta(t *testing.T) {
 
 func num64(v float64) *float64 { return &v }
 
+// textoDelPuntero imprime el VALOR de un `*string`, o «(vacío)» si es nil.
+//
+// Un `%v` sobre un puntero se lee bien cuando es nil —`<nil>`— y es ilegible cuando no lo es:
+// sale la dirección (`0x3b6355bae720`), y ése es justo el caso que hace falta leer, porque es
+// cuando el campo tiene un valor y es el equivocado. Un mensaje que obliga a abrir el fichero
+// para entenderlo es media prueba.
+func textoDelPuntero(p *string) string {
+	if p == nil {
+		return "(vacío)"
+	}
+	return fmt.Sprintf("%q", *p)
+}
+
 // cercaDe compara kilómetros con una tolerancia de un metro. Se comparan flotantes que han
 // pasado por JSON, así que la igualdad exacta es una prueba que falla un día cualquiera por
 // el último bit — y entonces nadie se la cree y se borra.
@@ -628,10 +645,11 @@ func TestElImporteSeMideDesdeElAlmacenQueSePideYSiNoDesdeElPrincipal(t *testing.
 					"  por qué importa: %s", res.DistanciaKm, quiere, c.desde, c.porQue)
 			}
 			if res.Almacen == nil || *res.Almacen != c.desde {
-				t.Errorf("almacen = %v, se esperaba %q", res.Almacen, c.desde)
+				t.Errorf("almacen = %s, se esperaba %q", textoDelPuntero(res.Almacen), c.desde)
 			}
 			if res.AlmacenCodigo == nil || *res.AlmacenCodigo != c.codigo {
-				t.Errorf("almacenCodigo = %v, se esperaba %q", res.AlmacenCodigo, c.codigo)
+				t.Errorf("almacenCodigo = %s, se esperaba %q",
+					textoDelPuntero(res.AlmacenCodigo), c.codigo)
 			}
 			if res.AlmacenMotivo != string(c.motivo) {
 				t.Errorf("almacenMotivo = %q, se esperaba %q: sin el motivo, un importe "+
@@ -814,3 +832,107 @@ func TestUnMezcladoQueNoLlegaSeGuardaVacio(t *testing.T) {
 
 func siDePrueba() *bool { v := true; return &v }
 func noDePrueba() *bool { v := false; return &v }
+
+// ---------------------------------------------------------------------------
+// El aviso de la tanda
+// ---------------------------------------------------------------------------
+
+// EL AVISO DE LA TANDA NOMBRA TAMBIÉN EL CASO PEOR — 26/09/2026.
+//
+// # Qué había aquí y por qué era grave
+//
+// `avisarDeLosOrigenesQueNoEran` recorría una lista FIJA de los cinco motivos planos y comparaba
+// por igualdad. Pero el motivo de «no había ni un almacén con punto» sale **SIEMPRE COMPUESTO**
+// (`sucursal-sin-almacen-con-punto+almacen-no-dado-de-alta` y sus variantes), porque son dos
+// preguntas y las dos tienen respuesta; a secas no ocurre nunca. Así que los pedidos medidos
+// desde las coordenadas de la SUCURSAL —el caso peor, el que no sale de ningún almacén— **no los
+// contaba nadie**. Y una tanda con SÓLO de ésos dejaba la lista de campos vacía y **no escribía
+// ni una línea en el registro**.
+//
+// El motivo compuesto existe precisamente para que el caso peor no sea el invisible. El contador
+// lo volvía invisible por otra puerta, que es el mismo fallo con otro disfraz.
+//
+// # La forma de esta prueba
+//
+// El mapa se llena con `ElegirOrigenDelPedido` DE VERDAD y no escribiendo el motivo a mano: si se
+// escribiera a mano, cambiar el separador o dejar de componer dejaría la prueba verde y el aviso
+// ciego otra vez. Y se mira el REGISTRO, que es lo que una persona lee.
+func TestElAvisoDeLaTandaNombraLosOrigenesQueNoEran(t *testing.T) {
+	// Una sucursal con su único almacén SIN punto: nada desde donde medir.
+	sinPunto := []cotizar.Almacen{{ID: "1", Codigo: "1", Nombre: "PV-STGO", Principal: true, Activo: true}}
+	// Y otra con el principal bueno, para el caso normal de «desde el principal».
+	conPunto := []cotizar.Almacen{
+		{ID: "1", Codigo: "1", Nombre: "PV-STGO", Latitud: num64(latPVSTGO),
+			Longitud: num64(lngPVSTGO), Principal: true, Activo: true},
+	}
+
+	casos := []struct {
+		nombre string
+		origen cotizar.OrigenDelPedido
+		porQue string
+	}{
+		{
+			nombre: "sin ningún almacén con punto y con un almacén desconocido",
+			origen: cotizar.ElegirOrigenDelPedido(sinPunto, "28"),
+			porQue: "es el caso peor: no se midió desde ningún almacén, sino desde el punto de " +
+				"la sucursal, que no es el sitio del que sale la carga",
+		},
+		{
+			nombre: "sin ningún almacén con punto y sin almacén en el pedido",
+			origen: cotizar.ElegirOrigenDelPedido(sinPunto, ""),
+			porQue: "una tanda entera de éstos no escribía ni una línea en el registro",
+		},
+		{
+			nombre: "un almacén desconocido midiendo desde el principal",
+			origen: cotizar.ElegirOrigenDelPedido(conPunto, "28"),
+			porQue: "el caso del `28 · PTO MONEDERO`, que es el que hay que dar de alta",
+		},
+	}
+
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			dicho := conRegistroDePrueba(t)
+			avisarDeLosOrigenesQueNoEran(
+				httptest.NewRequest(http.MethodPost, "/api/quote/batch", nil),
+				map[cotizar.MotivoDelOrigen]int{c.origen.Motivo: 3},
+			)
+			salida := dicho()
+			if salida == "" {
+				t.Fatalf("la tanda no dijo NADA con el motivo %q\n  por qué importa: %s",
+					c.origen.Motivo, c.porQue)
+			}
+			if !strings.Contains(salida, string(c.origen.Motivo)) {
+				t.Fatalf("el aviso no nombra el motivo %q: %s\n  por qué importa: %s",
+					c.origen.Motivo, salida, c.porQue)
+			}
+		})
+	}
+
+	// LA OTRA MITAD, y es la que evita el arreglo fácil: cuando TODO se midió desde su propio
+	// almacén, no se dice nada. Un aviso que sale siempre deja de leerse, y entonces tampoco se
+	// lee el día que importa (`CLAUDE.md` §3-quinquies).
+	t.Run("cuando todo se midió desde su almacén NO se avisa", func(t *testing.T) {
+		dicho := conRegistroDePrueba(t)
+		avisarDeLosOrigenesQueNoEran(
+			httptest.NewRequest(http.MethodPost, "/api/quote/batch", nil),
+			map[cotizar.MotivoDelOrigen]int{cotizar.MotivoAlmacenDelPedido: 200},
+		)
+		if salida := dicho(); salida != "" {
+			t.Fatalf("avisó de una tanda que estaba perfecta: %s", salida)
+		}
+	})
+}
+
+// conRegistroDePrueba pone un registro que se puede leer y lo quita al acabar.
+//
+// `httpx.Registro` cae en `slog.Default()` cuando el contexto viene pelado —lo hace a propósito,
+// para que un manejador en una prueba pueda escribir igual—, así que basta con cambiar el de por
+// defecto. Devuelve una función que da lo escrito hasta ese momento.
+func conRegistroDePrueba(t *testing.T) func() string {
+	t.Helper()
+	var buf strings.Builder
+	antes := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(antes) })
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	return buf.String
+}

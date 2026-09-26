@@ -6397,6 +6397,26 @@ class $OrderItemsTable extends OrderItems
     type: DriftSqlType.double,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _pesoKgMeta = const VerificationMeta('pesoKg');
+  @override
+  late final GeneratedColumn<double> pesoKg = GeneratedColumn<double>(
+    'peso_kg',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _pesoLineaKgMeta = const VerificationMeta(
+    'pesoLineaKg',
+  );
+  @override
+  late final GeneratedColumn<double> pesoLineaKg = GeneratedColumn<double>(
+    'peso_linea_kg',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _productIdMeta = const VerificationMeta(
     'productId',
   );
@@ -6438,6 +6458,8 @@ class $OrderItemsTable extends OrderItems
     description,
     quantity,
     packs,
+    pesoKg,
+    pesoLineaKg,
     productId,
     createdAt,
     updatedAt,
@@ -6500,6 +6522,21 @@ class $OrderItemsTable extends OrderItems
         packs.isAcceptableOrUnknown(data['packs']!, _packsMeta),
       );
     }
+    if (data.containsKey('peso_kg')) {
+      context.handle(
+        _pesoKgMeta,
+        pesoKg.isAcceptableOrUnknown(data['peso_kg']!, _pesoKgMeta),
+      );
+    }
+    if (data.containsKey('peso_linea_kg')) {
+      context.handle(
+        _pesoLineaKgMeta,
+        pesoLineaKg.isAcceptableOrUnknown(
+          data['peso_linea_kg']!,
+          _pesoLineaKgMeta,
+        ),
+      );
+    }
     if (data.containsKey('product_id')) {
       context.handle(
         _productIdMeta,
@@ -6551,6 +6588,14 @@ class $OrderItemsTable extends OrderItems
         DriftSqlType.double,
         data['${effectivePrefix}packs'],
       ),
+      pesoKg: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}peso_kg'],
+      ),
+      pesoLineaKg: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}peso_linea_kg'],
+      ),
       productId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}product_id'],
@@ -6583,6 +6628,31 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
   /// una linea son sus `packs` y si no los trae sus `quantity`, nunca cero
   /// (reglas-negocio §12).
   final double? packs;
+
+  /// Lo que pesa UN empaque, tal como quedo cuando el pedido entro.
+  ///
+  /// SON DOS COLUMNAS Y CON NOMBRES DISTINTOS A PROPOSITO: esta es la de un
+  /// empaque y [pesoLineaKg] la de la linea entera. Guardar solo la primera
+  /// llamandola «el peso» es pedir que alguien se acuerde de multiplicar por los
+  /// empaques, y el dia que se olvide el camion sale dividido entre treinta sin
+  /// que falle nada.
+  ///
+  /// HASTA EL 26/09/2026 NO EXISTIAN, y la ficha resolvia el peso contra el
+  /// CATALOGO LOCAL. Lo que se veia: un renglon diciendo «sin peso» mientras el
+  /// total del mismo pedido decia 72,6 kg, y el pre-despacho —la hoja con la que
+  /// se carga el camion— con las catorce filas en raya y «sin peso en el
+  /// catalogo» encima de 7.446 empaques. Inservible.
+  ///
+  /// El peso no es del catalogo de hoy: es el que tenia la mercancia cuando se
+  /// facturo. Un producto que hoy no este en el catalogo de esa sucursal no
+  /// tiene por que perderlo.
+  ///
+  /// `null` = **no se sabe**, y la pantalla lo dice con esas palabras. No es
+  /// cero: un cero se suma, se ordena y se lee como «no pesa nada».
+  final double? pesoKg;
+
+  /// Lo que pesa la LINEA entera. Ver [pesoKg].
+  final double? pesoLineaKg;
   final String? productId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -6593,6 +6663,8 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
     required this.description,
     required this.quantity,
     this.packs,
+    this.pesoKg,
+    this.pesoLineaKg,
     this.productId,
     this.createdAt,
     this.updatedAt,
@@ -6607,6 +6679,12 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
     map['quantity'] = Variable<double>(quantity);
     if (!nullToAbsent || packs != null) {
       map['packs'] = Variable<double>(packs);
+    }
+    if (!nullToAbsent || pesoKg != null) {
+      map['peso_kg'] = Variable<double>(pesoKg);
+    }
+    if (!nullToAbsent || pesoLineaKg != null) {
+      map['peso_linea_kg'] = Variable<double>(pesoLineaKg);
     }
     if (!nullToAbsent || productId != null) {
       map['product_id'] = Variable<String>(productId);
@@ -6630,6 +6708,12 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
       packs: packs == null && nullToAbsent
           ? const Value.absent()
           : Value(packs),
+      pesoKg: pesoKg == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pesoKg),
+      pesoLineaKg: pesoLineaKg == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pesoLineaKg),
       productId: productId == null && nullToAbsent
           ? const Value.absent()
           : Value(productId),
@@ -6654,6 +6738,8 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
       description: serializer.fromJson<String>(json['description']),
       quantity: serializer.fromJson<double>(json['quantity']),
       packs: serializer.fromJson<double?>(json['packs']),
+      pesoKg: serializer.fromJson<double?>(json['pesoKg']),
+      pesoLineaKg: serializer.fromJson<double?>(json['pesoLineaKg']),
       productId: serializer.fromJson<String?>(json['productId']),
       createdAt: serializer.fromJson<DateTime?>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
@@ -6669,6 +6755,8 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
       'description': serializer.toJson<String>(description),
       'quantity': serializer.toJson<double>(quantity),
       'packs': serializer.toJson<double?>(packs),
+      'pesoKg': serializer.toJson<double?>(pesoKg),
+      'pesoLineaKg': serializer.toJson<double?>(pesoLineaKg),
       'productId': serializer.toJson<String?>(productId),
       'createdAt': serializer.toJson<DateTime?>(createdAt),
       'updatedAt': serializer.toJson<DateTime?>(updatedAt),
@@ -6682,6 +6770,8 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
     String? description,
     double? quantity,
     Value<double?> packs = const Value.absent(),
+    Value<double?> pesoKg = const Value.absent(),
+    Value<double?> pesoLineaKg = const Value.absent(),
     Value<String?> productId = const Value.absent(),
     Value<DateTime?> createdAt = const Value.absent(),
     Value<DateTime?> updatedAt = const Value.absent(),
@@ -6692,6 +6782,8 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
     description: description ?? this.description,
     quantity: quantity ?? this.quantity,
     packs: packs.present ? packs.value : this.packs,
+    pesoKg: pesoKg.present ? pesoKg.value : this.pesoKg,
+    pesoLineaKg: pesoLineaKg.present ? pesoLineaKg.value : this.pesoLineaKg,
     productId: productId.present ? productId.value : this.productId,
     createdAt: createdAt.present ? createdAt.value : this.createdAt,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
@@ -6706,6 +6798,10 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
           : this.description,
       quantity: data.quantity.present ? data.quantity.value : this.quantity,
       packs: data.packs.present ? data.packs.value : this.packs,
+      pesoKg: data.pesoKg.present ? data.pesoKg.value : this.pesoKg,
+      pesoLineaKg: data.pesoLineaKg.present
+          ? data.pesoLineaKg.value
+          : this.pesoLineaKg,
       productId: data.productId.present ? data.productId.value : this.productId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -6721,6 +6817,8 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
           ..write('description: $description, ')
           ..write('quantity: $quantity, ')
           ..write('packs: $packs, ')
+          ..write('pesoKg: $pesoKg, ')
+          ..write('pesoLineaKg: $pesoLineaKg, ')
           ..write('productId: $productId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -6736,6 +6834,8 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
     description,
     quantity,
     packs,
+    pesoKg,
+    pesoLineaKg,
     productId,
     createdAt,
     updatedAt,
@@ -6750,6 +6850,8 @@ class RenglonPedido extends DataClass implements Insertable<RenglonPedido> {
           other.description == this.description &&
           other.quantity == this.quantity &&
           other.packs == this.packs &&
+          other.pesoKg == this.pesoKg &&
+          other.pesoLineaKg == this.pesoLineaKg &&
           other.productId == this.productId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
@@ -6762,6 +6864,8 @@ class OrderItemsCompanion extends UpdateCompanion<RenglonPedido> {
   final Value<String> description;
   final Value<double> quantity;
   final Value<double?> packs;
+  final Value<double?> pesoKg;
+  final Value<double?> pesoLineaKg;
   final Value<String?> productId;
   final Value<DateTime?> createdAt;
   final Value<DateTime?> updatedAt;
@@ -6773,6 +6877,8 @@ class OrderItemsCompanion extends UpdateCompanion<RenglonPedido> {
     this.description = const Value.absent(),
     this.quantity = const Value.absent(),
     this.packs = const Value.absent(),
+    this.pesoKg = const Value.absent(),
+    this.pesoLineaKg = const Value.absent(),
     this.productId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -6785,6 +6891,8 @@ class OrderItemsCompanion extends UpdateCompanion<RenglonPedido> {
     required String description,
     required double quantity,
     this.packs = const Value.absent(),
+    this.pesoKg = const Value.absent(),
+    this.pesoLineaKg = const Value.absent(),
     this.productId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -6801,6 +6909,8 @@ class OrderItemsCompanion extends UpdateCompanion<RenglonPedido> {
     Expression<String>? description,
     Expression<double>? quantity,
     Expression<double>? packs,
+    Expression<double>? pesoKg,
+    Expression<double>? pesoLineaKg,
     Expression<String>? productId,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
@@ -6813,6 +6923,8 @@ class OrderItemsCompanion extends UpdateCompanion<RenglonPedido> {
       if (description != null) 'description': description,
       if (quantity != null) 'quantity': quantity,
       if (packs != null) 'packs': packs,
+      if (pesoKg != null) 'peso_kg': pesoKg,
+      if (pesoLineaKg != null) 'peso_linea_kg': pesoLineaKg,
       if (productId != null) 'product_id': productId,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -6827,6 +6939,8 @@ class OrderItemsCompanion extends UpdateCompanion<RenglonPedido> {
     Value<String>? description,
     Value<double>? quantity,
     Value<double?>? packs,
+    Value<double?>? pesoKg,
+    Value<double?>? pesoLineaKg,
     Value<String?>? productId,
     Value<DateTime?>? createdAt,
     Value<DateTime?>? updatedAt,
@@ -6839,6 +6953,8 @@ class OrderItemsCompanion extends UpdateCompanion<RenglonPedido> {
       description: description ?? this.description,
       quantity: quantity ?? this.quantity,
       packs: packs ?? this.packs,
+      pesoKg: pesoKg ?? this.pesoKg,
+      pesoLineaKg: pesoLineaKg ?? this.pesoLineaKg,
       productId: productId ?? this.productId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -6867,6 +6983,12 @@ class OrderItemsCompanion extends UpdateCompanion<RenglonPedido> {
     if (packs.present) {
       map['packs'] = Variable<double>(packs.value);
     }
+    if (pesoKg.present) {
+      map['peso_kg'] = Variable<double>(pesoKg.value);
+    }
+    if (pesoLineaKg.present) {
+      map['peso_linea_kg'] = Variable<double>(pesoLineaKg.value);
+    }
     if (productId.present) {
       map['product_id'] = Variable<String>(productId.value);
     }
@@ -6891,6 +7013,8 @@ class OrderItemsCompanion extends UpdateCompanion<RenglonPedido> {
           ..write('description: $description, ')
           ..write('quantity: $quantity, ')
           ..write('packs: $packs, ')
+          ..write('pesoKg: $pesoKg, ')
+          ..write('pesoLineaKg: $pesoLineaKg, ')
           ..write('productId: $productId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -13369,6 +13493,8 @@ typedef $$OrderItemsTableCreateCompanionBuilder =
       required String description,
       required double quantity,
       Value<double?> packs,
+      Value<double?> pesoKg,
+      Value<double?> pesoLineaKg,
       Value<String?> productId,
       Value<DateTime?> createdAt,
       Value<DateTime?> updatedAt,
@@ -13382,6 +13508,8 @@ typedef $$OrderItemsTableUpdateCompanionBuilder =
       Value<String> description,
       Value<double> quantity,
       Value<double?> packs,
+      Value<double?> pesoKg,
+      Value<double?> pesoLineaKg,
       Value<String?> productId,
       Value<DateTime?> createdAt,
       Value<DateTime?> updatedAt,
@@ -13424,6 +13552,16 @@ class $$OrderItemsTableFilterComposer
 
   ColumnFilters<double> get packs => $composableBuilder(
     column: $table.packs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get pesoKg => $composableBuilder(
+    column: $table.pesoKg,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get pesoLineaKg => $composableBuilder(
+    column: $table.pesoLineaKg,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13482,6 +13620,16 @@ class $$OrderItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<double> get pesoKg => $composableBuilder(
+    column: $table.pesoKg,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get pesoLineaKg => $composableBuilder(
+    column: $table.pesoLineaKg,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get productId => $composableBuilder(
     column: $table.productId,
     builder: (column) => ColumnOrderings(column),
@@ -13526,6 +13674,14 @@ class $$OrderItemsTableAnnotationComposer
 
   GeneratedColumn<double> get packs =>
       $composableBuilder(column: $table.packs, builder: (column) => column);
+
+  GeneratedColumn<double> get pesoKg =>
+      $composableBuilder(column: $table.pesoKg, builder: (column) => column);
+
+  GeneratedColumn<double> get pesoLineaKg => $composableBuilder(
+    column: $table.pesoLineaKg,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get productId =>
       $composableBuilder(column: $table.productId, builder: (column) => column);
@@ -13574,6 +13730,8 @@ class $$OrderItemsTableTableManager
                 Value<String> description = const Value.absent(),
                 Value<double> quantity = const Value.absent(),
                 Value<double?> packs = const Value.absent(),
+                Value<double?> pesoKg = const Value.absent(),
+                Value<double?> pesoLineaKg = const Value.absent(),
                 Value<String?> productId = const Value.absent(),
                 Value<DateTime?> createdAt = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
@@ -13585,6 +13743,8 @@ class $$OrderItemsTableTableManager
                 description: description,
                 quantity: quantity,
                 packs: packs,
+                pesoKg: pesoKg,
+                pesoLineaKg: pesoLineaKg,
                 productId: productId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -13598,6 +13758,8 @@ class $$OrderItemsTableTableManager
                 required String description,
                 required double quantity,
                 Value<double?> packs = const Value.absent(),
+                Value<double?> pesoKg = const Value.absent(),
+                Value<double?> pesoLineaKg = const Value.absent(),
                 Value<String?> productId = const Value.absent(),
                 Value<DateTime?> createdAt = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
@@ -13609,6 +13771,8 @@ class $$OrderItemsTableTableManager
                 description: description,
                 quantity: quantity,
                 packs: packs,
+                pesoKg: pesoKg,
+                pesoLineaKg: pesoLineaKg,
                 productId: productId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,

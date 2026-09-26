@@ -146,7 +146,7 @@ class BaseLocal extends _$BaseLocal {
   /// subir**. Un aparato que se quede sin poder abrir su base pierde el trabajo
   /// del dia, que es lo unico que esta aplicacion no puede permitirse.
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -169,6 +169,16 @@ class BaseLocal extends _$BaseLocal {
         // que la bajada la rellene. Poner `'pedido'` por defecto sería afirmar
         // sobre todo lo que ya tiene el aparato algo que nadie ha comprobado.
         await m.addColumn(orders, orders.itemsOrigen);
+      }
+      if (desde < 4) {
+        // EL PESO DEL RENGLON. Ver `OrderItems.pesoKg`.
+        //
+        // Vacias las dos: nulo es «no se sabe» y la pantalla ya lo dice con esas
+        // palabras. Rellenarlas con lo que diga el catalogo de hoy seria repetir
+        // el fallo que esto viene a arreglar — el peso es el de cuando se
+        // facturo, no el de hoy. Se llenan solas con la siguiente bajada.
+        await m.addColumn(orderItems, orderItems.pesoKg);
+        await m.addColumn(orderItems, orderItems.pesoLineaKg);
       }
     },
     beforeOpen: (detalles) async {

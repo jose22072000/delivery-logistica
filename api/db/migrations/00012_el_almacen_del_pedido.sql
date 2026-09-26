@@ -122,7 +122,7 @@ COMMENT ON COLUMN orders.almacen_salida_sucursal IS
 COMMENT ON COLUMN orders.almacen_salida_mezclado IS
     'true = los renglones salen de MÁS de un almacén, o sea que este pedido son DOS recogidas; el código de arriba es entonces el del que pone más renglones';
 COMMENT ON COLUMN orders.almacen_salida_motivo IS
-    'desde dónde se midió y por qué: almacen-del-pedido | el-pedido-no-trae-almacen | almacen-no-dado-de-alta | almacen-sin-coordenadas | accesos-sin-codigos | sucursal-sin-almacen-con-punto';
+    'desde dónde se midió y por qué: almacen-del-pedido | el-pedido-no-trae-almacen | almacen-no-dado-de-alta | almacen-sin-coordenadas | accesos-sin-codigos. Y el peor caso sale COMPUESTO con un + porque son dos hechos: sucursal-sin-almacen-con-punto+<uno de los cuatro>, p.ej. sucursal-sin-almacen-con-punto+almacen-no-dado-de-alta. sucursal-sin-almacen-con-punto NUNCA sale solo, así que un WHERE motivo = ... no casa con esas filas: usa LIKE o split_part(motivo, ''+'', 1)';
 
 -- --------------------------------------------------------------------------- el renglón
 --

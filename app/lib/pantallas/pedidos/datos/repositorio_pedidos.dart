@@ -124,9 +124,10 @@ class Facetas {
   final List<OpcionFaceta> vendedores;
 }
 
-/// Un renglon del pedido con el peso por empaque ya resuelto contra el catalogo.
+/// Un renglon del pedido con su peso ya resuelto: el que mando el servidor si
+/// lo trae, y si no el del catalogo local.
 class RenglonConPeso {
-  const RenglonConPeso(this.renglon, this.kgPorEmpaque);
+  const RenglonConPeso(this.renglon, this.kgPorEmpaque, {this.pesoDelRenglon});
 
   final RenglonPedido renglon;
 
@@ -141,7 +142,15 @@ class RenglonConPeso {
     return renglon.quantity;
   }
 
+  /// El peso de la LINEA tal como lo mando el servidor, cuando lo mando.
+  ///
+  /// Se prefiere a multiplicar [kgPorEmpaque] por [empaques] porque es el que se
+  /// facturo: si alguna vez los dos no cuadran, el bueno es este.
+  final double? pesoDelRenglon;
+
   double? get pesoLinea {
+    final delRenglon = pesoDelRenglon;
+    if (delRenglon != null) return delRenglon;
     final kg = kgPorEmpaque;
     return kg == null ? null : kg * empaques;
   }
@@ -385,7 +394,16 @@ class ConsultasPedidos {
       final producto = fila.readTableOrNull(_base.products);
       porPedido
           .putIfAbsent(renglon.orderId, () => <RenglonConPeso>[])
-          .add(RenglonConPeso(renglon, producto?.weight));
+          // EL PESO DEL RENGLON MANDA SOBRE EL DEL CATALOGO, y el catalogo solo
+          // se usa cuando el renglon no lo trae.
+          //
+          // Es el de cuando se facturo, que es lo que sube al camion. Antes solo
+          // se miraba el catalogo de hoy, y un producto que ya no esta en el de
+          // esa sucursal salia «sin peso»: la ficha decia eso en un renglon con
+          // 72,6 kg en el total, y el pre-despacho —la hoja de cargar— salia con
+          // las catorce filas en raya sobre 7.446 empaques.
+          .add(RenglonConPeso(renglon, renglon.pesoKg ?? producto?.weight,
+              pesoDelRenglon: renglon.pesoLineaKg));
     }
     return porPedido;
   }

@@ -1857,7 +1857,18 @@ func (q *Queries) ListarPedidosPorFuente(ctx context.Context, source Procedencia
 
 const listarRenglonesDePedido = `-- name: ListarRenglonesDePedido :many
 SELECT oi.id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs,
-       oi.product_id, oi.updated_at
+       oi.product_id, oi.updated_at,
+       -- EL PESO DEL RENGLÓN, que hasta el 26/09/2026 no salía de aquí y por eso la
+       -- aplicación lo recalculaba contra su catálogo local. Lo que se veía: la ficha
+       -- decía «sin peso» en un renglón mientras el total del pedido decía 72,6 kg, y el
+       -- pre-despacho —la hoja con la que se carga el camión— salía con las 14 filas en
+       -- raya y «sin peso en el catálogo», con 7.446 empaques debajo.
+       --
+       -- El dato estaba aquí desde la 00004, y su propio comentario dice para qué se
+       -- añadió: «precisamente para no tener que recalcular el peso con el catálogo de
+       -- hoy». Un producto que hoy no está en el catálogo de esa sucursal no tiene por
+       -- qué perder el peso con el que se facturó ayer.
+       oi.peso_unitario_kg, oi.peso_linea_kg
 FROM order_items oi
 JOIN orders o ON o.id = oi.order_id
 WHERE oi.order_id = $1
@@ -1871,14 +1882,16 @@ type ListarRenglonesDePedidoParams struct {
 }
 
 type ListarRenglonesDePedidoRow struct {
-	ID          uuid.UUID          `json:"id"`
-	OrderID     uuid.UUID          `json:"order_id"`
-	Linea       int32              `json:"linea"`
-	Description string             `json:"description"`
-	Quantity    float64            `json:"quantity"`
-	Packs       *float64           `json:"packs"`
-	ProductID   pgtype.UUID        `json:"product_id"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID             uuid.UUID          `json:"id"`
+	OrderID        uuid.UUID          `json:"order_id"`
+	Linea          int32              `json:"linea"`
+	Description    string             `json:"description"`
+	Quantity       float64            `json:"quantity"`
+	Packs          *float64           `json:"packs"`
+	ProductID      pgtype.UUID        `json:"product_id"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	PesoUnitarioKg *float64           `json:"peso_unitario_kg"`
+	PesoLineaKg    *float64           `json:"peso_linea_kg"`
 }
 
 // Los renglones de UN pedido, en el orden del papel del vendedor. `linea` no es decorativa:
@@ -1905,6 +1918,8 @@ func (q *Queries) ListarRenglonesDePedido(ctx context.Context, arg ListarRenglon
 			&i.Packs,
 			&i.ProductID,
 			&i.UpdatedAt,
+			&i.PesoUnitarioKg,
+			&i.PesoLineaKg,
 		); err != nil {
 			return nil, err
 		}
@@ -1918,7 +1933,18 @@ func (q *Queries) ListarRenglonesDePedido(ctx context.Context, arg ListarRenglon
 
 const listarRenglonesDePedidos = `-- name: ListarRenglonesDePedidos :many
 SELECT oi.id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs,
-       oi.product_id, oi.updated_at
+       oi.product_id, oi.updated_at,
+       -- EL PESO DEL RENGLÓN, que hasta el 26/09/2026 no salía de aquí y por eso la
+       -- aplicación lo recalculaba contra su catálogo local. Lo que se veía: la ficha
+       -- decía «sin peso» en un renglón mientras el total del pedido decía 72,6 kg, y el
+       -- pre-despacho —la hoja con la que se carga el camión— salía con las 14 filas en
+       -- raya y «sin peso en el catálogo», con 7.446 empaques debajo.
+       --
+       -- El dato estaba aquí desde la 00004, y su propio comentario dice para qué se
+       -- añadió: «precisamente para no tener que recalcular el peso con el catálogo de
+       -- hoy». Un producto que hoy no está en el catálogo de esa sucursal no tiene por
+       -- qué perder el peso con el que se facturó ayer.
+       oi.peso_unitario_kg, oi.peso_linea_kg
 FROM order_items oi
 JOIN orders o ON o.id = oi.order_id
 WHERE oi.order_id = ANY($1::uuid[])
@@ -1932,14 +1958,16 @@ type ListarRenglonesDePedidosParams struct {
 }
 
 type ListarRenglonesDePedidosRow struct {
-	ID          uuid.UUID          `json:"id"`
-	OrderID     uuid.UUID          `json:"order_id"`
-	Linea       int32              `json:"linea"`
-	Description string             `json:"description"`
-	Quantity    float64            `json:"quantity"`
-	Packs       *float64           `json:"packs"`
-	ProductID   pgtype.UUID        `json:"product_id"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID             uuid.UUID          `json:"id"`
+	OrderID        uuid.UUID          `json:"order_id"`
+	Linea          int32              `json:"linea"`
+	Description    string             `json:"description"`
+	Quantity       float64            `json:"quantity"`
+	Packs          *float64           `json:"packs"`
+	ProductID      pgtype.UUID        `json:"product_id"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	PesoUnitarioKg *float64           `json:"peso_unitario_kg"`
+	PesoLineaKg    *float64           `json:"peso_linea_kg"`
 }
 
 // Los renglones de VARIOS pedidos de una vez. Una sola consulta para toda la página, no
@@ -1964,6 +1992,8 @@ func (q *Queries) ListarRenglonesDePedidos(ctx context.Context, arg ListarRenglo
 			&i.Packs,
 			&i.ProductID,
 			&i.UpdatedAt,
+			&i.PesoUnitarioKg,
+			&i.PesoLineaKg,
 		); err != nil {
 			return nil, err
 		}

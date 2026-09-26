@@ -150,6 +150,28 @@ type RenglonSalida struct {
 	// que dijo la factura sin tocar el pedido. Es lo que deja saber si la mercancía que se
 	// está mirando es la de ahora o la del papel de ayer.
 	UpdatedAt *time.Time `json:"updatedAt"`
+
+	// EL PESO DEL RENGLÓN, tal como quedó cuando el pedido entró. Los dos, y con nombres
+	// distintos a propósito: `pesoKg` es lo que pesa UN empaque y `pesoLineaKg` la línea
+	// entera. Mandar sólo el primero llamándolo «el peso» es pedir que alguien se acuerde
+	// de multiplicar por los empaques, y el día que se olvide el camión sale dividido
+	// entre treinta sin que falle nada.
+	//
+	// HASTA EL 26/09/2026 NO VIAJABAN, y la aplicación los recalculaba contra su catálogo
+	// local. Lo que se veía: la ficha decía «sin peso» en un renglón mientras el total del
+	// pedido decía 72,6 kg —la pantalla contradiciéndose a sí misma—, y el pre-despacho,
+	// que es la hoja con la que se carga el camión, salía con las catorce filas en raya y
+	// «sin peso en el catálogo» encima de 7.446 empaques. Inservible.
+	//
+	// El dato estaba en la base desde la 00004, que se escribió justamente «para no tener
+	// que recalcular el peso con el catálogo de hoy»: un producto que hoy no está en el
+	// catálogo de esa sucursal no tiene por qué perder el peso con el que se facturó ayer.
+	// Se perdía en el último salto.
+	//
+	// `null` en los dos = **no se sabe**, y la pantalla lo dice con esas palabras. No es
+	// cero: un cero se suma, se ordena y se lee como «no pesa nada».
+	PesoKg      *float64 `json:"pesoKg"`
+	PesoLineaKg *float64 `json:"pesoLineaKg"`
 }
 
 // RutaDePedido y VehiculoDeRuta: el `route: { …, vehicle: {…} }` del contrato.
@@ -728,6 +750,7 @@ func (s *Servidor) detalleDePedido(w http.ResponseWriter, r *http.Request, a *al
 			ID: g.ID, Linea: g.Linea, Description: g.Description, Name: g.Description,
 			Quantity: g.Quantity, Packs: g.Packs, ProductID: idOpcional(g.ProductID),
 			UpdatedAt: hora(g.UpdatedAt),
+			PesoKg:    g.PesoUnitarioKg, PesoLineaKg: g.PesoLineaKg,
 		})
 	}
 
@@ -1193,6 +1216,7 @@ func (s *Servidor) renglonesPorPedido(r *http.Request, a *alcance.Acotado, ids [
 			ID: g.ID, Linea: g.Linea, Description: g.Description, Name: g.Description,
 			Quantity: g.Quantity, Packs: g.Packs, ProductID: idOpcional(g.ProductID),
 			UpdatedAt: hora(g.UpdatedAt),
+			PesoKg:    g.PesoUnitarioKg, PesoLineaKg: g.PesoLineaKg,
 		})
 	}
 	return porPedido, nil

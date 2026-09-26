@@ -507,7 +507,18 @@ WHERE o.id = sqlc.arg('id')
 -- lleva un cliente de otra sucursal. El id del pedido llega de fuera; no se da por bueno.
 -- name: ListarRenglonesDePedido :many
 SELECT oi.id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs,
-       oi.product_id, oi.updated_at
+       oi.product_id, oi.updated_at,
+       -- EL PESO DEL RENGLÓN, que hasta el 26/09/2026 no salía de aquí y por eso la
+       -- aplicación lo recalculaba contra su catálogo local. Lo que se veía: la ficha
+       -- decía «sin peso» en un renglón mientras el total del pedido decía 72,6 kg, y el
+       -- pre-despacho —la hoja con la que se carga el camión— salía con las 14 filas en
+       -- raya y «sin peso en el catálogo», con 7.446 empaques debajo.
+       --
+       -- El dato estaba aquí desde la 00004, y su propio comentario dice para qué se
+       -- añadió: «precisamente para no tener que recalcular el peso con el catálogo de
+       -- hoy». Un producto que hoy no está en el catálogo de esa sucursal no tiene por
+       -- qué perder el peso con el que se facturó ayer.
+       oi.peso_unitario_kg, oi.peso_linea_kg
 FROM order_items oi
 JOIN orders o ON o.id = oi.order_id
 WHERE oi.order_id = sqlc.arg('pedido_id')
@@ -520,7 +531,18 @@ ORDER BY oi.linea ASC;
 -- cuela desde el cliente, sin este filtro se leerían los renglones de otra sucursal.
 -- name: ListarRenglonesDePedidos :many
 SELECT oi.id, oi.order_id, oi.linea, oi.description, oi.quantity, oi.packs,
-       oi.product_id, oi.updated_at
+       oi.product_id, oi.updated_at,
+       -- EL PESO DEL RENGLÓN, que hasta el 26/09/2026 no salía de aquí y por eso la
+       -- aplicación lo recalculaba contra su catálogo local. Lo que se veía: la ficha
+       -- decía «sin peso» en un renglón mientras el total del pedido decía 72,6 kg, y el
+       -- pre-despacho —la hoja con la que se carga el camión— salía con las 14 filas en
+       -- raya y «sin peso en el catálogo», con 7.446 empaques debajo.
+       --
+       -- El dato estaba aquí desde la 00004, y su propio comentario dice para qué se
+       -- añadió: «precisamente para no tener que recalcular el peso con el catálogo de
+       -- hoy». Un producto que hoy no está en el catálogo de esa sucursal no tiene por
+       -- qué perder el peso con el que se facturó ayer.
+       oi.peso_unitario_kg, oi.peso_linea_kg
 FROM order_items oi
 JOIN orders o ON o.id = oi.order_id
 WHERE oi.order_id = ANY(sqlc.arg('pedido_ids')::uuid[])

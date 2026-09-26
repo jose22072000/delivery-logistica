@@ -675,6 +675,12 @@ class Bajada {
               packs: Value(_numero(r['packs'])),
               productId: Value(_texto(r['productId'])),
               updatedAt: Value(_fecha(r['updatedAt'])),
+              // EL PESO QUE MANDA EL SERVIDOR, que es el de cuando se facturo y
+              // no el del catalogo de hoy. Ver `OrderItems.pesoKg`: sin esto la
+              // ficha decia «sin peso» con 72,6 kg en el total, y el
+              // pre-despacho salia con las catorce filas en raya.
+              pesoKg: Value(_numero(r['pesoKg'])),
+              pesoLineaKg: Value(_numero(r['pesoLineaKg'])),
             ),
           );
     }

@@ -288,6 +288,7 @@ void main() {
       } on Object {
         texto = '';
       }
+      debugPrint('>>> DIAG error: ${texto.split('\n').first}');
       if (!texto.contains('overflowed')) {
         anterior?.call(detalles);
         return;
