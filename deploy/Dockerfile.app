@@ -127,6 +127,11 @@ COPY docs/almacen-de-origen.casos.json /docs/almacen-de-origen.casos.json
 # que lo que se despliega haya pasado TODAS las pruebas. Un tope que crece menos que
 # la batería acaba tirando builds buenos. Las pruebas colgadas se cazan en local con
 # `timeout 300` (CLAUDE.md §5), que es donde alguien está mirando.
+#
+# `-r failures-only` es la otra mitad de lo que faltó aquel día: el registro de Dokploy
+# decía «Docker build failed» y nada más. Con este informe cada prueba que falla se
+# escribe con su nombre y su motivo EN EL MOMENTO en que cae, y no sólo en el resumen del
+# final, que no llega si el proceso se para antes.
 
 # AQUÍ NO VA `flutter gen-l10n`, Y ESO ES UN CAMBIO A PROPÓSITO.
 #
@@ -142,7 +147,7 @@ COPY docs/almacen-de-origen.casos.json /docs/almacen-de-origen.casos.json
 # aquí fallaría por no encontrar nada que generar. Los tres se fueron juntos, que
 # es como tenían que irse.
 RUN flutter analyze
-RUN flutter test
+RUN flutter test -r failures-only
 
 # Las tres URL. Los valores por defecto son los de producción, los mismos que están
 # escritos en entorno.dart: si alguien construye sin argumentos, sale la de verdad y no
