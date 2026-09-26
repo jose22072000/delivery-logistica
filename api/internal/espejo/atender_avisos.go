@@ -61,7 +61,17 @@ func (e *Espejo) Atender(ctx context.Context, q QueHaceFaltaTraer) error {
 		}
 	}
 
-	// 4. Y SI ALGUNO VINO SIN SUCURSAL, se mira todo. Debería ser raro, y por eso se dice
+	// 4. EL PADRÓN, si algún cliente se movió de sitio.
+	//
+	// El reparto ordena las paradas por la coordenada del cliente: si alguien la corrige y
+	// esto no se entera, la ruta se arma hacia el sitio de antes, con números y todo y sin
+	// un solo error. Va UNA vez por tanda aunque se hayan movido veinte.
+	if q.Clientes {
+		e.Reg.Info("un cliente se movió de sitio: se repasa el padrón")
+		e.clientes(ctx)
+	}
+
+	// 5. Y SI ALGUNO VINO SIN SUCURSAL, se mira todo. Debería ser raro, y por eso se dice
 	//    en vez de callarlo: si pasa a menudo, es que al otro lado falta el dato.
 	if q.TodasLasSucursales {
 		e.Reg.Warn("llegó un aviso sin sucursal: se repasa todo, que es lo caro")

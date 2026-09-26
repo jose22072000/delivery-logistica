@@ -91,6 +91,13 @@ const (
 	MotivoDomicilio = "domicilio"
 	// MotivoImportacion: entró una tanda de CSV. Viene SIN `id`: se repasa esa sucursal.
 	MotivoImportacion = "importacion"
+	// MotivoCliente: un cliente se movió de sitio. **El `id` es el del CLIENTE, no el de
+	// un pedido**, y la entidad viene como `cliente`.
+	//
+	// Lo añadió PEDIDO el 26/09/2026 porque el reparto ordena las paradas por la
+	// coordenada del cliente: si alguien corrige dónde vive y el reparto no se entera, la
+	// ruta se arma hacia el sitio de antes — con números y todo, sin un solo error.
+	MotivoCliente = "cliente"
 	// MotivoBorrado: se borró el pedido. **Se quita**, o se queda en un camión y nadie lo
 	// echa en falta. Es el único que no requiere ir a pedir nada.
 	MotivoBorrado = "borrado"

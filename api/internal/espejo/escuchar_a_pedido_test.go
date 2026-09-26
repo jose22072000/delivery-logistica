@@ -203,3 +203,54 @@ func TestUnAvisoSinSucursalMiraTodas(t *testing.T) {
 		t.Fatalf("un aviso sin sucursal se descartó: %+v", q)
 	}
 }
+
+// UNA IMPORTACIÓN CON `id` PIDE ESE PEDIDO, NO BARRE LA SUCURSAL.
+//
+// PEDIDO cambió el 26/09/2026: el aviso de importación ya no es uno por tanda de CSV sino
+// UNO POR PEDIDO —sólo los que pasan su filtro—, y cae a uno por sucursal cuando pasan de
+// cincuenta. Sin esta rama, cada uno de esos avisos disparaba un barrido entero: cincuenta
+// pedidos importados serían cincuenta barridos, peor que lo que había antes.
+func TestUnaImportacionConIDPideEsePedido(t *testing.T) {
+	q := AgruparAvisos([]AvisoDePedido{
+		{ID: "1-0", Motivo: MotivoImportacion, PedidoID: "ped-1", SucursalID: "cam"},
+		{ID: "1-1", Motivo: MotivoImportacion, PedidoID: "ped-2", SucursalID: "cam"},
+	})
+
+	if len(q.Pedidos) != 2 {
+		t.Fatalf("no se pidieron los pedidos que venían con id: %+v", q)
+	}
+	if len(q.Sucursales) != 0 {
+		t.Fatalf(
+			"se barrió la sucursal teniendo los ids: con cincuenta avisos eso son "+
+				"cincuenta barridos. %+v", q,
+		)
+	}
+}
+
+// UN CLIENTE QUE SE MUEVE REPASA EL PADRÓN, UNA VEZ POR TANDA.
+//
+// PEDIDO añadió el motivo `cliente` el 26/09/2026: el reparto ordena las paradas por la
+// coordenada del cliente, así que si alguien corrige dónde vive y esto no se entera, la
+// ruta se arma hacia el sitio de antes — con números y todo, sin un solo error.
+//
+// VEINTE CLIENTES MOVIDOS SON UN REPASO, no veinte: hoy `/integration/clients` no acepta
+// `?ids=`, así que lo que se puede hacer es repasar, y repasar una sola vez.
+func TestUnClienteMovidoRepasaElPadronUnaVez(t *testing.T) {
+	q := AgruparAvisos([]AvisoDePedido{
+		{ID: "1-0", Motivo: MotivoCliente, PedidoID: "cli-1", SucursalID: "cam"},
+		{ID: "1-1", Motivo: MotivoCliente, PedidoID: "cli-2", SucursalID: "cam"},
+	})
+
+	if !q.Clientes {
+		t.Fatalf("no se repasa el padrón: las rutas se armarían hacia el sitio de antes")
+	}
+	if len(q.Pedidos) != 0 {
+		t.Fatalf(
+			"el id de un aviso de cliente es un CLIENTE, no un pedido: pedirlo como "+
+				"pedido no encuentra nada y el cliente sigue mal. %+v", q,
+		)
+	}
+	if len(q.Sucursales) != 0 {
+		t.Fatalf("se barrieron pedidos por un aviso que no va de pedidos: %+v", q)
+	}
+}

@@ -42,6 +42,18 @@ type QueHaceFaltaTraer struct {
 	Borrados []string
 	// Si alguno llegó sin sucursal: hay que mirar todas. Debería ser raro.
 	TodasLasSucursales bool
+
+	// Clientes: hay que repasar el padrón.
+	//
+	// ES UN BOOLEANO Y NO UNA LISTA DE IDS A PROPÓSITO: hoy `/integration/clients` no
+	// acepta `?ids=` —sólo `sucursalCodigo`, `archivado`, `vendedor` y `since`—, así que
+	// con el clienteId en la mano no se puede pedir ESE cliente. Lo que se puede es
+	// repasar, y repasar una vez por tanda en vez de una por aviso: veinte clientes
+	// movidos son UN repaso, no veinte.
+	//
+	// Cuando PEDIDO abra `?ids=`, esto pasa a ser una lista y se piden los que son. Está
+	// pedido en el mensaje del 26/09.
+	Clientes bool
 }
 
 // AgruparAvisos convierte una tanda en qué hay que hacer.
@@ -77,7 +89,25 @@ func AgruparAvisos(avisos []AvisoDePedido) QueHaceFaltaTraer {
 			} else {
 				q.TodasLasSucursales = true
 			}
+		case MotivoCliente:
+			// El padrón entero, una vez por tanda. Ver `QueHaceFaltaTraer.Clientes`.
+			q.Clientes = true
+
 		case MotivoImportacion:
+			// CON `id` SE PIDE ESE PEDIDO; SIN ÉL, SE REPASA LA SUCURSAL — 26/09/2026.
+			//
+			// Antes esto ignoraba el id y repasaba siempre la sucursal entera, porque el
+			// aviso de importación era UNO POR TANDA de CSV y no traía a quién. PEDIDO lo
+			// cambió el mismo día: ahora manda un aviso POR PEDIDO —sólo los que pasan su
+			// filtro— y cae a uno por sucursal cuando pasan de cincuenta.
+			//
+			// Sin esta rama, cada uno de esos avisos disparaba un barrido de sucursal
+			// entero: cincuenta pedidos importados serían cincuenta barridos, que es peor
+			// que lo que había antes. Lo dijo su sesión y tiene razón.
+			if a.PedidoID != "" {
+				pedidos[a.PedidoID] = true
+				continue
+			}
 			if a.SucursalID != "" {
 				sucursales[a.SucursalID] = true
 			} else {
