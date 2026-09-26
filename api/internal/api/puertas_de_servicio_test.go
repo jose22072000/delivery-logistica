@@ -74,9 +74,15 @@ func TestLasPersonasSinteticasDeServicioLlevanSuRol(t *testing.T) {
 	}
 	// EL SUELO. Sin él, un cambio en cómo se escriben estas personas —otro nombre, otra
 	// forma de construirlas— dejaría la prueba recorriendo el árbol sin encontrar nada y
-	// pasando en verde para siempre. Son cuatro hoy: las tres de `internal/api` y la de
-	// `cmd/espejo`. Si añades una, sube el número; si quitas una, bájalo.
-	const hay = 4
+	// pasando en verde para siempre. Son CINCO hoy: las tres de `internal/api`, la de
+	// `cmd/espejo` y la del drenaje del buzón hacia PEDIDO (`cmd/api`, 26/09/2026). Si
+	// añades una, sube el número; si quitas una, bájalo.
+	//
+	// Esta prueba cazó la del buzón en el mismo momento de escribirla, que es para lo que
+	// está: sin rol, la portería le habría contestado 403 y el trabajador no habría
+	// mandado un solo aviso — en silencio, porque nadie mira el registro de una tarea de
+	// fondo hasta que alguien pregunta por qué PEDIDO no se entera.
+	const hay = 5
 	if encontradas != hay {
 		t.Fatalf("se encontraron %d puertas de servicio y hay %d: o se añadió una (sube "+
 			"el número), o se borró una sin quitar su ruta, o cambió la forma de "+

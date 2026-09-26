@@ -43,7 +43,13 @@ import (
 
 // rutasEspejo monta las tres. Lo llama `Rutas()` en servidor.go.
 func (s *Servidor) rutasEspejo(rt *httpx.Router, sesion, admin []httpx.Medio) {
-	_ = admin
+	// CÓMO VA EL WEBHOOK, sólo para administración y FUERA DEL MENÚ.
+	//
+	// No son datos de una sucursal: es el estado de una tubería entre dos sistemas, con
+	// motivos de error de PEDIDO dentro. A quien arma rutas no le sirve y sólo puede
+	// confundirle. Jose, 26/09/2026: «esto es para administración, esta vista no la puede
+	// ver nadie». Ver `estado_del_webhook.go`.
+	rt.ManejarFunc(http.MethodGet, "/api/admin/webhook", s.estadoDelWebhook, admin...)
 
 	// `products/sync` admite LAS DOS PUERTAS —clave de servicio o sesión— porque la
 	// dispara un temporizador y también un administrador que ve el catálogo viejo y le

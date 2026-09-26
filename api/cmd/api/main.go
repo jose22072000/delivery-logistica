@@ -169,6 +169,25 @@ func correr() error {
 			"importes en USD")
 	}
 
+	// EL DRENAJE DEL BUZÓN HACIA PEDIDO.
+	//
+	// El cierre de ruta ya intenta mandar el aviso en el acto —el vendedor tiene que
+	// verlo ya—, pero si PEDIDO no contesta el aviso se queda en `avisos_a_pedido`. Esto
+	// es quien vuelve a por él: sin este trabajador el buzón sería una lista de cosas
+	// perdidas mejor apuntada, que no es el arreglo.
+	//
+	// Corre en su propia gorutina y muere con el contexto, igual que el refresco de tasas.
+	// El alcance se abre en cada vuelta y va SIN sucursal: un aviso encolado es un hecho
+	// que ya pasó, y quien lo drena no tiene sucursal ni persona detrás.
+	porteriaDelBuzon := alcance.NuevaPorteria(almacen, reg)
+	drenador := api.NuevoDrenadorDelBuzon(servicio, func(c context.Context) (*alcance.Acotado, error) {
+		return porteriaDelBuzon.Resolver(c, &auth.Usuario{
+			ID: "servicio:buzon", Rol: "SUPER ADMIN",
+		}, "")
+	}, api.CadaCuantoSeDrena)
+	go drenador.Correr(ctx)
+	reg.Info("drenaje del buzón hacia PEDIDO arrancado", "cada", api.CadaCuantoSeDrena)
+
 	servidor := &http.Server{
 		Addr:              cfg.Direccion(),
 		Handler:           servicio.Rutas(),

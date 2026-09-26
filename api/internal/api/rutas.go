@@ -1619,12 +1619,25 @@ func (s *Servidor) cerrarRuta(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// El aviso del CIERRE se espera (síncrono): el vendedor tiene que poder ver en PEDIDO
-	// lo que pasó con su pedido, y aquí ya no hay prisa por contestar.
+	// AL BUZÓN PRIMERO, Y DESPUÉS SE INTENTA MANDAR.
+	//
+	// El envío del cierre es síncrono a propósito —el vendedor tiene que poder ver en
+	// PEDIDO lo que pasó con su pedido—, pero síncrono no puede querer decir «de una sola
+	// vez o nunca». Hasta el 26/09/2026 era eso: si PEDIDO estaba caído, la red iba mal o
+	// el proceso se reiniciaba, el aviso se perdía y quedaba **entregado aquí y eterno «en
+	// proceso» allá**, sin error en ninguna pantalla y sin nadie a quien reclamarle.
+	//
+	// Ahora se apunta ANTES de llamar. Si la llamada sale bien, el aviso se marca enviado
+	// en el acto; si PEDIDO dice que no, se queda con su motivo literal; y si no se pudo
+	// ni preguntar, se queda pendiente y lo drena el trabajador. Un rechazo y un «no se
+	// pudo hablar» NO son lo mismo y por eso no comparten estado.
+	encolados := s.encolarAvisos(r.Context(), a, ruta.ID, avisos)
+
 	salida.APedido = s.aPedido(r.Context(), avisos)
 	if !salida.APedido.Ok && len(avisos) > 0 {
-		httpx.Registro(r).Error("el cierre se guardó pero PEDIDO no se enteró",
-			"ruta", ruta.ID, "avisos", len(avisos), "err", salida.APedido.Error)
+		httpx.Registro(r).Error("el cierre se guardó pero PEDIDO no se enteró; queda en el buzón",
+			"ruta", ruta.ID, "avisos", len(avisos), "encolados", encolados,
+			"err", salida.APedido.Error)
 	}
 	avisarCambioDeRutas(r.Context())
 

@@ -1,0 +1,284 @@
+package api
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"procovar/reparto-api/internal/alcance"
+	"procovar/reparto-api/internal/auth"
+	"procovar/reparto-api/internal/store/sqlc"
+)
+
+// EL BUZÓN NO PIERDE UN AVISO PORQUE PEDIDO NO ESTUVIERA.
+//
+// El reparto le cuenta a PEDIDO en qué punto va cada pedido, y hasta el 26/09/2026 lo hacía
+// **de una sola vez o nunca**: la llamada salía al cerrar la ruta y, si PEDIDO estaba caído
+// o la red iba mal, el aviso desaparecía. El pedido quedaba entregado aquí y eterno «en
+// proceso» allá, sin un error en ninguna pantalla y sin nadie a quien reclamarle. Jose,
+// 26/09/2026: «el de enviar el estado de los pedidos de delivery, para que PEDIDO se entere
+// de eso».
+//
+// LAS TRES SITUACIONES SON TRES Y NO DOS, y ésa es toda la prueba:
+//
+//   - **enviado** — llegó y se aplicó.
+//   - **rechazado** — llegó PERFECTAMENTE y PEDIDO dijo que no. No se reintenta: repetir lo
+//     mismo da lo mismo. Se queda a la vista con su motivo literal.
+//   - **pendiente** — no se pudo ni preguntar. Eso NO es un rechazo, y confundirlos daría
+//     por perdido lo que sólo estaba esperando.
+//
+// Juntar las dos últimas es el fallo que esto viene a evitar: si un «PEDIDO está caído» se
+// guardara como rechazo, el aviso no se volvería a mandar nunca y nadie lo sabría.
+
+// buzonFalso es la parte de la base que le hace falta al drenaje, y nada más.
+type buzonFalso struct {
+	sqlc.Querier
+
+	pendientes []sqlc.AvisosAPedidoPendientesRow
+	enviados   []uuid.UUID
+	rechazados map[uuid.UUID]string
+	reintentos map[uuid.UUID]string
+	envios     []sqlc.ApuntarEnvioDelWebhookParams
+}
+
+func (b *buzonFalso) AvisosAPedidoPendientes(context.Context, int32) ([]sqlc.AvisosAPedidoPendientesRow, error) {
+	return b.pendientes, nil
+}
+
+func (b *buzonFalso) AvisoAPedidoEnviado(_ context.Context, id uuid.UUID) error {
+	b.enviados = append(b.enviados, id)
+	return nil
+}
+
+func (b *buzonFalso) AvisoAPedidoRechazado(_ context.Context, p sqlc.AvisoAPedidoRechazadoParams) error {
+	if b.rechazados == nil {
+		b.rechazados = map[uuid.UUID]string{}
+	}
+	motivo := ""
+	if p.Motivo != nil {
+		motivo = *p.Motivo
+	}
+	b.rechazados[p.ID] = motivo
+	return nil
+}
+
+func (b *buzonFalso) AvisoAPedidoSeReintenta(_ context.Context, p sqlc.AvisoAPedidoSeReintentaParams) error {
+	if b.reintentos == nil {
+		b.reintentos = map[uuid.UUID]string{}
+	}
+	motivo := ""
+	if p.Motivo != nil {
+		motivo = *p.Motivo
+	}
+	b.reintentos[p.ID] = motivo
+	return nil
+}
+
+func (b *buzonFalso) ApuntarEnvioDelWebhook(_ context.Context, p sqlc.ApuntarEnvioDelWebhookParams) error {
+	b.envios = append(b.envios, p)
+	return nil
+}
+
+func avisoEnElBuzon(pedido string) sqlc.AvisosAPedidoPendientesRow {
+	return sqlc.AvisosAPedidoPendientesRow{
+		ID:        uuid.New(),
+		PedidoID:  pedido,
+		Estado:    "entregado",
+		OcurrioAt: pgtype.Timestamptz{Time: time.Date(2026, 9, 26, 16, 4, 0, 0, time.UTC), Valid: true},
+	}
+}
+
+// PEDIDO NO CONTESTA: todos siguen pendientes y se vuelve a por ellos.
+func TestSiPedidoNoContestaLosAvisosSiguenPendientes(t *testing.T) {
+	b := &buzonFalso{pendientes: []sqlc.AvisosAPedidoPendientesRow{
+		avisoEnElBuzon("ped-1"), avisoEnElBuzon("ped-2"),
+	}}
+	s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
+		return ParteAPedido{Ok: false, Error: "dial tcp: connection refused"}
+	})
+
+	enviados, quedan := s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
+
+	if enviados != 0 || quedan != 2 {
+		t.Fatalf("enviados=%d quedan=%d; se esperaba 0 y 2", enviados, quedan)
+	}
+	if len(b.rechazados) != 0 {
+		t.Fatalf(
+			"un «no se pudo hablar» se guardó como RECHAZO: así no se vuelve a mandar "+
+				"nunca y nadie se entera: %v", b.rechazados,
+		)
+	}
+	if len(b.reintentos) != 2 {
+		t.Fatalf("no se anotó el reintento de los dos: %v", b.reintentos)
+	}
+	for _, m := range b.reintentos {
+		if m != "dial tcp: connection refused" {
+			t.Fatalf("el motivo no es el literal de la red: %q", m)
+		}
+	}
+}
+
+// PEDIDO CONTESTA Y APLICA: se marcan enviados.
+func TestLoQuePedidoAplicaSeMarcaEnviado(t *testing.T) {
+	b := &buzonFalso{pendientes: []sqlc.AvisosAPedidoPendientesRow{
+		avisoEnElBuzon("ped-1"), avisoEnElBuzon("ped-2"),
+	}}
+	s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
+		return ParteAPedido{Ok: true, Enviados: 2, Aplicados: 2}
+	})
+
+	enviados, quedan := s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
+
+	if enviados != 2 || quedan != 0 {
+		t.Fatalf("enviados=%d quedan=%d; se esperaba 2 y 0", enviados, quedan)
+	}
+	if len(b.enviados) != 2 {
+		t.Fatalf("no se marcaron los dos como enviados: %v", b.enviados)
+	}
+}
+
+// PEDIDO CONTESTA Y DICE QUE NO: rechazado con su motivo, y NO se reintenta.
+func TestLoQuePedidoRechazaSeQuedaConSuMotivo(t *testing.T) {
+	b := &buzonFalso{pendientes: []sqlc.AvisosAPedidoPendientesRow{avisoEnElBuzon("ped-1")}}
+	s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
+		return ParteAPedido{Ok: true, Enviados: 1, Aplicados: 0,
+			Error: "no existe aquí (¿otra sucursal?)"}
+	})
+
+	s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
+
+	if len(b.rechazados) != 1 {
+		t.Fatalf("no se guardó el rechazo: %v", b.rechazados)
+	}
+	for _, m := range b.rechazados {
+		if m != "no existe aquí (¿otra sucursal?)" {
+			t.Fatalf(
+				"el motivo no es el literal de PEDIDO: «no se pudo» no le dice nada a "+
+					"nadie, «no existe aquí» dice dónde mirar. Salió: %q", m,
+			)
+		}
+	}
+	if len(b.reintentos) != 0 {
+		t.Fatalf("un rechazo NO se reintenta: repetir lo mismo da lo mismo")
+	}
+}
+
+// Y LA TANDA QUEDA APUNTADA pase lo que pase, que es la otra pregunta.
+//
+// Un aviso sin enviar puede ser «PEDIDO está caído» o «PEDIDO lo rechazó»: desde fuera se
+// ven igual —«hay avisos sin enviar»— y se arreglan de maneras distintas.
+func TestCadaTandaQuedaApuntadaAunqueFalle(t *testing.T) {
+	b := &buzonFalso{pendientes: []sqlc.AvisosAPedidoPendientesRow{avisoEnElBuzon("ped-1")}}
+	s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
+		return ParteAPedido{Ok: false, Error: "PEDIDO contestó 502"}
+	})
+
+	s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
+
+	if len(b.envios) != 1 {
+		t.Fatalf("la tanda no se apuntó: sin esto no hay forma de saber si llegó")
+	}
+	e := b.envios[0]
+	if e.Mandados != 1 || e.Aceptados != 0 {
+		t.Fatalf("los números de la tanda no cuadran: %+v", e)
+	}
+	if e.Motivo == nil || *e.Motivo != "PEDIDO contestó 502" {
+		t.Fatalf("la tanda se apuntó sin el motivo literal: %+v", e.Motivo)
+	}
+}
+
+// Sin nada que mandar no se molesta a PEDIDO ni se apunta una tanda vacía.
+func TestConElBuzonVacioNoSeLlamaANadie(t *testing.T) {
+	b := &buzonFalso{}
+	llamadas := 0
+	s := servidorConBuzon(t, b, func(context.Context, []AvisoDeParada) ParteAPedido {
+		llamadas++
+		return ParteAPedido{Ok: true}
+	})
+
+	s.DrenarElBuzon(context.Background(), acotadoDeBuzon(b))
+
+	if llamadas != 0 {
+		t.Fatalf("se llamó a PEDIDO sin nada que contarle")
+	}
+	if len(b.envios) != 0 {
+		t.Fatalf("se apuntó una tanda vacía: ensucia la pantalla de administración")
+	}
+}
+
+// --------------------------------------------------------------------------- el montaje
+
+type fuenteDelBuzon struct{ q sqlc.Querier }
+
+func (f fuenteDelBuzon) Consultas() sqlc.Querier { return f.q }
+func (f fuenteDelBuzon) EnTx(ctx context.Context, fn func(sqlc.Querier) error) error {
+	return fn(f.q)
+}
+
+// acotadoDeBuzon: un alcance de SUPER ADMIN sobre el buzón falso.
+//
+// El buzón va sin alcance a propósito —un aviso encolado es un hecho que ya pasó, y quien
+// lo drena es un trabajador sin sucursal ni persona detrás—, así que aquí sólo hace falta
+// un Acotado que sepa llegar a las consultas.
+func acotadoDeBuzon(q sqlc.Querier) *alcance.Acotado {
+	p := alcance.NuevaPorteria(fuenteDelBuzon{q: q}, slog.New(slog.DiscardHandler))
+	a, err := p.Resolver(context.Background(), &auth.Usuario{ID: "prueba", Rol: "SUPER ADMIN"}, "")
+	if err != nil {
+		panic(err)
+	}
+	return a
+}
+
+func servidorConBuzon(t *testing.T, q sqlc.Querier, canal CanalAPedido) *Servidor {
+	t.Helper()
+	return &Servidor{reg: slog.New(slog.DiscardHandler), aPedido: canal}
+}
+
+// EL CIERRE APUNTA EL AVISO ANTES DE INTENTAR MANDARLO.
+//
+// Es el arreglo entero en una prueba. Con PEDIDO caído, el cierre sigue su curso —un camión
+// que volvió con nueve entregas no puede quedarse sin cerrar porque otra aplicación esté
+// mal— y el aviso **queda en el buzón**. Antes se perdía ahí mismo: entregado aquí, eterno
+// «en proceso» allá, y nadie a quien reclamarle.
+func TestElCierreApuntaElAvisoAunquePedidoEsteCaido(t *testing.T) {
+	pedido := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "estoy caído", http.StatusServiceUnavailable)
+	}))
+	defer pedido.Close()
+
+	d, stg, _ := datosDeReparto()
+	var registro registroSeguro
+	h, s := montarRutasRegistrando(t, d, &registro)
+	s.aPedido = canalDePrueba(pedido.URL, "la-clave", slog.New(slog.DiscardHandler))
+
+	jwt := deSantiagoEnRutas(t)
+	id := armarRutaDePrueba(t, h, jwt, stg[1])
+
+	cuerpo := fmt.Sprintf(`{"resultados":[{"orderId":%q,"resultado":"entregado"}]}`, stg[1])
+	w := llamarRutas(t, h, http.MethodPost, "/api/routes/"+id.String()+"/results", jwt, cuerpo)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("PEDIDO caído no puede tumbar el cierre: %d %s", w.Code, w.Body.String())
+	}
+	if len(d.avisosEncolados) != 1 {
+		t.Fatalf(
+			"el aviso NO quedó en el buzón: con PEDIDO caído se pierde y el pedido "+
+				"queda entregado aquí y «en proceso» allá para siempre. Encolados: %d",
+			len(d.avisosEncolados),
+		)
+	}
+	if got := d.avisosEncolados[0].Estado; got != "entregado" {
+		t.Fatalf("se apuntó otro estado: %q", got)
+	}
+	if !d.avisosEncolados[0].OcurrioAt.Valid {
+		t.Fatalf("el aviso se apuntó sin la hora del suceso: con trabajo sin conexión " +
+			"esa hora y la de la llamada pueden ser tres horas distintas")
+	}
+}

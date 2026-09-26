@@ -190,3 +190,79 @@ func (a *Acotado) SoltarPedidosDeRuta(ctx context.Context, ruta uuid.UUID) (int6
 func (a *Acotado) BorrarRuta(ctx context.Context, id uuid.UUID) (int64, error) {
 	return a.q.BorrarRuta(ctx, sqlc.BorrarRutaParams{ID: id, Sucursal: a.sucursalPg()})
 }
+
+// ---------------------------------------------------------------------------
+// El buzón de salida hacia PEDIDO
+// ---------------------------------------------------------------------------
+//
+// VA SIN ALCANCE, y es a propósito. Un aviso encolado es un hecho que ya pasó —esta parada
+// acabó así—, y quien lo drena es un trabajador de fondo que no tiene sucursal ni persona
+// detrás. Acotarlo dejaría avisos que nadie puede mandar.
+//
+// El porqué de que exista la tabla está en `00010_avisos_a_pedido.sql`: la llamada
+// síncrona del cierre se pierde si PEDIDO está caído, y entonces el pedido queda entregado
+// aquí y eterno «en proceso» allá sin que nadie se entere.
+
+// EncolarAvisoAPedido apunta que hay que contarle esto a PEDIDO.
+//
+// Se llama DENTRO de la misma transacción que escribe el resultado: o se guardan los dos o
+// ninguno. Fuera de ella, un fallo entre las dos escrituras deja el resultado sin aviso, que
+// es justo el agujero que esto viene a tapar.
+func (a *Acotado) EncolarAvisoAPedido(ctx context.Context, p sqlc.EncolarAvisoAPedidoParams) error {
+	return a.q.EncolarAvisoAPedido(ctx, p)
+}
+
+// AvisosAPedidoPendientes son los que hay que mandar, los más viejos primero.
+func (a *Acotado) AvisosAPedidoPendientes(ctx context.Context, tope int32) ([]sqlc.AvisosAPedidoPendientesRow, error) {
+	return a.q.AvisosAPedidoPendientes(ctx, tope)
+}
+
+func (a *Acotado) AvisoAPedidoEnviado(ctx context.Context, id uuid.UUID) error {
+	return a.q.AvisoAPedidoEnviado(ctx, id)
+}
+
+// AvisoAPedidoRechazado: PEDIDO dijo que no, y con su motivo. No se borra.
+func (a *Acotado) AvisoAPedidoRechazado(ctx context.Context, id uuid.UUID, motivo string) error {
+	return a.q.AvisoAPedidoRechazado(ctx, sqlc.AvisoAPedidoRechazadoParams{ID: id, Motivo: &motivo})
+}
+
+// AvisoAPedidoSeReintenta: no se pudo ni preguntar. Sigue pendiente — eso NO es un rechazo,
+// y confundirlos daría por perdido lo que sólo estaba esperando.
+func (a *Acotado) AvisoAPedidoSeReintenta(ctx context.Context, id uuid.UUID, motivo string) error {
+	return a.q.AvisoAPedidoSeReintenta(ctx, sqlc.AvisoAPedidoSeReintentaParams{ID: id, Motivo: &motivo})
+}
+
+// ---------------------------------------------------------------------------
+// Cómo va el webhook, en los dos sentidos
+// ---------------------------------------------------------------------------
+//
+// SIN ALCANCE, igual que el buzón: esto no son datos de una sucursal, es el estado de una
+// tubería. Quien lo mira es administración, y quién puede mirarlo se decide en la ruta.
+
+func (a *Acotado) ApuntarEnvioDelWebhook(ctx context.Context, p sqlc.ApuntarEnvioDelWebhookParams) error {
+	return a.q.ApuntarEnvioDelWebhook(ctx, p)
+}
+
+func (a *Acotado) ApuntarRecepcionDelWebhook(ctx context.Context, p sqlc.ApuntarRecepcionDelWebhookParams) error {
+	return a.q.ApuntarRecepcionDelWebhook(ctx, p)
+}
+
+func (a *Acotado) ListarEnviosDelWebhook(ctx context.Context, tope int32) ([]sqlc.EnviosDelWebhook, error) {
+	return a.q.ListarEnviosDelWebhook(ctx, tope)
+}
+
+func (a *Acotado) ListarRecepcionesDelWebhook(ctx context.Context, tope int32) ([]sqlc.RecepcionesDelWebhook, error) {
+	return a.q.ListarRecepcionesDelWebhook(ctx, tope)
+}
+
+func (a *Acotado) ResumenDelWebhook(ctx context.Context) (sqlc.ResumenDelWebhookRow, error) {
+	return a.q.ResumenDelWebhook(ctx)
+}
+
+func (a *Acotado) ListarAvisosAPedido(ctx context.Context, p sqlc.ListarAvisosAPedidoParams) ([]sqlc.ListarAvisosAPedidoRow, error) {
+	return a.q.ListarAvisosAPedido(ctx, p)
+}
+
+func (a *Acotado) ContarAvisosAPedido(ctx context.Context) (sqlc.ContarAvisosAPedidoRow, error) {
+	return a.q.ContarAvisosAPedido(ctx)
+}

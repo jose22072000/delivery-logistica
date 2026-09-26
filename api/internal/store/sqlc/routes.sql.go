@@ -94,6 +94,105 @@ func (q *Queries) ActualizarEstadoDeRuta(ctx context.Context, arg ActualizarEsta
 	return i, err
 }
 
+const avisoAPedidoEnviado = `-- name: AvisoAPedidoEnviado :exec
+UPDATE avisos_a_pedido
+SET situacion = 'enviado', intentos = intentos + 1, motivo = NULL,
+    resuelto_at = now(), updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) AvisoAPedidoEnviado(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, avisoAPedidoEnviado, id)
+	return err
+}
+
+const avisoAPedidoRechazado = `-- name: AvisoAPedidoRechazado :exec
+UPDATE avisos_a_pedido
+SET situacion = 'rechazado', intentos = intentos + 1,
+    motivo = $1, resuelto_at = now(), updated_at = now()
+WHERE id = $2
+`
+
+type AvisoAPedidoRechazadoParams struct {
+	Motivo *string   `json:"motivo"`
+	ID     uuid.UUID `json:"id"`
+}
+
+// PEDIDO dijo que NO, y con su motivo. No se borra: se queda a la vista hasta que una
+// persona decida (`CLAUDE.md` §4).
+func (q *Queries) AvisoAPedidoRechazado(ctx context.Context, arg AvisoAPedidoRechazadoParams) error {
+	_, err := q.db.Exec(ctx, avisoAPedidoRechazado, arg.Motivo, arg.ID)
+	return err
+}
+
+const avisoAPedidoSeReintenta = `-- name: AvisoAPedidoSeReintenta :exec
+UPDATE avisos_a_pedido
+SET intentos = intentos + 1, motivo = $1, updated_at = now()
+WHERE id = $2
+`
+
+type AvisoAPedidoSeReintentaParams struct {
+	Motivo *string   `json:"motivo"`
+	ID     uuid.UUID `json:"id"`
+}
+
+// No se pudo ni preguntar —PEDIDO caído, la red—. Sigue PENDIENTE: eso no es un rechazo y
+// confundirlos daría por perdido lo que sólo estaba esperando.
+func (q *Queries) AvisoAPedidoSeReintenta(ctx context.Context, arg AvisoAPedidoSeReintentaParams) error {
+	_, err := q.db.Exec(ctx, avisoAPedidoSeReintenta, arg.Motivo, arg.ID)
+	return err
+}
+
+const avisosAPedidoPendientes = `-- name: AvisosAPedidoPendientes :many
+SELECT id, pedido_id, folio, estado, nota, ocurrio_at, intentos
+FROM avisos_a_pedido
+WHERE situacion = 'pendiente'
+ORDER BY created_at ASC
+LIMIT $1
+FOR UPDATE SKIP LOCKED
+`
+
+type AvisosAPedidoPendientesRow struct {
+	ID        uuid.UUID          `json:"id"`
+	PedidoID  string             `json:"pedido_id"`
+	Folio     *string            `json:"folio"`
+	Estado    string             `json:"estado"`
+	Nota      *string            `json:"nota"`
+	OcurrioAt pgtype.Timestamptz `json:"ocurrio_at"`
+	Intentos  int32              `json:"intentos"`
+}
+
+// Los que hay que mandar, los más viejos primero: un aviso no se queda al fondo porque
+// entren otros. `FOR UPDATE SKIP LOCKED` para que dos procesos del reparto —la api y el
+// espejo— no manden el mismo dos veces.
+func (q *Queries) AvisosAPedidoPendientes(ctx context.Context, tope int32) ([]AvisosAPedidoPendientesRow, error) {
+	rows, err := q.db.Query(ctx, avisosAPedidoPendientes, tope)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AvisosAPedidoPendientesRow
+	for rows.Next() {
+		var i AvisosAPedidoPendientesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PedidoID,
+			&i.Folio,
+			&i.Estado,
+			&i.Nota,
+			&i.OcurrioAt,
+			&i.Intentos,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const borrarRuta = `-- name: BorrarRuta :execrows
 DELETE FROM routes
 WHERE id = $1
@@ -192,6 +291,28 @@ func (q *Queries) CompletarRutasDeVehiculo(ctx context.Context, arg CompletarRut
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const contarAvisosAPedido = `-- name: ContarAvisosAPedido :one
+SELECT
+    count(*) FILTER (WHERE situacion = 'pendiente')::bigint AS pendientes,
+    count(*) FILTER (WHERE situacion = 'enviado')::bigint   AS enviados,
+    count(*) FILTER (WHERE situacion = 'rechazado')::bigint AS rechazados
+FROM avisos_a_pedido
+`
+
+type ContarAvisosAPedidoRow struct {
+	Pendientes int64 `json:"pendientes"`
+	Enviados   int64 `json:"enviados"`
+	Rechazados int64 `json:"rechazados"`
+}
+
+// Los tres números de arriba de esa pantalla.
+func (q *Queries) ContarAvisosAPedido(ctx context.Context) (ContarAvisosAPedidoRow, error) {
+	row := q.db.QueryRow(ctx, contarAvisosAPedido)
+	var i ContarAvisosAPedidoRow
+	err := row.Scan(&i.Pendientes, &i.Enviados, &i.Rechazados)
+	return i, err
 }
 
 const contarRutasActivas = `-- name: ContarRutasActivas :one
@@ -343,6 +464,40 @@ func (q *Queries) DesvincularVehiculoDeRutas(ctx context.Context, arg Desvincula
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const encolarAvisoAPedido = `-- name: EncolarAvisoAPedido :exec
+
+INSERT INTO avisos_a_pedido (pedido_id, folio, estado, nota, ocurrio_at)
+VALUES (
+    $1, $2, $3,
+    $4, $5
+)
+`
+
+type EncolarAvisoAPedidoParams struct {
+	PedidoID  string             `json:"pedido_id"`
+	Folio     *string            `json:"folio"`
+	Estado    string             `json:"estado"`
+	Nota      *string            `json:"nota"`
+	OcurrioAt pgtype.Timestamptz `json:"ocurrio_at"`
+}
+
+// ---------------------------------------------------------------------------
+// El buzón de salida hacia PEDIDO
+// ---------------------------------------------------------------------------
+//
+// Se escribe en la MISMA transacción que el resultado de la parada: o los dos o ninguno.
+// El porqué entero está en `00010_avisos_a_pedido.sql`.
+func (q *Queries) EncolarAvisoAPedido(ctx context.Context, arg EncolarAvisoAPedidoParams) error {
+	_, err := q.db.Exec(ctx, encolarAvisoAPedido,
+		arg.PedidoID,
+		arg.Folio,
+		arg.Estado,
+		arg.Nota,
+		arg.OcurrioAt,
+	)
+	return err
 }
 
 const engancharPedidoARuta = `-- name: EngancharPedidoARuta :execrows
@@ -497,6 +652,68 @@ func (q *Queries) FijarTotalesDeRuta(ctx context.Context, arg FijarTotalesDeRuta
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listarAvisosAPedido = `-- name: ListarAvisosAPedido :many
+SELECT id, pedido_id, folio, estado, nota, ocurrio_at, situacion, intentos,
+       motivo, resuelto_at, created_at
+FROM avisos_a_pedido
+WHERE ($1::aviso_a_pedido_estado IS NULL
+       OR situacion = $1::aviso_a_pedido_estado)
+ORDER BY created_at DESC
+LIMIT $2
+`
+
+type ListarAvisosAPedidoParams struct {
+	Situacion *AvisoAPedidoEstado `json:"situacion"`
+	Tope      int32               `json:"tope"`
+}
+
+type ListarAvisosAPedidoRow struct {
+	ID         uuid.UUID          `json:"id"`
+	PedidoID   string             `json:"pedido_id"`
+	Folio      *string            `json:"folio"`
+	Estado     string             `json:"estado"`
+	Nota       *string            `json:"nota"`
+	OcurrioAt  pgtype.Timestamptz `json:"ocurrio_at"`
+	Situacion  AvisoAPedidoEstado `json:"situacion"`
+	Intentos   int32              `json:"intentos"`
+	Motivo     *string            `json:"motivo"`
+	ResueltoAt pgtype.Timestamptz `json:"resuelto_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+// La pantalla de administración: los últimos avisos, con lo que pasó con cada uno.
+func (q *Queries) ListarAvisosAPedido(ctx context.Context, arg ListarAvisosAPedidoParams) ([]ListarAvisosAPedidoRow, error) {
+	rows, err := q.db.Query(ctx, listarAvisosAPedido, arg.Situacion, arg.Tope)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListarAvisosAPedidoRow
+	for rows.Next() {
+		var i ListarAvisosAPedidoRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PedidoID,
+			&i.Folio,
+			&i.Estado,
+			&i.Nota,
+			&i.OcurrioAt,
+			&i.Situacion,
+			&i.Intentos,
+			&i.Motivo,
+			&i.ResueltoAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listarParadasDeRuta = `-- name: ListarParadasDeRuta :many

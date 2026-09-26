@@ -135,6 +135,9 @@ type dobleDeRutas struct {
 
 	// Lo que se vio pasar: con qué sucursal llegó cada consulta.
 	sucursalVista []pgtype.UUID
+
+	// Lo que se apuntó en el buzón hacia PEDIDO.
+	avisosEncolados []sqlc.EncolarAvisoAPedidoParams
 }
 
 // alcanza repite el `($n::uuid IS NULL OR branch_id = $n::uuid)` del SQL.
@@ -1960,4 +1963,16 @@ func TestLaGuardaDiceCualesYCuantos(t *testing.T) {
 	if !strings.Contains(msg, "y 2 más.") {
 		t.Fatalf("nombra cinco y cuenta el resto: %q", msg)
 	}
+}
+
+// EL BUZÓN DE SALIDA HACIA PEDIDO, en el doble.
+//
+// El cierre apunta cada aviso antes de intentar mandarlo —para que no se pierda si PEDIDO
+// no contesta—, así que el doble tiene que saber recibirlo. Sin esto, el `sqlc.Querier`
+// embebido es nil y el cierre entero muere con un 500: `TestSiPedidoNoContestaElCierreSigue`
+// pasó de verde a 500 en cuanto se enchufó el buzón, que es exactamente lo que esa prueba
+// existe para impedir.
+func (d *dobleDeRutas) EncolarAvisoAPedido(_ context.Context, p sqlc.EncolarAvisoAPedidoParams) error {
+	d.avisosEncolados = append(d.avisosEncolados, p)
+	return nil
 }

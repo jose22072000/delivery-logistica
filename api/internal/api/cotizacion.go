@@ -742,6 +742,8 @@ func (s *Servidor) cotizarLote(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// CUÁNDO EMPEZÓ, para poder apuntar cuánto tardó la tanda. Ver `apuntarLaRecepcion`.
+	arranqueDelLote := time.Now()
 
 	var c cuerpoLote
 	defer r.Body.Close()
@@ -918,6 +920,14 @@ func (s *Servidor) cotizarLote(w http.ResponseWriter, r *http.Request) {
 		// volverá a pedir la lista y ESA sí va acotada por sucursal.
 		s.AvisarCambio(CambioPedidos, map[string]any{"pedidos": salida.Persisted})
 	}
+	// LA TANDA, APUNTADA. Es la mitad de «ver cómo está funcionando el webhook».
+	//
+	// Los pedidos ya quedan guardados, sí — pero cuando uno NO aparece en el reparto, sin
+	// esto no hay forma de saber de quién es el problema: si PEDIDO no lo mandó, si lo
+	// mandó y se saltó, o si llegó y se escribió mal. La respuesta era «mira los logs del
+	// contenedor», que es no tener respuesta.
+	s.apuntarLaRecepcion(r, a, salida, time.Since(arranqueDelLote))
+
 	httpx.JSON(w, r, http.StatusOK, salida)
 }
 

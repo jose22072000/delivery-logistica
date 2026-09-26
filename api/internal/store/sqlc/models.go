@@ -12,6 +12,49 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AvisoAPedidoEstado string
+
+const (
+	AvisoAPedidoEstadoPendiente AvisoAPedidoEstado = "pendiente"
+	AvisoAPedidoEstadoEnviado   AvisoAPedidoEstado = "enviado"
+	AvisoAPedidoEstadoRechazado AvisoAPedidoEstado = "rechazado"
+)
+
+func (e *AvisoAPedidoEstado) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AvisoAPedidoEstado(s)
+	case string:
+		*e = AvisoAPedidoEstado(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AvisoAPedidoEstado: %T", src)
+	}
+	return nil
+}
+
+type NullAvisoAPedidoEstado struct {
+	AvisoAPedidoEstado AvisoAPedidoEstado `json:"aviso_a_pedido_estado"`
+	Valid              bool               `json:"valid"` // Valid is true if AvisoAPedidoEstado is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAvisoAPedidoEstado) Scan(value interface{}) error {
+	if value == nil {
+		ns.AvisoAPedidoEstado, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AvisoAPedidoEstado.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAvisoAPedidoEstado) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AvisoAPedidoEstado), nil
+}
+
 type ColeccionDeLaBajada string
 
 const (
@@ -482,6 +525,21 @@ func (ns NullVehicleStatus) Value() (driver.Value, error) {
 	return string(ns.VehicleStatus), nil
 }
 
+type AvisosAPedido struct {
+	ID         uuid.UUID          `json:"id"`
+	PedidoID   string             `json:"pedido_id"`
+	Folio      *string            `json:"folio"`
+	Estado     string             `json:"estado"`
+	Nota       *string            `json:"nota"`
+	OcurrioAt  pgtype.Timestamptz `json:"ocurrio_at"`
+	Situacion  AvisoAPedidoEstado `json:"situacion"`
+	Intentos   int32              `json:"intentos"`
+	Motivo     *string            `json:"motivo"`
+	ResueltoAt pgtype.Timestamptz `json:"resuelto_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type BajasDeLaBajada struct {
 	ID        uuid.UUID           `json:"id"`
 	Coleccion ColeccionDeLaBajada `json:"coleccion"`
@@ -555,6 +613,18 @@ type Customer struct {
 	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type EnviosDelWebhook struct {
+	ID         uuid.UUID          `json:"id"`
+	Destino    string             `json:"destino"`
+	Mandados   int32              `json:"mandados"`
+	Aceptados  int32              `json:"aceptados"`
+	Rechazados int32              `json:"rechazados"`
+	Http       *int32             `json:"http"`
+	Motivo     *string            `json:"motivo"`
+	DuracionMs int32              `json:"duracion_ms"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
 type Order struct {
@@ -669,6 +739,17 @@ type Product struct {
 	TraidoAt        pgtype.Timestamptz `json:"traido_at"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type RecepcionesDelWebhook struct {
+	ID         uuid.UUID          `json:"id"`
+	Origen     string             `json:"origen"`
+	Traidos    int32              `json:"traidos"`
+	Escritos   int32              `json:"escritos"`
+	Rechazados int32              `json:"rechazados"`
+	Motivos    *string            `json:"motivos"`
+	DuracionMs int32              `json:"duracion_ms"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
 type Route struct {

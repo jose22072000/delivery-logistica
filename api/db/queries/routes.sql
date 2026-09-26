@@ -474,3 +474,67 @@ WHERE vehicle_id = sqlc.arg('vehiculo_id')
 UPDATE routes SET vehicle_id = NULL
 WHERE vehicle_id = sqlc.arg('vehiculo_id')
   AND (sqlc.narg('sucursal')::uuid IS NULL OR branch_id = sqlc.narg('sucursal')::uuid);
+
+-- ---------------------------------------------------------------------------
+-- El buzón de salida hacia PEDIDO
+-- ---------------------------------------------------------------------------
+--
+-- Se escribe en la MISMA transacción que el resultado de la parada: o los dos o ninguno.
+-- El porqué entero está en `00010_avisos_a_pedido.sql`.
+
+-- name: EncolarAvisoAPedido :exec
+INSERT INTO avisos_a_pedido (pedido_id, folio, estado, nota, ocurrio_at)
+VALUES (
+    sqlc.arg('pedido_id'), sqlc.narg('folio'), sqlc.arg('estado'),
+    sqlc.narg('nota'), sqlc.arg('ocurrio_at')
+);
+
+-- Los que hay que mandar, los más viejos primero: un aviso no se queda al fondo porque
+-- entren otros. `FOR UPDATE SKIP LOCKED` para que dos procesos del reparto —la api y el
+-- espejo— no manden el mismo dos veces.
+-- name: AvisosAPedidoPendientes :many
+SELECT id, pedido_id, folio, estado, nota, ocurrio_at, intentos
+FROM avisos_a_pedido
+WHERE situacion = 'pendiente'
+ORDER BY created_at ASC
+LIMIT sqlc.arg('tope')
+FOR UPDATE SKIP LOCKED;
+
+-- name: AvisoAPedidoEnviado :exec
+UPDATE avisos_a_pedido
+SET situacion = 'enviado', intentos = intentos + 1, motivo = NULL,
+    resuelto_at = now(), updated_at = now()
+WHERE id = sqlc.arg('id');
+
+-- PEDIDO dijo que NO, y con su motivo. No se borra: se queda a la vista hasta que una
+-- persona decida (`CLAUDE.md` §4).
+-- name: AvisoAPedidoRechazado :exec
+UPDATE avisos_a_pedido
+SET situacion = 'rechazado', intentos = intentos + 1,
+    motivo = sqlc.arg('motivo'), resuelto_at = now(), updated_at = now()
+WHERE id = sqlc.arg('id');
+
+-- No se pudo ni preguntar —PEDIDO caído, la red—. Sigue PENDIENTE: eso no es un rechazo y
+-- confundirlos daría por perdido lo que sólo estaba esperando.
+-- name: AvisoAPedidoSeReintenta :exec
+UPDATE avisos_a_pedido
+SET intentos = intentos + 1, motivo = sqlc.arg('motivo'), updated_at = now()
+WHERE id = sqlc.arg('id');
+
+-- La pantalla de administración: los últimos avisos, con lo que pasó con cada uno.
+-- name: ListarAvisosAPedido :many
+SELECT id, pedido_id, folio, estado, nota, ocurrio_at, situacion, intentos,
+       motivo, resuelto_at, created_at
+FROM avisos_a_pedido
+WHERE (sqlc.narg('situacion')::aviso_a_pedido_estado IS NULL
+       OR situacion = sqlc.narg('situacion')::aviso_a_pedido_estado)
+ORDER BY created_at DESC
+LIMIT sqlc.arg('tope');
+
+-- Los tres números de arriba de esa pantalla.
+-- name: ContarAvisosAPedido :one
+SELECT
+    count(*) FILTER (WHERE situacion = 'pendiente')::bigint AS pendientes,
+    count(*) FILTER (WHERE situacion = 'enviado')::bigint   AS enviados,
+    count(*) FILTER (WHERE situacion = 'rechazado')::bigint AS rechazados
+FROM avisos_a_pedido;

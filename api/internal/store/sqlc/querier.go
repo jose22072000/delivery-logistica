@@ -69,6 +69,20 @@ type Querier interface {
 	ActualizarTipoDeVehiculo(ctx context.Context, arg ActualizarTipoDeVehiculoParams) (VehicleType, error)
 	ActualizarVehiculo(ctx context.Context, arg ActualizarVehiculoParams) (Vehicle, error)
 	// ---------------------------------------------------------------------------
+	// Lo que sale
+	// ---------------------------------------------------------------------------
+	ApuntarEnvioDelWebhook(ctx context.Context, arg ApuntarEnvioDelWebhookParams) error
+	// EL WEBHOOK, EN LOS DOS SENTIDOS, Y CÓMO VA.
+	//
+	// `avisos_a_pedido` (00010) dice qué pasó con CADA aviso. Estas dos tablas dicen qué pasó
+	// con cada TANDA: si la llamada llegó, qué contestó el otro lado y cuánto tardó. Son
+	// preguntas distintas y las dos hacen falta — un aviso sin enviar puede ser «PEDIDO está
+	// caído» o «PEDIDO lo rechazó», y desde fuera se ven igual.
+	// ---------------------------------------------------------------------------
+	// Lo que entra
+	// ---------------------------------------------------------------------------
+	ApuntarRecepcionDelWebhook(ctx context.Context, arg ApuntarRecepcionDelWebhookParams) error
+	// ---------------------------------------------------------------------------
 	// Asignación de varios camiones a un pedido
 	// ---------------------------------------------------------------------------
 	// El INSERT va con SELECT y no con VALUES para poder acotar por sucursal: `order_vehicles`
@@ -76,6 +90,17 @@ type Querier interface {
 	// pedido. Con VALUES, el id del pedido entra tal cual desde el cliente y un camión de
 	// Holguín acaba colgado de un pedido de La Habana. Cero filas es el 404.
 	AsignarVehiculoAPedido(ctx context.Context, arg AsignarVehiculoAPedidoParams) (AsignarVehiculoAPedidoRow, error)
+	AvisoAPedidoEnviado(ctx context.Context, id uuid.UUID) error
+	// PEDIDO dijo que NO, y con su motivo. No se borra: se queda a la vista hasta que una
+	// persona decida (`CLAUDE.md` §4).
+	AvisoAPedidoRechazado(ctx context.Context, arg AvisoAPedidoRechazadoParams) error
+	// No se pudo ni preguntar —PEDIDO caído, la red—. Sigue PENDIENTE: eso no es un rechazo y
+	// confundirlos daría por perdido lo que sólo estaba esperando.
+	AvisoAPedidoSeReintenta(ctx context.Context, arg AvisoAPedidoSeReintentaParams) error
+	// Los que hay que mandar, los más viejos primero: un aviso no se queda al fondo porque
+	// entren otros. `FOR UPDATE SKIP LOCKED` para que dos procesos del reparto —la api y el
+	// espejo— no manden el mismo dos veces.
+	AvisosAPedidoPendientes(ctx context.Context, tope int32) ([]AvisosAPedidoPendientesRow, error)
 	// Cuántas tarjetas puestas ya no se pueden repartir. Es el aviso de arriba del tablero:
 	// «3 de los que tienes puestos ya no salen». Se cuenta en la base porque la pantalla no
 	// tiene todas las tarjetas cargadas y un aviso que sólo aparece si has bajado hasta la
@@ -195,6 +220,8 @@ type Querier interface {
 	// ruta abierta detrás es una ruta que nadie va a cerrar nunca y que sigue contando como
 	// activa en el panel.
 	CompletarRutasDeVehiculo(ctx context.Context, arg CompletarRutasDeVehiculoParams) (int64, error)
+	// Los tres números de arriba de esa pantalla.
+	ContarAvisosAPedido(ctx context.Context) (ContarAvisosAPedidoRow, error)
 	// El total, con el MISMO where. Es el `total` de la respuesta: se cuenta antes del filtro
 	// de distancia exacto, igual que en el contrato, y por eso puede ser mayor que `count`.
 	ContarClientes(ctx context.Context, arg ContarClientesParams) (int64, error)
@@ -449,6 +476,13 @@ type Querier interface {
 	// «ENTREGA A DOMICILIO» que no sale en la pantalla pero sí baja al teléfono es el mismo
 	// cobro duplicado, en el aparato que trabaja sin conexión y sin nadie que lo desmienta.
 	DiferenciasDeProductos(ctx context.Context, arg DiferenciasDeProductosParams) ([]Product, error)
+	// ---------------------------------------------------------------------------
+	// El buzón de salida hacia PEDIDO
+	// ---------------------------------------------------------------------------
+	//
+	// Se escribe en la MISMA transacción que el resultado de la parada: o los dos o ninguno.
+	// El porqué entero está en `00010_avisos_a_pedido.sql`.
+	EncolarAvisoAPedido(ctx context.Context, arg EncolarAvisoAPedidoParams) error
 	// Engancha un pedido a la ruta como parada número `stop_order`.
 	//
 	// `route_id` y `ultima_ruta_id` se ponen los DOS y valen lo mismo hoy: el primero dice
@@ -577,6 +611,8 @@ type Querier interface {
 	//
 	// Va sin alcance: la bajada entra con clave de servicio y recorre las ocho sucursales.
 	GuardarVentaFacturada(ctx context.Context, arg GuardarVentaFacturadaParams) (GuardarVentaFacturadaRow, error)
+	// La pantalla de administración: los últimos avisos, con lo que pasó con cada uno.
+	ListarAvisosAPedido(ctx context.Context, arg ListarAvisosAPedidoParams) ([]ListarAvisosAPedidoRow, error)
 	// Clientes: espejo de Ventra vía PEDIDO. Sólo los GEOLOCALIZADOS — sin coordenadas no se
 	// cotiza y no hay parada que visitar.
 	//
@@ -637,6 +673,7 @@ type Querier interface {
 	// todavía no se sabe, y pintar «cabe» cuando nadie ha dicho en qué va es peor que no
 	// pintar nada.
 	ListarColumnasDelTablero(ctx context.Context, arg ListarColumnasDelTableroParams) ([]ListarColumnasDelTableroRow, error)
+	ListarEnviosDelWebhook(ctx context.Context, tope int32) ([]EnviosDelWebhook, error)
 	// ---------------------------------------------------------------------------
 	// Monedas
 	// ---------------------------------------------------------------------------
@@ -797,6 +834,7 @@ type Querier interface {
 	// por nombre» son 2.000 cualesquiera y no hay última fila servida que devolver. La bajada
 	// va por `DiferenciasDeProductos`, aquí abajo.
 	ListarProductos(ctx context.Context, arg ListarProductosParams) ([]Product, error)
+	ListarRecepcionesDelWebhook(ctx context.Context, tope int32) ([]RecepcionesDelWebhook, error)
 	// Los renglones de UN pedido, en el orden del papel del vendedor. `linea` no es decorativa:
 	// la hoja del despacho tiene que salir igual que lo que el vendedor escribió.
 	//
@@ -1175,6 +1213,14 @@ type Querier interface {
 	// pie. Los NULL se cuentan aparte de los `sin_factura`: no son lo mismo y confundirlos es
 	// exactamente lo que hay que poder ver.
 	ResumenDeCotejo(ctx context.Context, arg ResumenDeCotejoParams) (ResumenDeCotejoRow, error)
+	// ---------------------------------------------------------------------------
+	// Cómo va, en una lectura
+	// ---------------------------------------------------------------------------
+	//
+	// Las horas de la última tanda de cada lado son lo primero que se mira: un webhook que
+	// lleva seis horas sin recibir nada no da ningún error, sólo deja de pasar cosas. Y
+	// `null` es «nunca», que no es lo mismo que «hace mucho» y se dice con otras palabras.
+	ResumenDelWebhook(ctx context.Context) (ResumenDelWebhookRow, error)
 	// ---------------------------------------------------------------------------
 	// Pre-despacho: qué mercancía hay que sacar del almacén
 	// ---------------------------------------------------------------------------
