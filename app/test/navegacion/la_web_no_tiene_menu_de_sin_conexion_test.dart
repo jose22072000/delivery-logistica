@@ -45,13 +45,59 @@ void main() {
           .toSet(),
     );
 
-    // Lo que hay en la web tiene que ser un subconjunto de lo del aparato: la
-    // web nunca puede tener una entrada de menú que el aparato no tenga, y las
-    // que dependen de `trabajaSinConexion` tienen que haberse caído.
+    // LO QUE LA WEB TIENE DE MÁS SÓLO PUEDE SER ALGO QUE EL APARATO NO REGISTRE.
+    //
+    // La versión anterior exigía que el menú de la web fuera un SUBCONJUNTO del
+    // del aparato, y eso se rompió el 26/09/2026 al poner «Canal con PEDIDO» en
+    // el menú: es una pantalla que **sólo existe en la web** —en el aparato
+    // `registrarWebhook()` devuelve `null`— y por tanto no puede estar en un
+    // subconjunto de nada.
+    //
+    // La regla precisa, y es la que se quería desde el principio: una pantalla de
+    // SIN CONEXIÓN existe en el aparato y lo que no puede es asomar en la web. Si
+    // una ruta **no está registrada en el aparato**, no es de sin-conexión: es
+    // web-only a propósito, y el sitio donde eso se decide es su `registro.dart`.
+    //
+    // Se compara contra TODAS las rutas del aparato, no sólo las de su menú: una
+    // pantalla de sin-conexión que alguien saque del menú del aparato y meta en
+    // el de la web seguiría existiendo allí, así que seguiría cazándose.
+    final todasLasDelAparato = pantallasDeLaAplicacion()
+        .map((p) => p.ruta)
+        .toSet();
+    final soloDeLaWeb = await Destino.comoSiFueraWeb(
+      () async => pantallasDeLaAplicacion().map((p) => p.ruta).toSet(),
+    );
+
     expect(
-      enLaWeb.difference(deSinConexion),
+      enLaWeb.difference(deSinConexion).difference(
+        soloDeLaWeb.difference(todasLasDelAparato),
+      ),
       isEmpty,
-      reason: 'la web tiene entradas de menú que el aparato no tiene',
+      reason:
+          'la web tiene en el menú una pantalla que el aparato TAMBIÉN registra '
+          'pero no le pone en el menú. Eso es el fallo de siempre: una pantalla '
+          'de sin-conexión asomando en la web',
+    );
+
+    // Y LA OTRA MITAD: que la web-only siga estando donde tiene que estar. Sin
+    // esto, el hueco que acabo de abrir en la comprobación de arriba se podría
+    // llenar con cualquier cosa y nadie se enteraría.
+    expect(
+      enLaWeb.contains('/admin/webhook'),
+      isTrue,
+      reason:
+          'EL CANAL CON PEDIDO NO SALE EN EL MENÚ DE LA WEB, y es el único sitio '
+          'donde se mira: Jose entró por la dirección y dijo «no lo veo». Va con '
+          '`enElMenu: true` y `soloParaRoles`, y quién lo ve de verdad lo decide '
+          'el 403 de la api',
+    );
+    expect(
+      todasLasDelAparato.contains('/admin/webhook'),
+      isFalse,
+      reason:
+          'EL CANAL CON PEDIDO SE COLÓ EN EL APARATO. El repartidor está en la '
+          'calle y esto son colas y códigos HTTP de otro sistema; y la APK '
+          'trabaja sin señal, donde este dato no significa nada',
     );
     expect(
       enLaWeb.contains('/mapa-sin-conexion'),

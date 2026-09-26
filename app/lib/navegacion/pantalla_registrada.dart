@@ -57,6 +57,7 @@ class PantallaRegistrada {
     required this.construir,
     this.icono,
     this.enElMenu = false,
+    this.soloParaRoles = const <String>[],
     this.conArmazon = true,
     this.subrutas = const <RouteBase>[],
   });
@@ -76,6 +77,23 @@ class PantallaRegistrada {
   /// dice que la pantalla existe pero NO esta en el menu; se llega por URL y
   /// desde las acciones rapidas del Panel.
   final bool enElMenu;
+
+  /// Los roles a los que se le ENSENA en el menu. Vacio = a todos.
+  ///
+  /// Solo la del canal con PEDIDO lo usa hoy: `DESARROLLADOR` y `SUPER ADMIN`.
+  /// Jose, 26/09/2026, entrando por URL y no encontrandola: «tampoco agregaste el
+  /// link en el menu para poder verlo como super admin».
+  ///
+  /// **ESTO NO ES UN PERMISO Y NO PUEDE SERLO.** El rol viaja en el token del
+  /// aparato y cualquiera con un editor de texto escribe el que quiera; esconder
+  /// una entrada del menu no cierra nada, porque la ruta sigue alcanzable
+  /// escribiendo la direccion. Sirve para **no estorbar**: que quien no tenga
+  /// nada que hacer ahi no tropiece con una pantalla de colas y codigos HTTP.
+  ///
+  /// El cerrojo de verdad esta en la api —`auth.PuedeMirarElCanal`, que contesta
+  /// 403— y es el que hay que cambiar si alguna vez hay que cerrar o abrir esto.
+  /// Se prueba alli con los siete roles, uno a uno.
+  final List<String> soloParaRoles;
 
   /// Si va DENTRO del armazon (barra lateral, barra superior y franja de
   /// estado). Lo normal es que si, y por eso es el valor por defecto.

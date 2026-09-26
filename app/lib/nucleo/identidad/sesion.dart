@@ -113,7 +113,29 @@ class Sesion {
   /// palabra que se pinta debajo del nombre.
   final String rol;
 
-  bool get esSuperAdmin => roles.contains('SUPER ADMIN');
+  bool get esSuperAdmin => tieneAlguno(const ['SUPER ADMIN']);
+
+  /// Si lleva alguno de esos roles, **mirando los DOS sitios**: el [rol] en
+  /// singular que manda auth y la lista [roles].
+  ///
+  /// Son dos porque auth los manda por separado: `role` sale del rol por defecto
+  /// de la cuenta y `roles` de sus membresias. Una cuenta puede traer el suyo en
+  /// uno y no en el otro, y mirar solo la lista deja fuera a quien lo tenga en el
+  /// singular — sin error, simplemente no ve lo que le toca. Es la misma cuenta
+  /// que hace `auth.Usuario.tieneAlguno` en la api, y a proposito: **si los dos
+  /// lados no miran lo mismo, la pantalla se esconde y el servidor la abre, o al
+  /// contrario.**
+  ///
+  /// NO DECIDE PERMISOS, y eso no es un detalle: el rol viaja en el token y
+  /// cualquiera con un editor de texto puede escribir el que quiera. Sirve para
+  /// **no estorbar** —esconder del menu lo que a alguien no le toca— y el cerrojo
+  /// de verdad lo pone el servidor con un 403.
+  bool tieneAlguno(List<String> cuales) {
+    for (final c in cuales) {
+      if (rol == c || roles.contains(c)) return true;
+    }
+    return false;
+  }
 
   /// `true` cuando la sesion la lleva el APARATO: un par de tokens guardado.
   ///

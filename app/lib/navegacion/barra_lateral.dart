@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../diseno/anchos.dart';
 import '../diseno/colores.dart';
 import '../diseno/tema.dart';
+import '../nucleo/identidad/sesion.dart';
 import 'pantalla_registrada.dart';
 
 /// La barra lateral: 256 px, alto completo, fija a la izquierda en escritorio.
@@ -13,9 +14,35 @@ class BarraLateral extends StatelessWidget {
   const BarraLateral({
     required this.pantallas,
     required this.rutaActual,
+    this.quienMira,
     this.dentroDeCajon = false,
     super.key,
   });
+
+  /// Quien tiene la barra delante, para no ensenarle lo que no le toca.
+  ///
+  /// `null` mientras la sesion se esta leyendo, y entonces se esconde lo que
+  /// tenga roles: **el lado seguro es no ensenarlo**. Sale un instante despues,
+  /// cuando la sesion resuelve y esto se repinta.
+  final Sesion? quienMira;
+
+  /// Que entradas ve quien mira. **Funcion pura y aparte a proposito**: es lo que
+  /// se puede probar sin montar la barra ni levantar Riverpod.
+  ///
+  /// ESTO NO ES UN PERMISO. El rol viaja en el token del aparato y cualquiera con
+  /// un editor de texto escribe el que quiera; esconder una entrada no cierra
+  /// nada, porque la ruta sigue alcanzable escribiendo la direccion. El cerrojo
+  /// esta en la api, que contesta 403. Ver [PantallaRegistrada.soloParaRoles].
+  static List<PantallaRegistrada> entradasPara(
+    List<PantallaRegistrada> pantallas,
+    Sesion? quien,
+  ) => [
+    for (final p in pantallas)
+      if (p.enElMenu &&
+          (p.soloParaRoles.isEmpty ||
+              (quien?.tieneAlguno(p.soloParaRoles) ?? false)))
+        p,
+  ];
 
   final List<PantallaRegistrada> pantallas;
   final String rutaActual;
@@ -27,7 +54,7 @@ class BarraLateral extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final enElMenu = pantallas.where((p) => p.enElMenu).toList();
+    final enElMenu = entradasPara(pantallas, quienMira);
 
     return Container(
       width: Anchos.barraLateral,

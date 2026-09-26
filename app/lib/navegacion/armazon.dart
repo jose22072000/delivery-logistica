@@ -8,6 +8,7 @@ import 'aviso_de_version_nueva.dart';
 import 'barra_lateral.dart';
 import 'barra_superior.dart';
 import 'franja_de_estado.dart';
+import 'menu_de_cuenta.dart';
 import 'pantalla_registrada.dart';
 
 /// EL ARMAZON COMUN de todas las pantallas.
@@ -77,6 +78,12 @@ class Armazon extends ConsumerWidget {
     final actual = pantallas.firstWhereOrNull((p) => p.ruta == rutaActual);
     final titulo = actual?.titulo ?? '';
 
+    // QUIEN MIRA, para esconder del menu lo que no le toca. Se mira por `.value`
+    // y no se espera: mientras la sesion se lee, las entradas con rol no salen y
+    // aparecen al resolver —esto se repinta—. No es un permiso; el cerrojo lo
+    // pone la api con un 403. Ver `PantallaRegistrada.soloParaRoles`.
+    final quienMira = ref.watch(sesionParaElMenuProvider).value;
+
     return Scaffold(
       // En movil la barra lateral vive en el cajon del Scaffold: fuera de
       // pantalla, con velo, y pulsar fuera cierra (§8.1).
@@ -87,6 +94,7 @@ class Armazon extends ConsumerWidget {
               child: BarraLateral(
                 pantallas: pantallas,
                 rutaActual: rutaActual,
+                quienMira: quienMira,
                 dentroDeCajon: true,
               ),
             ),
@@ -140,7 +148,11 @@ class Armazon extends ConsumerWidget {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                BarraLateral(pantallas: pantallas, rutaActual: rutaActual),
+                BarraLateral(
+                  pantallas: pantallas,
+                  rutaActual: rutaActual,
+                  quienMira: quienMira,
+                ),
                 Expanded(child: columna),
               ],
             );
