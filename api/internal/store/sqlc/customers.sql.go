@@ -427,6 +427,13 @@ DO UPDATE SET
     lng             = excluded.lng,
     sucursal_codigo = excluded.sucursal_codigo,
     synced_at       = now()
+WHERE (customers.name, customers.phone, customers.address, customers.municipio,
+       customers.zona, customers.codigo, customers.vendedor, customers.lat,
+       customers.lng, customers.sucursal_codigo)
+   IS DISTINCT FROM
+      (excluded.name, excluded.phone, excluded.address, excluded.municipio,
+       excluded.zona, excluded.codigo, excluded.vendedor, excluded.lat,
+       excluded.lng, excluded.sucursal_codigo)
 RETURNING id, source, external_id, name, sucursal_codigo, synced_at
 `
 
@@ -465,6 +472,34 @@ type GuardarClienteDelEspejoRow struct {
 // `synced_at` es «cuándo lo trajo el origen» y NO es `updated_at`, que lo mueve el trigger
 // al tocar la fila. Confundirlas rompe el espejo: la segunda cambia aunque el dato de
 // Ventra sea de hace tres días porque la VPN lleva caída desde el lunes.
+// UNA FILA QUE LLEGA IGUAL NO SE TOCA.
+//
+// Esta línea es la que arregla el número más gordo del servidor. Medido el 26/09/2026 en
+// la base de producción:
+//
+//	customers   8.673 filas  ·  98.037.974 actualizaciones
+//
+// **Cada cliente reescrito unas once mil veces con exactamente lo mismo.** El espejo
+// repasa cada minuto, sucursal por sucursal, y además siempre los últimos tres días: sin
+// esta guarda, cada repaso vuelve a escribir las 8.673 filas aunque no haya cambiado
+// nada. Eso es el 36 % de la CPU del Postgres con el servidor parado y nadie trabajando,
+// y arrastra al resto: la búsqueda de pedidos figuraba como la consulta más cara —27
+// horas de CPU acumuladas— cuando medida sola tarda 23 ms. No es lenta: es que compite.
+//
+// Con el `WHERE`, una fila idéntica no genera ni escritura, ni WAL, ni trabajo para el
+// `autovacuum`, que es la otra mitad del 36 %.
+//
+// `IS DISTINCT FROM` Y NO `<>`: con `<>`, un nulo a cada lado da NULL —ni cierto ni
+// falso—, el `WHERE` no se cumple y la fila no se actualiza NUNCA. Un cliente al que le
+// ponen el teléfono por primera vez se quedaría sin él para siempre, y en silencio, que
+// es peor que las once mil escrituras.
+//
+// `synced_at` NO entra en la comparación, y es el detalle del que depende todo: es la
+// hora de la última vez que se miró, así que cambia SIEMPRE. Metiéndolo, la fila siempre
+// sería distinta y esta guarda no serviría para nada mientras parece que sí.
+//
+// La señal de que funcionó: `n_tup_upd` de `customers` deja de subir cuando no pasa nada.
+// Hoy sube unas 283 veces por segundo.
 func (q *Queries) GuardarClienteDelEspejo(ctx context.Context, arg GuardarClienteDelEspejoParams) (GuardarClienteDelEspejoRow, error) {
 	row := q.db.QueryRow(ctx, guardarClienteDelEspejo,
 		arg.Source,

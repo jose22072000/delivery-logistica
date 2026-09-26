@@ -2,8 +2,11 @@ package espejo
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"procovar/reparto-api/internal/alcance"
 	"procovar/reparto-api/internal/store/sqlc"
@@ -82,6 +85,20 @@ func (b BaseDelReparto) GuardarCliente(ctx context.Context, c ClienteDeFuera) er
 		Lng:            *c.Longitud,
 		SucursalCodigo: textoONada(c.SucursalCodigo),
 	})
+	// SIN FILA NO ES UN FALLO: ES QUE NO HABÍA NADA QUE CAMBIAR.
+	//
+	// El upsert lleva desde el 26/09/2026 un `WHERE ... IS DISTINCT FROM ...` que evita
+	// reescribir una fila idéntica — es lo que corta los 98 millones de actualizaciones
+	// sobre 8.673 clientes—. Pero con ese `WHERE`, el `RETURNING` de una fila que no
+	// cambia **no devuelve nada**, y la consulta es `:one`: sale `pgx.ErrNoRows`.
+	//
+	// Devolverlo tal cual convierte el caso NORMAL —un repaso en el que no cambió nada,
+	// que es la inmensa mayoría de las vueltas— en un error por cliente, y el ciclo del
+	// espejo se cae entero. O sea: la optimización habría tumbado la sincronización el
+	// primer minuto. Aquí es donde se traduce a lo que de verdad significa.
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
 	return err
 }
 
