@@ -84,3 +84,33 @@ func LlaveDeServicio(esperada string) httpx.Medio {
 		})
 	}
 }
+
+// ExigirDesarrollador: sólo el rol DESARROLLADOR pasa.
+//
+// Es el listón más alto y se usa donde lo que hay detrás no es administrar la empresa sino
+// mirar el estado de las tuberías: colas, reintentos, códigos HTTP y motivos de error de
+// otro sistema. Ver `Usuario.EsDesarrollador`.
+//
+// Contesta 403 y NO 404. Esconder que la ruta existe suena más seguro y no lo es: quien
+// llega aquí ya tiene sesión, y un 404 le haría pensar que la aplicación está rota. Lo que
+// no se dice es qué hay dentro.
+func ExigirDesarrollador(siguiente http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := De(r)
+		if u == nil {
+			httpx.Registro(r).Error("ExigirDesarrollador sin Exigir delante", "ruta", r.URL.Path)
+			httpx.NoAutorizado(w, r)
+			return
+		}
+		if !u.EsDesarrollador() {
+			httpx.Error(w, r, http.StatusForbidden, MsgSoloDesarrollador)
+			return
+		}
+		siguiente.ServeHTTP(w, r)
+	})
+}
+
+// MsgSoloDesarrollador: el literal que lee quien llega sin serlo. Dice QUÉ falta, no «no
+// autorizado»: así quien lo vea sabe que no es un fallo de la aplicación.
+const MsgSoloDesarrollador = "Esta pantalla es del desarrollador: mira cómo van las " +
+	"tuberías con PEDIDO y no es de administrar el reparto."

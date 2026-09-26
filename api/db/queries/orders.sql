@@ -774,6 +774,29 @@ RETURNING id, branch_id, external_id, (xmax = 0)::boolean AS es_nuevo;
 -- Los renglones se reescriben enteros en cada pasada del espejo: PEDIDO puede haber
 -- quitado una línea, y un UPDATE línea a línea dejaría la vieja colgada. Se borran y se
 -- vuelven a poner dentro de la MISMA transacción que el upsert de arriba.
+-- LOS RENGLONES QUE YA HAY, para no reescribirlos si son los mismos.
+--
+-- Hoy los renglones se borran y se reinsertan ENTEROS en cada pasada del espejo. Medido en
+-- producción el 26/09/2026:
+--
+--     order_items   7.450 filas  ·  8.892.252 insertados  ·  8.884.802 borrados
+--
+-- Mil ciento noventa veces cada renglón, casi siempre para dejarlo exactamente igual. Es
+-- la otra mitad del 36 % de CPU del Postgres, junto con los 98 millones de `customers`.
+--
+-- Se leen SÓLO los campos que se comparan: `id` y las fechas no entran, porque cambian
+-- aunque el renglón sea el mismo y harían que la comparación diera «distinto» siempre — la
+-- guarda parecería puesta y no serviría de nada.
+--
+-- `ORDER BY linea` para que dos lecturas del mismo pedido salgan en el mismo orden: sin
+-- eso, comparar dos listas iguales en otro orden dice «cambió» y se reescribe igual.
+-- name: RenglonesDePedidoParaComparar :many
+SELECT linea, description, quantity, packs, product_id, nombre, codigo,
+       almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso
+FROM order_items
+WHERE order_id = sqlc.arg('pedido_id')
+ORDER BY linea ASC;
+
 -- name: BorrarRenglonesDePedido :exec
 DELETE FROM order_items WHERE order_id = sqlc.arg('pedido_id');
 

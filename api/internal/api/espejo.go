@@ -43,13 +43,20 @@ import (
 
 // rutasEspejo monta las tres. Lo llama `Rutas()` en servidor.go.
 func (s *Servidor) rutasEspejo(rt *httpx.Router, sesion, admin []httpx.Medio) {
-	// CÓMO VA EL WEBHOOK, sólo para administración y FUERA DEL MENÚ.
+	// CÓMO VA EL WEBHOOK. SÓLO EL DESARROLLADOR, y fuera del menú.
 	//
-	// No son datos de una sucursal: es el estado de una tubería entre dos sistemas, con
-	// motivos de error de PEDIDO dentro. A quien arma rutas no le sirve y sólo puede
-	// confundirle. Jose, 26/09/2026: «esto es para administración, esta vista no la puede
-	// ver nadie». Ver `estado_del_webhook.go`.
-	rt.ManejarFunc(http.MethodGet, "/api/admin/webhook", s.estadoDelWebhook, admin...)
+	// No son datos de una sucursal ni de administrar la empresa: es el estado de una
+	// tubería entre dos sistemas, con colas, reintentos, códigos HTTP y motivos de error
+	// de PEDIDO dentro. Jose, 26/09/2026: «esto es para administración, esta vista no la
+	// puede ver nadie» y, más claro todavía: «que sólo lo pueda ver yo, eso no lo puede
+	// ver más nadie, sólo yo, el desarrollador».
+	//
+	// Por eso NO va con `admin`: un ADMINISTRADOR administra su sucursal y un SUPER ADMIN
+	// toda la empresa, y ninguno de los dos tiene nada que hacer aquí. Ver
+	// `auth.ExigirDesarrollador` y `estado_del_webhook.go`.
+	soloDesarrollador := append(append([]httpx.Medio{}, sesion...), auth.ExigirDesarrollador)
+	rt.ManejarFunc(http.MethodGet, "/api/admin/webhook", s.estadoDelWebhook, soloDesarrollador...)
+	_ = admin
 
 	// `products/sync` admite LAS DOS PUERTAS —clave de servicio o sesión— porque la
 	// dispara un temporizador y también un administrador que ve el catálogo viejo y le

@@ -538,6 +538,28 @@ func (a *Acotado) EspejoGuardarPedido(
 		}
 		id, nuevo = fila.ID, fila.EsNuevo
 
+		// SI LOS RENGLONES SON LOS MISMOS, NO SE TOCA NADA.
+		//
+		// Medido en producción el 26/09/2026:
+		//
+		//     order_items   7.450 filas · 8.892.252 insertados · 8.884.802 borrados
+		//
+		// Mil ciento noventa veces cada renglón, casi siempre para dejarlo exactamente
+		// igual: el espejo repasa cada minuto y borra y reinserta enteros en cada pasada.
+		// Es la otra mitad del 36 % de CPU del Postgres, junto con los 98 millones de
+		// `customers`.
+		//
+		// La lectura cuesta un índice por `order_id` —el que se puso el 26/09— y ahorra un
+		// borrado y N inserciones con su WAL y su autovacuum. Cuando SÍ cambió, se paga la
+		// lectura de más, que es lo barato de las dos.
+		iguales, err := dentro.renglonesIguales(ctx, id, renglones)
+		if err != nil {
+			return err
+		}
+		if iguales {
+			return nil
+		}
+
 		if err := dentro.q.BorrarRenglonesDePedido(ctx, id); err != nil {
 			return err
 		}
@@ -613,4 +635,74 @@ func (a *Acotado) EspejoBorrarClientesQueYaNoVienen(ctx context.Context, ids []s
 		Source:      sqlc.ProcedenciaPedido,
 		ExternalIds: ids,
 	})
+}
+
+// renglonesIguales dice si lo que hay guardado es exactamente lo que viene.
+//
+// SE COMPARA LO QUE SE ESCRIBE Y NADA MÁS. Ni el `id` ni las fechas entran: cambian aunque
+// el renglón sea el mismo y harían que la comparación dijera «distinto» siempre — la
+// guarda parecería puesta y no serviría de nada, que es peor que no tenerla porque nadie
+// vuelve a mirarla.
+//
+// El orden lo fija el `ORDER BY linea` de la consulta y el `linea` de lo que viene, que es
+// la POSICIÓN ORIGINAL en el pedido. Sin un orden estable, dos listas iguales en distinto
+// orden se leerían como un cambio y se reescribirían igual.
+//
+// Distinto número de renglones es distinto y se sale antes: es el caso de una línea que
+// PEDIDO quitó, y ése hay que reescribirlo sí o sí o el despacho prepara mercancía que el
+// cliente ya no pidió.
+func (a *Acotado) renglonesIguales(
+	ctx context.Context, pedido uuid.UUID, vienen []sqlc.CrearRenglonDePedidoParams,
+) (bool, error) {
+	hay, err := a.q.RenglonesDePedidoParaComparar(ctx, pedido)
+	if err != nil {
+		return false, err
+	}
+	if len(hay) != len(vienen) {
+		return false, nil
+	}
+	for i, h := range hay {
+		v := vienen[i]
+		if h.Linea != v.Linea ||
+			h.Description != v.Description ||
+			h.Quantity != v.Quantity ||
+			!mismoFlotante(h.Packs, v.Packs) ||
+			h.ProductID != v.ProductID ||
+			!mismoTexto(h.Nombre, v.Nombre) ||
+			!mismoTexto(h.Codigo, v.Codigo) ||
+			!mismoTexto(h.AlmacenNombre, v.AlmacenNombre) ||
+			!mismoBooleano(h.Caso, v.Caso) ||
+			!mismoFlotante(h.PesoUnitarioKg, v.PesoUnitarioKg) ||
+			!mismoFlotante(h.PesoLineaKg, v.PesoLineaKg) ||
+			!mismoTexto(h.OrigenPeso, v.OrigenPeso) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// Los comparadores de punteros. `product_id` no lleva uno: es un `pgtype.UUID`, un struct
+// comparable, y `!=` ya distingue el nulo —`Valid: false`— de un id de verdad.
+// DOS NULOS SON IGUALES, y un nulo contra un valor es
+// distinto: es el mismo criterio que `IS DISTINCT FROM` en SQL, escrito en Go para que las
+// dos guardas —la de `customers` y ésta— digan lo mismo.
+func mismoTexto(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func mismoFlotante(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func mismoBooleano(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

@@ -145,9 +145,6 @@ type Querier interface {
 	// Con :exec no hay forma de distinguirlo de un borrado hecho.
 	BorrarPedido(ctx context.Context, arg BorrarPedidoParams) (int64, error)
 	BorrarProducto(ctx context.Context, id uuid.UUID) (int64, error)
-	// Los renglones se reescriben enteros en cada pasada del espejo: PEDIDO puede haber
-	// quitado una línea, y un UPDATE línea a línea dejaría la vieja colgada. Se borran y se
-	// vuelven a poner dentro de la MISMA transacción que el upsert de arriba.
 	BorrarRenglonesDePedido(ctx context.Context, pedidoID uuid.UUID) error
 	BorrarRuta(ctx context.Context, arg BorrarRutaParams) (int64, error)
 	BorrarSucursal(ctx context.Context, arg BorrarSucursalParams) (int64, error)
@@ -1214,6 +1211,26 @@ type Querier interface {
 	// en su sitio por cercanía. Devuelve la columna y la posición que tenía para poder cerrar
 	// el hueco sin volver a preguntar.
 	QuitarPedidoDelTablero(ctx context.Context, arg QuitarPedidoDelTableroParams) (QuitarPedidoDelTableroRow, error)
+	// Los renglones se reescriben enteros en cada pasada del espejo: PEDIDO puede haber
+	// quitado una línea, y un UPDATE línea a línea dejaría la vieja colgada. Se borran y se
+	// vuelven a poner dentro de la MISMA transacción que el upsert de arriba.
+	// LOS RENGLONES QUE YA HAY, para no reescribirlos si son los mismos.
+	//
+	// Hoy los renglones se borran y se reinsertan ENTEROS en cada pasada del espejo. Medido en
+	// producción el 26/09/2026:
+	//
+	//     order_items   7.450 filas  ·  8.892.252 insertados  ·  8.884.802 borrados
+	//
+	// Mil ciento noventa veces cada renglón, casi siempre para dejarlo exactamente igual. Es
+	// la otra mitad del 36 % de CPU del Postgres, junto con los 98 millones de `customers`.
+	//
+	// Se leen SÓLO los campos que se comparan: `id` y las fechas no entran, porque cambian
+	// aunque el renglón sea el mismo y harían que la comparación diera «distinto» siempre — la
+	// guarda parecería puesta y no serviría de nada.
+	//
+	// `ORDER BY linea` para que dos lecturas del mismo pedido salgan en el mismo orden: sin
+	// eso, comparar dos listas iguales en otro orden dice «cambió» y se reescribe igual.
+	RenglonesDePedidoParaComparar(ctx context.Context, pedidoID uuid.UUID) ([]RenglonesDePedidoParaCompararRow, error)
 	// Los renglones que el catálogo NO sabe pesar, contados por nombre. Es la lista que hay
 	// que llevarle a quien mantiene el catálogo de Ventra: sin ella, `ordersSinPeso` dice que
 	// hay un problema pero no dice de qué producto.

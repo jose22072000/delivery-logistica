@@ -189,9 +189,6 @@ const borrarRenglonesDePedido = `-- name: BorrarRenglonesDePedido :exec
 DELETE FROM order_items WHERE order_id = $1
 `
 
-// Los renglones se reescriben enteros en cada pasada del espejo: PEDIDO puede haber
-// quitado una línea, y un UPDATE línea a línea dejaría la vieja colgada. Se borran y se
-// vuelven a poner dentro de la MISMA transacción que el upsert de arriba.
 func (q *Queries) BorrarRenglonesDePedido(ctx context.Context, pedidoID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, borrarRenglonesDePedido, pedidoID)
 	return err
@@ -2253,6 +2250,81 @@ func (q *Queries) PesosDelCatalogoPorFuente(ctx context.Context, source Proceden
 	for rows.Next() {
 		var i PesosDelCatalogoPorFuenteRow
 		if err := rows.Scan(&i.ID, &i.PesoGuardado, &i.PesoCatalogo); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const renglonesDePedidoParaComparar = `-- name: RenglonesDePedidoParaComparar :many
+SELECT linea, description, quantity, packs, product_id, nombre, codigo,
+       almacen_nombre, caso, peso_unitario_kg, peso_linea_kg, origen_peso
+FROM order_items
+WHERE order_id = $1
+ORDER BY linea ASC
+`
+
+type RenglonesDePedidoParaCompararRow struct {
+	Linea          int32       `json:"linea"`
+	Description    string      `json:"description"`
+	Quantity       float64     `json:"quantity"`
+	Packs          *float64    `json:"packs"`
+	ProductID      pgtype.UUID `json:"product_id"`
+	Nombre         *string     `json:"nombre"`
+	Codigo         *string     `json:"codigo"`
+	AlmacenNombre  *string     `json:"almacen_nombre"`
+	Caso           *bool       `json:"caso"`
+	PesoUnitarioKg *float64    `json:"peso_unitario_kg"`
+	PesoLineaKg    *float64    `json:"peso_linea_kg"`
+	OrigenPeso     *string     `json:"origen_peso"`
+}
+
+// Los renglones se reescriben enteros en cada pasada del espejo: PEDIDO puede haber
+// quitado una línea, y un UPDATE línea a línea dejaría la vieja colgada. Se borran y se
+// vuelven a poner dentro de la MISMA transacción que el upsert de arriba.
+// LOS RENGLONES QUE YA HAY, para no reescribirlos si son los mismos.
+//
+// Hoy los renglones se borran y se reinsertan ENTEROS en cada pasada del espejo. Medido en
+// producción el 26/09/2026:
+//
+//	order_items   7.450 filas  ·  8.892.252 insertados  ·  8.884.802 borrados
+//
+// Mil ciento noventa veces cada renglón, casi siempre para dejarlo exactamente igual. Es
+// la otra mitad del 36 % de CPU del Postgres, junto con los 98 millones de `customers`.
+//
+// Se leen SÓLO los campos que se comparan: `id` y las fechas no entran, porque cambian
+// aunque el renglón sea el mismo y harían que la comparación diera «distinto» siempre — la
+// guarda parecería puesta y no serviría de nada.
+//
+// `ORDER BY linea` para que dos lecturas del mismo pedido salgan en el mismo orden: sin
+// eso, comparar dos listas iguales en otro orden dice «cambió» y se reescribe igual.
+func (q *Queries) RenglonesDePedidoParaComparar(ctx context.Context, pedidoID uuid.UUID) ([]RenglonesDePedidoParaCompararRow, error) {
+	rows, err := q.db.Query(ctx, renglonesDePedidoParaComparar, pedidoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RenglonesDePedidoParaCompararRow
+	for rows.Next() {
+		var i RenglonesDePedidoParaCompararRow
+		if err := rows.Scan(
+			&i.Linea,
+			&i.Description,
+			&i.Quantity,
+			&i.Packs,
+			&i.ProductID,
+			&i.Nombre,
+			&i.Codigo,
+			&i.AlmacenNombre,
+			&i.Caso,
+			&i.PesoUnitarioKg,
+			&i.PesoLineaKg,
+			&i.OrigenPeso,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

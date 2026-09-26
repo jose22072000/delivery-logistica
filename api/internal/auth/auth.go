@@ -332,3 +332,19 @@ func numero(m map[string]any, clave string) *float64 {
 	}
 	return nil
 }
+
+// EsDesarrollador: EL ÚNICO ROL POR ENCIMA DE TODO, y el listón más alto que hay aquí.
+//
+// No es lo mismo que [EsSuperAdmin], y por eso no se delega en él: un SUPER ADMIN
+// administra todo Procovar, pero hay cosas que no son de administrar la empresa sino de
+// mirar cómo están pegadas las tuberías entre dos sistemas — con motivos de error de
+// PEDIDO dentro, colas, reintentos y códigos HTTP.
+//
+// Jose, 26/09/2026, sobre la pantalla del webhook: «que sólo lo pueda ver yo, eso no lo
+// puede ver más nadie, sólo yo, el desarrollador».
+//
+// Aquí NO entra `rolAdminHeredado`: el `admin` de la web vieja es un puente para que su
+// gente no se quede fuera de su propio sistema, no una llave maestra.
+func (u *Usuario) EsDesarrollador() bool {
+	return u.tieneAlguno(rolDesarrollador)
+}
