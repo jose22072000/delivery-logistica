@@ -147,7 +147,18 @@ COPY docs/almacen-de-origen.casos.json /docs/almacen-de-origen.casos.json
 # aquí fallaría por no encontrar nada que generar. Los tres se fueron juntos, que
 # es como tenían que irse.
 RUN flutter analyze
-RUN flutter test -r failures-only
+# Y `-j $(nproc)`, que es de lo que salio el margen (26/09/2026).
+#
+# Flutter lanza por defecto **`nucleos - 2`** procesos de prueba. En el portatil de
+# Jose, con 12 nucleos, son 10; **en este VPS, con 4, son DOS**. O sea que aqui la
+# suite corria a un quinto del paralelismo de la maquina de desarrollo, no a un
+# tercio como sugerian los nucleos, y por eso el muro aparecio justo al crecer.
+# Medido sobre `test/pantallas/rutas/`, 304 pruebas: **50 s con `-j2` y 28 s con
+# `-j4`**, un 44 % menos y las mismas en verde.
+#
+# `$(nproc)` y no un 4 a mano: el dia que el VPS tenga mas nucleos los usa solo, y
+# el dia que tenga menos no se pelea consigo mismo.
+RUN flutter test -r failures-only -j "$(nproc)"
 
 # Las tres URL. Los valores por defecto son los de producción, los mismos que están
 # escritos en entorno.dart: si alguien construye sin argumentos, sale la de verdad y no
