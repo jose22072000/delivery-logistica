@@ -538,11 +538,47 @@ endLng IS NOT NULL` y, si hay sucursal de ruta, `AND branchId = <sucursal>`.
     "requiereDomicilio": true,
     "facturaEstado": "igual|cambiado|sin_factura|null",
     "orderDate": "string?",
-    "items": [ { "code": "...", "name": "...", "quantity": 1, "packs": 1, "pesoKg": 0, "pesoLineaKg": 0 } ],
+    "items": [ { "code": "...", "name": "...", "quantity": 1, "packs": 1, "pesoKg": 0, "pesoLineaKg": 0,
+                 "almacenCodigo": "2?", "almacenNombre": "AURORA?" } ],
+    "almacen": { "codigo": "2", "nombre": "AURORA", "sucursalCodigo": "STG", "mezclado": false },
     "meta": {}
   } ]
 }
 ```
+
+### `almacen` — DE QUÉ ALMACÉN SALE EL PEDIDO (26/09/2026)
+
+**Lo manda PEDIDO y es opcional.** Sin él, todo se comporta como antes.
+
+De este almacén sale la distancia del domicilio, y de esa distancia el costo que alguien cobra.
+Mientras cada sucursal tuvo UN almacén, «el de la sucursal» y «el del pedido» eran la misma
+frase; con varios, dejaron de serlo. Contado por la sesión de PEDIDO:
+
+```
+SANTIAGO    2.185 líneas desde AURORA · 804 desde PV-STGO · 11 desde PTO MONEDERO
+CAMAGÜEY    2.778 desde PV CAMAGUEY   · 183 desde FLORIDA · 39 desde ALM CAMAGUEY
+GUANTÁNAMO  2.060 desde PV GTMO       · 940 desde ALM CENTRAL
+```
+
+En Santiago **dos de cada tres pedidos salen de AURORA** y se medían todos desde PV-STGO.
+
+- `codigo` es el `objectCode` de Ventra y **es la identidad junto con `sucursalCodigo`**. El
+  nombre NO identifica: `Tiendas Parranda` existe en cinco sucursales con cinco ids y `PV-STGO`
+  está en Santiago **y** en Palma Soriano. Y el código solo tampoco: `objectCode: 2` es AURORA en
+  Santiago, PV CAMAGUEY en Camagüey y PV GTMO en Guantánamo. **El reparto no empareja por nombre
+  ni como respaldo**: un respaldo por nombre no falla nunca, sólo mide desde el almacén de otra
+  sucursal.
+- `nombre` se guarda **aunque el almacén no esté dado de alta en Accesos**: sin él, lo que queda
+  apuntado es un «28» que no le dice nada a nadie.
+- `sucursalCodigo` es la sucursal DEL ALMACÉN, que puede no ser la del pedido.
+- `mezclado: true` significa que sus renglones salen de **más de un almacén**; entonces `codigo`
+  y `nombre` son los del que pone **más renglones**. **El desempate lo hace PEDIDO**, que es
+  quien tiene los renglones delante; el reparto lo copia y no lo recalcula.
+  **Ausente NO es `false`**: se guarda NULL («no se sabe»). Un `false` afirma «comprobado que
+  sale de uno solo», y si es mentira el que despacha va a un almacén y se deja media carga en el
+  otro.
+- En `items[]`, `almacenCodigo` y `almacenNombre` son los de ESE renglón, que en un pedido
+  mezclado no son los del pedido. Vacío = ausente.
 
 - Si el JSON no parsea o `orders` no es array →
   `400 {"error":"Se espera { orders: [...] }"}`.
@@ -560,11 +596,36 @@ endLng IS NOT NULL` y, si hay sucursal de ruta, `AND branchId = <sucursal>`.
   4. `requiereDomicilio === false` **y** `facturaEstado !== 'igual'` → `skipped`,
      `reason: "sin-domicilio-y-sin-factura"` (no se guarda nada).
   5. Peso: `computeItemsWeights(items, catalog)`; `weightKg = itemsTotal > 0 ? itemsTotal :
-     (Number(weight) || 0)`. Distancia: `haversine(branch.lat, branch.lng, lat, lng)`.
+     (Number(weight) || 0)`.
      **`price` siempre `null`** (delivery ya no cotiza; nunca `0`).
+  5-bis. **DISTANCIA: desde el almacén del pedido** (26/09/2026). Antes era
+     `haversine(branch.lat, branch.lng, ...)`, o sea desde el punto de la SUCURSAL —que no es el
+     sitio del que sale la carga— mientras `/api/quote/home-delivery`, el tablero y Clientes
+     medían desde el almacén. La cascada, y cada escalón deja escrito su motivo:
+
+     | caso | desde dónde se mide | `almacenMotivo` |
+     |---|---|---|
+     | el pedido trae un almacén que existe y tiene punto | **ese almacén** | `almacen-del-pedido` |
+     | el pedido no trae almacén | el principal de la sucursal | `el-pedido-no-trae-almacen` |
+     | lo trae y no está dado de alta en Accesos | el principal | `almacen-no-dado-de-alta` |
+     | lo trae, está dado de alta y sin coordenadas (o de baja, o en (0,0)) | el principal | `almacen-sin-coordenadas` |
+     | NINGÚN almacén de esa sucursal tiene `codigo` en Accesos | el principal | `accesos-sin-codigos` |
+     | no hay NI UN almacén con punto | el punto de la **sucursal** | `sucursal-sin-almacen-con-punto+<el de arriba>` |
+
+     **Nada se descarta**: un almacén que no se puede usar degrada al principal y **no tira el
+     pedido** — esta ruta es LA PUERTA de los pedidos y rechazar uno es perderlo. El almacén que
+     llegó se guarda igual, con su código y su nombre.
+     **Accesos caído** se trata como lista vacía y el pedido entra midiendo desde la sucursal.
+     Los almacenes se piden **una vez por sucursal y tanda** (más el recuerdo de 5 min del
+     cliente de Accesos).
   6. Resultado base: si `requiereDomicilio === false` →
      `{ ref, status:"skipped", reason:"sin-domicilio", distanceKm, weightKg, branch:{id,name} }`;
      si no → `{ ref, status:"quoted", price:null, distanceKm, weightKg, branch:{id,name} }`.
+     **Y desde el 26/09/2026, los dos llevan además** `almacenDesde` (el NOMBRE del almacén desde
+     el que se midió, ausente si no se midió desde ninguno) y `almacenMotivo` (la tabla de 5-bis).
+     Van en la respuesta para que PEDIDO pueda ver qué pedidos se están midiendo desde el sitio
+     equivocado y por qué: sin eso, un kilometraje medido desde el principal es indistinguible de
+     uno bueno — mismos decimales, misma tarjeta.
   7. Si `preview` es truthy → se añade el base y se pasa al siguiente (no escribe).
   8. Si falta `customerName` → se añade `{...base, persisted:false, reason:"falta-customerName"}`.
   9. Persistencia **idempotente por (`source='pedido'`, `externalId`)**: busca; si existe →
@@ -593,17 +654,30 @@ endLng IS NOT NULL` y, si hay sucursal de ruta, `AND branchId = <sucursal>`.
 
 - **Auth**: **servicio**, comparando a mano `req.headers.get('x-api-key') === process.env.SERVICE_API_KEY`
   (falla también si la cabecera falta). `401 {"error":"Unauthorized"}`. **Sin alcance por sucursal.**
-- **Cuerpo** (si no parsea → `{}`): `{ sucursalCodigo, lat, lng, pesoKg }`.
-  `sucursalCodigo` se normaliza con `trim().toUpperCase()`; los demás con `Number(...)`.
+- **Cuerpo** (si no parsea → `{}`): `{ sucursalCodigo, lat, lng, pesoKg, almacenCodigo? }`.
+  `sucursalCodigo` se normaliza con `trim().toUpperCase()`; los numéricos con `Number(...)`.
+- **`almacenCodigo` es OPCIONAL y nuevo (26/09/2026)**. Es el `codigo` del almacén del que sale
+  la mercancía, el mismo que PEDIDO manda en `almacen.codigo` del lote. Quien no lo mande —la APK
+  de Entrega instalada hoy— recibe **exactamente lo de siempre**, medido desde el principal.
+  Por qué hacía falta: **ésta es la única cuenta de dinero de esta API** y la APK cobra el número
+  que devuelve. Sin el campo, en Santiago se cobraban desde PV-STGO las 2.185 líneas que salen de
+  AURORA. Y el lote ya mide desde el almacén del pedido: dejar esta ruta como estaba pondría en
+  la misma tarjeta un kilometraje bueno y un importe malo, sin nada que dijera cuál creer.
 - **Validaciones, en orden**:
   1. `!codigo` → `400 {"error":"Falta sucursalCodigo"}`
   2. `lat` o `lng` no finitos → `400 {"error":"Falta la ubicación del cliente (lat/lng)"}`
   3. `pesoKg` no finito o `<= 0` → `400 {"error":"Falta el peso (pesoKg > 0)"}`
   4. `Branch.findUnique({ externalId: codigo })` inexistente →
      `404 {"error":"No hay sucursal con código <CODIGO>"}`
-  5. Almacenes de la sucursal (servicio externo Accesos; si falla → lista vacía). Se toma el
-     **principal con lat y lng**, si no el **primero con lat y lng**. Si no hay ninguno →
-     `409 {"error":"<nombre de la sucursal> no tiene ningún almacén con coordenadas"}`
+  5. Almacenes de la sucursal (servicio externo Accesos; si falla → lista vacía). **Con
+     `almacenCodigo` se toma ESE almacén**; sin él, o si el pedido trae uno que no se puede usar,
+     se cae al **principal con lat y lng**, si no al **primero con lat y lng** — la misma cascada
+     y los mismos `almacenMotivo` que el lote (tabla de 5-bis, arriba). Si no hay ninguno →
+     `409 {"error":"<nombre de la sucursal> no tiene ningún almacén con coordenadas"}`.
+     **Aquí SÍ se contesta 409 y en el lote no**, y la diferencia es la de siempre: esto es una
+     cuenta de dinero y el lote es una puerta. Un importe aproximado se cobra igual que uno
+     bueno; un pedido rechazado en la puerta se pierde. Un `almacenCodigo` que no se encuentra
+     **no** es un 409: hay un número que dar, sólo que peor, y se dice en `almacenMotivo`.
   6. Tasa de la sucursal (si falla la llamada → `null`). Si no hay `cupPorUsd` →
      `409 {"error":"No hay tasa de cambio de <CODIGO> en Accesos"}`
   7. Si no hay `tarifaBase` →
@@ -615,12 +689,20 @@ endLng IS NOT NULL` y, si hay sucursal de ruta, `AND branchId = <sucursal>`.
 ```json
 {
   "distanciaKm": 0, "pesoKg": 0, "usd": 0, "cup": 0, "tarifaUsd": 0,
-  "desde": "almacen:<CODIGO>",
+  "desde": "almacen:<SUCURSAL>:<CODIGO_DEL_ALMACEN>",
   "almacen": "nombre o null",
+  "almacenCodigo": "2 o null",
+  "almacenMotivo": "almacen-del-pedido | ...",
   "sucursal": "nombre de la sucursal"
 }
 ```
 
+- **`desde` LLEVA EL ALMACÉN desde el 26/09/2026.** Decía `almacen:<SUCURSAL>` y su trabajo es
+  explicar de dónde salió el importe: con varios almacenes por sucursal, `almacen:STG` era la
+  misma cadena para uno medido desde PV-STGO y otro desde AURORA, así que **los dos quedaban
+  indistinguibles en el histórico de PEDIDO**, que es donde viven los importes cobrados. Sin
+  código de almacén se queda en `almacen:<SUCURSAL>`, como antes; el trozo nuevo va DETRÁS para
+  que quien parta por `:` y coja los dos primeros siga funcionando.
 - **Escribe**: nada. El costo lo guarda PEDIDO.
 
 ---
@@ -830,7 +912,16 @@ data: {}
 - **Query**: ninguna.
 - Pide a Accesos (firmado) `GET /api/service/almacenes` y **filtra** las sucursales
   devueltas quedándose con las de códigos visibles.
-- **200**: `{ "sucursales": [ { "codigo", "nombre", "almacenes": [ { id?, nombre, direccion?, latitud?, longitud?, principal?, activo? } ] } ] }`.
+- **200**: `{ "sucursales": [ { "codigo", "nombre", "almacenes": [ { id?, codigo?, nombre, direccion?, latitud?, longitud?, principal?, activo? } ] } ] }`.
+- **`codigo` (del almacén) es NUEVO y es la identidad**, junto con el código de la sucursal. Es
+  el `objectCode` de Ventra, el mismo que PEDIDO manda dentro de cada pedido. **Sin él, el
+  reparto no puede emparejar «el almacén del que sale este pedido» con «el almacén que tiene las
+  coordenadas»** y lo mide todo desde el principal: en Santiago, dos de cada tres pedidos salen
+  de AURORA. Es opcional en el contrato y se trata como ausente sin error; mientras NINGÚN
+  almacén de una sucursal lo traiga, los pedidos de esa sucursal se apuntan con
+  `almacenMotivo: "accesos-sin-codigos"`, que es una tarea distinta de «dar de alta un almacén».
+  El `PUT` manda el cuerpo a Accesos tal cual, así que en cuanto la pantalla de Almacenes lo
+  escriba, llegará.
 - Error de Accesos → `502 {"error":"No se pudieron traer los almacenes de Accesos: <mensaje>"}`.
 - **Escribe**: nada en local.
 

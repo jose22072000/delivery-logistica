@@ -3,6 +3,72 @@
 Lista viva. Sale de lo que cada agente encontró trabajando en su módulo y no pudo cerrar
 porque tocaba fichero de otro. **Ninguna de estas es opcional.**
 
+## Grave — el kilometraje se arregló y el importe NO (26/09/2026)
+
+**Esto es lo primero que hay que cerrar, y no se cerró a propósito: cambiarlo toca la APK de
+Entrega y lo decide Jose.**
+
+La distancia del domicilio se mide desde el ALMACÉN y de esos kilómetros sale el costo. Hasta hoy
+había un almacén por sucursal; ahora hay varios, y en **Santiago dos de cada tres pedidos salen de
+AURORA** mientras el principal es PV-STGO (2.185 líneas contra 804, más 11 de un `28 · PTO
+MONEDERO` que ni está dado de alta).
+
+Lo que se arregló: `/api/quote/batch` —la puerta de los pedidos— mide `delivery_distance_km` desde
+el almacén del pedido, y `/api/quote/home-delivery` acepta un `almacenCodigo` OPCIONAL para medir
+desde el que se le diga.
+
+**Lo que queda, y en este orden de gravedad:**
+
+1. **La APK de Entrega no manda `almacenCodigo`, así que el importe que se cobra sigue saliendo
+   del principal de la sucursal.** Es la única cuenta de dinero de esta API: Entrega cobra el
+   número que devuelve y lo guarda en PEDIDO como `costoDomicilio`, el espejo lo trae a
+   `orders.pedido_costo` y acaba **en la misma tarjeta** que el kilometraje bueno. O sea que
+   ahora mismo hay **dos números en la misma pantalla que no se pueden conciliar, y ninguna
+   pantalla dice cuál mandar**. Antes del cambio los dos estaban mal y al menos coincidían. Hace
+   falta que Entrega mande el campo — el servidor ya lo acepta y quien no lo mande recibe
+   exactamente lo de antes.
+2. **Accesos no expone todavía el `codigo` de cada almacén.** Sin él no hay con qué emparejar:
+   todos los pedidos se apuntan con `almacen_salida_motivo = 'accesos-sin-codigos'` y se miden
+   desde el principal. Son 14 códigos que alguien tiene que rellenar; el `PUT /api/almacenes`
+   pasa el cuerpo a Accesos tal cual, así que lo que falta es el campo en Accesos y en la
+   pantalla de Almacenes (`app/`).
+3. **El armado de rutas sigue midiendo desde el principal**: el origen de la ruta, `segment_km`
+   de cada parada y `total_distance` (`api/internal/api/tablero.go`). Una ruta de Santiago hecha
+   sólo con pedidos de AURORA se arma desde PV-STGO. **No se cambió y hay un motivo de fondo**: una
+   ruta tiene UN origen porque el camión sale de UN sitio, y las columnas del tablero son por
+   ZONA, no por almacén, así que una ruta puede mezclar AURORA y PV-STGO y entonces ningún origen
+   único es correcto. Eso no es una implementación: es decidir si una zona con dos almacenes son
+   dos rutas, o una ruta con dos recogidas. **Lo decide Jose.** Y `segment_km` es el número con el
+   que se repartió la carga hasta hoy: cambiarlo descuadra los informes viejos.
+4. **La APK resuelve el tablero y el armado de ruta EN LOCAL**
+   (`app/lib/nucleo/almacenes/almacen_de_referencia.dart`), así que sigue midiendo desde el
+   principal: el mismo botón, dos kilometrajes según se pulse en el navegador o en el teléfono —
+   que es exactamente el fallo del 24/09/2026. Y la tabla Drift `warehouses` **no tiene columna de
+   código**, así que el dato no cabe ahí ni bajándolo. Hace falta: columna `codigo` en la tabla y
+   en la bajada, y que `AlmacenDeReferencia` sepa elegir el del pedido.
+5. **La lista de Clientes mide desde el principal** (`clientes.go`, `almacenDeReferencia` y el
+   filtro `kmDelAlmacen`). **Es defendible y se deja así**: un cliente no tiene almacén — la
+   distancia es por cliente y no por pedido, así que ahí el principal es la referencia correcta.
+   Queda escrito para que no parezca un olvido.
+6. **Nada avisa de que a un pedido le cambió el kilometraje.** Un pedido entra al reparto antes de
+   facturarse, o sea sin almacén, y se mide desde el principal; cuando llega la factura llega con
+   su almacén y el upsert **reescribe `delivery_distance_km`**, también si el pedido ya tiene
+   `route_id`. Quien cerró una ruta con 12,4 km en la tarjeta puede encontrarse 31,7 al día
+   siguiente, sin un aviso. El dato para enseñarlo ya está en la fila
+   (`orders.almacen_salida_motivo`): falta la pantalla, y **congelar o no el kilometraje de un
+   pedido ya colocado es una decisión de negocio, no una implementación.**
+7. **Mover el origen cambia QUÉ SE VE, no sólo cuánto mide.** `GET /api/orders` descarta los
+   pedidos que pasan de `kmMax`, y un pedido de AURORA se mueve ~20 km: **un pedido que hoy sale
+   en la lista del armador puede dejar de salir tras el despliegue, y al revés**. Está fijado por
+   `TestElFiltroDeKmSeMueveConElOrigen`, pero **ninguna pantalla lo dice**.
+8. **El desempate de `mezclado` lo hace PEDIDO y aquí no se comprueba.** Con seis renglones de
+   AURORA y seis de PV-STGO, quién gana lo decide su lado; si allí ese desempate no es
+   determinista, el mismo pedido puede cambiar de almacén entre pasadas y el kilometraje con él.
+   Hay que atarlo con su sesión.
+9. **Un pedido `mezclado` son DOS recogidas y ninguna pantalla lo dice.** El dato está: por pedido
+   en `orders.almacen_salida_mezclado` y por línea en `order_items.almacen_salida_codigo`. Falta la
+   pantalla (`app/`), y sin ella el que despacha va a un almacén y se deja media carga en el otro.
+
 ## Grave — rompe el trabajo sin conexión
 
 - [x] ~~**`/api/sync/cambios` NO PUEDE SERVIR LOS PEDIDOS.**~~ — **cerrado (14/09/2026).**

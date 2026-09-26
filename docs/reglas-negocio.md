@@ -602,8 +602,12 @@ Constantes: `NOMINATIM = 'https://nominatim.openstreetmap.org'`, `UA = 'ProCovar
 viven en Accesos**: el almacén es de la sucursal. Aquí sólo se **leen**, firmado, y se recuerdan un
 rato — hacen falta para medir cada domicilio y no cambian de un minuto a otro.
 
-- `Almacen = {id, nombre, direccion: string|null, latitud: number|null, longitud: number|null,
-  principal: boolean, activo: boolean}`.
+- `Almacen = {id, codigo, nombre, direccion: string|null, latitud: number|null,
+  longitud: number|null, principal: boolean, activo: boolean}`.
+- **`codigo` es NUEVO (26/09/2026) y es la IDENTIDAD, junto con la sucursal.** Es el `objectCode`
+  de Ventra. El nombre no identifica: `PV-STGO` está en Santiago **y** en Palma Soriano, y
+  `Tiendas Parranda` en cinco sucursales con cinco ids. El código solo tampoco: `objectCode: 2`
+  es AURORA en Santiago, PV CAMAGUEY en Camagüey y PV GTMO en Guantánamo.
 - `RECUERDO_MS = Number(ALMACENES_CACHE_MS || 5 × 60 × 1000)` = **5 min**.
 - **Caché global única** (`recuerdo: {cuando, porCodigo: Map}`), no por código: una sola llamada a
   `GET /api/service/almacenes` (firmada, `pedirFirmado`) trae **todas** las sucursales con sus
@@ -646,6 +650,47 @@ Vive en `api/internal/cotizar/almacen.go` (`ElegirAlmacen`) y en
 `app/lib/nucleo/almacenes/almacen_de_referencia.dart` (`AlmacenDeReferencia`), y lo que ata a los
 dos es `docs/almacen-de-origen.casos.json` —el mismo fichero para las pruebas de Go y las de
 Dart—, no un comentario (§3-bis).
+
+### Y AHORA MANDA EL ALMACÉN DEL PEDIDO, no el principal de la sucursal — 26/09/2026
+
+Todo lo de arriba sigue en pie, pero **elige el almacén de una SUCURSAL**, y ésa dejó de ser la
+pregunta. Mientras cada sucursal tuvo un almacén, «el de la sucursal» y «el del que sale este
+pedido» eran la misma frase. Contado por la sesión de PEDIDO:
+
+```
+SANTIAGO    2.185 líneas desde AURORA · 804 desde PV-STGO · 11 desde PTO MONEDERO
+CAMAGÜEY    2.778 desde PV CAMAGUEY   · 183 desde FLORIDA · 39 desde ALM CAMAGUEY
+GUANTÁNAMO  2.060 desde PV GTMO       · 940 desde ALM CENTRAL
+```
+
+**En Santiago dos de cada tres pedidos salen de AURORA** y el reparto los medía todos desde
+PV-STGO, que es el principal. De esos kilómetros sale el costo del domicilio.
+
+PEDIDO manda ahora el almacén en cada pedido y en cada renglón (`docs/contratos-api.md`, el
+cuerpo de `/api/quote/batch`), y la regla es `cotizar.ElegirOrigenDelPedido`:
+
+1. Del almacén que trae el pedido, emparejado **por código** entre los de SU sucursal. Nunca por
+   nombre, ni como respaldo: un respaldo por nombre no falla, sólo mide desde el almacén de otra
+   sucursal.
+2. Si no trae, si no está dado de alta, si no tiene punto o si en Accesos no hay códigos
+   todavía → **el principal**, con la regla de arriba, y **queda escrito el motivo**
+   (`orders.almacen_salida_motivo`, seis valores; la tabla está en el contrato).
+3. Si no hay ni un almacén con punto → desde el punto de la **sucursal**, con su propio motivo,
+   porque ése NO es el sitio del que sale la carga y no puede confundirse con «desde el
+   principal».
+
+**Nada se descarta en silencio** (`CLAUDE.md` §4): el almacén que llegó se guarda con su código y
+su nombre aunque no se haya podido usar, y la vista `almacenes_del_pedido_sin_medir` (00012) dice
+qué almacenes están haciendo que se mida desde otro sitio, con cuántos pedidos y desde cuándo.
+Sale además en `GET /api/admin/webhook` (`sinMedir`, con su `sinMedirTruncado`).
+
+**Un almacén sin coordenadas se salta y se mide con el que las tenga. Eso es lo normal estos
+días, no un fallo**: los 6 almacenes nuevos se dieron de alta sin punto a propósito —los ponen
+los logísticos—, así que el dato llega antes que las coordenadas.
+
+**LO QUE TODAVÍA MIDE DESDE EL PRINCIPAL**, y está escrito en `docs/integracion-pendiente.md`:
+el armado de rutas (`tablero.go`: el origen de la ruta, `segment_km` y `total_distance`), la lista
+de Clientes, y la APK, que resuelve el tablero y el armado en local.
 
 ---
 
