@@ -220,12 +220,45 @@ class SucursalMirada extends Notifier<String?> {
   String? build() => null;
 
   void mirar(String? sucursalId) {
+    final cambio = state != sucursalId;
     state = sucursalId;
     // Sin esperarlo: quien acaba de tocar el selector ya esta viendo los
     // numeros de la otra sucursal, y una escritura en disco no puede meterse
     // por medio. Si falla, lo peor que pasa es que el proximo arranque abra
     // donde abria antes.
     unawaited(_guardar(ClaveDePreferencia.sucursalMirada, sucursalId));
+    if (cambio) unawaited(_traerLaNueva());
+  }
+
+  /// LA COPIA ES DE LA SUCURSAL QUE SE ESTABA MIRANDO, asi que al cambiar hay
+  /// que volver a traerla ENTERA.
+  ///
+  /// La bajada es por diferencias: pide «lo que cambio desde ...», y ese «desde»
+  /// es el de la bajada anterior — la de la OTRA sucursal—. Los pedidos de la
+  /// nueva no han cambiado desde entonces, asi que **no vienen nunca**. No falla
+  /// nada: sale un numero, y es mentira.
+  ///
+  /// Jose, 26/09/2026, cambiando a Camaguey: el Tablero decia «Sin colocar (0)»
+  /// y a los dos minutos «(24)» mientras `GET /api/board` contestaba **40**.
+  /// Comprobado pidiendoselo al servidor desde la propia pagina. Es el fallo que
+  /// mas caro sale aqui, el del `CLAUDE.md` §4: un cero creible que ninguna
+  /// pantalla desmiente.
+  ///
+  /// Olvidar el cursor y disparar el ciclo, en ese orden. Si se dispara primero,
+  /// el ciclo lee el cursor viejo y la vuelta se pierde.
+  ///
+  /// **No se olvida `bajadaAt`**: esa marca dice «esto llego alguna vez aqui», y
+  /// con ella puesta las pantallas siguen sabiendo distinguir «no lo tiene» de
+  /// «todavia no ha bajado» mientras la bajada nueva corre.
+  Future<void> _traerLaNueva() async {
+    try {
+      await ref.read(frescuraProvider).olvidarElCursor(Colecciones.todas);
+      await ref.read(dispararCicloProvider)('cambio de sucursal');
+    } on Object catch (e) {
+      // Sin red se queda con lo que tiene y el vigia lo reintentara. Lo que no
+      // puede es tumbar el cambio de sucursal, que ya esta hecho en la pantalla.
+      Registro.aviso('no se pudo traer la sucursal nueva: $e');
+    }
   }
 
   /// Vuelve a poner lo ultimo que se eligio. Se llama al entrar, con la base de
@@ -651,6 +684,20 @@ final bajadaAMediasProvider = NotifierProvider<LaBajadaAMedias, String?>(
 /// EL CICLO: comprobar la diferencia → renovar → subir → bajar. Uno solo en toda la aplicacion, porque el
 /// candado de «un solo ciclo en vuelo» vive dentro: dos instancias son dos
 /// candados, y dos candados no son ninguno.
+/// DISPARAR UN CICLO, como funcion suelta.
+///
+/// Existe por lo mismo que el vigia recibe `ciclo:` en vez de leer el provider:
+/// [CicloDeSincronizacion] es una clase concreta con cinco piezas dentro, asi
+/// que montarla en una prueba obliga a montar la subida, la bajada, el
+/// renovador y los huerfanos para comprobar una sola cosa — y entonces la
+/// prueba deja de probar lo que dice y pasa a probar el montaje.
+///
+/// Lo usa [SucursalMirada], que al cambiar de sucursal tiene que olvidar el
+/// cursor **y luego** bajar, en ese orden.
+final dispararCicloProvider = Provider<Future<void> Function(String motivo)>(
+  (ref) => (motivo) => ref.read(cicloProvider).ahora(motivo: motivo),
+);
+
 final cicloProvider = Provider<CicloDeSincronizacion>(
   (ref) => CicloDeSincronizacion(
     almacen: ref.watch(almacenSesionProvider),

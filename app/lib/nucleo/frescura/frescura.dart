@@ -37,6 +37,30 @@ class RegistroDeFrescura {
         ),
       );
 
+  /// OLVIDA EL CURSOR de estas colecciones: la proxima bajada las trae ENTERAS.
+  ///
+  /// Se llama al cambiar de sucursal arriba, y sin esto la copia se queda a
+  /// medias sin que nada falle. El ciclo pide «lo que cambio desde ...», y ese
+  /// «desde» es de la bajada anterior, que era **de otra sucursal**: los pedidos
+  /// de la nueva no han cambiado desde entonces, asi que no vienen. Nunca.
+  ///
+  /// Lo que se ve, y es el fallo mas caro que hay aqui —un numero creible que
+  /// ninguna pantalla desmiente—: el 26/09/2026, cambiando a Camaguey, el
+  /// Tablero decia «Sin colocar (0)» y luego «(24)» mientras `GET /api/board`
+  /// contestaba **40**. Comprobado pidiendoselo al servidor desde la propia
+  /// pagina. Ni un error, ni una rueda: un cero.
+  ///
+  /// `bajadaAt` NO se toca, y es a proposito. Esa marca es «esto llego alguna
+  /// vez a este aparato», y con ella puesta las pantallas siguen distinguiendo
+  /// «no lo tiene» de «todavia no ha bajado» mientras la bajada nueva corre. Lo
+  /// que se olvida es **hasta donde** se habia llegado, que es lo unico que
+  /// depende de la sucursal que se estaba mirando.
+  Future<void> olvidarElCursor(List<String> colecciones) async {
+    await (_base.update(_base.frescura)
+          ..where((f) => f.coleccion.isIn(colecciones)))
+        .write(const FrescuraCompanion(hasta: Value(null)));
+  }
+
   Future<FilaFrescura?> leer(String coleccion) => (_base.select(
     _base.frescura,
   )..where((f) => f.coleccion.equals(coleccion))).getSingleOrNull();
